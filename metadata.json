@@ -1,0 +1,6 @@
+{
+  "name": "Vocabulary Learning Platform",
+  "description": "A comprehensive vocabulary learning platform for students with an interactive gaming engine and a full-stack admin dashboard for teachers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

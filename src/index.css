@@ -1,0 +1,347 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+}
+
+/* Global Dark Base for Glass Theme */
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: #0b0f19;
+  color: #f1f5f9; /* Slate-100 */
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Base mesh background */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -20;
+  background-color: #0b0f19;
+  background-image: 
+    radial-gradient(at 0% 0%, #1e293b 0, transparent 45%),
+    radial-gradient(at 50% 0%, #1e1b4b 0, transparent 40%),
+    radial-gradient(at 100% 0%, #111827 0, transparent 50%),
+    radial-gradient(at 0% 100%, #111c44 0, transparent 45%),
+    radial-gradient(at 50% 100%, #2e1065 0, transparent 40%),
+    radial-gradient(at 100% 100%, #030712 0, transparent 50%);
+  pointer-events: none;
+}
+
+/* Global Glass Utility Definitions */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+}
+
+.glass-button {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0.75rem !important;
+  transition: all 0.25s ease !important;
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  transform: translateY(-1px);
+}
+
+.glass-input {
+  background: rgba(15, 23, 42, 0.4) !important;
+  backdrop-filter: blur(6px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 0.75rem !important;
+  color: #ffffff !important;
+  transition: all 0.2s ease !important;
+}
+
+.glass-input:focus {
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2) !important;
+}
+
+/* Class Overrides for Glassmorphic conversion */
+/* To prevent breaking existing templates, we intercept their standard utility classes */
+
+/* 1. Root / Frame backgrounds */
+#app-root, #student-area-root, #admin-dashboard-container {
+  background: transparent !important;
+  color: #f1f5f9 !important;
+}
+
+/* Convert bg-white cards/components to Glass Panels */
+.bg-white {
+  background: rgba(255, 255, 255, 0.025) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Convert bg-gray-50 / secondary cards */
+.bg-gray-50, .bg-gray-50\/50, .bg-gray-50\/30, .bg-gray-100, .bg-slate-50, .bg-slate-100\/50, .bg-slate-50\/50 {
+  background: rgba(255, 255, 255, 0.045) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* Convert headers to Frosted Top Bars */
+header, nav.sticky {
+  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Style titles and headers to display style */
+h1, h2, h3 {
+  font-family: var(--font-display), var(--font-sans) !important;
+  letter-spacing: -0.02em;
+}
+
+/* Convert Text Colors for High Contrast on Dark Background */
+.text-gray-900, .text-gray-800, .text-slate-900, .text-slate-800, .text-zinc-900, .text-zinc-800 {
+  color: #ffffff !important;
+}
+
+.text-gray-700, .text-slate-700, .text-zinc-700 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.text-gray-600, .text-slate-600, .text-zinc-600 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.text-gray-500, .text-slate-500, .text-zinc-500 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.text-gray-400, .text-slate-400, .text-zinc-400 {
+  color: #64748b !important; /* slate-500 */
+}
+
+/* Badges / Small Info Tags */
+.bg-indigo-50, .bg-indigo-50\/50, .bg-indigo-50\/30 {
+  background: rgba(99, 102, 241, 0.12) !important;
+  border: 1px solid rgba(99, 102, 241, 0.25) !important;
+  color: #a5b4fc !important; /* indigo-300 */
+}
+
+.text-indigo-600, .text-indigo-700, .text-indigo-800 {
+  color: #a5b4fc !important; /* indigo-300 */
+}
+
+/* Emerald green alerts/success indicators */
+.bg-emerald-50, .bg-emerald-50\/50 {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border: 1px solid rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important; /* emerald-400 */
+}
+
+.text-emerald-600, .text-emerald-700, .text-emerald-800 {
+  color: #34d399 !important;
+}
+
+/* Rose / red errors */
+.bg-rose-50, .bg-rose-50\/50, .bg-red-50 {
+  background: rgba(244, 63, 94, 0.1) !important;
+  border: 1px solid rgba(244, 63, 94, 0.2) !important;
+  color: #fb7185 !important; /* rose-400 */
+}
+
+.text-rose-600, .text-rose-700, .text-rose-800, .text-red-600, .text-red-700 {
+  color: #fb7185 !important;
+}
+
+/* Amber / orange warnings */
+.bg-amber-50, .bg-amber-500 {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  color: #fcd34d !important; /* amber-300 */
+}
+
+.text-amber-600, .text-amber-700, .text-amber-800 {
+  color: #fcd34d !important;
+}
+
+/* 2. Interactive Buttons and Inputs */
+
+/* Convert Primary Buttons (e.g., bg-indigo-600) to glowing indigo glass buttons */
+.bg-indigo-600, .bg-indigo-700, .bg-indigo-800 {
+  background: rgba(99, 102, 241, 0.22) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(129, 140, 248, 0.45) !important;
+  color: #ffffff !important;
+  text-shadow: 0 0 8px rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.2) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.bg-indigo-600:hover, .bg-indigo-700:hover, .bg-indigo-800:hover {
+  background: rgba(99, 102, 241, 0.35) !important;
+  border-color: rgba(129, 140, 248, 0.65) !important;
+  box-shadow: 0 4px 24px 0 rgba(99, 102, 241, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Convert Secondary / general buttons to clear glass buttons */
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500) {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+  transition: all 0.25s ease !important;
+}
+
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  transform: translateY(-1px);
+}
+
+/* Keep selected tabs and specific states inside navigation/sidebars highlighted */
+.bg-indigo-50.text-indigo-700, .bg-indigo-50 {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  color: #ffffff !important;
+}
+
+/* Modals & Dialogs (Teacher authentication PIN dialog, confirm overlays, edit modal overlays) */
+.fixed.inset-0.bg-black\/60 {
+  background: rgba(8, 12, 22, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+.fixed.inset-0.bg-black\/60 > div {
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important;
+  color: #ffffff !important;
+}
+
+/* Convert input fields, selects, and textareas */
+input[type="text"], input[type="password"], input[type="email"], select, textarea {
+  background: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(6px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border-radius: 0.75rem !important;
+  transition: all 0.2s ease !important;
+}
+
+input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus, select:focus, textarea:focus {
+  border-color: rgba(99, 102, 241, 0.6) !important;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.25) !important;
+  outline: none !important;
+}
+
+/* Convert borders to thin translucent dividers */
+.border, .border-b, .border-t, .border-r, .border-l, .border-gray-100, .border-gray-200, .border-gray-300, .border-slate-100 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Make tables glassmorphic inside admin */
+table {
+  background: rgba(255, 255, 255, 0.01) !important;
+  border-collapse: collapse !important;
+}
+
+thead {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  transition: all 0.2s ease !important;
+}
+
+tr:hover {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+th, td {
+  color: #cbd5e1 !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Game Stage specific details */
+#game-stage {
+  background: rgba(15, 23, 42, 0.35) !important;
+  backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Correct/Incorrect active card states inside games (Quiz game, FillBlank, memory, etc.) */
+/* Ensure the text contrast is highly visible */
+.bg-emerald-100, .bg-emerald-50 {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+.bg-rose-100, .bg-rose-50, .bg-red-100 {
+  background: rgba(244, 63, 94, 0.12) !important;
+  border-color: rgba(244, 63, 94, 0.4) !important;
+}
+
+/* Quiz option items active border states */
+.border-emerald-300 {
+  border-color: rgba(16, 185, 129, 0.6) !important;
+}
+
+.border-rose-300 {
+  border-color: rgba(244, 63, 94, 0.6) !important;
+}
+
+/* Card Flipping CSS Utilities */
+.perspective {
+  perspective: 1200px !important;
+  -webkit-perspective: 1200px !important;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d !important;
+  -webkit-transform-style: preserve-3d !important;
+}
+
+.backface-hidden {
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+}
