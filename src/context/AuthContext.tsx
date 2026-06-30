@@ -40,6 +40,16 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+const AUTH_OPERATION_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), AUTH_OPERATION_TIMEOUT_MS);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -60,7 +70,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { doc, getDoc } = await import('firebase/firestore');
         const { db } = await import('../lib/firebase');
         const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-        const docSnap = await getDoc(userDocRef);
+        const docSnap = await withTimeout(
+          getDoc(userDocRef),
+          "Timed out while loading user profile from Firestore."
+        );
         if (docSnap.exists()) {
           profile = docSnap.data() as UserProfile;
           console.log("Profile fetched successfully via direct Client-Side Firestore SDK.");
@@ -74,11 +87,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 2. Fallback / supplementary load from Backend API
       let apiProfile: UserProfile | null = null;
       try {
-        const res = await fetch('/api/me', {
-          headers: {
-            'Authorization': `Bearer ${idToken}`
-          }
-        });
+        const res = await withTimeout(
+          fetch('/api/me', {
+            headers: {
+              'Authorization': `Bearer ${idToken}`
+            }
+          }),
+          "Timed out while loading user profile from backend."
+        );
         if (res.ok) {
           apiProfile = await res.json();
           console.log("Profile verified and fetched via Backend API /api/me.");
@@ -113,7 +129,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
 
           const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-          await setDoc(userDocRef, fallbackProfile);
+          await withTimeout(
+            setDoc(userDocRef, fallbackProfile),
+            "Timed out while creating user profile in Firestore."
+          );
           setUser(fallbackProfile);
           console.log("Self-healing fallback: Initialized default profile document directly in Firestore.");
         } catch (createErr: any) {
@@ -136,14 +155,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
       setLoading(true);
-      if (fUser) {
-        setFirebaseUser(fUser);
-        await fetchProfile(fUser);
-      } else {
+      try {
+        if (fUser) {
+          setFirebaseUser(fUser);
+          await withTimeout(
+            fetchProfile(fUser),
+            "Timed out while restoring signed-in session."
+          );
+        } else {
+          setFirebaseUser(null);
+          setUser(null);
+          setToken(null);
+        }
+      } catch (err) {
+        console.error("Failed to restore authenticated session:", err);
         setFirebaseUser(null);
         setUser(null);
         setToken(null);
+      } finally {
+        setLoading(false);
       }
+    }, (err) => {
+      console.error("Firebase auth state listener failed:", err);
+      setFirebaseUser(null);
+      setUser(null);
+      setToken(null);
       setLoading(false);
     });
 
@@ -199,7 +235,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { doc, setDoc } = await import('firebase/firestore');
         const { db } = await import('../lib/firebase');
         const userDocRef = doc(db, 'users', credential.user.uid);
-        await setDoc(userDocRef, clientProfile);
+        await withTimeout(
+          setDoc(userDocRef, clientProfile),
+          "Timed out while saving registration profile to Firestore."
+        );
         console.log("Registration profile saved directly to Firestore via Client SDK.");
       } catch (clientCreateErr) {
         console.error("Direct Firestore write failed during registration, will try server registration.", clientCreateErr);
@@ -207,14 +246,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Try notifying the backend server to register (but do not throw if server is down / unresolvable)
       try {
-        const res = await fetch('/api/register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({ name, phone })
-        });
+        const res = await withTimeout(
+          fetch('/api/register', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            },
+            body: JSON.stringify({ name, phone })
+          }),
+          "Timed out while notifying backend registration endpoint."
+        );
 
         if (res.ok) {
           const profile = await res.json();
