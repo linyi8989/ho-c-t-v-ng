@@ -1214,7 +1214,7 @@ async function start() {
     app2.use(vite.middlewares);
     console.log("Vite development server loaded as middleware.");
   } else {
-    const distPath = import_path2.default.join(process.cwd(), "dist");
+    const distPath = import_path2.default.join(process.cwd(), "dist", "client");
     app2.use(import_express.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path2.default.join(distPath, "index.html"));
