@@ -30,29 +30,80 @@ export default function App() {
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
 
   // Load authenticated data on mount or token change
-  const loadHomeData = () => {
+  const loadHomeData = async () => {
     if (!token) return;
 
-    fetch('/api/vocab-sets', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => setVocabSets(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading sets:", err));
+    // Load Vocabulary Sets
+    try {
+      const res = await fetch('/api/vocab-sets', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("API response error");
+      const data = await res.json();
+      setVocabSets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/vocab-sets API unreachable, falling back to direct Firestore Client-side query:", err);
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('./lib/firebase');
+        const querySnapshot = await getDocs(collection(db, 'vocab_sets'));
+        const setsList: VocabSet[] = [];
+        querySnapshot.forEach((docSnap) => {
+          setsList.push({ id: docSnap.id, ...docSnap.data() } as any);
+        });
+        setVocabSets(setsList);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore vocab_sets fetch failed:", firestoreErr);
+      }
+    }
 
-    fetch('/api/assignments', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => setAssignments(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading assignments:", err));
+    // Load Assignments
+    try {
+      const res = await fetch('/api/assignments', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("API response error");
+      const data = await res.json();
+      setAssignments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/assignments API unreachable, falling back to direct Firestore Client-side query:", err);
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('./lib/firebase');
+        const querySnapshot = await getDocs(collection(db, 'assignments'));
+        const list: Assignment[] = [];
+        querySnapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as any);
+        });
+        setAssignments(list);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore assignments fetch failed:", firestoreErr);
+      }
+    }
 
-    fetch('/api/classes', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => setClasses(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading classes:", err));
+    // Load Classes
+    try {
+      const res = await fetch('/api/classes', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("API response error");
+      const data = await res.json();
+      setClasses(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/classes API unreachable, falling back to direct Firestore Client-side query:", err);
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('./lib/firebase');
+        const querySnapshot = await getDocs(collection(db, 'classes'));
+        const list: Class[] = [];
+        querySnapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as any);
+        });
+        setClasses(list);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore classes fetch failed:", firestoreErr);
+      }
+    }
   };
 
   useEffect(() => {

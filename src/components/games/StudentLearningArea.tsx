@@ -67,11 +67,40 @@ export default function StudentLearningArea({
         studentName: studentName
       })
     })
-    .then(res => res.json())
+    .then(res => {
+      if (!res.ok) throw new Error("Backend game-sessions API failed");
+      return res.json();
+    })
     .then(data => {
       setSession(data);
     })
-    .catch(err => console.error("Error starting game session:", err));
+    .catch(async (err) => {
+      console.warn("Backend starting game session failed, falling back to direct Firestore Client-side creation:", err);
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db } = await import('../../lib/firebase');
+        const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const sessionData = {
+          id: sessionId,
+          assignmentId: assignmentId || null,
+          vocabSetId: vocabSet.id,
+          vocabSetTitle: vocabSet.title,
+          gameId: selectedGame.gameId,
+          studentName: studentName,
+          score: 0,
+          totalQuestions: 0,
+          correctAnswers: 0,
+          incorrectAnswers: 0,
+          startedAt: new Date().toISOString(),
+          status: 'started'
+        };
+        await setDoc(doc(db, 'game_sessions', sessionId), sessionData);
+        setSession(sessionData);
+        console.log("Game session created directly in Firestore via Client SDK:", sessionId);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore game session creation failed:", firestoreErr);
+      }
+    });
   }, [selectedGame, nameSubmitted, studentName, vocabSet, assignmentId]);
 
   const handleShuffle = () => {
@@ -124,11 +153,34 @@ export default function StudentLearningArea({
         incorrectAnswers: incorrect
       })
     })
-    .then(res => res.json())
+    .then(res => {
+      if (!res.ok) throw new Error("Backend game-sessions complete API failed");
+      return res.json();
+    })
     .then(data => {
       setSession(data);
     })
-    .catch(err => console.error("Error updating game session:", err));
+    .catch(async (err) => {
+      console.warn("Backend updating game session failed, falling back to direct Firestore Client-side update:", err);
+      try {
+        const { doc, updateDoc } = await import('firebase/firestore');
+        const { db } = await import('../../lib/firebase');
+        const sessionRef = doc(db, 'game_sessions', session.id);
+        const updatedData = {
+          score,
+          totalQuestions: correct + incorrect,
+          correctAnswers: correct,
+          incorrectAnswers: incorrect,
+          completedAt: new Date().toISOString(),
+          status: 'completed'
+        };
+        await updateDoc(sessionRef, updatedData);
+        setSession({ ...session, ...updatedData });
+        console.log("Game session updated directly in Firestore via Client SDK:", session.id);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore game session update failed:", firestoreErr);
+      }
+    });
   };
 
   const playTermSound = (term: string) => {

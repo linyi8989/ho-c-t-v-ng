@@ -54,25 +54,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const idToken = await firebaseUserInstance.getIdToken();
       setToken(idToken);
       
-      const res = await fetch('/api/me', {
-        headers: {
-          'Authorization': `Bearer ${idToken}`
+      // 1. Highly resilient client-side-first profile fetch directly from Firestore (Google servers)
+      let profile: UserProfile | null = null;
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          profile = docSnap.data() as UserProfile;
+          console.log("Profile fetched successfully via direct Client-Side Firestore SDK.");
+        } else {
+          console.log("No user profile document found directly in Firestore. Will initialize one.");
         }
-      });
-      
-      if (res.ok) {
-        const profile = await res.json();
-        setUser(profile);
+      } catch (clientErr) {
+        console.warn("Could not fetch profile via Client-Side SDK directly:", clientErr);
+      }
+
+      // 2. Fallback / supplementary load from Backend API
+      let apiProfile: UserProfile | null = null;
+      try {
+        const res = await fetch('/api/me', {
+          headers: {
+            'Authorization': `Bearer ${idToken}`
+          }
+        });
+        if (res.ok) {
+          apiProfile = await res.json();
+          console.log("Profile verified and fetched via Backend API /api/me.");
+        }
+      } catch (apiErr) {
+        console.warn("Backend API /api/me unreachable or failed:", apiErr);
+      }
+
+      const finalProfile = apiProfile || profile;
+
+      if (finalProfile) {
+        setUser(finalProfile);
       } else {
-        let errorMsg = "Không thể tải hồ sơ người dùng từ máy chủ.";
+        // 3. Self-healing fallback: Create a default profile directly in Firestore via client-side
         try {
-          const errorData = await res.json();
-          errorMsg = errorData.error || errorMsg;
-        } catch (e) {}
-        console.error("Failed to fetch profile:", errorMsg);
-        setUser(null);
-        if (throwOnError) {
-          throw new Error(errorMsg);
+          const { doc, setDoc } = await import('firebase/firestore');
+          const { db } = await import('../lib/firebase');
+          
+          const email = firebaseUserInstance.email || "";
+          let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
+          if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
+            defaultRole = "super_admin";
+          }
+
+          const fallbackProfile: UserProfile = {
+            id: firebaseUserInstance.uid,
+            name: firebaseUserInstance.displayName || email.split("@")[0] || "Học sinh mới",
+            email: email,
+            role: defaultRole,
+            status: "active",
+            createdAt: new Date().toISOString()
+          };
+
+          const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
+          await setDoc(userDocRef, fallbackProfile);
+          setUser(fallbackProfile);
+          console.log("Self-healing fallback: Initialized default profile document directly in Firestore.");
+        } catch (createErr: any) {
+          console.error("Self-healing profile creation failed:", createErr);
+          setUser(null);
+          if (throwOnError) {
+            throw new Error("Không thể tải hoặc tự động tạo hồ sơ người dùng.");
+          }
         }
       }
     } catch (err: any) {
@@ -126,27 +175,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       await updateProfile(credential.user, { displayName: name });
       
-      // 2. Fetch or trigger profile creation on the server
       const idToken = await credential.user.getIdToken();
       setToken(idToken);
 
-      // We send a POST request to register user profile explicitly
-      const res = await fetch('/api/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
-        body: JSON.stringify({ name, phone })
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || "Failed to save user profile on server.");
+      // Create local object representing the new profile
+      let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
+      if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
+        defaultRole = "super_admin";
       }
 
-      const profile = await res.json();
-      setUser(profile);
+      const clientProfile: UserProfile = {
+        id: credential.user.uid,
+        name: name,
+        email: email,
+        phone: phone || undefined,
+        role: defaultRole,
+        status: "active",
+        createdAt: new Date().toISOString()
+      };
+
+      // Direct write to Firestore via Client SDK (Highly likely to succeed because client is owner)
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const { db } = await import('../lib/firebase');
+        const userDocRef = doc(db, 'users', credential.user.uid);
+        await setDoc(userDocRef, clientProfile);
+        console.log("Registration profile saved directly to Firestore via Client SDK.");
+      } catch (clientCreateErr) {
+        console.error("Direct Firestore write failed during registration, will try server registration.", clientCreateErr);
+      }
+
+      // Try notifying the backend server to register (but do not throw if server is down / unresolvable)
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ name, phone })
+        });
+
+        if (res.ok) {
+          const profile = await res.json();
+          setUser(profile);
+        } else {
+          setUser(clientProfile);
+        }
+      } catch (err) {
+        console.warn("Backend /api/register notification failed, using client profile.", err);
+        setUser(clientProfile);
+      }
+
       setFirebaseUser(credential.user);
     } catch (err) {
       console.error(err);
