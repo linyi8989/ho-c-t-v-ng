@@ -3,6 +3,7 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/qzmivzbj/app.msdieu.com
     - /bin/mkdir -p $DEPLOYPATH
+    - /bin/rm -f $DEPLOYPATH/index.html
     - /bin/rm -rf $DEPLOYPATH/assets
     - /bin/cp -Rf dist/client/* $DEPLOYPATH
     - /bin/rm -rf $DEPLOYPATH/dist
