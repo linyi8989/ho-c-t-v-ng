@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Users, Award, Play, ShieldAlert, Sparkles, UserCheck, 
-  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search 
+  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield
 } from 'lucide-react';
 import { VocabSet, Class, Assignment } from './types';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentLearningArea from './components/games/StudentLearningArea';
+import { useAuth } from './context/AuthContext';
+import Login from './components/Login';
+import Register from './components/Register';
 
 export default function App() {
-  const [role, setRole] = useState<'guest' | 'student' | 'admin'>('guest');
+  const { user, token, logout, loading } = useAuth();
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [adminMode, setAdminMode] = useState(false);
+
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -17,65 +23,48 @@ export default function App() {
   const [homeSearch, setHomeSearch] = useState('');
   const [homeGrade, setHomeGrade] = useState('');
 
-  // Authentication Pin for Teachers
-  const [adminPin, setAdminPin] = useState('');
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [adminAuthError, setAdminAuthError] = useState('');
-
-  // Active student simulation state
+  // Active student playing state
   const [selectedSet, setSelectedSet] = useState<VocabSet | null>(null);
   const [studentName, setStudentName] = useState('');
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | undefined>(undefined);
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
 
-  const [namePromptConfig, setNamePromptConfig] = useState<{
-    set: VocabSet;
-    gameId?: string;
-    assignmentId?: string;
-    title?: string;
-  } | null>(null);
-  const [tempStudentName, setTempStudentName] = useState('');
-
-  // Load public data on mount
+  // Load authenticated data on mount or token change
   const loadHomeData = () => {
-    fetch('/api/vocab-sets')
+    if (!token) return;
+
+    fetch('/api/vocab-sets', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
       .then(res => res.json())
-      .then(data => setVocabSets(data))
+      .then(data => setVocabSets(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading sets:", err));
 
-    fetch('/api/assignments')
+    fetch('/api/assignments', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
       .then(res => res.json())
-      .then(data => setAssignments(data))
+      .then(data => setAssignments(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading assignments:", err));
 
-    fetch('/api/classes')
+    fetch('/api/classes', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
       .then(res => res.json())
-      .then(data => setClasses(data))
+      .then(data => setClasses(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading classes:", err));
   };
 
   useEffect(() => {
     loadHomeData();
-  }, [role]);
-
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPin === '1234' || adminPin.toLowerCase() === 'admin') {
-      setRole('admin');
-      setAdminAuthError('');
-      setAdminPin('');
-      setShowAdminLogin(false);
-    } else {
-      setAdminAuthError('Mã số bảo mật PIN chưa đúng (Gợi ý: 1234)');
-    }
-  };
+  }, [token, user]);
 
   const handleViewAsStudent = (set: VocabSet, gameId?: string, assignmentId?: string) => {
     setSelectedSet(set);
     setActiveGameId(gameId);
     setActiveAssignmentId(assignmentId);
-    setStudentName('Giáo viên (Học thử)');
-    setRole('student');
+    setStudentName(user?.name || 'Giáo viên (Học thử)');
+    setAdminMode(true); // Switch to student view representation
   };
 
   // Filter public sets on home page
@@ -88,8 +77,60 @@ export default function App() {
 
   // --- SCREEN RENDERS ---
 
-  // 1. ACTIVE STUDENT SCREEN
-  if (role === 'student' && selectedSet) {
+  // 1. Loading Screen
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+        <p className="text-gray-500 font-bold text-sm">Đang kết nối hệ thống V-Homework...</p>
+      </div>
+    );
+  }
+
+  // 2. Auth Guard: Not Logged In
+  if (!user) {
+    if (authMode === 'register') {
+      return (
+        <Register 
+          onNavigateToLogin={() => setAuthMode('login')} 
+          onNavigateToHome={() => {}} 
+        />
+      );
+    }
+    return (
+      <Login 
+        onNavigateToRegister={() => setAuthMode('register')} 
+        onNavigateToHome={() => {}} 
+      />
+    );
+  }
+
+  // 3. Status Guard: User is Blocked
+  if (user.status === 'blocked') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4" id="blocked-screen">
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-gray-100 shadow-xl space-y-6 text-center">
+          <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+            <ShieldAlert size={32} />
+          </div>
+          <h3 className="text-2xl font-black text-gray-900 tracking-tight">TÀI KHOẢN ĐÃ BỊ KHÓA</h3>
+          <p className="text-sm text-gray-500 leading-relaxed">
+            Tài khoản của bạn (<strong className="text-gray-700">{user.email || user.phone}</strong>) đã bị khóa hoặc tạm ngưng bởi Quản trị viên hệ thống. Vui lòng liên hệ ban quản trị để giải quyết.
+          </p>
+          <button
+            onClick={() => logout()}
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-2xl transition-all shadow-md active:scale-98 cursor-pointer flex items-center justify-center space-x-2"
+          >
+            <LogOut size={16} />
+            <span>Đăng xuất tài khoản</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. ACTIVE GAME SCREEN
+  if (selectedSet) {
     return (
       <StudentLearningArea
         vocabSet={selectedSet}
@@ -100,39 +141,61 @@ export default function App() {
           setSelectedSet(null);
           setActiveGameId(undefined);
           setActiveAssignmentId(undefined);
-          // Return to previous screen (admin or guest)
-          setRole(studentName.includes('Giáo viên') ? 'admin' : 'guest');
         }}
       />
     );
   }
 
-  // 2. TEACHER/ADMIN DASHBOARD SCREEN
-  if (role === 'admin') {
+  // 5. ADMIN/TEACHER DASHBOARD SCREEN
+  // If user is teacher/super_admin and NOT in student simulated view mode
+  const isStaff = user.role === 'teacher' || user.role === 'super_admin';
+  if (isStaff && !adminMode) {
     return (
       <div className="relative">
-        {/* Swapper banner back to visitor mode */}
-        <div className="bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30 text-amber-300 px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
-          <span>⚠️ Đang hoạt động dưới quyền GIÁO VIÊN / QUẢN TRỊ VIÊN</span>
-          <button 
-            onClick={() => { setRole('guest'); setSelectedSet(null); }}
-            className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 px-3 py-1 rounded-sm transition-all cursor-pointer"
-          >
-            Thoát quyền Admin
-          </button>
+        {/* Toggle bar back to student representation */}
+        <div className="bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30 text-amber-900 px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
+          <span>⚠️ Bạn đang ở giao diện Quản Trị ({user.role === 'super_admin' ? 'Super Admin' : 'Giáo viên'})</span>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setAdminMode(true)}
+              className="bg-amber-600 hover:bg-amber-700 text-white border-0 px-3 py-1.5 rounded-xl transition-all cursor-pointer font-bold text-[10px]"
+            >
+              Xem trang học sinh
+            </button>
+            <button 
+              onClick={() => logout()}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-700 border-0 px-3 py-1.5 rounded-xl transition-all cursor-pointer font-bold text-[10px] flex items-center space-x-1"
+            >
+              <LogOut size={12} />
+              <span>Đăng xuất</span>
+            </button>
+          </div>
         </div>
         <AdminDashboard onViewAsStudent={handleViewAsStudent} />
       </div>
     );
   }
 
-  // 3. MAIN VISITOR LANDING PORTAL (GUEST)
+  // 6. MAIN STUDENT LEARNING PORTAL
   return (
-    <div className="min-h-screen bg-transparent text-slate-100 flex flex-col" id="app-root">
+    <div className="min-h-screen bg-transparent text-slate-100 flex flex-col animate-fade-in" id="app-root">
       
       {/* Decorative colored glow bubbles */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -z-10" />
       <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-3xl -z-10" />
+
+      {/* Toggle back to admin bar if teacher is exploring as student */}
+      {isStaff && adminMode && (
+        <div className="bg-indigo-600 text-white px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
+          <span>💡 Bạn đang xem giao diện với tư cách Học Sinh</span>
+          <button 
+            onClick={() => setAdminMode(false)}
+            className="bg-white/20 hover:bg-white/30 text-white border border-white/40 px-3 py-1 rounded-xl transition-all cursor-pointer text-[10px]"
+          >
+            Quay lại trang Quản Trị
+          </button>
+        </div>
+      )}
 
       {/* Main navigation header */}
       <nav className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 shadow-xs" id="navbar">
@@ -148,17 +211,25 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 text-right">
+              <div className="hidden sm:block">
+                <span className="text-xs font-black text-gray-800 block leading-none">{user.name || 'Học sinh'}</span>
+                <span className="text-[9px] text-indigo-600 font-bold uppercase tracking-wider block mt-0.5">
+                  {user.role === 'super_admin' ? 'Super Admin' : user.role === 'teacher' ? 'Giáo viên' : 'Học sinh'}
+                </span>
+              </div>
+              <div className="w-9 h-9 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-black text-sm">
+                {(user.name || 'S').charAt(0).toUpperCase()}
+              </div>
+            </div>
+
             <button
-              onClick={() => {
-                setAdminPin('');
-                setAdminAuthError('');
-                setShowAdminLogin(true);
-              }}
-              className="flex items-center space-x-1.5 p-2 px-4 bg-gray-50 hover:bg-indigo-50 border border-gray-100 text-gray-600 hover:text-indigo-600 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              id="admin-login-trigger"
+              onClick={() => logout()}
+              className="flex items-center justify-center p-2 bg-gray-50 hover:bg-rose-50 hover:text-rose-600 text-gray-400 rounded-xl transition-all cursor-pointer border border-gray-100"
+              title="Đăng xuất tài khoản"
+              id="user-logout-btn"
             >
-              <Key size={14} />
-              <span>Cửa ngõ Giáo viên</span>
+              <LogOut size={16} />
             </button>
           </div>
         </div>
@@ -244,12 +315,12 @@ export default function App() {
                     
                     <button
                       onClick={() => {
-                        setNamePromptConfig({ set });
-                        setTempStudentName('');
+                        setSelectedSet(set);
+                        setStudentName(user?.name || 'Học sinh');
                       }}
                       className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl transition-all shadow-sm hover:shadow flex items-center space-x-1 cursor-pointer text-xs"
                     >
-                      <span>Vào học</span>
+                      <span>Vào học ngay</span>
                       <ArrowRight size={12} />
                     </button>
                   </div>
@@ -286,13 +357,10 @@ export default function App() {
                     onClick={() => {
                       const foundSet = vocabSets.find(s => s.id === assign.vocabSetId);
                       if (foundSet) {
-                        setNamePromptConfig({
-                          set: foundSet,
-                          gameId: assign.gameId,
-                          assignmentId: assign.id,
-                          title: `Bài tập lớp ${assign.className}`
-                        });
-                        setTempStudentName('');
+                        setSelectedSet(foundSet);
+                        setStudentName(user?.name || 'Học sinh');
+                        setActiveAssignmentId(assign.id);
+                        setActiveGameId(assign.gameId);
                       }
                     }}
                     className="w-full text-left p-3.5 bg-gray-50 hover:bg-indigo-50/30 border border-gray-100 hover:border-indigo-100 rounded-2xl transition-all cursor-pointer block"
@@ -322,122 +390,6 @@ export default function App() {
 
         </aside>
       </main>
-
-      {/* Teachers Pin Code Login Dialog Modal */}
-      {showAdminLogin && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in" id="admin-login-modal">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-6 shadow-2xl border border-gray-100">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
-                <Key size={24} />
-              </div>
-              <h3 className="text-xl font-black text-gray-800">Xác thực Giáo viên</h3>
-              <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                Để bảo mật dữ liệu học sinh, vui lòng nhập mã PIN bảo mật của Giáo viên để mở khóa quyền quản trị.
-              </p>
-            </div>
-
-            <form onSubmit={handleAdminLogin} className="space-y-4">
-              <div className="space-y-1">
-                <input
-                  type="password"
-                  placeholder="Nhập mã PIN Giáo viên (Gợi ý: 1234)"
-                  value={adminPin}
-                  onChange={(e) => setAdminPin(e.target.value)}
-                  className="w-full p-4 border-2 border-gray-200 rounded-2xl outline-none focus:border-indigo-500 font-mono text-center text-lg tracking-widest font-black"
-                  autoFocus
-                />
-                {adminAuthError && (
-                  <p className="text-xs text-rose-500 font-semibold text-center mt-1">{adminAuthError}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAdminLogin(false)}
-                  className="py-3 bg-gray-50 hover:bg-gray-100 text-gray-600 font-bold rounded-xl text-sm transition-all cursor-pointer"
-                >
-                  Quay lại
-                </button>
-                <button
-                  type="submit"
-                  className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-md transition-all cursor-pointer"
-                  id="submit-pin-btn"
-                >
-                  Xác nhận
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Student Name Input Modal */}
-      {namePromptConfig && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in" id="student-name-modal">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-6 shadow-2xl border border-gray-100">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
-                <GraduationCap size={24} />
-              </div>
-              <h3 className="text-xl font-black text-gray-800">
-                {namePromptConfig.title ? namePromptConfig.title : "Bắt đầu bài học mới"}
-              </h3>
-              <p className="text-xs text-gray-400 max-w-xs mx-auto">
-                {namePromptConfig.title 
-                  ? `Em chuẩn bị làm bài tập bộ từ "${namePromptConfig.set.title}". Hãy nhập họ và tên của em để bắt đầu.`
-                  : `Em chuẩn bị học bộ từ vựng "${namePromptConfig.set.title}". Hãy nhập họ và tên để bắt đầu luyện tập nhé.`}
-              </p>
-            </div>
-
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (tempStudentName.trim()) {
-                  setSelectedSet(namePromptConfig.set);
-                  setStudentName(tempStudentName.trim());
-                  setActiveAssignmentId(namePromptConfig.assignmentId);
-                  setActiveGameId(namePromptConfig.gameId);
-                  setRole('student');
-                  setNamePromptConfig(null);
-                }
-              }} 
-              className="space-y-4"
-            >
-              <div className="space-y-1">
-                <input
-                  type="text"
-                  placeholder="Nhập họ và tên của em..."
-                  value={tempStudentName}
-                  onChange={(e) => setTempStudentName(e.target.value)}
-                  className="w-full p-4 border-2 border-gray-200 rounded-2xl outline-none focus:border-indigo-500 font-bold text-center text-lg text-gray-800"
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setNamePromptConfig(null)}
-                  className="py-3 bg-gray-50 hover:bg-gray-100 text-gray-600 font-bold rounded-xl text-sm transition-all cursor-pointer"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  type="submit"
-                  disabled={!tempStudentName.trim()}
-                  className="py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
-                  id="student-start-game-btn"
-                >
-                  Vào học ngay
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Footer copyright */}
       <footer className="bg-white border-t border-gray-100 py-6 text-center text-xs text-gray-400" id="footer">

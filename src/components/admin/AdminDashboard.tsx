@@ -1,25 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
-  Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2
+  Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
+  Shield, FileText, Lock, Unlock
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
+import { useAuth } from '../../context/AuthContext';
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
 }
 
-type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'classes' | 'assignments' | 'results';
+type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
 
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
+  const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [results, setResults] = useState<GameSession[]>([]);
+
+  // Super Admin States
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [usersSearch, setUsersSearch] = useState('');
+  const [usersRoleFilter, setUsersRoleFilter] = useState('');
+  const [usersStatusFilter, setUsersStatusFilter] = useState('');
   
   // Searching/Filtering state
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,42 +73,70 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   // Notifications
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // Authenticated custom fetch wrapper
+  const authFetch = (url: string, options: any = {}) => {
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+  };
+
   // Load all initial data from our Express backend
   const refreshData = () => {
+    if (!token) return;
+
     // Vocab Sets
-    fetch('/api/vocab-sets')
+    authFetch('/api/vocab-sets')
       .then(res => res.json())
       .then(data => setVocabSets(data))
       .catch(err => console.error("Error loading vocab sets:", err));
 
     // Classes
-    fetch('/api/classes')
+    authFetch('/api/classes')
       .then(res => res.json())
       .then(data => setClasses(data))
       .catch(err => console.error("Error loading classes:", err));
 
     // Class Members
-    fetch('/api/class-members')
+    authFetch('/api/class-members')
       .then(res => res.json())
       .then(data => setClassMembers(data))
       .catch(err => console.error("Error loading class members:", err));
 
     // Assignments
-    fetch('/api/assignments')
+    authFetch('/api/assignments')
       .then(res => res.json())
       .then(data => setAssignments(data))
       .catch(err => console.error("Error loading assignments:", err));
 
     // Game Results (Completed sessions)
-    fetch('/api/results')
+    authFetch('/api/results')
       .then(res => res.json())
       .then(data => setResults(data))
       .catch(err => console.error("Error loading results:", err));
+
+    // Load users & audit logs if user is super_admin
+    if (user?.role === 'super_admin') {
+      authFetch('/api/admin/users')
+        .then(res => res.json())
+        .then(data => setUsersList(Array.isArray(data) ? data : []))
+        .catch(err => console.error("Error loading admin users:", err));
+
+      authFetch('/api/admin/audit-logs')
+        .then(res => res.json())
+        .then(data => setAuditLogs(Array.isArray(data) ? data : []))
+        .catch(err => console.error("Error loading admin logs:", err));
+    }
   };
 
   useEffect(() => {
     refreshData();
-  }, []);
+  }, [token, user]);
+
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -201,7 +239,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleGenerateIpaForRow = async (id: string, term: string) => {
     if (!term.trim()) return;
     try {
-      const res = await fetch('/api/ai/ipa', {
+      const res = await authFetch('/api/ai/ipa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ word: term })
@@ -226,7 +264,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     showNotification("Đang sinh phiên âm IPA tự động bằng AI...");
     for (const item of itemsWithEmptyIpa) {
       try {
-        const res = await fetch('/api/ai/ipa', {
+        const res = await authFetch('/api/ai/ipa', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ word: item.term })
@@ -254,7 +292,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     showNotification("Hệ thống Gemini đang tạo bộ từ vựng thông minh cho em...");
 
     try {
-      const res = await fetch('/api/ai/generate', {
+      const res = await authFetch('/api/ai/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -309,15 +347,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       gradeLevel: editorGrade,
       status: editorStatus,
       tags: editorTags,
-      createdBy: "teacher-1",
-      creatorName: "Cô Thảo English",
+      createdBy: user?.id || "teacher-1",
+      creatorName: user?.name || "Cô Thảo English",
       items: editorItems.map((item, idx) => ({ ...item, displayOrder: idx + 1 }))
     };
 
     const url = editingSetId ? `/api/vocab-sets/${editingSetId}` : '/api/vocab-sets';
     const method = editingSetId ? 'PUT' : 'POST';
 
-    fetch(url, {
+    authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -336,7 +374,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   // --- CRUD VOCAB LIST ACTIONS ---
   const handleCloneSet = (id: string) => {
-    fetch(`/api/vocab-sets/${id}/clone`, { method: 'POST' })
+    authFetch(`/api/vocab-sets/${id}/clone`, { method: 'POST' })
       .then(res => res.json())
       .then(data => {
         showNotification(`Đã sao chép bộ từ vựng thành công.`);
@@ -348,7 +386,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleDeleteSet = (id: string) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa bộ từ vựng này? Hành động này cũng sẽ gỡ bỏ tất cả bài giao tương ứng.")) return;
     
-    fetch(`/api/vocab-sets/${id}`, { method: 'DELETE' })
+    authFetch(`/api/vocab-sets/${id}`, { method: 'DELETE' })
       .then(res => res.json())
       .then(data => {
         showNotification("Đã xóa bộ từ vựng thành công.");
@@ -362,12 +400,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     e.preventDefault();
     if (!newClassName.trim()) return;
 
-    fetch('/api/classes', {
+    authFetch('/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: newClassName,
-        teacherId: "teacher-1"
+        teacherId: user?.id || "teacher-1"
       })
     })
     .then(res => res.json())
@@ -384,7 +422,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     const studentName = newMemberNames[classId]?.trim();
     if (!studentName) return;
 
-    fetch(`/api/classes/${classId}/members`, {
+    authFetch(`/api/classes/${classId}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentName })
@@ -401,7 +439,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleDeleteClassMember = (classId: string, memberId: string, studentName: string) => {
     if (!window.confirm(`Bạn có chắc chắn muốn xóa học sinh "${studentName}" khỏi lớp?`)) return;
 
-    fetch(`/api/classes/${classId}/members/${memberId}`, {
+    authFetch(`/api/classes/${classId}/members/${memberId}`, {
       method: 'DELETE'
     })
     .then(res => res.json())
@@ -415,7 +453,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleDeleteClass = (id: string, className: string) => {
     if (!window.confirm(`Bạn có chắc chắn muốn xóa lớp "${className}"? Hành động này sẽ gỡ bỏ tất cả học sinh và bài tập đã giao.`)) return;
 
-    fetch(`/api/classes/${id}`, {
+    authFetch(`/api/classes/${id}`, {
       method: 'DELETE'
     })
     .then(res => res.json())
@@ -446,11 +484,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       vocabSetTitle: selectedSet.title,
       gameId: assignGameId,
       dueDate: assignDueDate,
-      createdBy: "teacher-1",
+      createdBy: user?.id || "teacher-1",
       title: assignTitle.trim() || `Học từ vựng: ${selectedSet.title}`
     };
 
-    fetch('/api/assignments', {
+    authFetch('/api/assignments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -469,7 +507,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   };
 
   const handleDeleteAssignment = (id: string) => {
-    fetch(`/api/assignments/${id}`, { method: 'DELETE' })
+    authFetch(`/api/assignments/${id}`, { method: 'DELETE' })
       .then(res => res.json())
       .then(() => {
         showNotification("Đã thu hồi bài giao thành công.");
@@ -486,6 +524,57 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     const matchesGrade = filterGrade ? set.gradeLevel === filterGrade : true;
     const matchesStatus = filterStatus ? set.status === filterStatus : true;
     return matchesSearch && matchesGrade && matchesStatus;
+  });
+
+  // --- SUPER ADMIN ACCOUNT MANAGEMENT ---
+  const handleUpdateUserRole = (userId: string, newRole: string) => {
+    authFetch(`/api/admin/users/${userId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role: newRole })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        showNotification(data.error, "error");
+      } else {
+        showNotification("Cập nhật vai trò người dùng thành công!");
+        refreshData();
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      showNotification("Không thể cập nhật vai trò người dùng.", "error");
+    });
+  };
+
+  const handleToggleUserStatus = (userId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
+    authFetch(`/api/admin/users/${userId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: newStatus })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        showNotification(data.error, "error");
+      } else {
+        showNotification(newStatus === 'blocked' ? "Đã khóa tài khoản thành công!" : "Đã mở khóa tài khoản thành công!");
+        refreshData();
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      showNotification("Không thể cập nhật trạng thái tài khoản.", "error");
+    });
+  };
+
+  const filteredUsers = usersList.filter(u => {
+    const matchesSearch = (u.name || '').toLowerCase().includes(usersSearch.toLowerCase()) ||
+                          (u.email || '').toLowerCase().includes(usersSearch.toLowerCase()) ||
+                          (u.phone || '').toLowerCase().includes(usersSearch.toLowerCase());
+    const matchesRole = usersRoleFilter ? u.role === usersRoleFilter : true;
+    const matchesStatus = usersStatusFilter ? u.status === usersStatusFilter : true;
+    return matchesSearch && matchesRole && matchesStatus;
   });
 
   return (
@@ -513,7 +602,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           </span>
           <div>
             <h1 className="font-black text-gray-800 tracking-tight text-base leading-snug">V-Homework</h1>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Dashboard Giáo Viên</p>
+            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+              {user?.role === 'super_admin' ? 'Hệ thống Admin' : 'Dashboard Giáo Viên'}
+            </p>
           </div>
         </div>
 
@@ -584,17 +675,44 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <Award size={18} />
             <span>Kết quả học sinh</span>
           </button>
+
+          {/* SUPER ADMIN ONLY TABS */}
+          {user?.role === 'super_admin' && (
+            <>
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                  activeTab === 'users' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+                id="tab-users"
+              >
+                <Shield size={18} className="text-amber-500" />
+                <span>Quản lý Tài khoản</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('audit-logs')}
+                className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                  activeTab === 'audit-logs' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+                id="tab-audit-logs"
+              >
+                <FileText size={18} className="text-amber-500" />
+                <span>Nhật ký hệ thống</span>
+              </button>
+            </>
+          )}
         </nav>
 
         {/* User Identity Footer */}
         <div className="p-4 border-t border-gray-50 bg-gray-50/50">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 font-extrabold shrink-0">
-              CT
+              {user?.name?.substring(0, 2).toUpperCase() || 'AD'}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-bold text-gray-800 truncate">Cô Thảo English</p>
-              <p className="text-[10px] text-gray-400 truncate">thao.teacher@gmail.com</p>
+              <p className="text-xs font-bold text-gray-800 truncate">{user?.name || 'Hệ thống Admin'}</p>
+              <p className="text-[10px] text-gray-400 truncate">{user?.email || 'admin@vocabulary.edu.vn'}</p>
             </div>
           </div>
         </div>
@@ -1590,6 +1708,219 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               }`}>
                                 {res.score}
                               </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB 7: SUPER ADMIN USER MANAGEMENT */}
+        {/* ==================================================================== */}
+        {activeTab === 'users' && user?.role === 'super_admin' && (
+          <div className="space-y-6 animate-fade-in" id="users-tab-content">
+            <div>
+              <h2 className="text-2xl font-black text-gray-800">Quản lý Tài khoản người dùng</h2>
+              <p className="text-gray-400 text-sm">Xem danh sách, tìm kiếm, phân quyền vai trò (Role) và kích hoạt/khoá (Lock) tài khoản học sinh, giáo viên.</p>
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
+              <div className="flex-1 relative">
+                <Search className="absolute left-4 top-3 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Tìm theo tên, email, số điện thoại..."
+                  value={usersSearch}
+                  onChange={(e) => setUsersSearch(e.target.value)}
+                  className="w-full bg-gray-50 border-0 rounded-2xl py-2.5 pl-11 pr-4 text-sm font-semibold text-gray-700 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <div className="flex items-center space-x-2 bg-gray-50 rounded-2xl px-3 border border-gray-50">
+                  <Filter size={16} className="text-gray-400" />
+                  <select
+                    value={usersRoleFilter}
+                    onChange={(e) => setUsersRoleFilter(e.target.value)}
+                    className="bg-transparent border-0 text-xs font-bold text-gray-500 focus:ring-0 outline-none cursor-pointer py-2 pr-8"
+                  >
+                    <option value="">Tất cả vai trò</option>
+                    <option value="super_admin">Super Admin</option>
+                    <option value="teacher">Giáo viên (Teacher)</option>
+                    <option value="student">Học sinh (Student)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-2 bg-gray-50 rounded-2xl px-3 border border-gray-50">
+                  <Filter size={16} className="text-gray-400" />
+                  <select
+                    value={usersStatusFilter}
+                    onChange={(e) => setUsersStatusFilter(e.target.value)}
+                    className="bg-transparent border-0 text-xs font-bold text-gray-500 focus:ring-0 outline-none cursor-pointer py-2 pr-8"
+                  >
+                    <option value="">Tất cả trạng thái</option>
+                    <option value="active">Đang hoạt động</option>
+                    <option value="blocked">Đã khóa</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Users Table */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto rounded-2xl border border-gray-100">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
+                      <th className="p-4">STT</th>
+                      <th className="p-4">Tên hiển thị</th>
+                      <th className="p-4">Liên hệ (Email / SĐT)</th>
+                      <th className="p-4">ID tài khoản</th>
+                      <th className="p-4 text-center">Vai trò</th>
+                      <th className="p-4 text-center">Trạng thái</th>
+                      <th className="p-4 text-center">Hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-12 text-center text-gray-400 text-sm font-medium">
+                          Không tìm thấy tài khoản người dùng nào khớp với bộ lọc.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((u, index) => (
+                        <tr key={u.id} className="hover:bg-gray-50/30 text-sm font-semibold text-gray-700">
+                          <td className="p-4 text-gray-400 text-xs font-bold">{index + 1}</td>
+                          <td className="p-4">
+                            <div className="flex items-center space-x-2">
+                              <span className="w-8 h-8 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-xs">
+                                {(u.name || 'U').charAt(0).toUpperCase()}
+                              </span>
+                              <strong className="text-gray-800 font-bold">{u.name || 'Chưa đặt tên'}</strong>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex flex-col">
+                              <span className="text-xs text-gray-600 font-medium">{u.email || 'Không có email'}</span>
+                              {u.phone && <span className="text-[10px] text-gray-400 font-bold">{u.phone}</span>}
+                            </div>
+                          </td>
+                          <td className="p-4 text-xs font-mono text-gray-400 max-w-[120px] truncate" title={u.id}>
+                            {u.id}
+                          </td>
+                          <td className="p-4 text-center">
+                            <select
+                              value={u.role}
+                              disabled={u.id === user?.id} // Cannot demote self
+                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                              className="bg-gray-50 text-xs font-bold text-gray-700 border-0 rounded-xl py-1.5 px-3 focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer"
+                            >
+                              <option value="student">Học sinh (Student)</option>
+                              <option value="teacher">Giáo viên (Teacher)</option>
+                              <option value="super_admin">Super Admin</option>
+                            </select>
+                          </td>
+                          <td className="p-4 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              u.status === 'blocked' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
+                            }`}>
+                              {u.status === 'blocked' ? 'Đã khóa' : 'Hoạt động'}
+                            </span>
+                          </td>
+                          <td className="p-4 text-center">
+                            {u.id !== user?.id ? (
+                              <button
+                                onClick={() => handleToggleUserStatus(u.id, u.status)}
+                                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                                  u.status === 'blocked'
+                                    ? 'bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100'
+                                    : 'bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100'
+                                }`}
+                                title={u.status === 'blocked' ? 'Mở khóa tài khoản' : 'Khóa tài khoản'}
+                              >
+                                {u.status === 'blocked' ? <Unlock size={14} /> : <Lock size={14} />}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">Bản thân</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB 8: AUDIT LOGS VIEW */}
+        {/* ==================================================================== */}
+        {activeTab === 'audit-logs' && user?.role === 'super_admin' && (
+          <div className="space-y-6 animate-fade-in" id="audit-logs-tab-content">
+            <div>
+              <h2 className="text-2xl font-black text-gray-800">Nhật ký hệ thống (Audit Logs)</h2>
+              <p className="text-gray-400 text-sm">Ghi chép các sự kiện quan trọng trong hệ thống: đăng ký mới, cập nhật vai trò, khóa/mở khóa tài khoản.</p>
+            </div>
+
+            {/* Logs Timeline Card */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto rounded-2xl border border-gray-100">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
+                      <th className="p-4 w-16">STT</th>
+                      <th className="p-4 w-48">Thời gian</th>
+                      <th className="p-4 w-40">Hành động</th>
+                      <th className="p-4 w-52">Người thực hiện</th>
+                      <th className="p-4">Chi tiết hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-12 text-center text-gray-400 text-sm font-medium">
+                          Chưa có nhật ký hoạt động nào được ghi nhận.
+                        </td>
+                      </tr>
+                    ) : (
+                      auditLogs.map((log, index) => {
+                        const dateFormatted = log.timestamp
+                          ? new Date(log.timestamp).toLocaleString('vi-VN', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })
+                          : 'Unknown';
+                        
+                        let actionBadgeColor = 'bg-gray-50 text-gray-600';
+                        if (log.action === 'LOCK_USER') actionBadgeColor = 'bg-rose-50 text-rose-700';
+                        if (log.action === 'UNLOCK_USER') actionBadgeColor = 'bg-emerald-50 text-emerald-700';
+                        if (log.action === 'UPDATE_USER_ROLE') actionBadgeColor = 'bg-amber-50 text-amber-700';
+                        if (log.action === 'REGISTER_USER') actionBadgeColor = 'bg-indigo-50 text-indigo-700';
+
+                        return (
+                          <tr key={log.id} className="hover:bg-gray-50/30 text-xs font-semibold text-gray-700">
+                            <td className="p-4 text-gray-400 font-bold">{index + 1}</td>
+                            <td className="p-4 text-gray-500 font-normal">{dateFormatted}</td>
+                            <td className="p-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${actionBadgeColor}`}>
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex flex-col">
+                                <span className="text-gray-800 font-bold">{log.userName || 'Hệ thống'}</span>
+                                <span className="text-[10px] text-gray-400">{log.userEmail || ''}</span>
+                              </div>
+                            </td>
+                            <td className="p-4 text-gray-600 font-normal font-mono max-w-[300px] truncate" title={log.details}>
+                              {log.details}
                             </td>
                           </tr>
                         );

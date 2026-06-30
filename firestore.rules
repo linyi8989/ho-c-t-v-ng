@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if the user is accessing their own data
+    function isOwner(userId) {
+      return isAuth() && request.auth.uid == userId;
+    }
+
+    // Users Profiles
+    match /users/{userId} {
+      allow read: if isAuth();
+      allow write: if isOwner(userId);
+    }
+
+    // Vocabulary Sets
+    match /vocab_sets/{setId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Classes
+    match /classes/{classId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Class Members
+    match /class_members/{memberId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Assignments
+    match /assignments/{assignmentId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Game Sessions
+    match /game_sessions/{sessionId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Audit Logs (Typically written server-side via Firebase Admin, which bypasses rules)
+    match /audit_logs/{logId} {
+      allow read, write: if isAuth();
+    }
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with role and status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "teacher", "super_admin"] },
+        "status": { "type": "string", "enum": ["active", "blocked"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "status", "createdAt"]
+    },
+    "VocabSet": {
+      "title": "Vocabulary Set",
+      "description": "A set of vocabulary flashcards",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "gradeLevel": { "type": "string" },
+        "topic": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["public", "draft"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "gradeLevel", "topic", "creatorId", "status", "createdAt"]
+    },
+    "Class": {
+      "title": "Classroom",
+      "description": "A class created by a teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "grade", "teacherId", "createdAt"]
+    },
+    "ClassMember": {
+      "title": "Class Member",
+      "description": "A student belonging to a class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string" },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["id", "classId", "studentId", "studentName", "studentEmail", "joinedAt"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "An assignment given to a class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "classId": { "type": "string" },
+        "className": { "type": "string" },
+        "vocabSetId": { "type": "string" },
+        "vocabSetTitle": { "type": "string" },
+        "gameType": { "type": "string", "enum": ["flashcard", "choice", "matching", "write"] },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "expired"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "classId", "className", "vocabSetId", "vocabSetTitle", "gameType", "dueDate", "status", "createdAt"]
+    },
+    "GameSession": {
+      "title": "Game Session",
+      "description": "A record of a completed game by a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "assignmentId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "gameType": { "type": "string" },
+        "score": { "type": "number" },
+        "accuracy": { "type": "number" },
+        "timeSpent": { "type": "number" },
+        "completedAt": { "type": "string" },
+        "vocabSetId": { "type": "string" },
+        "vocabSetTitle": { "type": "string" }
+      },
+      "required": ["id", "studentId", "studentName", "gameType", "score", "accuracy", "timeSpent", "completedAt", "vocabSetId", "vocabSetTitle"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System action audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "userName", "userEmail", "action", "details", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "User profiles collection"
+    },
+    "vocab_sets": {
+      "schema": "VocabSet",
+      "description": "Vocabulary sets"
+    },
+    "classes": {
+      "schema": "Class",
+      "description": "Classrooms"
+    },
+    "class_members": {
+      "schema": "ClassMember",
+      "description": "Classroom students list"
+    },
+    "assignments": {
+      "schema": "Assignment",
+      "description": "Assigned tasks"
+    },
+    "game_sessions": {
+      "schema": "GameSession",
+      "description": "Student game session results"
+    },
+    "audit_logs": {
+      "schema": "AuditLog",
+      "description": "Admin action audit logs"
+    }
+  }
+}
