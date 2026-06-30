@@ -1,0 +1,20 @@
+# Tệp cấu hình cPanel Git Deployment (.cpanel.yml)
+# Tự động hóa quá trình đẩy (deploy) mã nguồn đã biên dịch lên thư mục chạy của Host cPanel.
+---
+deployment:
+  tasks:
+    # 1. Định nghĩa đường dẫn thư mục lưu trữ web trên cPanel của bạn.
+    # THAY THẾ 'your_username' bằng tên người dùng (username) cPanel của bạn.
+    # Thông thường đối với tên miền chính sẽ là: /home/your_username/public_html
+    # Đối với tên miền phụ (subdomain hoặc addon domain) sẽ là đường dẫn thư mục tương ứng.
+    - export DEPLOYPATH=/home/qzmivzbj/app.msdieu.com
+
+    # 2. Tạo thư mục nếu chưa tồn tại
+    - /bin/mkdir -p $DEPLOYPATH
+
+    # 3. Sử dụng rsync để đồng bộ hóa các tệp từ thư mục build 'dist' sang thư mục chạy của Host
+    # LƯU Ý: Tiến trình này sẽ đồng bộ hóa thư mục dist/ đã được build hoàn tất trên máy chủ hoặc Local.
+    - /bin/rsync -avz --delete --exclude '.git' --exclude 'node_modules' dist/ $DEPLOYPATH
+
+    # 4. Sao chép tệp cấu hình .htaccess (nếu có) để xử lý định tuyến SPA React (Client-side Routing)
+    - /bin/cp .htaccess $DEPLOYPATH/
