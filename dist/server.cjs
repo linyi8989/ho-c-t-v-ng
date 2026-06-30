@@ -130,6 +130,14 @@ var LocalDbEngine = class {
 var localDb = new LocalDbEngine();
 var useLocalFallback = false;
 async function runDiagnostic() {
+  const hasGoogleCredentials = Boolean(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || process.env.FIREBASE_SERVICE_ACCOUNT
+  );
+  if (!hasGoogleCredentials) {
+    console.warn("Google credentials are not configured. Activating Local DB fallback engine.");
+    useLocalFallback = true;
+    return;
+  }
   try {
     const testDoc = realDb.collection("system_status_check").doc("status");
     await testDoc.set({ active: true, checkedAt: (/* @__PURE__ */ new Date()).toISOString() });
@@ -142,7 +150,7 @@ async function runDiagnostic() {
     useLocalFallback = true;
   }
 }
-runDiagnostic();
+var firebaseDiagnosticReady = runDiagnostic();
 var FallbackDocSnapshot = class {
   constructor(id, exists, ref, data) {
     this.id = id;
@@ -378,7 +386,7 @@ var adminDb = new FallbackFirestore();
 // server.ts
 import_dotenv.default.config();
 var app2 = (0, import_express.default)();
-var PORT = 3e3;
+var PORT = Number(process.env.PORT) || 3e3;
 app2.use(import_express.default.json());
 async function logAuditAction(userId, userName, userEmail, action, details) {
   try {
@@ -585,7 +593,6 @@ var preSeedDb = async () => {
     console.error("Error seeding database:", err);
   }
 };
-preSeedDb();
 var getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -1196,6 +1203,8 @@ app2.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"])
   }
 });
 async function start() {
+  await firebaseDiagnosticReady;
+  await preSeedDb();
   if (process.env.NODE_ENV !== "production") {
     const vite = await (0, import_vite.createServer)({
       server: { middlewareMode: true },

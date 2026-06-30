@@ -2,4 +2,5 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/qzmivzbj/app.msdieu.com/
-    - /bin/cp -R dist/* $DEPLOYPATH
+    - /bin/cp -R dist $DEPLOYPATH
+    - /bin/cp package.json package-lock.json firebase-applet-config.json db.json $DEPLOYPATH

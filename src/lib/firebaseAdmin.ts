@@ -130,6 +130,18 @@ let useLocalFallback = false;
 
 // We run a quick check. If it fails, we fall back to local DB immediately.
 async function runDiagnostic() {
+  const hasGoogleCredentials = Boolean(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
+    process.env.FIREBASE_SERVICE_ACCOUNT
+  );
+
+  if (!hasGoogleCredentials) {
+    console.warn("Google credentials are not configured. Activating Local DB fallback engine.");
+    useLocalFallback = true;
+    return;
+  }
+
   try {
     const testDoc = realDb.collection("system_status_check").doc("status");
     await testDoc.set({ active: true, checkedAt: new Date().toISOString() });
@@ -143,8 +155,7 @@ async function runDiagnostic() {
   }
 }
 
-// Start diagnostic immediately
-runDiagnostic();
+export const firebaseDiagnosticReady = runDiagnostic();
 
 // ============================================================================
 // TRANS-FLUID FIRESTORE COMPATIBILITY LAYER

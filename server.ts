@@ -3,13 +3,13 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { adminDb, adminAuth } from "./src/lib/firebaseAdmin.js";
+import { adminDb, adminAuth, firebaseDiagnosticReady } from "./src/lib/firebaseAdmin.js";
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -276,9 +276,6 @@ const preSeedDb = async () => {
     console.error("Error seeding database:", err);
   }
 };
-
-// Execute Pre-seed
-preSeedDb();
 
 // ============================================================================
 // GEMINI CLIENT INITIALIZATION
@@ -1051,6 +1048,9 @@ app.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]),
 // ============================================================================
 
 async function start() {
+  await firebaseDiagnosticReady;
+  await preSeedDb();
+
   if (process.env.NODE_ENV !== "production") {
     // Start Vite in middleware mode
     const vite = await createViteServer({
