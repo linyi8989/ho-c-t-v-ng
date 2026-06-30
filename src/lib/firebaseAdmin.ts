@@ -1,31 +1,36 @@
-import { initializeApp, getApps, getApp } from 'firebase-admin/app';
+import 'dotenv/config';
+import { cert, initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 
-// Read config file to get custom database ID and project ID
-let firebaseConfig: any = {};
-try {
-  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-  if (fs.existsSync(configPath)) {
-    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  }
-} catch (err) {
-  console.error("Error reading firebase config in firebaseAdmin:", err);
-}
-
-const projectId = firebaseConfig.projectId || process.env.FIREBASE_PROJECT_ID;
-const databaseId = firebaseConfig.firestoreDatabaseId;
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+const hasServiceAccountCredentials = Boolean(projectId && clientEmail && privateKey);
+const serviceAccount = hasServiceAccountCredentials
+  ? {
+      projectId: projectId as string,
+      clientEmail: clientEmail as string,
+      privateKey: privateKey as string
+    }
+  : null;
 
 const app = getApps().length === 0 
-  ? initializeApp({ projectId }) 
+  ? initializeApp(serviceAccount
+      ? {
+          credential: cert(serviceAccount),
+          projectId: serviceAccount.projectId
+        }
+      : { projectId }
+    )
   : getApp();
 
-const realDb = getFirestore(app, databaseId || undefined);
+const realDb = getFirestore(app);
 export const adminAuth = getAuth(app);
 
-console.log(`Firebase Admin initialized for project: ${projectId}, Database: ${databaseId || '(default)'}`);
+console.log(`Firebase Admin initialized for project: ${projectId || '(not configured)'}, Database: (default)`);
 
 // ============================================================================
 // SELF-HEALING LOCAL DB ENGINE (FALLBACK)
@@ -130,14 +135,8 @@ let useLocalFallback = false;
 
 // We run a quick check. If it fails, we fall back to local DB immediately.
 async function runDiagnostic() {
-  const hasGoogleCredentials = Boolean(
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
-    process.env.FIREBASE_SERVICE_ACCOUNT
-  );
-
-  if (!hasGoogleCredentials) {
-    console.warn("Google credentials are not configured. Activating Local DB fallback engine.");
+  if (!hasServiceAccountCredentials) {
+    console.warn("Firebase Admin credentials are not configured. Activating Local DB fallback engine.");
     useLocalFallback = true;
     return;
   }

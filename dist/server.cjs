@@ -29,26 +29,30 @@ var import_genai = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
 
 // src/lib/firebaseAdmin.ts
+var import_config = require("dotenv/config");
 var import_app = require("firebase-admin/app");
 var import_firestore = require("firebase-admin/firestore");
 var import_auth = require("firebase-admin/auth");
 var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
-var firebaseConfig = {};
-try {
-  const configPath = import_path.default.join(process.cwd(), "firebase-applet-config.json");
-  if (import_fs.default.existsSync(configPath)) {
-    firebaseConfig = JSON.parse(import_fs.default.readFileSync(configPath, "utf8"));
-  }
-} catch (err) {
-  console.error("Error reading firebase config in firebaseAdmin:", err);
-}
-var projectId = firebaseConfig.projectId || process.env.FIREBASE_PROJECT_ID;
-var databaseId = firebaseConfig.firestoreDatabaseId;
-var app = (0, import_app.getApps)().length === 0 ? (0, import_app.initializeApp)({ projectId }) : (0, import_app.getApp)();
-var realDb = (0, import_firestore.getFirestore)(app, databaseId || void 0);
+var projectId = process.env.FIREBASE_PROJECT_ID;
+var clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+var privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+var hasServiceAccountCredentials = Boolean(projectId && clientEmail && privateKey);
+var serviceAccount = hasServiceAccountCredentials ? {
+  projectId,
+  clientEmail,
+  privateKey
+} : null;
+var app = (0, import_app.getApps)().length === 0 ? (0, import_app.initializeApp)(
+  serviceAccount ? {
+    credential: (0, import_app.cert)(serviceAccount),
+    projectId: serviceAccount.projectId
+  } : { projectId }
+) : (0, import_app.getApp)();
+var realDb = (0, import_firestore.getFirestore)(app);
 var adminAuth = (0, import_auth.getAuth)(app);
-console.log(`Firebase Admin initialized for project: ${projectId}, Database: ${databaseId || "(default)"}`);
+console.log(`Firebase Admin initialized for project: ${projectId || "(not configured)"}, Database: (default)`);
 var LocalDbEngine = class {
   constructor() {
     this.memoryCache = null;
@@ -130,11 +134,8 @@ var LocalDbEngine = class {
 var localDb = new LocalDbEngine();
 var useLocalFallback = false;
 async function runDiagnostic() {
-  const hasGoogleCredentials = Boolean(
-    process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || process.env.FIREBASE_SERVICE_ACCOUNT
-  );
-  if (!hasGoogleCredentials) {
-    console.warn("Google credentials are not configured. Activating Local DB fallback engine.");
+  if (!hasServiceAccountCredentials) {
+    console.warn("Firebase Admin credentials are not configured. Activating Local DB fallback engine.");
     useLocalFallback = true;
     return;
   }

@@ -3,6 +3,7 @@ import {
   Mail, Lock, Chrome, Phone, CheckCircle, ArrowRight, BookOpen, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { getAuthErrorMessage } from '../lib/authErrors';
 
 interface LoginProps {
   onNavigateToRegister: () => void;
@@ -41,11 +42,7 @@ export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginP
       onNavigateToHome();
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('Email hoặc mật khẩu không chính xác.');
-      } else {
-        setError(err.message || 'Đã xảy ra lỗi khi đăng nhập.');
-      }
+      setError(getAuthErrorMessage(err, 'Đăng nhập thất bại.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -59,7 +56,7 @@ export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginP
       onNavigateToHome();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Đăng nhập Google thất bại.');
+      setError(getAuthErrorMessage(err, 'Đăng nhập Google thất bại.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -94,7 +91,7 @@ export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginP
       onNavigateToHome();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Số điện thoại hoặc mật khẩu không chính xác.');
+      setError(getAuthErrorMessage(err, 'Số điện thoại hoặc mật khẩu không chính xác.'));
     } finally {
       setIsSubmitting(false);
     }

@@ -7,4 +7,4 @@ deployment:
     - /bin/cp -Rf dist/* $DEPLOYPATH
     - /bin/rm -rf $DEPLOYPATH/dist
     - /bin/cp -Rf dist $DEPLOYPATH
-    - /bin/cp -f app.js package.json package-lock.json firebase-applet-config.json db.json $DEPLOYPATH
+    - /bin/cp -f app.js package.json package-lock.json db.json $DEPLOYPATH
