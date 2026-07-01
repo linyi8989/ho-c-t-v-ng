@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
+import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -51,6 +51,28 @@ function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
+function getDefaultRole(email: string): UserProfile['role'] {
+  if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
+    return "super_admin";
+  }
+
+  return "student";
+}
+
+function createDefaultProfile(firebaseUserInstance: FirebaseUser, phone?: string): UserProfile {
+  const email = firebaseUserInstance.email || "";
+
+  return {
+    id: firebaseUserInstance.uid,
+    name: firebaseUserInstance.displayName || email.split("@")[0] || "Hoc sinh moi",
+    email,
+    phone,
+    role: getDefaultRole(email),
+    status: "active",
+    createdAt: new Date().toISOString()
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -58,98 +80,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
 
-  // Function to fetch the user profile from the backend
-  const fetchProfile = async (firebaseUserInstance: FirebaseUser, throwOnError = false) => {
+  const syncProfileFromStores = async (
+    firebaseUserInstance: FirebaseUser,
+    idToken: string,
+    fallbackProfile: UserProfile
+  ) => {
+    let profile: UserProfile | null = null;
+
     try {
-      const idToken = await firebaseUserInstance.getIdToken();
-      setToken(idToken);
-      
-      // 1. Highly resilient client-side-first profile fetch directly from Firestore (Google servers)
-      let profile: UserProfile | null = null;
-      try {
-        const { doc, getDoc } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
-        const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-        const docSnap = await withTimeout(
-          getDoc(userDocRef),
-          "Timed out while loading user profile from Firestore."
-        );
-        if (docSnap.exists()) {
-          profile = docSnap.data() as UserProfile;
-          console.log("Profile fetched successfully via direct Client-Side Firestore SDK.");
-        } else {
-          console.log("No user profile document found directly in Firestore. Will initialize one.");
-        }
-      } catch (clientErr) {
-        console.warn("Could not fetch profile via Client-Side SDK directly:", clientErr);
+      const { doc, getDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
+      const docSnap = await withTimeout(
+        getDoc(userDocRef),
+        "Timed out while loading user profile from Firestore."
+      );
+
+      if (docSnap.exists()) {
+        profile = docSnap.data() as UserProfile;
+        console.log("Profile fetched successfully via direct Client-Side Firestore SDK.");
       }
-
-      // 2. Fallback / supplementary load from Backend API
-      let apiProfile: UserProfile | null = null;
-      try {
-        const res = await withTimeout(
-          fetch('/api/me', {
-            headers: {
-              'Authorization': `Bearer ${idToken}`
-            }
-          }),
-          "Timed out while loading user profile from backend."
-        );
-        if (res.ok) {
-          apiProfile = await res.json();
-          console.log("Profile verified and fetched via Backend API /api/me.");
-        }
-      } catch (apiErr) {
-        console.warn("Backend API /api/me unreachable or failed:", apiErr);
-      }
-
-      const finalProfile = apiProfile || profile;
-
-      if (finalProfile) {
-        setUser(finalProfile);
-      } else {
-        // 3. Self-healing fallback: Create a default profile directly in Firestore via client-side
-        try {
-          const { doc, setDoc } = await import('firebase/firestore');
-          const { db } = await import('../lib/firebase');
-          
-          const email = firebaseUserInstance.email || "";
-          let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
-          if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
-            defaultRole = "super_admin";
-          }
-
-          const fallbackProfile: UserProfile = {
-            id: firebaseUserInstance.uid,
-            name: firebaseUserInstance.displayName || email.split("@")[0] || "Học sinh mới",
-            email: email,
-            role: defaultRole,
-            status: "active",
-            createdAt: new Date().toISOString()
-          };
-
-          const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-          await withTimeout(
-            setDoc(userDocRef, fallbackProfile),
-            "Timed out while creating user profile in Firestore."
-          );
-          setUser(fallbackProfile);
-          console.log("Self-healing fallback: Initialized default profile document directly in Firestore.");
-        } catch (createErr: any) {
-          console.error("Self-healing profile creation failed:", createErr);
-          setUser(null);
-          if (throwOnError) {
-            throw new Error("Không thể tải hoặc tự động tạo hồ sơ người dùng.");
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error("Error fetching user profile:", err);
-      setUser(null);
-      if (throwOnError) {
-        throw err;
-      }
+    } catch (clientErr) {
+      console.warn("Could not fetch profile via Client-Side SDK directly:", clientErr);
     }
+
+    try {
+      const res = await withTimeout(
+        fetch('/api/me', {
+          headers: {
+            'Authorization': `Bearer ${idToken}`
+          }
+        }),
+        "Timed out while loading user profile from backend."
+      );
+
+      if (res.ok) {
+        profile = await res.json();
+        console.log("Profile verified and fetched via Backend API /api/me.");
+      }
+    } catch (apiErr) {
+      console.warn("Backend API /api/me unreachable or failed:", apiErr);
+    }
+
+    if (profile) {
+      setUser(profile);
+      return;
+    }
+
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
+      await withTimeout(
+        setDoc(userDocRef, fallbackProfile),
+        "Timed out while creating user profile in Firestore."
+      );
+      console.log("Initialized default profile document directly in Firestore.");
+    } catch (createErr) {
+      console.warn("Could not create profile document. Keeping Firebase-authenticated local profile.", createErr);
+    }
+  };
+
+  const fetchProfile = async (firebaseUserInstance: FirebaseUser, phone?: string) => {
+    const idToken = await withTimeout(
+      firebaseUserInstance.getIdToken(),
+      "Timed out while getting Firebase ID token."
+    );
+    const fallbackProfile = createDefaultProfile(firebaseUserInstance, phone);
+
+    setToken(idToken);
+    setUser(fallbackProfile);
+    void syncProfileFromStores(firebaseUserInstance, idToken, fallbackProfile);
   };
 
   useEffect(() => {
@@ -158,10 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (fUser) {
           setFirebaseUser(fUser);
-          await withTimeout(
-            fetchProfile(fUser),
-            "Timed out while restoring signed-in session."
-          );
+          await fetchProfile(fUser);
         } else {
           setFirebaseUser(null);
           setUser(null);
@@ -198,39 +196,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let credential;
       if (phone && otpCode) {
         if (!phoneConfirmation) {
-          throw new Error("Không tìm thấy yêu cầu gửi mã OTP. Vui lòng gửi lại mã.");
+          throw new Error("Khong tim thay yeu cau gui ma OTP. Vui long gui lai ma.");
         }
         const phoneResult = await phoneConfirmation.confirm(otpCode);
-        
-        // Link with Email & Password
         const emailCred = EmailAuthProvider.credential(email, pass);
         credential = await linkWithCredential(phoneResult.user, emailCred);
       } else {
         credential = await createUserWithEmailAndPassword(auth, email, pass);
       }
-      
+
       await updateProfile(credential.user, { displayName: name });
-      
-      const idToken = await credential.user.getIdToken();
-      setToken(idToken);
 
-      // Create local object representing the new profile
-      let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
-      if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
-        defaultRole = "super_admin";
-      }
-
+      const idToken = await withTimeout(
+        credential.user.getIdToken(),
+        "Timed out while getting Firebase ID token."
+      );
       const clientProfile: UserProfile = {
-        id: credential.user.uid,
-        name: name,
-        email: email,
-        phone: phone || undefined,
-        role: defaultRole,
-        status: "active",
-        createdAt: new Date().toISOString()
+        ...createDefaultProfile(credential.user, phone),
+        name,
+        email,
+        phone: phone || undefined
       };
 
-      // Direct write to Firestore via Client SDK (Highly likely to succeed because client is owner)
+      setToken(idToken);
+      setUser(clientProfile);
+      setFirebaseUser(credential.user);
+
       try {
         const { doc, setDoc } = await import('firebase/firestore');
         const { db } = await import('../lib/firebase');
@@ -241,10 +232,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
         console.log("Registration profile saved directly to Firestore via Client SDK.");
       } catch (clientCreateErr) {
-        console.error("Direct Firestore write failed during registration, will try server registration.", clientCreateErr);
+        console.warn("Direct Firestore write failed during registration, keeping local profile.", clientCreateErr);
       }
 
-      // Try notifying the backend server to register (but do not throw if server is down / unresolvable)
       try {
         const res = await withTimeout(
           fetch('/api/register', {
@@ -261,15 +251,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const profile = await res.json();
           setUser(profile);
-        } else {
-          setUser(clientProfile);
         }
       } catch (err) {
         console.warn("Backend /api/register notification failed, using client profile.", err);
-        setUser(clientProfile);
       }
-
-      setFirebaseUser(credential.user);
     } catch (err) {
       console.error(err);
       throw err;
@@ -283,7 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, pass);
       setFirebaseUser(credential.user);
-      await fetchProfile(credential.user, true);
+      await fetchProfile(credential.user);
     } catch (err) {
       console.error(err);
       throw err;
@@ -297,7 +282,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const credential = await signInWithPopup(auth, googleProvider);
       setFirebaseUser(credential.user);
-      await fetchProfile(credential.user, true);
+      await fetchProfile(credential.user);
     } catch (err) {
       console.error(err);
       throw err;
@@ -308,11 +293,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const sendPhoneOtp = async (phone: string, containerId: string) => {
     try {
-      // Check recaptcha verifier
       const verifier = new RecaptchaVerifier(auth, containerId, {
         size: 'invisible',
       });
-      
+
       const confirmation = await signInWithPhoneNumber(auth, phone, verifier);
       setPhoneConfirmation(confirmation);
     } catch (err) {

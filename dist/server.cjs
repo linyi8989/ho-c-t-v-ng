@@ -133,6 +133,14 @@ var LocalDbEngine = class {
 };
 var localDb = new LocalDbEngine();
 var useLocalFallback = false;
+var FIREBASE_ADMIN_TIMEOUT_MS = 5e3;
+function withAdminTimeout(promise, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), FIREBASE_ADMIN_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
 async function runDiagnostic() {
   if (!hasServiceAccountCredentials) {
     console.warn("Firebase Admin credentials are not configured. Activating Local DB fallback engine.");
@@ -141,9 +149,12 @@ async function runDiagnostic() {
   }
   try {
     const testDoc = realDb.collection("system_status_check").doc("status");
-    await testDoc.set({ active: true, checkedAt: (/* @__PURE__ */ new Date()).toISOString() });
-    await testDoc.get();
-    await testDoc.delete();
+    await withAdminTimeout(
+      testDoc.set({ active: true, checkedAt: (/* @__PURE__ */ new Date()).toISOString() }),
+      "Firestore diagnostic set timed out."
+    );
+    await withAdminTimeout(testDoc.get(), "Firestore diagnostic get timed out.");
+    await withAdminTimeout(testDoc.delete(), "Firestore diagnostic delete timed out.");
     console.log("\u2705 Firestore connection diagnostics succeeded! Real Firestore DB will be used.");
     useLocalFallback = false;
   } catch (err) {
@@ -1204,8 +1215,6 @@ app2.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"])
   }
 });
 async function start() {
-  await firebaseDiagnosticReady;
-  await preSeedDb();
   if (process.env.NODE_ENV !== "production") {
     const vite = await (0, import_vite.createServer)({
       server: { middlewareMode: true },
@@ -1223,6 +1232,9 @@ async function start() {
   }
   app2.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
+  });
+  firebaseDiagnosticReady.then(() => preSeedDb()).catch((err) => {
+    console.error("Background Firebase startup tasks failed", err);
   });
 }
 start().catch((err) => {

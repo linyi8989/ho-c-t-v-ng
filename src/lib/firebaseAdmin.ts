@@ -132,6 +132,16 @@ const localDb = new LocalDbEngine();
 
 // Global flag to track fallback status
 let useLocalFallback = false;
+const FIREBASE_ADMIN_TIMEOUT_MS = 5000;
+
+function withAdminTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), FIREBASE_ADMIN_TIMEOUT_MS);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
 
 // We run a quick check. If it fails, we fall back to local DB immediately.
 async function runDiagnostic() {
@@ -143,9 +153,12 @@ async function runDiagnostic() {
 
   try {
     const testDoc = realDb.collection("system_status_check").doc("status");
-    await testDoc.set({ active: true, checkedAt: new Date().toISOString() });
-    await testDoc.get();
-    await testDoc.delete();
+    await withAdminTimeout(
+      testDoc.set({ active: true, checkedAt: new Date().toISOString() }),
+      "Firestore diagnostic set timed out."
+    );
+    await withAdminTimeout(testDoc.get(), "Firestore diagnostic get timed out.");
+    await withAdminTimeout(testDoc.delete(), "Firestore diagnostic delete timed out.");
     console.log("✅ Firestore connection diagnostics succeeded! Real Firestore DB will be used.");
     useLocalFallback = false;
   } catch (err: any) {

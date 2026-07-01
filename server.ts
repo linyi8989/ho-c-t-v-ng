@@ -1048,9 +1048,6 @@ app.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]),
 // ============================================================================
 
 async function start() {
-  await firebaseDiagnosticReady;
-  await preSeedDb();
-
   if (process.env.NODE_ENV !== "production") {
     // Start Vite in middleware mode
     const vite = await createViteServer({
@@ -1072,6 +1069,12 @@ async function start() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
+
+  firebaseDiagnosticReady
+    .then(() => preSeedDb())
+    .catch((err) => {
+      console.error("Background Firebase startup tasks failed", err);
+    });
 }
 
 start().catch((err) => {
