@@ -24,6 +24,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // server.ts
 var import_express = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
+var import_crypto = __toESM(require("crypto"), 1);
 var import_vite = require("vite");
 var import_genai = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -1601,13 +1602,42 @@ app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_a
     res.json(fallbackList);
   }
 });
+app2.get("/api/vocab-sets/share/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) {
+      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
+    }
+    const snapshot = await adminDb.collection("vocab_sets").get();
+    let found = null;
+    snapshot.forEach((doc) => {
+      const set = doc.data();
+      const setToken = set.shareToken || set.assignmentSlug;
+      if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
+        found = normalizeVocabSetForSave(set, set);
+      }
+    });
+    if (!found) {
+      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
+    }
+    res.json(found);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
   try {
-    const { search, grade, status } = req.query;
+    const { search, grade, status, visibility } = req.query;
     const snapshot = await adminDb.collection("vocab_sets").get();
     let list = [];
     snapshot.forEach((doc) => {
-      list.push(doc.data());
+      const set = doc.data();
+      const normalizedVisibility = getVocabVisibility(set);
+      list.push({
+        ...set,
+        visibility: normalizedVisibility,
+        status: toLegacyStatus(normalizedVisibility)
+      });
     });
     if (search) {
       const s = search.toLowerCase();
@@ -1621,8 +1651,11 @@ app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
     if (status) {
       list = list.filter((set) => set.status === status);
     }
+    if (visibility) {
+      list = list.filter((set) => getVocabVisibility(set) === visibility);
+    }
     if (req.user && req.user.role === "student") {
-      list = list.filter((set) => set.status === "public");
+      list = list.filter((set) => getVocabVisibility(set) === "public");
     }
     res.json(list);
   } catch (err) {
@@ -1634,13 +1667,13 @@ app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_ad
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const set = req.body;
     const id = `set-${Date.now()}`;
-    const newSet = {
+    const newSet = normalizeVocabSetForSave({
       ...set,
       id,
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id,
       creatorName: req.user.name
-    };
+    });
     await adminDb.collection("vocab_sets").doc(id).set(newSet);
     await logAuditAction(
       req.user.id,
@@ -1664,12 +1697,7 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
     if (!existingDoc.exists) {
       return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
-    const updatedSet = {
-      ...existingDoc.data(),
-      ...payload,
-      id
-      // preserve id
-    };
+    const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
     await docRef.set(updatedSet);
     await logAuditAction(
       req.user.id,
@@ -1722,15 +1750,16 @@ app2.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher",
     }
     const original = existing.data() || {};
     const cloneId = `set-${Date.now()}`;
-    const clone = {
+    const clone = normalizeVocabSetForSave({
       ...original,
       id: cloneId,
       title: `${original.title} (Nh\xE2n b\u1EA3n)`,
+      visibility: "draft",
       status: "draft",
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id,
       creatorName: req.user.name
-    };
+    });
     await adminDb.collection("vocab_sets").doc(cloneId).set(clone);
     await logAuditAction(
       req.user.id,
@@ -1903,7 +1932,7 @@ app2.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "s
     res.status(500).json({ error: err.message });
   }
 });
-app2.post("/api/game-sessions", authenticateUser, async (req, res) => {
+app2.post("/api/game-sessions", async (req, res) => {
   try {
     const payload = req.body;
     const id = `session-${Date.now()}`;
@@ -1911,6 +1940,7 @@ app2.post("/api/game-sessions", authenticateUser, async (req, res) => {
       ...payload,
       id,
       startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "started",
       score: 0,
       totalQuestions: 0,
       correctAnswers: 0,
@@ -1922,7 +1952,7 @@ app2.post("/api/game-sessions", authenticateUser, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app2.put("/api/game-sessions/:id", authenticateUser, async (req, res) => {
+app2.put("/api/game-sessions/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const payload = req.body;
@@ -1934,6 +1964,7 @@ app2.put("/api/game-sessions/:id", authenticateUser, async (req, res) => {
     const updatedSession = {
       ...existing.data(),
       ...payload,
+      status: "completed",
       completedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     await docRef.set(updatedSession);
@@ -2054,6 +2085,40 @@ async function start() {
   firebaseDiagnosticReady.then(() => preSeedDb()).catch((err) => {
     console.error("Background Firebase startup tasks failed", err);
   });
+}
+function getVocabVisibility(set) {
+  if (set?.visibility === "assignment" || set?.visibility === "public" || set?.visibility === "draft") {
+    return set.visibility;
+  }
+  if (set?.status === "private") return "assignment";
+  if (set?.status === "public") return "public";
+  return "draft";
+}
+function toLegacyStatus(visibility) {
+  return visibility === "assignment" ? "private" : visibility;
+}
+function createShareToken() {
+  return import_crypto.default.randomBytes(16).toString("hex");
+}
+function normalizeVocabSetForSave(payload, existing = {}) {
+  const merged = {
+    ...existing,
+    ...payload
+  };
+  const visibility = getVocabVisibility(merged);
+  const normalized = {
+    ...merged,
+    visibility,
+    status: toLegacyStatus(visibility)
+  };
+  if (visibility === "assignment") {
+    normalized.shareToken = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || createShareToken();
+    normalized.assignmentSlug = normalized.shareToken;
+  } else {
+    delete normalized.shareToken;
+    delete normalized.assignmentSlug;
+  }
+  return normalized;
 }
 start().catch((err) => {
   console.error("Failed to start fullstack server", err);

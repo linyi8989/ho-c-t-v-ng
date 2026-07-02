@@ -45,6 +45,9 @@ export interface VocabSet {
   createdBy: string; // User ID or "system"
   creatorName: string;
   status: 'draft' | 'public' | 'private';
+  visibility?: 'public' | 'assignment' | 'draft';
+  shareToken?: string;
+  assignmentSlug?: string;
   items: VocabItem[];
 }
 

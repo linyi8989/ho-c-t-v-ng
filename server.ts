@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -506,14 +507,48 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
   }
 });
 
-// 5. VOCAB SETS: Get all vocab sets
+// 5. VOCAB SETS: Open an assignment/private set by share token
+app.get("/api/vocab-sets/share/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) {
+      return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
+    }
+
+    const snapshot = await adminDb.collection("vocab_sets").get();
+    let found: any = null;
+    snapshot.forEach(doc => {
+      const set = doc.data();
+      const setToken = set.shareToken || set.assignmentSlug;
+      if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
+        found = normalizeVocabSetForSave(set, set);
+      }
+    });
+
+    if (!found) {
+      return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
+    }
+
+    res.json(found);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. VOCAB SETS: Get all vocab sets
 app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
   try {
-    const { search, grade, status } = req.query;
+    const { search, grade, status, visibility } = req.query;
     const snapshot = await adminDb.collection("vocab_sets").get();
     let list: any[] = [];
     snapshot.forEach(doc => {
-      list.push(doc.data());
+      const set = doc.data();
+      const normalizedVisibility = getVocabVisibility(set);
+      list.push({
+        ...set,
+        visibility: normalizedVisibility,
+        status: toLegacyStatus(normalizedVisibility)
+      });
     });
 
     // Filter list
@@ -534,9 +569,13 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
       list = list.filter(set => set.status === status);
     }
 
+    if (visibility) {
+      list = list.filter(set => getVocabVisibility(set) === visibility);
+    }
+
     // Role check: students can only see 'public' sets! Teachers/admins see all.
     if (req.user && req.user.role === "student") {
-      list = list.filter(set => set.status === "public");
+      list = list.filter(set => getVocabVisibility(set) === "public");
     }
 
     res.json(list);
@@ -545,19 +584,19 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
   }
 });
 
-// 6. VOCAB SETS: Create new set
+// 7. VOCAB SETS: Create new set
 app.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const set = req.body;
     const id = `set-${Date.now()}`;
-    const newSet = {
+    const newSet = normalizeVocabSetForSave({
       ...set,
       id,
       createdAt: new Date().toISOString(),
       createdBy: req.user.id,
       creatorName: req.user.name
-    };
+    });
 
     await adminDb.collection("vocab_sets").doc(id).set(newSet);
     
@@ -576,7 +615,7 @@ app.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_adm
   }
 });
 
-// 7. VOCAB SETS: Update set
+// 8. VOCAB SETS: Update set
 app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
@@ -589,11 +628,7 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
       return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
     }
 
-    const updatedSet = {
-      ...existingDoc.data(),
-      ...payload,
-      id // preserve id
-    };
+    const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
 
     await docRef.set(updatedSet);
 
@@ -612,7 +647,7 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
   }
 });
 
-// 8. VOCAB SETS: Delete set
+// 9. VOCAB SETS: Delete set
 app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
@@ -650,7 +685,7 @@ app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "sup
   }
 });
 
-// 9. VOCAB SETS: Clone set
+// 10. VOCAB SETS: Clone set
 app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
@@ -663,15 +698,16 @@ app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", 
 
     const original = existing.data() || {};
     const cloneId = `set-${Date.now()}`;
-    const clone = {
+    const clone = normalizeVocabSetForSave({
       ...original,
       id: cloneId,
       title: `${original.title} (Nhân bản)`,
+      visibility: "draft",
       status: "draft",
       createdAt: new Date().toISOString(),
       createdBy: req.user.id,
       creatorName: req.user.name
-    };
+    });
 
     await adminDb.collection("vocab_sets").doc(cloneId).set(clone);
 
@@ -690,7 +726,7 @@ app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", 
   }
 });
 
-// 10. CLASSES: Get all classes
+// 11. CLASSES: Get all classes
 app.get("/api/classes", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("classes").get();
@@ -891,7 +927,7 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
 });
 
 // 19. GAME SESSIONS: Start a session
-app.post("/api/game-sessions", authenticateUser, async (req, res) => {
+app.post("/api/game-sessions", async (req, res) => {
   try {
     const payload = req.body;
     const id = `session-${Date.now()}`;
@@ -899,6 +935,7 @@ app.post("/api/game-sessions", authenticateUser, async (req, res) => {
       ...payload,
       id,
       startedAt: new Date().toISOString(),
+      status: "started",
       score: 0,
       totalQuestions: 0,
       correctAnswers: 0,
@@ -913,7 +950,7 @@ app.post("/api/game-sessions", authenticateUser, async (req, res) => {
 });
 
 // 20. GAME SESSIONS: Update/complete session results
-app.put("/api/game-sessions/:id", authenticateUser, async (req, res) => {
+app.put("/api/game-sessions/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const payload = req.body;
@@ -927,6 +964,7 @@ app.put("/api/game-sessions/:id", authenticateUser, async (req, res) => {
     const updatedSession = {
       ...existing.data(),
       ...payload,
+      status: "completed",
       completedAt: new Date().toISOString()
     };
 
@@ -1088,6 +1126,48 @@ async function start() {
     .catch((err) => {
       console.error("Background Firebase startup tasks failed", err);
     });
+}
+
+type VocabVisibility = "public" | "assignment" | "draft";
+
+function getVocabVisibility(set: any): VocabVisibility {
+  if (set?.visibility === "assignment" || set?.visibility === "public" || set?.visibility === "draft") {
+    return set.visibility;
+  }
+  if (set?.status === "private") return "assignment";
+  if (set?.status === "public") return "public";
+  return "draft";
+}
+
+function toLegacyStatus(visibility: VocabVisibility): "public" | "private" | "draft" {
+  return visibility === "assignment" ? "private" : visibility;
+}
+
+function createShareToken() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function normalizeVocabSetForSave(payload: any, existing: any = {}) {
+  const merged = {
+    ...existing,
+    ...payload
+  };
+  const visibility = getVocabVisibility(merged);
+  const normalized = {
+    ...merged,
+    visibility,
+    status: toLegacyStatus(visibility)
+  };
+
+  if (visibility === "assignment") {
+    normalized.shareToken = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || createShareToken();
+    normalized.assignmentSlug = normalized.shareToken;
+  } else {
+    delete normalized.shareToken;
+    delete normalized.assignmentSlug;
+  }
+
+  return normalized;
 }
 
 start().catch((err) => {

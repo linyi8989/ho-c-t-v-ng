@@ -14,6 +14,21 @@ interface AdminDashboardProps {
 }
 
 type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
+type VocabVisibility = 'public' | 'assignment' | 'draft';
+
+const getSetVisibility = (set: VocabSet): VocabVisibility => {
+  if (set.visibility === 'public' || set.visibility === 'assignment' || set.visibility === 'draft') {
+    return set.visibility;
+  }
+  if (set.status === 'private') return 'assignment';
+  if (set.status === 'public') return 'public';
+  return 'draft';
+};
+
+const getAssignmentLink = (set: VocabSet) => {
+  const token = set.shareToken || set.assignmentSlug;
+  return token ? `${window.location.origin}/assignment/${token}` : '';
+};
 
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
@@ -45,7 +60,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [editorDescription, setEditorDescription] = useState('');
   const [editorSubject, setEditorSubject] = useState('English');
   const [editorGrade, setEditorGrade] = useState('Lớp 3');
-  const [editorStatus, setEditorStatus] = useState<'draft' | 'public' | 'private'>('public');
+  const [editorStatus, setEditorStatus] = useState<VocabVisibility>('public');
   const [editorTags, setEditorTags] = useState<string[]>([]);
   const [editorItems, setEditorItems] = useState<VocabItem[]>([]);
 
@@ -72,6 +87,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   // Notifications
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [shareLinkNotice, setShareLinkNotice] = useState<{ title: string; url: string } | null>(null);
 
   // Authenticated custom fetch wrapper
   const authFetch = (url: string, options: any = {}) => {
@@ -165,7 +181,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditorDescription(set.description);
     setEditorSubject(set.subject);
     setEditorGrade(set.gradeLevel);
-    setEditorStatus(set.status);
+    setEditorStatus(getSetVisibility(set));
     setEditorTags(set.tags);
     setEditorItems([...set.items]);
     setBatchTerms('');
@@ -345,7 +361,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       description: editorDescription,
       subject: editorSubject,
       gradeLevel: editorGrade,
-      status: editorStatus,
+      visibility: editorStatus,
+      status: editorStatus === 'assignment' ? 'private' : editorStatus,
       tags: editorTags,
       createdBy: user?.id || "teacher-1",
       creatorName: user?.name || "Cô Thảo English",
@@ -363,6 +380,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     .then(res => res.json())
     .then(data => {
       showNotification("Lưu bộ từ vựng thành công!");
+      const savedVisibility = getSetVisibility(data);
+      const assignmentUrl = getAssignmentLink(data);
+      if (savedVisibility === 'assignment' && assignmentUrl) {
+        setShareLinkNotice({ title: data.title, url: assignmentUrl });
+      } else {
+        setShareLinkNotice(null);
+      }
       refreshData();
       setActiveTab('vocab-sets');
     })
@@ -522,7 +546,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           set.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           set.subject.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesGrade = filterGrade ? set.gradeLevel === filterGrade : true;
-    const matchesStatus = filterStatus ? set.status === filterStatus : true;
+    const matchesStatus = filterStatus ? getSetVisibility(set) === filterStatus : true;
     return matchesSearch && matchesGrade && matchesStatus;
   });
 
@@ -589,6 +613,37 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         }`} id="admin-toast">
           {notification.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
           <span>{notification.message}</span>
+        </div>
+      )}
+
+      {shareLinkNotice && (
+        <div className="fixed top-20 right-4 z-50 w-[min(92vw,420px)] bg-white border border-indigo-100 rounded-3xl shadow-xl p-4 space-y-3" id="assignment-link-panel">
+          <div>
+            <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bài riêng</p>
+            <p className="text-sm font-extrabold text-gray-800 truncate">{shareLinkNotice.title}</p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={shareLinkNotice.url}
+              readOnly
+              className="min-w-0 flex-1 bg-gray-50 border border-gray-100 rounded-2xl px-3 py-2 text-xs font-semibold text-gray-600"
+            />
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(shareLinkNotice.url);
+                showNotification("Đã copy link giao bài.");
+              }}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs transition-all"
+            >
+              Copy
+            </button>
+          </div>
+          <button
+            onClick={() => setShareLinkNotice(null)}
+            className="text-xs font-bold text-gray-400 hover:text-gray-700"
+          >
+            Đóng
+          </button>
         </div>
       )}
 
@@ -914,7 +969,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <option value="">Tất cả Trạng thái</option>
                   <option value="public">Công khai</option>
                   <option value="draft">Bản nháp</option>
-                  <option value="private">Riêng tư</option>
+                  <option value="assignment">Giao bài tập bằng link riêng</option>
                 </select>
               </div>
             </div>
@@ -926,7 +981,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="sets-grid">
-                {filteredSets.map((set) => (
+                {filteredSets.map((set) => {
+                  const visibility = getSetVisibility(set);
+                  const assignmentLink = getAssignmentLink(set);
+                  return (
                   <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 hover:shadow-md transition-all flex flex-col justify-between" id={`set-card-${set.id}`}>
                     <div className="space-y-3">
                       <div className="flex justify-between items-start">
@@ -934,10 +992,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           {set.gradeLevel}
                         </span>
                         <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          set.status === 'public' ? 'bg-emerald-50 text-emerald-600' :
-                          set.status === 'draft' ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'
+                          visibility === 'public' ? 'bg-emerald-50 text-emerald-600' :
+                          visibility === 'draft' ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
                         }`}>
-                          {set.status === 'public' ? 'CÔNG KHAI' : set.status === 'draft' ? 'BẢN NHÁP' : 'RIÊNG TƯ'}
+                          {visibility === 'public' ? 'CÔNG KHAI' : visibility === 'draft' ? 'BẢN NHÁP' : 'LINK RIÊNG'}
                         </span>
                       </div>
 
@@ -952,6 +1010,28 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           <span key={idx} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-2 py-0.5 rounded">#{t}</span>
                         ))}
                       </div>
+                      {visibility === 'assignment' && assignmentLink && (
+                        <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
+                          <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bài</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={assignmentLink}
+                              readOnly
+                              className="min-w-0 flex-1 bg-white border border-indigo-100 rounded-xl px-3 py-2 text-[11px] font-semibold text-gray-600"
+                            />
+                            <button
+                              onClick={() => {
+                                navigator.clipboard?.writeText(assignmentLink);
+                                showNotification("Đã copy link giao bài.");
+                              }}
+                              className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer"
+                              title="Copy link giao bài"
+                            >
+                              <Copy size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
@@ -989,7 +1069,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       </div>
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
             )}
           </div>
@@ -1086,9 +1166,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     onChange={(e) => setEditorStatus(e.target.value as any)}
                     className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-gray-600 text-sm"
                   >
-                    <option value="public">Công khai cho học sinh học tự do</option>
-                    <option value="private">Riêng tư chỉ dùng giao bài tập</option>
-                    <option value="draft">Bản nháp lưu tạm</option>
+                    <option value="public">Công khai: Hiển thị ở trang chủ, ai cũng có thể học</option>
+                    <option value="assignment">Giao bài tập bằng link riêng: Không hiện công khai, chỉ ai có link mới làm được</option>
+                    <option value="draft">Bản nháp: Chỉ lưu tạm, học sinh chưa xem được</option>
                   </select>
                 </div>
 
@@ -1532,7 +1612,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       required
                     >
                       <option value="">-- Chọn bộ từ --</option>
-                      {vocabSets.filter(s => s.status === 'public').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                      {vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
 

@@ -14,10 +14,17 @@ export default function App() {
   const { user, token, logout, loading } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [adminMode, setAdminMode] = useState(false);
+  const privateAssignmentToken = React.useMemo(() => {
+    const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }, []);
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [privateAssignmentSet, setPrivateAssignmentSet] = useState<VocabSet | null>(null);
+  const [privateAssignmentLoading, setPrivateAssignmentLoading] = useState(!!privateAssignmentToken);
+  const [privateAssignmentError, setPrivateAssignmentError] = useState('');
 
   // Search/Filter for homepage
   const [homeSearch, setHomeSearch] = useState('');
@@ -110,6 +117,26 @@ export default function App() {
     loadHomeData();
   }, [token, user]);
 
+  useEffect(() => {
+    if (!privateAssignmentToken) return;
+
+    setPrivateAssignmentLoading(true);
+    setPrivateAssignmentError('');
+    fetch(`/api/vocab-sets/share/${encodeURIComponent(privateAssignmentToken)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'Không tìm thấy bài tập hoặc link không hợp lệ');
+        }
+        setPrivateAssignmentSet(data);
+      })
+      .catch((err) => {
+        setPrivateAssignmentSet(null);
+        setPrivateAssignmentError(err.message || 'Không tìm thấy bài tập hoặc link không hợp lệ');
+      })
+      .finally(() => setPrivateAssignmentLoading(false));
+  }, [privateAssignmentToken]);
+
   const handleViewAsStudent = (set: VocabSet, gameId?: string, assignmentId?: string) => {
     setSelectedSet(set);
     setActiveGameId(gameId);
@@ -123,7 +150,8 @@ export default function App() {
     const matchSearch = set.title.toLowerCase().includes(homeSearch.toLowerCase()) || 
                         set.description.toLowerCase().includes(homeSearch.toLowerCase());
     const matchGrade = homeGrade ? set.gradeLevel === homeGrade : true;
-    return set.status === 'public' && matchSearch && matchGrade;
+    const visibility = set.visibility || (set.status === 'private' ? 'assignment' : set.status);
+    return visibility === 'public' && matchSearch && matchGrade;
   });
 
   // --- SCREEN RENDERS ---
@@ -135,6 +163,44 @@ export default function App() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
         <p className="text-gray-500 font-bold text-sm">Đang kết nối hệ thống V-Homework...</p>
       </div>
+    );
+  }
+
+  if (privateAssignmentToken) {
+    if (privateAssignmentLoading) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+          <p className="text-gray-500 font-bold text-sm">Đang mở bài tập...</p>
+        </div>
+      );
+    }
+
+    if (privateAssignmentError || !privateAssignmentSet) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+          <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-gray-100 shadow-xl space-y-5 text-center">
+            <ShieldAlert size={40} className="text-rose-600 mx-auto" />
+            <h1 className="text-xl font-black text-gray-900">Không tìm thấy bài tập hoặc link không hợp lệ</h1>
+            <p className="text-sm text-gray-500">Vui lòng kiểm tra lại đường link giáo viên đã gửi.</p>
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-2xl transition-all"
+            >
+              Về trang chủ
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <StudentLearningArea
+        vocabSet={privateAssignmentSet}
+        studentName=""
+        initialGameId={undefined}
+        onBack={() => { window.location.href = '/'; }}
+      />
     );
   }
 
