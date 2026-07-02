@@ -14,6 +14,7 @@ import FillBlankGame from './FillBlankGame';
 import MatchingGame from './MatchingGame';
 import MemoryGame from './MemoryGame';
 import MillionaireGame from './MillionaireGame';
+import { useAuth } from '../../context/AuthContext';
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -30,6 +31,7 @@ export default function StudentLearningArea({
   initialGameId, 
   onBack 
 }: StudentLearningAreaProps) {
+  const { token } = useAuth();
   const [studentName, setStudentName] = useState(propStudentName || '');
   const [nameSubmitted, setNameSubmitted] = useState(!!propStudentName);
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
@@ -59,7 +61,10 @@ export default function StudentLearningArea({
     // Create a new session on the server
     fetch('/api/game-sessions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({
         assignmentId,
         vocabSetId: vocabSet.id,
@@ -102,7 +107,7 @@ export default function StudentLearningArea({
         console.error("Direct Firestore game session creation failed:", firestoreErr);
       }
     });
-  }, [selectedGame, nameSubmitted, studentName, vocabSet, assignmentId]);
+  }, [selectedGame, nameSubmitted, studentName, vocabSet, assignmentId, token]);
 
   const handleShuffle = () => {
     if (isRandomized) {
@@ -146,7 +151,10 @@ export default function StudentLearningArea({
     // Update session stats on the server
     fetch(`/api/game-sessions/${session.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({
         score,
         totalQuestions: correct + incorrect,

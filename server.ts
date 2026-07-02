@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { adminDb, adminAuth, firebaseDiagnosticReady } from "./src/lib/firebaseAdmin.js";
+import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics } from "./src/lib/firebaseAdmin.js";
 
 // Load environment variables
 dotenv.config();
@@ -349,6 +349,19 @@ app.get("/api/auth/debug", async (req, res) => {
       stack: err.stack
     });
   }
+});
+
+app.get("/api/diagnostics/storage", async (req, res) => {
+  const secret = process.env.DIAGNOSTIC_SECRET;
+  if (!secret) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  if (req.query.secret !== secret) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  res.json(getStorageDiagnostics());
 });
 
 // 0. GET EMAIL BY PHONE (Unauthenticated - for Phone + Password login)

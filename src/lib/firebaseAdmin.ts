@@ -4,10 +4,17 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
+import {
+  getSQLiteDiagnostics,
+  initializeSQLiteStorage,
+  SQLiteFirestore
+} from './sqliteStorage';
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+const storageMode = process.env.STORAGE_MODE || "firebase-first";
+const isSQLiteStorageMode = storageMode === "sqlite";
 const hasServiceAccountCredentials = Boolean(projectId && clientEmail && privateKey);
 const serviceAccount = hasServiceAccountCredentials
   ? {
@@ -31,6 +38,10 @@ const realDb = getFirestore(app);
 export const adminAuth = getAuth(app);
 
 console.log(`Firebase Admin initialized for project: ${projectId || '(not configured)'}, Database: (default)`);
+
+if (isSQLiteStorageMode) {
+  initializeSQLiteStorage();
+}
 
 // ============================================================================
 // SELF-HEALING LOCAL DB ENGINE (FALLBACK)
@@ -145,6 +156,12 @@ function withAdminTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
 
 // We run a quick check. If it fails, we fall back to local DB immediately.
 async function runDiagnostic() {
+  if (isSQLiteStorageMode) {
+    console.log("STORAGE_MODE=sqlite. Skipping Firestore storage diagnostic; SQLite will be used for app data.");
+    useLocalFallback = false;
+    return;
+  }
+
   if (!hasServiceAccountCredentials) {
     console.warn("Firebase Admin credentials are not configured. Activating Local DB fallback engine.");
     useLocalFallback = true;
@@ -456,4 +473,21 @@ class FallbackFirestore {
   }
 }
 
-export const adminDb = new FallbackFirestore() as any;
+export const adminDb = (isSQLiteStorageMode ? new SQLiteFirestore() : new FallbackFirestore()) as any;
+
+export function getStorageDiagnostics() {
+  if (isSQLiteStorageMode) {
+    return getSQLiteDiagnostics();
+  }
+
+  return {
+    storageMode,
+    sqliteEnabled: false,
+    sqliteDbPath: null,
+    sqliteFileExists: false,
+    sqliteReady: false,
+    tableCounts: null,
+    lastMigration: null,
+    lastError: useLocalFallback ? "Using local db.json fallback for app data." : null,
+  };
+}
