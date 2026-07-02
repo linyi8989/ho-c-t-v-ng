@@ -157,5 +157,23 @@ export const GAMES_LIST: GameConfig[] = [
     config: {
       gridSize: 'small'
     }
+  },
+
+  // --- MILLIONAIRE GAME SHOW GROUP ---
+  {
+    gameId: 'millionaire-vocab',
+    title: 'Ai là triệu phú',
+    description: 'Trả lời 15 câu hỏi nghĩa của từ tiếng Anh theo phong cách game show.',
+    category: 'millionaire',
+    icon: 'Trophy',
+    color: 'from-violet-600 to-blue-700',
+    componentName: 'MillionaireGame',
+    requiredFields: ['term', 'meaning'],
+    config: {
+      maxQuestions: 15,
+      questionType: 'term',
+      answerType: 'meaning',
+      enableLifelines: true
+    }
   }
 ];

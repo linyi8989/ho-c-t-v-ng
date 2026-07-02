@@ -80,10 +80,10 @@ export interface GameConfig {
   gameId: string;
   title: string;
   description: string;
-  category: 'flashcard' | 'quiz' | 'fill' | 'matching' | 'memory' | 'speed';
+  category: 'flashcard' | 'quiz' | 'fill' | 'matching' | 'memory' | 'millionaire' | 'speed';
   icon: string; // name of lucide icon
   color: string; // Tailwind bg/text class
-  componentName: 'FlashcardGame' | 'QuizGame' | 'FillBlankGame' | 'MatchingGame' | 'MemoryGame' | 'HangmanGame';
+  componentName: 'FlashcardGame' | 'QuizGame' | 'FillBlankGame' | 'MatchingGame' | 'MemoryGame' | 'MillionaireGame' | 'HangmanGame';
   requiredFields: string[];
   config: Record<string, any>;
 }

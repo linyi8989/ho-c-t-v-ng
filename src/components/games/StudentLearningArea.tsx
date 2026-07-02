@@ -13,6 +13,7 @@ import QuizGame from './QuizGame';
 import FillBlankGame from './FillBlankGame';
 import MatchingGame from './MatchingGame';
 import MemoryGame from './MemoryGame';
+import MillionaireGame from './MillionaireGame';
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -216,6 +217,8 @@ export default function StudentLearningArea({
         return <MatchingGame {...gameProps} />;
       case 'MemoryGame':
         return <MemoryGame {...gameProps} />;
+      case 'MillionaireGame':
+        return <MillionaireGame {...gameProps} />;
       default:
         return (
           <div className="p-8 text-center text-gray-500 bg-white rounded-2xl border border-gray-100">
@@ -426,14 +429,15 @@ export default function StudentLearningArea({
 
             {/* List Game Templates grouped by category */}
             <div className="space-y-6" id="games-grouped-list">
-              {['flashcard', 'quiz', 'fill', 'matching', 'memory'].map(category => {
+              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'].map(category => {
                 const categoryGames = GAMES_LIST.filter(g => g.category === category);
                 const categoryTitles: Record<string, string> = {
                   flashcard: '⚡ Nhóm Flashcard',
                   quiz: '✏️ Nhóm Trắc nghiệm',
                   fill: '⌨️ Nhóm Điền từ / Viết',
                   matching: '🧩 Nhóm Ghép đôi',
-                  memory: '🧠 Nhóm Luyện trí nhớ'
+                  memory: '🧠 Nhóm Luyện trí nhớ',
+                  millionaire: 'Ai là triệu phú'
                 };
 
                 return (

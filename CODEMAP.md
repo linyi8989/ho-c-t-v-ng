@@ -1,0 +1,743 @@
+# CODEMAP - V-Homework Vocabulary Learning Platform
+
+Last updated: 2026-07-02
+
+## 1. Project Overview
+
+This project is a full-stack vocabulary learning web app for students, teachers, and super admins.
+
+Core capabilities:
+
+- Student login/register and vocabulary learning portal.
+- Teacher/admin dashboard for vocabulary sets, classes, assignments, results, and AI generation.
+- Game engine with flashcards, quiz, fill-blank, matching, and memory games.
+- Firebase Authentication plus Firestore data storage.
+- Express backend API with Firebase Admin and a local `db.json` fallback layer.
+- Gemini-powered IPA and vocabulary generation, with local fallback output when API key/service is unavailable.
+- Production hosting through bundled Node server and static Vite build.
+
+Primary stack:
+
+- React 19 + Vite 6 + TypeScript.
+- Tailwind CSS v4 via `@tailwindcss/vite`.
+- Express 4 backend in `server.ts`.
+- Firebase client SDK in frontend.
+- Firebase Admin SDK in backend.
+- `@google/genai` for Gemini.
+- `lucide-react` icons and `motion/react` animation.
+
+## 2. Important Files
+
+### Root
+
+- `package.json`: scripts and dependencies.
+- `server.ts`: Express API server, auth middleware, seed logic, Gemini routes, CRUD routes, static/Vite serving.
+- `app.js`: production entry that imports `./dist/server.cjs`.
+- `vite.config.ts`: Vite config, React plugin, Tailwind plugin, alias `@` to repo root, output `dist/client`.
+- `tsconfig.json`: TS config; `allowJs`, `noEmit`, bundler module resolution.
+- `index.html`: Vite HTML entry.
+- `src/main.tsx`: React root; wraps app in `AuthProvider`.
+- `src/App.tsx`: top-level screen routing and home portal.
+- `src/index.css`: global dark/glass theme and broad Tailwind utility overrides.
+- `db.json`: local fallback database used by backend fallback layer.
+- `firestore.rules`: Firestore security rules.
+- `firebase.json`: Firestore rules config only.
+- `firebase-blueprint.json`: AI Studio data blueprint; partly stale compared with current `src/types.ts`.
+- `.cpanel.yml`: cPanel deployment copy tasks.
+- `.env.example`: required public Firebase and server Firebase env keys.
+- `.env.production`: real production env file exists locally; do not expose contents.
+- `dist/`: generated production output; do not edit manually.
+- `node_modules/`: installed dependencies; do not edit.
+
+### Frontend Source
+
+- `src/types.ts`: shared app domain types.
+- `src/context/AuthContext.tsx`: client auth state, login/register, profile sync.
+- `src/lib/firebase.ts`: Firebase client initialization.
+- `src/lib/firebaseAdmin.ts`: backend Firebase Admin initialization plus local fallback Firestore compatibility layer.
+- `src/lib/authErrors.ts`: maps Firebase auth errors to user-facing messages.
+- `src/lib/game-engine/gameList.ts`: registry of game modes.
+- `src/lib/game-engine/speech.ts`: browser Web Speech API wrapper.
+- `src/components/Login.tsx`: email/phone/Google login UI.
+- `src/components/Register.tsx`: email registration UI.
+- `src/components/admin/AdminDashboard.tsx`: large admin/teacher dashboard.
+- `src/components/games/StudentLearningArea.tsx`: student game shell/session manager.
+- `src/components/games/*Game.tsx`: individual game implementations.
+- `src/components/games/GameControlPanel.tsx`: shared control panel for games.
+
+## 3. Runtime Architecture
+
+### Development
+
+Command:
+
+```bash
+npm run dev
+```
+
+`npm run dev` runs:
+
+```bash
+tsx server.ts
+```
+
+In non-production mode, `server.ts` creates a Vite middleware server and mounts it into Express. The same Express process serves API routes and frontend dev assets.
+
+### Production
+
+Command:
+
+```bash
+npm run build
+npm start
+```
+
+Build script:
+
+```bash
+node -e "require('fs').rmSync('dist',{recursive:true,force:true})" && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+```
+
+Output:
+
+- Client: `dist/client`.
+- Server bundle: `dist/server.cjs`.
+- Entry: `app.js` imports `./dist/server.cjs`.
+
+In production, `server.ts` serves `dist/client` statically and returns `index.html` for SPA fallback routes.
+
+### cPanel Deploy
+
+`.cpanel.yml` copies:
+
+- `dist/client/*` to `/home/qzmivzbj/app.msdieu.com`.
+- full `dist` folder.
+- `app.js`, `package.json`, `package-lock.json`, `db.json`.
+
+The host must have production env vars available to Node. Static-only hosting will show the React app, but API-backed features need the Node server running.
+
+## 4. Authentication And User Model
+
+### Client Auth
+
+`src/context/AuthContext.tsx` owns:
+
+- `user`: app profile from Firestore/backend.
+- `firebaseUser`: Firebase Auth user.
+- `token`: Firebase ID token.
+- `loading`: auth restore/loading flag.
+- login/register/logout methods.
+
+Supported auth flows:
+
+- Email/password login via Firebase Auth.
+- Google popup login via Firebase Auth.
+- Phone + password login implemented as:
+  - `Login.tsx` calls `/api/auth/email-by-phone`.
+  - Backend finds user profile by phone.
+  - Client logs in with returned email and password.
+- Phone OTP helper methods exist in `AuthContext`, but current `Register.tsx` uses email registration with optional phone, not full OTP registration UI.
+
+Profile sync behavior:
+
+1. On auth state change, Firebase ID token is fetched.
+2. A fallback profile is created locally.
+3. Client attempts direct Firestore read from `users/{uid}`.
+4. Client attempts backend `/api/me`.
+5. If no profile exists, client attempts direct Firestore profile creation.
+
+Important: frontend intentionally has direct Firestore fallback paths when backend API is unavailable.
+
+### Backend Auth
+
+`server.ts` middleware:
+
+- `authenticateUser`: requires `Authorization: Bearer <Firebase ID token>`.
+- Verifies token with `adminAuth.verifyIdToken`.
+- Loads/creates `users/{uid}` profile.
+- Assigns `super_admin` role automatically for:
+  - `linyi8901@gmail.com`
+  - `admin@vocabulary.edu.vn`
+- Blocks API access if user status is `blocked`.
+- Adds `req.user`.
+
+`requireRole([...])` restricts teacher/super_admin/admin-only endpoints.
+
+### Roles
+
+Current active roles in backend and auth context:
+
+- `student`
+- `teacher`
+- `super_admin`
+
+Note: `src/types.ts` still declares `Role = 'admin' | 'teacher' | 'student'`, which is stale/inconsistent with current app code that uses `super_admin`.
+
+### Statuses
+
+Current statuses:
+
+- `active`
+- `pending`
+- `blocked`
+- `deleted`
+
+`App.tsx` blocks UI if `user.status === 'blocked'`.
+
+## 5. Data Model And Firestore Collections
+
+Canonical runtime collections:
+
+- `users`
+- `vocab_sets`
+- `classes`
+- `class_members`
+- `assignments`
+- `game_sessions`
+- `audit_logs`
+
+### User Profile
+
+Fields used:
+
+- `id`
+- `name`
+- `email`
+- `phone?`
+- `role`: `student | teacher | super_admin`
+- `status`: `active | pending | blocked | deleted`
+- `createdAt`
+
+### VocabSet
+
+Fields:
+
+- `id`
+- `title`
+- `description`
+- `subject`
+- `tags`
+- `gradeLevel`
+- `createdAt`
+- `createdBy`
+- `creatorName`
+- `status`: `draft | public | private`
+- `items: VocabItem[]`
+
+### VocabItem
+
+Fields:
+
+- `id`
+- `term`
+- `meaning`
+- `ipa`
+- `pos`
+- `example`
+- `exampleMeaning`
+- `imageUrl?`
+- `audioUrl?`
+- `notes?`
+- `displayOrder`
+
+### Class
+
+Fields:
+
+- `id`
+- `name`
+- `code`
+- `teacherId`
+- `createdAt?`
+
+### ClassMember
+
+Fields:
+
+- `id`
+- `classId`
+- `studentName`
+
+Currently this is name-based roster data, not strongly linked to Firebase user IDs.
+
+### Assignment
+
+Fields:
+
+- `id`
+- `classId`
+- `className`
+- `vocabSetId`
+- `vocabSetTitle`
+- `gameId`
+- `dueDate`
+- `createdAt`
+- `createdBy`
+- `title`
+
+### GameSession
+
+Fields:
+
+- `id`
+- `assignmentId?`
+- `vocabSetId`
+- `vocabSetTitle`
+- `gameId`
+- `studentName`
+- `startedAt`
+- `completedAt?`
+- `score`
+- `totalQuestions`
+- `correctAnswers`
+- `incorrectAnswers`
+
+Some fallback client writes also add `status: 'started' | 'completed'`.
+
+## 6. Backend API Map
+
+All routes are in `server.ts`.
+
+Unauthenticated:
+
+- `GET /api/auth/debug`: checks backend DB access/debug info.
+- `POST /api/auth/email-by-phone`: maps phone number to email for phone + password login.
+
+Authenticated:
+
+- `GET /api/me`: current user profile.
+- `POST /api/register`: sync registration profile fields.
+- `POST /api/ai/ipa`: generate IPA for one word.
+- `GET /api/vocab-sets`: list vocab sets; students only receive `public`.
+- `GET /api/classes`: list classes.
+- `GET /api/class-members`: list class members.
+- `GET /api/assignments`: list assignments.
+- `POST /api/game-sessions`: start game session.
+- `PUT /api/game-sessions/:id`: complete/update game session.
+- `GET /api/results`: list completed game sessions.
+
+Teacher or super admin:
+
+- `POST /api/ai/generate`: generate vocab items by topic/grade/count.
+- `POST /api/vocab-sets`: create vocab set.
+- `PUT /api/vocab-sets/:id`: update vocab set.
+- `DELETE /api/vocab-sets/:id`: delete vocab set and related assignments.
+- `POST /api/vocab-sets/:id/clone`: clone vocab set as draft.
+- `POST /api/classes`: create class.
+- `DELETE /api/classes/:id`: delete class, members, and assignments.
+- `POST /api/classes/:classId/members`: add class member.
+- `DELETE /api/classes/:classId/members/:memberId`: delete class member.
+- `POST /api/assignments`: create assignment.
+- `DELETE /api/assignments/:id`: delete assignment.
+
+Super admin only:
+
+- `GET /api/admin/users`: list all users.
+- `PUT /api/admin/users/:userId/role`: change role and Firebase custom claims.
+- `PUT /api/admin/users/:userId/status`: lock/unlock/change status.
+- `GET /api/admin/audit-logs`: list audit logs ordered by timestamp desc.
+
+## 7. Backend Fallback DB Layer
+
+`src/lib/firebaseAdmin.ts` exports:
+
+- `adminDb`: custom Firestore-like facade.
+- `adminAuth`: Firebase Admin Auth.
+- `firebaseDiagnosticReady`: startup diagnostic promise.
+
+Behavior:
+
+1. Tries to initialize Firebase Admin from env:
+   - `FIREBASE_PROJECT_ID`
+   - `FIREBASE_CLIENT_EMAIL`
+   - `FIREBASE_PRIVATE_KEY`
+2. Runs diagnostic write/read/delete.
+3. If missing credentials or diagnostic fails, switches to local fallback.
+4. Local fallback reads/writes `db.json`.
+5. When Firestore works, writes also sync to local DB for resilience.
+
+Collection name mapping for `db.json`:
+
+- `class_members` -> `classMembers`
+- `vocab_sets` -> `vocabSets`
+- `game_sessions` -> `gameSessions`
+- `audit_logs` -> `auditLogs`
+
+Important implementation risk:
+
+- `FallbackDoc.collectionName` is private but batch code accesses it through `any`; works at runtime but is fragile.
+- Local fallback supports basic `where`, `orderBy`, `limit`, not full Firestore semantics.
+
+## 8. Frontend Screen Flow
+
+`src/main.tsx`:
+
+- Creates React root.
+- Wraps app with `AuthProvider`.
+
+`src/App.tsx` decides which screen to show:
+
+1. Loading screen while auth restores.
+2. Login/Register if no authenticated user.
+3. Blocked account screen if status is `blocked`.
+4. `StudentLearningArea` if a vocab set is selected.
+5. `AdminDashboard` if user is `teacher` or `super_admin` and not in student-view mode.
+6. Student home portal otherwise.
+
+Home portal:
+
+- Loads vocab sets, assignments, classes after token exists.
+- First attempts backend API.
+- Falls back to direct Firestore reads.
+- Students see `public` vocab sets.
+- Assignment cards find matching `vocabSetId`, then open selected game with `assignmentId` and `gameId`.
+
+Teacher/super admin:
+
+- Admin dashboard is default.
+- Can switch to student view.
+- Can preview any vocab set/game as student.
+
+## 9. Admin Dashboard Responsibilities
+
+`src/components/admin/AdminDashboard.tsx` is the largest frontend file and combines many responsibilities:
+
+- Dashboard summary.
+- Vocab set listing/filtering.
+- Vocab set editor.
+- Batch import terms/meanings/IPAs.
+- AI generation for vocab items.
+- AI IPA generation for individual/all rows.
+- Class creation/deletion.
+- Class member add/delete.
+- Assignment creation/deletion.
+- Results table.
+- Super admin user management.
+- Super admin audit logs.
+
+Key state groups:
+
+- Data lists: `vocabSets`, `classes`, `classMembers`, `assignments`, `results`, `usersList`, `auditLogs`.
+- Filters: vocab search/grade/status; user search/role/status.
+- Editor state: title, description, subject, grade, status, tags, items.
+- Batch import: terms, meanings, IPAs.
+- AI generation: topic, grade, count, loading.
+- Assignment form state.
+- Notifications.
+
+API wrapper:
+
+- `authFetch(url, options)` injects `Authorization: Bearer ${token}` and JSON content type.
+
+When extending admin features, consider extracting smaller modules before large changes:
+
+- Vocab editor panel.
+- Classes panel.
+- Assignments panel.
+- Results panel.
+- Users panel.
+- Audit logs panel.
+
+## 10. Game Engine Map
+
+### Registry
+
+`src/lib/game-engine/gameList.ts` defines `GAMES_LIST`.
+
+Current game modes:
+
+- `flashcard-en-vi`
+- `flashcard-vi-en`
+- `flashcard-sound`
+- `quiz-en-vi`
+- `quiz-vi-en`
+- `quiz-sound`
+- `fill-meaning`
+- `fill-missing`
+- `matching-word-meaning`
+- `memory-match`
+
+Each game config includes:
+
+- `gameId`
+- `title`
+- `description`
+- `category`
+- `icon`
+- `color`
+- `componentName`
+- `requiredFields`
+- `config`
+
+To add a new game:
+
+1. Create new component in `src/components/games`.
+2. Add component import and switch case in `StudentLearningArea.tsx`.
+3. Add config entry in `GAMES_LIST`.
+4. Ensure game calls `onComplete(score, correct, incorrect)`.
+5. Decide whether it needs linear controls or board controls.
+
+### StudentLearningArea
+
+Responsibilities:
+
+- Accepts `vocabSet`, optional `assignmentId`, optional `initialGameId`.
+- Manages selected game, active item order, shuffle, fullscreen, mute, current session, result overlay.
+- Starts a game session when selected game and student name are ready.
+- Completes session when game calls `onComplete`.
+- Uses backend `/api/game-sessions`; falls back to direct Firestore write/update if backend fails.
+
+### Game Components
+
+Shared props pattern:
+
+- `items`
+- `config`
+- `onComplete`
+- `isMuted`
+- `setIsMuted`
+- `isRandomized`
+- `onToggleRandom`
+- `isFullscreen`
+- `onToggleFullscreen`
+
+`FlashcardGame.tsx`:
+
+- Linear card flip.
+- Can mark known/unknown.
+- Auto-pronounces word on change when sound is on.
+- Auto-next mode flips then advances every 4 seconds.
+- Score: known count / total; if no known marks, assumes all correct.
+
+`QuizGame.tsx`:
+
+- Linear multiple choice.
+- Generates up to 3 distractors from other items.
+- Supports term, meaning, and sound question modes.
+- Score: correct / total.
+
+`FillBlankGame.tsx`:
+
+- Linear text input.
+- Modes: full word or missing letters.
+- Case-insensitive exact match.
+- Score: correct / total.
+
+`MatchingGame.tsx`:
+
+- Board game with max 8 vocab items.
+- Cards are term/meaning pairs.
+- Timer counts elapsed seconds.
+- Score: `max(50, 100 - mistakes * 5)`.
+
+`MemoryGame.tsx`:
+
+- Board game with max 6 vocab items.
+- Cards are term/meaning pairs.
+- Score: `max(50, 100 - excessMoves * 4)`.
+
+`GameControlPanel.tsx`:
+
+- Shared previous/next/sound/random/auto-next/fullscreen controls.
+- Board games pass `showLinearControls={false}`.
+
+### Speech
+
+`src/lib/game-engine/speech.ts`:
+
+- Uses browser `window.speechSynthesis`.
+- Cancels ongoing speech before speaking new word.
+- Strips slash/backslash/hash symbols.
+- Uses `en-US` voice if available.
+- Rate is `0.9`.
+
+## 11. AI Integration
+
+Backend Gemini client in `server.ts`:
+
+- Env var: `GEMINI_API_KEY`.
+- Client: `new GoogleGenAI({ apiKey })`.
+
+Routes:
+
+- `/api/ai/ipa`: asks Gemini for IPA only.
+- `/api/ai/generate`: asks Gemini for JSON vocab items.
+
+Current model string:
+
+- `gemini-3.5-flash`
+
+Fallbacks:
+
+- Missing key or AI error returns basic generated IPA or hardcoded vocab fallback lists for animals/school/topic.
+
+When changing AI behavior:
+
+- Keep backend proxy pattern; do not call Gemini directly from frontend.
+- Validate JSON shape from Gemini before merging into editor state.
+- Keep fallback behavior so hosted app remains usable without AI.
+
+## 12. Styling And UI Notes
+
+`src/index.css` applies very broad global overrides:
+
+- Dark mesh background.
+- Glassmorphic conversion of `.bg-white`, `.bg-gray-50`, many text and border utilities.
+- Broad button override using `button:not(...)`.
+- Input/select/textarea dark glass styles.
+- Table and scrollbar overrides.
+- Card flip utilities.
+
+This means local Tailwind class changes may be visually overridden globally.
+
+Before adjusting visual UI:
+
+- Inspect `src/index.css` first.
+- Test login, home, admin, and at least one game screen because global overrides affect all.
+- Be careful with new utility classes; global CSS may force colors/backgrounds unexpectedly.
+
+Known frontend design risk:
+
+- Some UI files still contain large visible Vietnamese strings. Terminal output shows mojibake for many strings. Verify actual browser rendering before editing text-heavy sections. If source files are truly corrupted, fix encoding deliberately in a separate pass.
+
+## 13. Firestore Rules
+
+`firestore.rules` currently allows broad authenticated access:
+
+- `users/{userId}`: any auth user can read all users, only owner can write own user doc.
+- `vocab_sets`, `classes`, `class_members`, `assignments`, `game_sessions`: any auth user can read/write.
+- `audit_logs`: any auth user can read/write.
+
+Important security concern:
+
+- Backend enforces role restrictions, but frontend direct Firestore fallback and rules allow authenticated users to write many collections.
+- If the hosted app is public, tighten Firestore rules before adding sensitive admin features.
+
+## 14. Seed Data
+
+`server.ts` `preSeedDb()` runs after server listen and Firebase diagnostic.
+
+Seeds if collections are empty:
+
+- Users:
+  - `teacher-1`
+  - `admin-1`
+- Classes:
+  - `class-1`
+  - `class-2`
+- Class members:
+  - `member-1` to `member-5`
+- Vocab sets:
+  - `set-1`: Ordinal Numbers.
+  - `set-2`: Animals - Basic.
+- Assignments:
+  - `assign-1`
+  - `assign-2`
+
+Seed IDs are static except newly created app data uses timestamp-based IDs.
+
+## 15. Known Inconsistencies And Risks
+
+- `src/types.ts` role union is stale: includes `admin`, not `super_admin`.
+- `firebase-blueprint.json` is partly stale compared with actual runtime schema. For example it uses fields like `topic`, `creatorId`, `gameType`, `studentId`, while runtime uses `subject`, `createdBy`, `gameId`, and name-based sessions.
+- Firestore rules are much more permissive than backend roles.
+- Client has direct Firestore fallback writes for profile and game sessions; this bypasses backend audit/role logic.
+- `/api/game-sessions` is protected by `authenticateUser`, but `StudentLearningArea` fetch does not send Authorization header. In normal logged-in app this route likely fails and then direct Firestore fallback creates sessions.
+- `App.tsx` imports unused icons/states such as `classes`, `homeSearch`, etc. Some UI/filter state appears incomplete.
+- `AdminDashboard.tsx` is large and hard to maintain; high risk for merge conflicts and accidental UI regressions.
+- ID generation uses `Date.now()` plus random suffix in some places, not a central ID helper.
+- Game scoring in `QuizGame` and `FillBlankGame` may compute final score from state values before the latest async state update if completion happens immediately after answering. Review before building advanced analytics.
+- `src/index.css` broad overrides can cause unexpected design changes.
+- Production deploy copies `db.json`; if local fallback is active on host, server writes to the deployed JSON file. Persistence depends on host filesystem behavior.
+- Terminal output shows mojibake for Vietnamese strings; verify encoding/rendering before text changes.
+
+## 16. Safe Extension Guidelines
+
+When adding backend features:
+
+- Add route in `server.ts`.
+- Decide auth level: unauthenticated, authenticated, teacher/super_admin, or super_admin.
+- Update frontend call path.
+- Consider whether direct Firestore fallback is needed or should be removed/tightened.
+- Add/adjust Firestore rules if direct client access remains.
+- Add audit log for admin/teacher write actions.
+
+When adding frontend data:
+
+- Update `src/types.ts`.
+- Update backend schema construction and CRUD payloads.
+- Update `firebase-blueprint.json` only if still used by AI Studio tooling.
+- Update local fallback `db.json` shape if needed.
+
+When adding a game:
+
+- Keep `StudentLearningArea` as game shell.
+- Keep game component pure: it should render gameplay and call `onComplete`.
+- Add metadata to `GAMES_LIST`.
+- If assignment can target it, ensure `gameId` is saved in assignments.
+- Test session creation and result update.
+
+When changing auth/roles:
+
+- Update `AuthContext.tsx`, `server.ts`, `src/types.ts`, admin UI filters, and Firestore rules together.
+- Keep default super admin bootstrap emails clear and documented.
+- Be careful with custom claims: frontend currently relies mainly on Firestore profile, not claims.
+
+When changing deploy:
+
+- Keep `npm run build` output contract: `dist/client` and `dist/server.cjs`.
+- Keep `app.js` aligned with server output path.
+- Update `.cpanel.yml` if files needed at runtime change.
+
+## 17. Recommended Future Refactors
+
+Priority 1:
+
+- Fix `src/types.ts` role mismatch to use `super_admin`.
+- Make `StudentLearningArea` send `Authorization` header to game session APIs or intentionally make those endpoints public with validation.
+- Tighten Firestore rules to match roles, especially `audit_logs`, `vocab_sets`, `classes`, and `assignments`.
+- Verify and fix Vietnamese encoding if browser shows corrupted text.
+
+Priority 2:
+
+- Split `AdminDashboard.tsx` into smaller tab components.
+- Centralize API client so token handling and error handling are consistent.
+- Centralize ID generation.
+- Align `firebase-blueprint.json` with real runtime types.
+
+Priority 3:
+
+- Add tests for backend auth/role routes and game scoring.
+- Add schema validation for API payloads.
+- Add analytics fields such as duration, attempts, per-word mistakes.
+- Add class membership linked to authenticated student user IDs instead of names only.
+
+## 18. Quick Orientation For Next Session
+
+If improving UI:
+
+1. Read `src/index.css`.
+2. Read the target component.
+3. Check whether global overrides affect the component.
+
+If improving admin:
+
+1. Read `src/components/admin/AdminDashboard.tsx`.
+2. Find the relevant handler near the top.
+3. Find the matching JSX section by tab name or visible IDs.
+4. Confirm backend route in `server.ts`.
+
+If improving games:
+
+1. Read `src/lib/game-engine/gameList.ts`.
+2. Read `src/components/games/StudentLearningArea.tsx`.
+3. Read the target game component.
+4. Check `onComplete` scoring and session update.
+
+If improving data/security:
+
+1. Read `server.ts` auth middleware and target API route.
+2. Read `src/lib/firebaseAdmin.ts` fallback behavior.
+3. Read `firestore.rules`.
+4. Search frontend for direct `firebase/firestore` calls.
+
