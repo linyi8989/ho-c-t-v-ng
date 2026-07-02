@@ -1,18 +1,23 @@
-import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 
 type Filter = { field: string; op: string; val: any };
 type BatchOp = { type: 'set' | 'update' | 'delete'; doc: SQLiteDoc; data?: any };
 
+const require = createRequire(path.join(process.cwd(), 'package.json'));
+const initSqlJs = require('sql.js');
+
 const DEFAULT_SQLITE_PATH = '/home/qzmivzbj/app-data/vhomework/app.sqlite';
 const MIGRATION_ID = 'import-db-json-v1';
 
-let sqliteDb: Database.Database | null = null;
+let sqliteDb: any = null;
 let sqliteDbPath = '';
 let sqliteReady = false;
 let sqliteLastError: string | null = null;
 let sqliteLastMigration: string | null = null;
+let initPromise: Promise<void> | null = null;
+let transactionDepth = 0;
 
 const collectionTableMap: Record<string, string> = {
   users: 'users',
@@ -36,12 +41,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function normalizeCollectionName(name: string) {
-  return name.toLowerCase();
-}
-
 function tableForCollection(collectionName: string) {
-  return collectionTableMap[normalizeCollectionName(collectionName)] || collectionName;
+  return collectionTableMap[collectionName.toLowerCase()] || collectionName;
 }
 
 function parseJson(raw: string | null | undefined) {
@@ -58,8 +59,7 @@ function getDbPath() {
 }
 
 function ensureParentDir(filePath: string) {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
 function getDb() {
@@ -69,32 +69,78 @@ function getDb() {
   return sqliteDb;
 }
 
-function readRows(table: string): any[] {
-  const db = getDb();
-  if (table === 'settings') {
-    return db
-      .prepare('SELECT key as id, key, value_json, updated_at FROM settings')
-      .all()
-      .map((row: any) => ({
-        id: row.id,
-        key: row.key,
-        value: parseJson(row.value_json),
-        updatedAt: row.updated_at,
-      }));
+function persistDb() {
+  if (!sqliteDb || !sqliteDbPath || transactionDepth > 0) return;
+  const exported = sqliteDb.export();
+  fs.writeFileSync(sqliteDbPath, Buffer.from(exported));
+}
+
+function run(sql: string, params: any[] = [], shouldPersist = true) {
+  getDb().run(sql, params);
+  if (shouldPersist) persistDb();
+}
+
+function all(sql: string, params: any[] = []) {
+  const stmt = getDb().prepare(sql);
+  const rows: any[] = [];
+  try {
+    stmt.bind(params);
+    while (stmt.step()) {
+      rows.push(stmt.getAsObject());
+    }
+    return rows;
+  } finally {
+    stmt.free();
+  }
+}
+
+function one(sql: string, params: any[] = []) {
+  return all(sql, params)[0];
+}
+
+function withTransaction(action: () => void) {
+  if (transactionDepth > 0) {
+    action();
+    return;
   }
 
-  return db
-    .prepare(`SELECT id, data_json FROM ${table}`)
-    .all()
-    .map((row: any) => ({ id: row.id, ...parseJson(row.data_json) }));
+  transactionDepth++;
+  try {
+    getDb().run('BEGIN TRANSACTION');
+    action();
+    getDb().run('COMMIT');
+    transactionDepth--;
+    persistDb();
+  } catch (err) {
+    try {
+      getDb().run('ROLLBACK');
+    } catch {
+      // Ignore rollback errors; the original error is more useful.
+    }
+    transactionDepth--;
+    throw err;
+  }
+}
+
+function readRows(table: string): any[] {
+  if (table === 'settings') {
+    return all('SELECT key as id, key, value_json, updated_at FROM settings').map((row) => ({
+      id: row.id,
+      key: row.key,
+      value: parseJson(row.value_json),
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  return all(`SELECT id, data_json FROM ${table}`).map((row) => ({
+    id: row.id,
+    ...parseJson(row.data_json),
+  }));
 }
 
 function readRow(table: string, id: string): any | undefined {
-  const db = getDb();
   if (table === 'settings') {
-    const row = db
-      .prepare('SELECT key as id, key, value_json, updated_at FROM settings WHERE key = ?')
-      .get(id) as any;
+    const row = one('SELECT key as id, key, value_json, updated_at FROM settings WHERE key = ?', [id]);
     if (!row) return undefined;
     return {
       id: row.id,
@@ -104,19 +150,15 @@ function readRow(table: string, id: string): any | undefined {
     };
   }
 
-  const row = db.prepare(`SELECT id, data_json FROM ${table} WHERE id = ?`).get(id) as any;
+  const row = one(`SELECT id, data_json FROM ${table} WHERE id = ?`, [id]);
   if (!row) return undefined;
   return { id: row.id, ...parseJson(row.data_json) };
-}
-
-function getFieldValue(item: any, field: string) {
-  return item?.[field];
 }
 
 function applyFilters(items: any[], filters: Filter[]) {
   return items.filter((item) => {
     return filters.every((filter) => {
-      const value = getFieldValue(item, filter.field);
+      const value = item?.[filter.field];
       if (filter.op === '==') return value === filter.val;
       if (filter.op === '!=') return value !== filter.val;
       if (filter.op === '>') return value > filter.val;
@@ -133,8 +175,8 @@ function applyOrder(items: any[], orderField?: string, orderDir = 'asc') {
   if (!orderField) return items;
   const desc = orderDir === 'desc';
   return [...items].sort((a, b) => {
-    const aVal = getFieldValue(a, orderField);
-    const bVal = getFieldValue(b, orderField);
+    const aVal = a?.[orderField];
+    const bVal = b?.[orderField];
     if (aVal === undefined) return 1;
     if (bVal === undefined) return -1;
     if (aVal < bVal) return desc ? 1 : -1;
@@ -148,7 +190,6 @@ function getTimestamp(data: any, camelName: string, snakeName: string) {
 }
 
 function upsertDoc(collectionName: string, id: string, inputData: any) {
-  const db = getDb();
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
   const dataJson = JSON.stringify(data);
@@ -156,64 +197,68 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
   const updatedAt = data.updatedAt || data.updated_at || nowIso();
 
   if (table === 'users') {
-    db.prepare(`
-      INSERT INTO users (id, firebase_uid, email, display_name, role, created_at, updated_at, data_json)
-      VALUES (@id, @firebase_uid, @email, @display_name, @role, @created_at, @updated_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO users (id, firebase_uid, email, display_name, role, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         firebase_uid = excluded.firebase_uid,
         email = excluded.email,
         display_name = excluded.display_name,
         role = excluded.role,
         updated_at = excluded.updated_at,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      firebase_uid: data.firebase_uid || data.firebaseUid || data.id,
-      email: data.email || null,
-      display_name: data.display_name || data.displayName || data.name || null,
-      role: data.role || null,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.firebase_uid || data.firebaseUid || data.id,
+        data.email || null,
+        data.display_name || data.displayName || data.name || null,
+        data.role || null,
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
     return;
   }
 
   if (table === 'vocab_sets') {
-    db.prepare(`
-      INSERT INTO vocab_sets (id, title, description, owner_id, created_at, updated_at, data_json)
-      VALUES (@id, @title, @description, @owner_id, @created_at, @updated_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        description = excluded.description,
-        owner_id = excluded.owner_id,
-        updated_at = excluded.updated_at,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      title: data.title || null,
-      description: data.description || null,
-      owner_id: data.owner_id || data.ownerId || data.createdBy || null,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      data_json: dataJson,
-    });
+    withTransaction(() => {
+      run(
+        `INSERT INTO vocab_sets (id, title, description, owner_id, created_at, updated_at, data_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          description = excluded.description,
+          owner_id = excluded.owner_id,
+          updated_at = excluded.updated_at,
+          data_json = excluded.data_json`,
+        [
+          id,
+          data.title || null,
+          data.description || null,
+          data.owner_id || data.ownerId || data.createdBy || null,
+          createdAt,
+          updatedAt,
+          dataJson,
+        ]
+      );
 
-    if (Array.isArray(data.items)) {
-      db.prepare('DELETE FROM vocab_items WHERE vocab_set_id = ?').run(id);
-      for (const item of data.items) {
-        const itemId = item.id || `${id}-item-${item.displayOrder || Math.random().toString(36).slice(2)}`;
-        upsertDoc('vocab_items', itemId, { ...item, id: itemId, vocabSetId: id, vocab_set_id: id });
+      if (Array.isArray(data.items)) {
+        run('DELETE FROM vocab_items WHERE vocab_set_id = ?', [id]);
+        for (const item of data.items) {
+          const itemId = item.id || `${id}-item-${item.displayOrder || Math.random().toString(36).slice(2)}`;
+          upsertDoc('vocab_items', itemId, { ...item, id: itemId, vocabSetId: id, vocab_set_id: id });
+        }
       }
-    }
+    });
     return;
   }
 
   if (table === 'vocab_items') {
-    db.prepare(`
-      INSERT INTO vocab_items (id, vocab_set_id, term, meaning, phonetic, audio_url, image_url, created_at, updated_at, data_json)
-      VALUES (@id, @vocab_set_id, @term, @meaning, @phonetic, @audio_url, @image_url, @created_at, @updated_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO vocab_items (id, vocab_set_id, term, meaning, phonetic, audio_url, image_url, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         vocab_set_id = excluded.vocab_set_id,
         term = excluded.term,
         meaning = excluded.meaning,
@@ -221,93 +266,90 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         audio_url = excluded.audio_url,
         image_url = excluded.image_url,
         updated_at = excluded.updated_at,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      vocab_set_id: data.vocab_set_id || data.vocabSetId || null,
-      term: data.term || null,
-      meaning: data.meaning || null,
-      phonetic: data.phonetic || data.ipa || null,
-      audio_url: data.audio_url || data.audioUrl || null,
-      image_url: data.image_url || data.imageUrl || null,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.vocab_set_id || data.vocabSetId || null,
+        data.term || null,
+        data.meaning || null,
+        data.phonetic || data.ipa || null,
+        data.audio_url || data.audioUrl || null,
+        data.image_url || data.imageUrl || null,
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
     return;
   }
 
   if (table === 'classes') {
-    db.prepare(`
-      INSERT INTO classes (id, name, teacher_id, created_at, updated_at, data_json)
-      VALUES (@id, @name, @teacher_id, @created_at, @updated_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO classes (id, name, teacher_id, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         teacher_id = excluded.teacher_id,
         updated_at = excluded.updated_at,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      name: data.name || null,
-      teacher_id: data.teacher_id || data.teacherId || null,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [id, data.name || null, data.teacher_id || data.teacherId || null, createdAt, updatedAt, dataJson]
+    );
     return;
   }
 
   if (table === 'class_members') {
-    db.prepare(`
-      INSERT INTO class_members (id, class_id, user_id, role, created_at, data_json)
-      VALUES (@id, @class_id, @user_id, @role, @created_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO class_members (id, class_id, user_id, role, created_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         class_id = excluded.class_id,
         user_id = excluded.user_id,
         role = excluded.role,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      class_id: data.class_id || data.classId || null,
-      user_id: data.user_id || data.userId || data.studentId || null,
-      role: data.role || null,
-      created_at: createdAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.class_id || data.classId || null,
+        data.user_id || data.userId || data.studentId || null,
+        data.role || null,
+        createdAt,
+        dataJson,
+      ]
+    );
     return;
   }
 
   if (table === 'assignments') {
-    db.prepare(`
-      INSERT INTO assignments (id, class_id, user_id, vocab_set_id, game_id, due_date, created_at, updated_at, data_json)
-      VALUES (@id, @class_id, @user_id, @vocab_set_id, @game_id, @due_date, @created_at, @updated_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO assignments (id, class_id, user_id, vocab_set_id, game_id, due_date, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         class_id = excluded.class_id,
         user_id = excluded.user_id,
         vocab_set_id = excluded.vocab_set_id,
         game_id = excluded.game_id,
         due_date = excluded.due_date,
         updated_at = excluded.updated_at,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      class_id: data.class_id || data.classId || null,
-      user_id: data.user_id || data.userId || data.createdBy || null,
-      vocab_set_id: data.vocab_set_id || data.vocabSetId || null,
-      game_id: data.game_id || data.gameId || null,
-      due_date: data.due_date || data.dueDate || null,
-      created_at: createdAt,
-      updated_at: updatedAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.class_id || data.classId || null,
+        data.user_id || data.userId || data.createdBy || null,
+        data.vocab_set_id || data.vocabSetId || null,
+        data.game_id || data.gameId || null,
+        data.due_date || data.dueDate || null,
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
     return;
   }
 
   if (table === 'results' || table === 'game_results') {
-    db.prepare(`
-      INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, data_json)
-      VALUES (@id, @assignment_id, @user_id, @game_id, @vocab_set_id, @score, @correct, @incorrect, @created_at, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         assignment_id = excluded.assignment_id,
         user_id = excluded.user_id,
         game_id = excluded.game_id,
@@ -315,53 +357,46 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         score = excluded.score,
         correct = excluded.correct,
         incorrect = excluded.incorrect,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      assignment_id: data.assignment_id || data.assignmentId || null,
-      user_id: data.user_id || data.userId || data.studentId || null,
-      game_id: data.game_id || data.gameId || null,
-      vocab_set_id: data.vocab_set_id || data.vocabSetId || null,
-      score: Number(data.score || 0),
-      correct: Number(data.correct || data.correctAnswers || 0),
-      incorrect: Number(data.incorrect || data.incorrectAnswers || 0),
-      created_at: data.completedAt || data.startedAt || createdAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.assignment_id || data.assignmentId || null,
+        data.user_id || data.userId || data.studentId || null,
+        data.game_id || data.gameId || null,
+        data.vocab_set_id || data.vocabSetId || null,
+        Number(data.score || 0),
+        Number(data.correct || data.correctAnswers || 0),
+        Number(data.incorrect || data.incorrectAnswers || 0),
+        data.completedAt || data.startedAt || createdAt,
+        dataJson,
+      ]
+    );
     return;
   }
 
   if (table === 'audit_logs') {
-    db.prepare(`
-      INSERT INTO audit_logs (id, user_id, action, timestamp, data_json)
-      VALUES (@id, @user_id, @action, @timestamp, @data_json)
-      ON CONFLICT(id) DO UPDATE SET
+    run(
+      `INSERT INTO audit_logs (id, user_id, action, timestamp, data_json)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
         user_id = excluded.user_id,
         action = excluded.action,
         timestamp = excluded.timestamp,
-        data_json = excluded.data_json
-    `).run({
-      id,
-      user_id: data.user_id || data.userId || null,
-      action: data.action || null,
-      timestamp: data.timestamp || createdAt,
-      data_json: dataJson,
-    });
+        data_json = excluded.data_json`,
+      [id, data.user_id || data.userId || null, data.action || null, data.timestamp || createdAt, dataJson]
+    );
     return;
   }
 
   if (table === 'settings') {
-    db.prepare(`
-      INSERT INTO settings (key, value_json, updated_at)
-      VALUES (@key, @value_json, @updated_at)
-      ON CONFLICT(key) DO UPDATE SET
+    run(
+      `INSERT INTO settings (key, value_json, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
         value_json = excluded.value_json,
-        updated_at = excluded.updated_at
-    `).run({
-      key: id,
-      value_json: JSON.stringify(data.value ?? data),
-      updated_at: updatedAt,
-    });
+        updated_at = excluded.updated_at`,
+      [id, JSON.stringify(data.value ?? data), updatedAt]
+    );
   }
 }
 
@@ -371,21 +406,21 @@ function updateDoc(collectionName: string, id: string, patch: any) {
 }
 
 function deleteDoc(collectionName: string, id: string) {
-  const db = getDb();
   const table = tableForCollection(collectionName);
   if (table === 'settings') {
-    db.prepare('DELETE FROM settings WHERE key = ?').run(id);
+    run('DELETE FROM settings WHERE key = ?', [id]);
     return;
   }
-  db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
-  if (table === 'vocab_sets') {
-    db.prepare('DELETE FROM vocab_items WHERE vocab_set_id = ?').run(id);
-  }
+  withTransaction(() => {
+    run(`DELETE FROM ${table} WHERE id = ?`, [id]);
+    if (table === 'vocab_sets') {
+      run('DELETE FROM vocab_items WHERE vocab_set_id = ?', [id]);
+    }
+  });
 }
 
-function runSchemaMigration(db: Database.Database) {
-  db.exec(`
-    PRAGMA journal_mode = WAL;
+function runSchemaMigration() {
+  getDb().run(`
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS migrations (
@@ -509,14 +544,15 @@ function runSchemaMigration(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
   `);
+  persistDb();
 }
 
-function hasMigration(db: Database.Database, id: string) {
-  return Boolean(db.prepare('SELECT id FROM migrations WHERE id = ?').get(id));
+function hasMigration(id: string) {
+  return Boolean(one('SELECT id FROM migrations WHERE id = ?', [id]));
 }
 
-function markMigration(db: Database.Database, id: string) {
-  db.prepare('INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)').run(id, nowIso());
+function markMigration(id: string) {
+  run('INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)', [id, nowIso()]);
   sqliteLastMigration = id;
 }
 
@@ -541,27 +577,26 @@ function backupJsonFile(sourcePath: string) {
   }
 }
 
-function importCollection(db: Database.Database, collectionName: string, items: any[] | undefined) {
+function importCollection(collectionName: string, items: any[] | undefined) {
   if (!Array.isArray(items)) return 0;
-  const tx = db.transaction(() => {
+  withTransaction(() => {
     for (const item of items) {
       const id = item.id || `${collectionName}-${Math.random().toString(36).slice(2)}`;
       upsertDoc(collectionName, id, { ...item, id });
     }
   });
-  tx();
   return items.length;
 }
 
-function migrateFromJsonIfNeeded(db: Database.Database) {
-  if (hasMigration(db, MIGRATION_ID)) {
+function migrateFromJsonIfNeeded() {
+  if (hasMigration(MIGRATION_ID)) {
     sqliteLastMigration = MIGRATION_ID;
     return;
   }
 
   const sourcePath = getJsonImportCandidates().find((candidate) => fs.existsSync(candidate));
   if (!sourcePath) {
-    markMigration(db, MIGRATION_ID);
+    markMigration(MIGRATION_ID);
     return;
   }
 
@@ -569,13 +604,13 @@ function migrateFromJsonIfNeeded(db: Database.Database) {
   const raw = fs.readFileSync(sourcePath, 'utf8');
   const legacy = JSON.parse(raw);
   const imported = {
-    users: importCollection(db, 'users', legacy.users),
-    vocabSets: importCollection(db, 'vocab_sets', legacy.vocabSets || legacy.vocab_sets),
-    classes: importCollection(db, 'classes', legacy.classes),
-    classMembers: importCollection(db, 'class_members', legacy.classMembers || legacy.class_members),
-    assignments: importCollection(db, 'assignments', legacy.assignments),
-    results: importCollection(db, 'results', legacy.results),
-    gameResults: importCollection(db, 'game_results', legacy.gameResults || legacy.game_sessions || legacy.gameSessions),
+    users: importCollection('users', legacy.users),
+    vocabSets: importCollection('vocab_sets', legacy.vocabSets || legacy.vocab_sets),
+    classes: importCollection('classes', legacy.classes),
+    classMembers: importCollection('class_members', legacy.classMembers || legacy.class_members),
+    assignments: importCollection('assignments', legacy.assignments),
+    results: importCollection('results', legacy.results),
+    gameResults: importCollection('game_results', legacy.gameResults || legacy.game_sessions || legacy.gameSessions),
   };
 
   const knownKeys = new Set([
@@ -598,27 +633,38 @@ function migrateFromJsonIfNeeded(db: Database.Database) {
   }
 
   console.log('[Storage] JSON migration imported:', imported);
-  markMigration(db, MIGRATION_ID);
+  markMigration(MIGRATION_ID);
 }
 
-export function initializeSQLiteStorage() {
-  try {
-    sqliteDbPath = getDbPath();
-    ensureParentDir(sqliteDbPath);
-    sqliteDb = new Database(sqliteDbPath);
-    runSchemaMigration(sqliteDb);
-    migrateFromJsonIfNeeded(sqliteDb);
-    sqliteReady = true;
-    sqliteLastError = null;
-    console.log('[Storage] Mode: sqlite');
-    console.log(`[Storage] SQLite path: ${sqliteDbPath}`);
-    console.log('[Storage] SQLite ready: true');
-  } catch (err: any) {
-    sqliteReady = false;
-    sqliteLastError = err.message;
-    console.error('[Storage] SQLite ready: false', err);
-    throw err;
-  }
+export async function initializeSQLiteStorage() {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
+      sqliteDbPath = getDbPath();
+      ensureParentDir(sqliteDbPath);
+      const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
+      const SQL = await initSqlJs({
+        locateFile: () => wasmPath,
+      });
+      const existing = fs.existsSync(sqliteDbPath) ? fs.readFileSync(sqliteDbPath) : undefined;
+      sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
+      runSchemaMigration();
+      migrateFromJsonIfNeeded();
+      sqliteReady = true;
+      sqliteLastError = null;
+      console.log('[Storage] Mode: sqlite');
+      console.log(`[Storage] SQLite path: ${sqliteDbPath}`);
+      console.log('[Storage] SQLite ready: true');
+    } catch (err: any) {
+      sqliteReady = false;
+      sqliteLastError = err.message;
+      console.error('[Storage] SQLite ready: false', err);
+      throw err;
+    }
+  })();
+
+  return initPromise;
 }
 
 export class SQLiteDocSnapshot {
@@ -667,19 +713,23 @@ export class SQLiteDoc {
   }
 
   public async get() {
+    await initializeSQLiteStorage();
     const data = readRow(tableForCollection(this.collectionName), this.id);
     return new SQLiteDocSnapshot(this.id, data !== undefined, this, data);
   }
 
   public async set(data: any) {
+    await initializeSQLiteStorage();
     upsertDoc(this.collectionName, this.id, data);
   }
 
   public async update(data: any) {
+    await initializeSQLiteStorage();
     updateDoc(this.collectionName, this.id, data);
   }
 
   public async delete() {
+    await initializeSQLiteStorage();
     deleteDoc(this.collectionName, this.id);
   }
 }
@@ -712,6 +762,7 @@ export class SQLiteQuery {
   }
 
   public async get() {
+    await initializeSQLiteStorage();
     const table = tableForCollection(this.collectionName);
     let items = readRows(table);
     items = applyFilters(items, this.filters);
@@ -765,15 +816,14 @@ export class SQLiteBatch {
   }
 
   public async commit() {
-    const db = getDb();
-    const tx = db.transaction(() => {
+    await initializeSQLiteStorage();
+    withTransaction(() => {
       for (const op of this.ops) {
         if (op.type === 'set') upsertDoc(op.doc.collectionName, op.doc.id, op.data);
         if (op.type === 'update') updateDoc(op.doc.collectionName, op.doc.id, op.data);
         if (op.type === 'delete') deleteDoc(op.doc.collectionName, op.doc.id);
       }
     });
-    tx();
   }
 }
 
@@ -789,19 +839,19 @@ export class SQLiteFirestore {
   }
 }
 
-function tableCount(table: string) {
+async function tableCount(table: string) {
   try {
-    const row = getDb().prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as any;
+    await initializeSQLiteStorage();
+    const row = one(`SELECT COUNT(*) as count FROM ${table}`);
     return Number(row?.count || 0);
   } catch {
     return 0;
   }
 }
 
-export function getSQLiteDiagnostics() {
-  const lastMigration = sqliteDb
-    ? ((sqliteDb.prepare('SELECT id, applied_at FROM migrations ORDER BY applied_at DESC LIMIT 1').get() as any) || null)
-    : null;
+export async function getSQLiteDiagnostics() {
+  await initializeSQLiteStorage();
+  const lastMigration = one('SELECT id, applied_at FROM migrations ORDER BY applied_at DESC LIMIT 1') || null;
 
   return {
     storageMode: process.env.STORAGE_MODE || 'firebase-first',
@@ -810,13 +860,13 @@ export function getSQLiteDiagnostics() {
     sqliteFileExists: Boolean(sqliteDbPath && fs.existsSync(sqliteDbPath)),
     sqliteReady,
     tableCounts: {
-      users: tableCount('users'),
-      vocab_sets: tableCount('vocab_sets'),
-      vocab_items: tableCount('vocab_items'),
-      classes: tableCount('classes'),
-      assignments: tableCount('assignments'),
-      results: tableCount('results'),
-      game_results: tableCount('game_results'),
+      users: await tableCount('users'),
+      vocab_sets: await tableCount('vocab_sets'),
+      vocab_items: await tableCount('vocab_items'),
+      classes: await tableCount('classes'),
+      assignments: await tableCount('assignments'),
+      results: await tableCount('results'),
+      game_results: await tableCount('game_results'),
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,

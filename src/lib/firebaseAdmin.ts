@@ -158,6 +158,7 @@ function withAdminTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
 async function runDiagnostic() {
   if (isSQLiteStorageMode) {
     console.log("STORAGE_MODE=sqlite. Skipping Firestore storage diagnostic; SQLite will be used for app data.");
+    await initializeSQLiteStorage();
     useLocalFallback = false;
     return;
   }
@@ -475,7 +476,7 @@ class FallbackFirestore {
 
 export const adminDb = (isSQLiteStorageMode ? new SQLiteFirestore() : new FallbackFirestore()) as any;
 
-export function getStorageDiagnostics() {
+export async function getStorageDiagnostics() {
   if (isSQLiteStorageMode) {
     return getSQLiteDiagnostics();
   }

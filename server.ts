@@ -361,7 +361,7 @@ app.get("/api/diagnostics/storage", async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
 
-  res.json(getStorageDiagnostics());
+  res.json(await getStorageDiagnostics());
 });
 
 // 0. GET EMAIL BY PHONE (Unauthenticated - for Phone + Password login)
