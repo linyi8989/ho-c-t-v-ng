@@ -441,38 +441,36 @@ export default function StudentLearningArea({
 
                 {/* Score Summary Modal overlay after complete */}
                 {gameResult && (
-                  <div className="absolute inset-0 bg-white/95 rounded-3xl z-10 flex flex-col items-center justify-center p-6 text-center space-y-6" id="score-summary-overlay">
-                    <div className="w-24 h-24 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center animate-pulse">
+                  <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md rounded-3xl z-10 flex flex-col items-center justify-center p-6 text-center space-y-6 border border-white/10" id="score-summary-overlay">
+                    <div className="w-24 h-24 bg-amber-300/15 text-amber-200 rounded-full flex items-center justify-center animate-pulse border border-amber-300/30 shadow-2xl shadow-amber-500/10">
                       <Award size={54} />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-3xl font-black text-gray-800">Hoàn thành bài học!</h3>
-                      <p className="text-gray-500 text-sm max-w-xs mx-auto">
+                      <h3 className="text-3xl font-black text-white">Hoàn thành bài học!</h3>
+                      <p className="text-slate-300 text-sm max-w-xs mx-auto leading-relaxed">
                         Điểm số của em đã được ghi nhận thành công trên hệ thống của giáo viên.
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-6 bg-gray-50 border border-gray-100 rounded-2xl p-4 px-8 w-full max-w-sm">
+                    <div className="grid grid-cols-3 gap-4 bg-white/8 border border-white/15 rounded-2xl p-4 px-5 w-full max-w-sm shadow-xl">
                       <div className="text-center">
-                        <span className="text-xs font-bold text-gray-400 block">ĐIỂM</span>
-                        <span className="text-2xl font-black text-emerald-600">{gameResult.score}</span>
+                        <span className="text-xs font-bold text-slate-300 block">ĐIỂM</span>
+                        <span className="text-2xl font-black text-emerald-300">{gameResult.score}</span>
                       </div>
-                      <div className="border-r border-gray-200" />
                       <div className="text-center">
-                        <span className="text-xs font-bold text-gray-400 block">ĐÚNG</span>
-                        <span className="text-2xl font-black text-indigo-600">{gameResult.correct}</span>
+                        <span className="text-xs font-bold text-slate-300 block">ĐÚNG</span>
+                        <span className="text-2xl font-black text-sky-300">{gameResult.correct}</span>
                       </div>
-                      <div className="border-r border-gray-200" />
                       <div className="text-center">
-                        <span className="text-xs font-bold text-gray-400 block">SAI</span>
-                        <span className="text-2xl font-black text-rose-600">{gameResult.incorrect}</span>
+                        <span className="text-xs font-bold text-slate-300 block">SAI</span>
+                        <span className="text-2xl font-black text-rose-300">{gameResult.incorrect}</span>
                       </div>
                     </div>
 
                     <div className="flex space-x-3">
                       <button
                         onClick={() => setGameResult(null)}
-                        className="py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-all cursor-pointer text-sm"
+                        className="py-3 px-6 bg-white/10 hover:bg-white/15 text-white border border-white/15 font-bold rounded-xl transition-all cursor-pointer text-sm"
                         id="retry-overlay-btn"
                       >
                         Chơi lại
@@ -482,7 +480,7 @@ export default function StudentLearningArea({
                           const nextGameIdx = (GAMES_LIST.findIndex(g => g.gameId === selectedGame?.gameId) + 1) % GAMES_LIST.length;
                           setSelectedGame(GAMES_LIST[nextGameIdx]);
                         }}
-                        className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-md cursor-pointer text-sm"
+                        className="py-3 px-6 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
                         id="next-game-overlay-btn"
                       >
                         Chuyển Game tiếp theo
