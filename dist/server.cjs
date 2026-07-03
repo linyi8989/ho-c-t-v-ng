@@ -1550,6 +1550,33 @@ app2.post("/api/ai/ipa", authenticateUser, async (req, res) => {
     res.json({ ipa: `/${(word || "").toLowerCase()}/`, isFallback: true });
   }
 });
+var ALLOWED_PARTS_OF_SPEECH = [
+  "Noun",
+  "Pronoun",
+  "Verb",
+  "Adjective",
+  "Adverb",
+  "Preposition",
+  "Conjunction",
+  "Interjection",
+  "Article",
+  "Determiner"
+];
+function normalizePartOfSpeech(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text);
+  if (match) return match;
+  if (text.includes("pronoun")) return "Pronoun";
+  if (text.includes("adjective")) return "Adjective";
+  if (text.includes("adverb")) return "Adverb";
+  if (text.includes("preposition")) return "Preposition";
+  if (text.includes("conjunction")) return "Conjunction";
+  if (text.includes("interjection")) return "Interjection";
+  if (text.includes("article")) return "Article";
+  if (text.includes("determiner")) return "Determiner";
+  if (text.includes("verb")) return "Verb";
+  return "Noun";
+}
 app2.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
   const { word, meaning, grade } = req.body;
   try {
@@ -1560,9 +1587,9 @@ app2.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
       term: word,
       meaning: meaning || "",
       ipa: `/${word.toLowerCase()}/`,
-      pos: "Word/Phrase",
-      example: `This is ${word}.`,
-      exampleMeaning: meaning ? `\u0110\xE2y l\xE0 ${meaning}.` : "",
+      pos: "Noun",
+      example: `The word "${word}" appears often in everyday English, so students should practice it in a real sentence.`,
+      exampleMeaning: meaning ? `T\u1EEB "${word}" th\u01B0\u1EDDng xu\u1EA5t hi\u1EC7n trong ti\u1EBFng Anh h\u1EB1ng ng\xE0y, v\xEC v\u1EADy h\u1ECDc sinh n\xEAn luy\u1EC7n t\u1EADp t\u1EEB n\xE0y trong m\u1ED9t c\xE2u th\u1EF1c t\u1EBF.` : "",
       audioUrl: ""
     };
     const ai = getGeminiClient();
@@ -1579,8 +1606,8 @@ Target level: "${grade || "primary school"}"
 Return ONLY one valid JSON object with:
 - "meaning": concise Vietnamese meaning.
 - "ipa": standard American English IPA transcription, surrounded by slashes.
-- "pos": part of speech, such as Noun, Verb, Adjective, Adverb, Phrase, Preposition, Determiner.
-- "example": one simple English example sentence using the word naturally.
+- "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
+- "example": one vivid, natural, useful English sentence using the word correctly. The sentence should be friendly for students, close to daily life, and longer than a basic pattern like "This is ...". Prefer a complete sentence with context, details, and a pleasant or memorable feeling. If the word is commonly used in an idiom, proverb, collocation, or everyday expression, use that naturally.
 - "exampleMeaning": Vietnamese translation of the example sentence.
 - "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`,
       config: {
@@ -1603,6 +1630,7 @@ Return ONLY one valid JSON object with:
     res.json({
       ...fallback,
       ...parsedData,
+      pos: normalizePartOfSpeech(parsedData.pos),
       term: word
     });
   } catch (error) {
@@ -1611,9 +1639,9 @@ Return ONLY one valid JSON object with:
       term: word,
       meaning: meaning || "",
       ipa: `/${(word || "").toLowerCase()}/`,
-      pos: "Word/Phrase",
-      example: `This is ${word}.`,
-      exampleMeaning: meaning ? `\u0110\xE2y l\xE0 ${meaning}.` : "",
+      pos: "Noun",
+      example: `The word "${word}" appears often in everyday English, so students should practice it in a real sentence.`,
+      exampleMeaning: meaning ? `T\u1EEB "${word}" th\u01B0\u1EDDng xu\u1EA5t hi\u1EC7n trong ti\u1EBFng Anh h\u1EB1ng ng\xE0y, v\xEC v\u1EADy h\u1ECDc sinh n\xEAn luy\u1EC7n t\u1EADp t\u1EEB n\xE0y trong m\u1ED9t c\xE2u th\u1EF1c t\u1EBF.` : "",
       audioUrl: "",
       isFallback: true
     });
@@ -1635,11 +1663,11 @@ app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_a
     1. "term": English word or short phrase.
     2. "meaning": Vietnamese meaning.
     3. "ipa": Standard IPA phonetic transcription.
-    4. "pos": Part of speech (e.g., Noun, Verb, Adjective, Adverb, Phrase).
-    5. "example": A simple English example sentence.
+    4. "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
+    5. "example": A vivid, natural, useful English sentence using the word correctly. Avoid short template sentences like "This is ...". Prefer a complete sentence with context, details, and a pleasant or memorable feeling. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
     6. "exampleMeaning": Vietnamese translation of that example.
     
-    Make sure example sentences are easy to understand for the specified grade level.
+    Make sure example sentences are easy to understand for the specified grade level but still rich, close to daily life, and interesting for students.
     Return ONLY valid JSON. Avoid markdown blocks.`;
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
@@ -1664,7 +1692,10 @@ app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_a
       }
     });
     const parsedData = JSON.parse(response.text?.trim() || "[]");
-    res.json(parsedData);
+    res.json(Array.isArray(parsedData) ? parsedData.map((item) => ({
+      ...item,
+      pos: normalizePartOfSpeech(item.pos)
+    })) : []);
   } catch (error) {
     console.warn("AI generation service unavailable, returning fallback:", error.message);
     const fallbackList = getFallbackVocabulary(topic, wordsCount);

@@ -1459,7 +1459,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               type="text"
                               value={item.pos}
                               onChange={(e) => handleUpdateItemValue(item.id, 'pos', e.target.value)}
-                              placeholder="Noun, Verb..."
+                              placeholder="Noun, Verb, Adjective..."
                               className="w-full p-2.5 bg-gray-50 border border-gray-100 hover:border-indigo-300 focus:bg-white focus:border-indigo-500 rounded-xl outline-none text-xs font-semibold transition-all"
                             />
                           </td>
