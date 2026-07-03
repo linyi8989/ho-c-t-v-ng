@@ -71,6 +71,7 @@ export interface GameSession {
   vocabSetTitle: string;
   gameId: string;
   studentName: string;
+  guestId?: string;
   startedAt: string;
   completedAt?: string;
   score: number;

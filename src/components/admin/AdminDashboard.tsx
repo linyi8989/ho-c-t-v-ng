@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
-  Shield, FileText, Lock, Unlock
+  Shield, FileText, Lock, Unlock, Star
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
+import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
@@ -52,6 +53,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [searchQuery, setSearchQuery] = useState('');
   const [filterGrade, setFilterGrade] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
+  const [leaderboardCategory, setLeaderboardCategory] = useState<LeaderboardCategory>('gold');
+  const [leaderboardClassId, setLeaderboardClassId] = useState('');
+  const [leaderboardVocabSetId, setLeaderboardVocabSetId] = useState('');
 
   // Class Roster dynamic input states
   const [newMemberNames, setNewMemberNames] = useState<Record<string, string>>({});
@@ -594,6 +599,30 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     return matchesSearch && matchesGrade && matchesStatus;
   });
 
+  const leaderboardRows = React.useMemo(() => {
+    return getLeaderboardByCategory(
+      results,
+      assignments,
+      {
+        period: leaderboardPeriod,
+        classId: leaderboardClassId || undefined,
+        vocabSetId: leaderboardVocabSetId || undefined
+      },
+      leaderboardCategory
+    );
+  }, [results, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
+
+  const dashboardGoldRows = React.useMemo(() => {
+    return getLeaderboardByCategory(results, assignments, { period: 'week' }, 'gold').slice(0, 5);
+  }, [results, assignments]);
+
+  const leaderboardTitleMap: Record<LeaderboardCategory, string> = {
+    gold: 'Bảng vàng tuần này',
+    diligent: 'Chăm chỉ nhất',
+    accurate: 'Chính xác nhất',
+    improved: 'Tiến bộ nhất'
+  };
+
   // --- SUPER ADMIN ACCOUNT MANAGEMENT ---
   const handleUpdateUserRole = (userId: string, newRole: string) => {
     authFetch(`/api/admin/users/${userId}/role`, {
@@ -754,17 +783,6 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           </button>
 
           <button
-            onClick={() => setActiveTab('assignments')}
-            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'assignments' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
-            }`}
-            id="tab-assignments"
-          >
-            <Send size={18} />
-            <span>Giao bài tập</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('results')}
             className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
               activeTab === 'results' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
@@ -772,7 +790,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-results"
           >
             <Award size={18} />
-            <span>Kết quả học sinh</span>
+            <span>Bảng vàng học sinh</span>
           </button>
 
           {/* SUPER ADMIN ONLY TABS */}
@@ -865,11 +883,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
               <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center space-x-4">
                 <span className="p-3 bg-amber-50 text-amber-600 rounded-2xl shrink-0">
-                  <Send size={24} />
+                  <Star size={24} />
                 </span>
                 <div>
-                  <span className="text-xs font-bold text-gray-400 block uppercase">BÀI TẬP ĐANG GIAO</span>
-                  <span className="text-2xl font-black text-gray-800">{assignments.length}</span>
+                  <span className="text-xs font-bold text-gray-400 block uppercase">HỌC SINH VINH DANH</span>
+                  <span className="text-2xl font-black text-gray-800">{dashboardGoldRows.length}</span>
                 </div>
               </div>
 
@@ -919,38 +937,27 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 </div>
               </div>
 
-              {/* Right Column: Assignments Quick Summary */}
+              {/* Right Column: Golden Board Quick Summary */}
               <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-50">
-                  <h3 className="font-extrabold text-gray-800 text-base">Bài tập đang hoạt động</h3>
-                  <button onClick={() => setActiveTab('assignments')} className="text-xs font-bold text-indigo-600 hover:underline">Quản lý bài giao</button>
+                  <h3 className="font-extrabold text-gray-800 text-base">Bảng vàng tuần này</h3>
+                  <button onClick={() => setActiveTab('results')} className="text-xs font-bold text-indigo-600 hover:underline">Xem bảng vàng</button>
                 </div>
 
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                  {assignments.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400 text-sm">Hiện tại chưa có bài tập nào được giao.</div>
+                  {dashboardGoldRows.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">Chưa có dữ liệu để vinh danh học sinh.</div>
                   ) : (
-                    assignments.map((assign) => (
-                      <div key={assign.id} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
+                    dashboardGoldRows.map((entry, index) => (
+                      <div key={`${entry.studentName}-${index}`} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
                         <div className="space-y-0.5">
-                          <strong className="text-sm font-bold text-gray-800">{assign.title}</strong>
-                          <p className="text-xs text-indigo-600 font-semibold">{assign.className}</p>
-                          <p className="text-[10px] text-gray-400 font-mono">Hạn nộp: {assign.dueDate}</p>
+                          <strong className="text-sm font-bold text-gray-800">{index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : ''}{entry.studentName}</strong>
+                          <p className="text-xs text-indigo-600 font-semibold">{entry.completedLessons} bài hoàn thành • {entry.averageAccuracy}% đúng</p>
+                          <p className="text-[10px] text-gray-400 font-mono">{entry.badges[0]}</p>
                         </div>
-                        <div className="flex space-x-1">
-                          <button
-                            onClick={() => {
-                              const foundSet = vocabSets.find(s => s.id === assign.vocabSetId);
-                              if (foundSet) {
-                                onViewAsStudent(foundSet, assign.gameId, assign.id);
-                              }
-                            }}
-                            className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer"
-                            title="Học thử"
-                          >
-                            <Play size={14} />
-                          </button>
-                        </div>
+                        <span className="px-2.5 py-1 text-xs font-black rounded-full bg-amber-50 text-amber-700">
+                          {entry.honorScore}
+                        </span>
                       </div>
                     ))
                   )}
@@ -1773,76 +1780,135 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 6: STUDENT GRADES & SESSION TRACKER */}
+        {/* TAB 6: STUDENT GOLDEN BOARD */}
         {/* ==================================================================== */}
         {activeTab === 'results' && (
           <div className="space-y-6 animate-fade-in" id="results-tab-content">
-            <div>
-              <h2 className="text-2xl font-black text-gray-800">Kết quả học tập của học sinh</h2>
-              <p className="text-gray-400 text-sm">Theo dõi chi tiết số lượt hoàn thành bài tập, điểm số, và tỷ lệ trả lời đúng của học sinh.</p>
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-gray-800">Bảng Vàng / Vinh danh học sinh chăm học</h2>
+                <p className="text-gray-400 text-sm">
+                  Xếp hạng dựa trên kết quả tốt nhất của từng học sinh theo mỗi bộ từ vựng và mỗi chế độ chơi, tránh cộng điểm không công bằng khi chơi lặp lại.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <select
+                  value={leaderboardPeriod}
+                  onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
+                  className="p-3 bg-white border border-gray-100 rounded-2xl outline-none text-xs font-bold text-gray-600"
+                >
+                  <option value="week">Tuần này</option>
+                  <option value="month">Tháng này</option>
+                </select>
+                <select
+                  value={leaderboardCategory}
+                  onChange={(e) => setLeaderboardCategory(e.target.value as LeaderboardCategory)}
+                  className="p-3 bg-white border border-gray-100 rounded-2xl outline-none text-xs font-bold text-gray-600"
+                >
+                  <option value="gold">Bảng vàng tuần này</option>
+                  <option value="diligent">Chăm chỉ nhất</option>
+                  <option value="accurate">Chính xác nhất</option>
+                  <option value="improved">Tiến bộ nhất</option>
+                </select>
+                <select
+                  value={leaderboardClassId}
+                  onChange={(e) => setLeaderboardClassId(e.target.value)}
+                  className="p-3 bg-white border border-gray-100 rounded-2xl outline-none text-xs font-bold text-gray-600"
+                >
+                  <option value="">Tất cả lớp</option>
+                  {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
+                </select>
+                <select
+                  value={leaderboardVocabSetId}
+                  onChange={(e) => setLeaderboardVocabSetId(e.target.value)}
+                  className="p-3 bg-white border border-gray-100 rounded-2xl outline-none text-xs font-bold text-gray-600"
+                >
+                  <option value="">Tất cả bộ từ</option>
+                  {vocabSets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
+                </select>
+              </div>
             </div>
 
-            {/* Results Table Sheet */}
-            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm overflow-hidden" id="results-sheet">
-              <div className="overflow-x-auto rounded-2xl border border-gray-100">
-                <table className="w-full text-left border-collapse" id="grades-table">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {leaderboardRows.slice(0, 3).map((entry, index) => (
+                <div key={entry.studentName} className={`rounded-3xl p-5 border shadow-sm ${
+                  index === 0 ? 'bg-amber-50 border-amber-100' :
+                  index === 1 ? 'bg-slate-50 border-slate-100' : 'bg-orange-50 border-orange-100'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <span className="text-4xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</span>
+                    <span className="text-xs font-black bg-white/70 px-3 py-1 rounded-full text-gray-700">{entry.honorScore} điểm</span>
+                  </div>
+                  <h3 className="mt-4 text-lg font-black text-gray-800 truncate">{entry.studentName}</h3>
+                  <p className="text-xs font-bold text-gray-500 mt-1">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày học</p>
+                  <p className="mt-3 text-[11px] font-black text-indigo-700 bg-white/70 rounded-xl px-3 py-2 inline-block">{entry.badges[0]}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm overflow-hidden" id="leaderboard-sheet">
+              <div className="flex items-center justify-between pb-4 border-b border-gray-50">
+                <h3 className="font-extrabold text-gray-800 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardRows.length})</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase">Điểm = Bài x50 + Tỷ lệ đúng x3 + Ngày học x20 + Tiến bộ</p>
+              </div>
+
+              <div className="overflow-x-auto rounded-2xl border border-gray-100 mt-4">
+                <table className="w-full text-left border-collapse" id="leaderboard-table">
                   <thead>
                     <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
                       <th className="p-4">STT</th>
                       <th className="p-4">Học sinh</th>
-                      <th className="p-4">Bộ từ vựng</th>
-                      <th className="p-4">Chế độ chơi</th>
-                      <th className="p-4">Ngày hoàn thành</th>
+                      <th className="p-4 text-center">Bài hoàn thành</th>
                       <th className="p-4 text-center">Câu đúng</th>
                       <th className="p-4 text-center">Câu sai</th>
-                      <th className="p-4 text-center">Điểm số</th>
+                      <th className="p-4 text-center">Tỷ lệ đúng</th>
+                      <th className="p-4 text-center">Số ngày học</th>
+                      <th className="p-4 text-center">Điểm vinh danh</th>
+                      <th className="p-4">Huy hiệu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {results.length === 0 ? (
+                    {leaderboardRows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-12 text-center text-gray-400 text-sm font-medium">
-                          Chưa ghi nhận kết quả làm bài nào từ học sinh. Hãy giao bài tập hoặc hướng dẫn học sinh truy cập học tập nhé!
+                        <td colSpan={9} className="p-12 text-center text-gray-400 text-sm font-medium">
+                          Chưa có dữ liệu phù hợp để lập bảng vinh danh.
                         </td>
                       </tr>
                     ) : (
-                      results.map((res, index) => {
-                        const gameTitle = GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId;
-                        const dateFormatted = res.completedAt 
-                          ? new Date(res.completedAt).toLocaleString('vi-VN', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
-                          : 'Chưa xong';
-
-                        return (
-                          <tr key={res.id} className="hover:bg-gray-50/30 text-sm font-semibold text-gray-700">
-                            <td className="p-4 text-gray-400 text-xs font-bold">{index + 1}</td>
-                            <td className="p-4">
-                              <div className="flex items-center space-x-2">
-                                <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">{res.studentName.charAt(0).toUpperCase()}</span>
-                                <strong className="text-gray-800 font-bold">{res.studentName}</strong>
+                      leaderboardRows.map((entry, index) => (
+                        <tr key={`${entry.studentName}-${index}`} className="hover:bg-gray-50/30 text-sm font-semibold text-gray-700">
+                          <td className="p-4 text-gray-400 text-xs font-bold">{index + 1}</td>
+                          <td className="p-4">
+                            <div className="flex items-center space-x-2">
+                              <span className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                                {entry.studentName.charAt(0).toUpperCase()}
+                              </span>
+                              <div>
+                                <strong className="text-gray-800 font-bold">{entry.studentName}</strong>
+                                {entry.className && <p className="text-[10px] text-gray-400">{entry.className}</p>}
                               </div>
-                            </td>
-                            <td className="p-4 font-normal text-xs text-gray-500 max-w-[200px] truncate" title={res.vocabSetTitle}>
-                              {res.vocabSetTitle}
-                            </td>
-                            <td className="p-4">
-                              <span className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-bold">
-                                {gameTitle}
-                              </span>
-                            </td>
-                            <td className="p-4 text-xs font-normal text-gray-400">{dateFormatted}</td>
-                            <td className="p-4 text-center text-emerald-600 font-bold">{res.correctAnswers}</td>
-                            <td className="p-4 text-center text-rose-500 font-bold">{res.incorrectAnswers}</td>
-                            <td className="p-4 text-center">
-                              <span className={`px-3 py-1.5 rounded-full text-xs font-black ${
-                                res.score >= 80 ? 'bg-emerald-50 text-emerald-700' :
-                                res.score >= 50 ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700'
-                              }`}>
-                                {res.score}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })
+                            </div>
+                          </td>
+                          <td className="p-4 text-center">{entry.completedLessons}</td>
+                          <td className="p-4 text-center text-emerald-600 font-bold">{entry.correctAnswers}</td>
+                          <td className="p-4 text-center text-rose-500 font-bold">{entry.incorrectAnswers}</td>
+                          <td className="p-4 text-center font-black text-indigo-600">{entry.averageAccuracy}%</td>
+                          <td className="p-4 text-center">{entry.studyDays}</td>
+                          <td className="p-4 text-center">
+                            <span className="px-3 py-1.5 rounded-full text-xs font-black bg-amber-50 text-amber-700">{entry.honorScore}</span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex flex-wrap gap-1">
+                              {entry.badges.map(badge => (
+                                <span key={badge} className="text-[10px] font-black bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">
+                                  {badge}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>

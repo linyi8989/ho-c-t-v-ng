@@ -24,6 +24,41 @@ interface StudentLearningAreaProps {
   onBack: () => void;
 }
 
+const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
+const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
+
+function createGuestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getStoredGuestId() {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    const existing = window.localStorage.getItem(GUEST_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const newGuestId = createGuestId();
+    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, newGuestId);
+    return newGuestId;
+  } catch {
+    return createGuestId();
+  }
+}
+
+function getStoredStudentName() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function StudentLearningArea({ 
   vocabSet, 
   studentName: propStudentName, 
@@ -32,8 +67,9 @@ export default function StudentLearningArea({
   onBack 
 }: StudentLearningAreaProps) {
   const { token } = useAuth();
-  const [studentName, setStudentName] = useState(propStudentName || '');
-  const [nameSubmitted, setNameSubmitted] = useState(!!propStudentName);
+  const [guestId] = useState(() => getStoredGuestId());
+  const [studentName, setStudentName] = useState(() => propStudentName || getStoredStudentName());
+  const [nameSubmitted, setNameSubmitted] = useState(() => !!(propStudentName || getStoredStudentName()));
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
   const [activeItems, setActiveItems] = useState<VocabItem[]>([...vocabSet.items]);
   const [isRandomized, setIsRandomized] = useState(false);
@@ -51,6 +87,34 @@ export default function StudentLearningArea({
       setSelectedGame(GAMES_LIST[0]); // Default to first game
     }
   }, [initialGameId]);
+
+  useEffect(() => {
+    if (!propStudentName) return;
+    setStudentName(propStudentName);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, propStudentName);
+      } catch {
+        // Ignore storage errors so learning can continue.
+      }
+    }
+    setNameSubmitted(true);
+  }, [propStudentName]);
+
+  const handleSubmitName = () => {
+    const normalizedName = studentName.trim();
+    if (!normalizedName) return;
+
+    setStudentName(normalizedName);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, normalizedName);
+      } catch {
+        // Ignore storage errors so learning can continue.
+      }
+    }
+    setNameSubmitted(true);
+  };
 
   // Set up student session on game select
   useEffect(() => {
@@ -70,7 +134,8 @@ export default function StudentLearningArea({
         vocabSetId: vocabSet.id,
         vocabSetTitle: vocabSet.title,
         gameId: selectedGame.gameId,
-        studentName: studentName
+        studentName: studentName,
+        guestId
       })
     })
     .then(res => {
@@ -93,6 +158,7 @@ export default function StudentLearningArea({
           vocabSetTitle: vocabSet.title,
           gameId: selectedGame.gameId,
           studentName: studentName,
+          guestId,
           score: 0,
           totalQuestions: 0,
           correctAnswers: 0,
@@ -107,7 +173,7 @@ export default function StudentLearningArea({
         console.error("Direct Firestore game session creation failed:", firestoreErr);
       }
     });
-  }, [selectedGame, nameSubmitted, studentName, vocabSet, assignmentId, token]);
+  }, [selectedGame, nameSubmitted, studentName, guestId, vocabSet, assignmentId, token]);
 
   const handleShuffle = () => {
     if (isRandomized) {
@@ -288,11 +354,14 @@ export default function StudentLearningArea({
                   placeholder="Nhập họ và tên của em..."
                   value={studentName}
                   onChange={(e) => setStudentName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSubmitName();
+                  }}
                   className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-center text-lg"
                   id="student-name-input"
                 />
                 <button
-                  onClick={() => studentName.trim() && setNameSubmitted(true)}
+                  onClick={handleSubmitName}
                   disabled={!studentName.trim()}
                   className="py-4 px-8 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
                   id="submit-name-btn"

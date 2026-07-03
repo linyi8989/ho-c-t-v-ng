@@ -479,6 +479,39 @@ function normalizePartOfSpeech(value: any) {
   return "Noun";
 }
 
+function normalizeForExampleCheck(value: any) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isWeakVocabularyExample(example: any, word: string) {
+  const normalizedExample = normalizeForExampleCheck(example);
+  const normalizedWord = normalizeForExampleCheck(word);
+  if (!normalizedExample || !normalizedWord) return true;
+  if (!normalizedExample.includes(normalizedWord)) return true;
+  return normalizedExample.startsWith("the word ") ||
+    normalizedExample.startsWith("this word ") ||
+    normalizedExample.includes("appears often in everyday english") ||
+    normalizedExample.includes("students should practice") ||
+    normalizedExample.includes("is a vocabulary word");
+}
+
+function buildFallbackExample(word: string, meaning?: string) {
+  const cleanWord = String(word || "").trim();
+  const cleanMeaning = String(meaning || "").trim();
+  return {
+    example: `On a bright weekend morning, my friends and I talked about the ${cleanWord} while planning a small adventure together.`,
+    exampleMeaning: cleanMeaning
+      ? `Vào một buổi sáng cuối tuần đẹp trời, tôi và các bạn đã nói về ${cleanMeaning} khi cùng nhau lên kế hoạch cho một chuyến đi nhỏ.`
+      : `Vào một buổi sáng cuối tuần đẹp trời, tôi và các bạn đã dùng từ "${cleanWord}" khi cùng nhau lên kế hoạch cho một chuyến đi nhỏ.`
+  };
+}
+
 // 4. AI: Fill missing details for a single vocabulary row
 app.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
   const { word, meaning, grade } = req.body;
@@ -487,13 +520,14 @@ app.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
       return res.status(400).json({ error: "Tham số 'word' là bắt buộc." });
     }
 
+    const fallbackExample = buildFallbackExample(word, meaning);
     const fallback = {
       term: word,
       meaning: meaning || "",
       ipa: `/${word.toLowerCase()}/`,
       pos: "Noun",
-      example: `The word "${word}" appears often in everyday English, so students should practice it in a real sentence.`,
-      exampleMeaning: meaning ? `Từ "${word}" thường xuất hiện trong tiếng Anh hằng ngày, vì vậy học sinh nên luyện tập từ này trong một câu thực tế.` : "",
+      example: fallbackExample.example,
+      exampleMeaning: fallbackExample.exampleMeaning,
       audioUrl: ""
     };
 
@@ -513,7 +547,7 @@ Return ONLY one valid JSON object with:
 - "meaning": concise Vietnamese meaning.
 - "ipa": standard American English IPA transcription, surrounded by slashes.
 - "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-- "example": one vivid, natural, useful English sentence using the word correctly. The sentence should be friendly for students, close to daily life, and longer than a basic pattern like "This is ...". Prefer a complete sentence with context, details, and a pleasant or memorable feeling. If the word is commonly used in an idiom, proverb, collocation, or everyday expression, use that naturally.
+- "example": write ONE complete English sentence that CONTAINS the exact vocabulary word or phrase "${word}" and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Do not use short templates like "This is ...". Make the sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If the word naturally appears in a common expression, idiom, proverb, collocation, or everyday saying, use it.
 - "exampleMeaning": Vietnamese translation of the example sentence.
 - "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`,
       config: {
@@ -534,21 +568,30 @@ Return ONLY one valid JSON object with:
     });
 
     const parsedData = JSON.parse(response.text?.trim() || "{}");
+    const exampleData = isWeakVocabularyExample(parsedData.example, word)
+      ? buildFallbackExample(word, parsedData.meaning || meaning)
+      : {
+          example: parsedData.example,
+          exampleMeaning: parsedData.exampleMeaning
+        };
     res.json({
       ...fallback,
       ...parsedData,
       pos: normalizePartOfSpeech(parsedData.pos),
+      example: exampleData.example,
+      exampleMeaning: exampleData.exampleMeaning || parsedData.exampleMeaning || fallback.exampleMeaning,
       term: word
     });
   } catch (error: any) {
     console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
+    const fallbackExample = buildFallbackExample(word, meaning);
     res.json({
       term: word,
       meaning: meaning || "",
       ipa: `/${(word || "").toLowerCase()}/`,
       pos: "Noun",
-      example: `The word "${word}" appears often in everyday English, so students should practice it in a real sentence.`,
-      exampleMeaning: meaning ? `Từ "${word}" thường xuất hiện trong tiếng Anh hằng ngày, vì vậy học sinh nên luyện tập từ này trong một câu thực tế.` : "",
+      example: fallbackExample.example,
+      exampleMeaning: fallbackExample.exampleMeaning,
       audioUrl: "",
       isFallback: true
     });
@@ -575,7 +618,7 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
     2. "meaning": Vietnamese meaning.
     3. "ipa": Standard IPA phonetic transcription.
     4. "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-    5. "example": A vivid, natural, useful English sentence using the word correctly. Avoid short template sentences like "This is ...". Prefer a complete sentence with context, details, and a pleasant or memorable feeling. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
+    5. "example": ONE complete English sentence that contains the exact vocabulary word or phrase and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Avoid short template sentences like "This is ...". Prefer a sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
     6. "exampleMeaning": Vietnamese translation of that example.
     
     Make sure example sentences are easy to understand for the specified grade level but still rich, close to daily life, and interesting for students.
@@ -605,10 +648,22 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
     });
 
     const parsedData = JSON.parse(response.text?.trim() || "[]");
-    res.json(Array.isArray(parsedData) ? parsedData.map((item: any) => ({
-      ...item,
-      pos: normalizePartOfSpeech(item.pos)
-    })) : []);
+    res.json(Array.isArray(parsedData) ? parsedData.map((item: any) => {
+      const fallbackExample = buildFallbackExample(item.term, item.meaning);
+      const exampleData = isWeakVocabularyExample(item.example, item.term)
+        ? fallbackExample
+        : {
+            example: item.example,
+            exampleMeaning: item.exampleMeaning
+          };
+
+      return {
+        ...item,
+        pos: normalizePartOfSpeech(item.pos),
+        example: exampleData.example,
+        exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning
+      };
+    }) : []);
   } catch (error: any) {
     console.warn("AI generation service unavailable, returning fallback:", error.message);
     const fallbackList = getFallbackVocabulary(topic, wordsCount);
@@ -639,6 +694,63 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
     }
 
     res.json(found);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. PUBLIC VOCAB SETS: Student home can study public sets without login
+app.get("/api/public/vocab-sets", async (req, res) => {
+  try {
+    const snapshot = await adminDb.collection("vocab_sets").get();
+    const list: any[] = [];
+
+    snapshot.forEach(doc => {
+      const set = doc.data();
+      const normalizedVisibility = getVocabVisibility(set);
+      if (normalizedVisibility !== "public") return;
+
+      list.push({
+        ...set,
+        visibility: normalizedVisibility,
+        status: toLegacyStatus(normalizedVisibility)
+      });
+    });
+
+    res.json(list);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. PUBLIC GAME RESULTS: Minimal completed sessions for the student golden board
+app.get("/api/public/results", async (req, res) => {
+  try {
+    const snapshot = await adminDb.collection("game_sessions").get();
+    const list: any[] = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (!data.completedAt) return;
+
+      list.push({
+        id: data.id,
+        assignmentId: data.assignmentId,
+        vocabSetId: data.vocabSetId,
+        vocabSetTitle: data.vocabSetTitle,
+        gameId: data.gameId,
+        studentName: data.studentName,
+        guestId: data.guestId,
+        startedAt: data.startedAt,
+        completedAt: data.completedAt,
+        score: data.score || 0,
+        totalQuestions: data.totalQuestions || 0,
+        correctAnswers: data.correctAnswers || 0,
+        incorrectAnswers: data.incorrectAnswers || 0
+      });
+    });
+
+    res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

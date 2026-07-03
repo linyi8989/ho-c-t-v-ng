@@ -3,27 +3,34 @@ import {
   BookOpen, Users, Award, Play, ShieldAlert, Sparkles, UserCheck, 
   ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield
 } from 'lucide-react';
-import { VocabSet, Class, Assignment } from './types';
+import { VocabSet, Class, Assignment, GameSession } from './types';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentLearningArea from './components/games/StudentLearningArea';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
+import { buildLeaderboard, LeaderboardPeriod } from './lib/leaderboard';
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
 export default function App() {
   const { user, token, logout, loading } = useAuth();
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [adminMode, setAdminMode] = useState(false);
   const privateAssignmentToken = React.useMemo(() => {
     const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
   }, []);
+  const authRoute = React.useMemo(() => {
+    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (pathname === '/reg' || pathname === '/register') return 'register';
+    if (pathname === '/login' || pathname === '/admin') return 'login';
+    return '';
+  }, []);
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [results, setResults] = useState<GameSession[]>([]);
   const [privateAssignmentSet, setPrivateAssignmentSet] = useState<VocabSet | null>(null);
   const [privateAssignmentLoading, setPrivateAssignmentLoading] = useState(!!privateAssignmentToken);
   const [privateAssignmentError, setPrivateAssignmentError] = useState('');
@@ -31,6 +38,7 @@ export default function App() {
   // Search/Filter for homepage
   const [homeSearch, setHomeSearch] = useState('');
   const [homeGrade, setHomeGrade] = useState('');
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
 
   // Active student playing state
   const [selectedSet, setSelectedSet] = useState<VocabSet | null>(null);
@@ -46,9 +54,38 @@ export default function App() {
     ]));
   }, [classes, vocabSets]);
 
-  // Load authenticated data on mount or token change
+  const homeLeaderboard = React.useMemo(() => {
+    return buildLeaderboard(results, assignments, { period: leaderboardPeriod }).gold.slice(0, 5);
+  }, [results, assignments, leaderboardPeriod]);
+
+  // Load data on mount or token change. Guests only receive public study data.
   const loadHomeData = async () => {
-    if (!token) return;
+    if (!token) {
+      setClasses([]);
+      setAssignments([]);
+
+      try {
+        const res = await fetch('/api/public/vocab-sets');
+        if (!res.ok) throw new Error("Public vocab API response error");
+        const data = await res.json();
+        setVocabSets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Backend /api/public/vocab-sets API unreachable:", err);
+        setVocabSets([]);
+      }
+
+      try {
+        const res = await fetch('/api/public/results');
+        if (!res.ok) throw new Error("Public results API response error");
+        const data = await res.json();
+        setResults(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Backend /api/public/results API unreachable:", err);
+        setResults([]);
+      }
+
+      return;
+    }
 
     // Load Vocabulary Sets
     try {
@@ -119,6 +156,30 @@ export default function App() {
         setClasses(list);
       } catch (firestoreErr) {
         console.error("Direct Firestore classes fetch failed:", firestoreErr);
+      }
+    }
+
+    // Load completed learning/game results for the student leaderboard
+    try {
+      const res = await fetch('/api/results', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("API response error");
+      const data = await res.json();
+      setResults(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/results API unreachable, falling back to direct Firestore Client-side query:", err);
+      try {
+        const { collection, getDocs } = await import('firebase/firestore');
+        const { db } = await import('./lib/firebase');
+        const querySnapshot = await getDocs(collection(db, 'game_sessions'));
+        const list: GameSession[] = [];
+        querySnapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() } as any);
+        });
+        setResults(list);
+      } catch (firestoreErr) {
+        console.error("Direct Firestore game_sessions fetch failed:", firestoreErr);
       }
     }
   };
@@ -234,6 +295,24 @@ export default function App() {
     );
   }
 
+  if (authRoute === 'register') {
+    return (
+      <Register
+        onNavigateToLogin={() => { window.location.href = '/login'; }}
+        onNavigateToHome={() => { window.location.href = '/'; }}
+      />
+    );
+  }
+
+  if (authRoute === 'login') {
+    return (
+      <Login
+        onNavigateToRegister={() => { window.location.href = '/reg'; }}
+        onNavigateToHome={() => { window.location.href = '/'; }}
+      />
+    );
+  }
+
   if (privateAssignmentToken) {
     if (privateAssignmentLoading) {
       return (
@@ -272,26 +351,8 @@ export default function App() {
     );
   }
 
-  // 2. Auth Guard: Not Logged In
-  if (!user) {
-    if (authMode === 'register') {
-      return (
-        <Register 
-          onNavigateToLogin={() => setAuthMode('login')} 
-          onNavigateToHome={() => {}} 
-        />
-      );
-    }
-    return (
-      <Login 
-        onNavigateToRegister={() => setAuthMode('register')} 
-        onNavigateToHome={() => {}} 
-      />
-    );
-  }
-
   // 3. Status Guard: User is Blocked
-  if (user.status === 'blocked') {
+  if (user?.status === 'blocked') {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4" id="blocked-screen">
         <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-gray-100 shadow-xl space-y-6 text-center">
@@ -333,13 +394,13 @@ export default function App() {
 
   // 5. ADMIN/TEACHER DASHBOARD SCREEN
   // If user is teacher/super_admin and NOT in student simulated view mode
-  const isStaff = user.role === 'teacher' || user.role === 'super_admin';
+  const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
   if (isStaff && !adminMode) {
     return (
       <div className="relative">
         {/* Toggle bar back to student representation */}
         <div className="bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30 text-amber-900 px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
-          <span>⚠️ Bạn đang ở giao diện Quản Trị ({user.role === 'super_admin' ? 'Super Admin' : 'Giáo viên'})</span>
+          <span>⚠️ Bạn đang ở giao diện Quản Trị ({user?.role === 'super_admin' ? 'Super Admin' : 'Giáo viên'})</span>
           <div className="flex items-center space-x-3">
             <button 
               onClick={() => setAdminMode(true)}
@@ -396,26 +457,45 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 text-right">
-              <div className="hidden sm:block">
-                <span className="text-xs font-black text-gray-800 block leading-none">{user.name || 'Học sinh'}</span>
-                <span className="text-[9px] text-indigo-600 font-bold uppercase tracking-wider block mt-0.5">
-                  {user.role === 'super_admin' ? 'Super Admin' : user.role === 'teacher' ? 'Giáo viên' : 'Học sinh'}
-                </span>
-              </div>
-              <div className="w-9 h-9 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-black text-sm">
-                {(user.name || 'S').charAt(0).toUpperCase()}
-              </div>
-            </div>
+            {user ? (
+              <>
+                <div className="flex items-center space-x-2 text-right">
+                  <div className="hidden sm:block">
+                    <span className="text-xs font-black text-gray-800 block leading-none">{user.name || 'Học sinh'}</span>
+                    <span className="text-[9px] text-indigo-600 font-bold uppercase tracking-wider block mt-0.5">
+                      {user.role === 'super_admin' ? 'Super Admin' : user.role === 'teacher' ? 'Giáo viên' : 'Học sinh'}
+                    </span>
+                  </div>
+                  <div className="w-9 h-9 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-black text-sm">
+                    {(user.name || 'S').charAt(0).toUpperCase()}
+                  </div>
+                </div>
 
-            <button
-              onClick={() => logout()}
-              className="flex items-center justify-center p-2 bg-gray-50 hover:bg-rose-50 hover:text-rose-600 text-gray-400 rounded-xl transition-all cursor-pointer border border-gray-100"
-              title="Đăng xuất tài khoản"
-              id="user-logout-btn"
-            >
-              <LogOut size={16} />
-            </button>
+                <button
+                  onClick={() => logout()}
+                  className="flex items-center justify-center p-2 bg-gray-50 hover:bg-rose-50 hover:text-rose-600 text-gray-400 rounded-xl transition-all cursor-pointer border border-gray-100"
+                  title="Đăng xuất tài khoản"
+                  id="user-logout-btn"
+                >
+                  <LogOut size={16} />
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { window.location.href = '/login'; }}
+                  className="px-3 py-2 bg-gray-50 hover:bg-indigo-50 text-gray-600 hover:text-indigo-700 border border-gray-100 rounded-xl text-xs font-bold transition-all"
+                >
+                  Giáo viên/Admin
+                </button>
+                <button
+                  onClick={() => { window.location.href = '/reg'; }}
+                  className="hidden sm:inline-flex px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
+                >
+                  Đăng ký
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </nav>
@@ -514,7 +594,7 @@ export default function App() {
                     <button
                       onClick={() => {
                         setSelectedSet(set);
-                        setStudentName(user?.name || 'Học sinh');
+                        setStudentName(user?.name || '');
                       }}
                       className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl transition-all shadow-sm hover:shadow flex items-center space-x-1 cursor-pointer text-xs"
                     >
@@ -529,49 +609,65 @@ export default function App() {
 
         </section>
 
-        {/* Right Area: Homework Checker sidebar */}
+        {/* Right Area: Golden Board sidebar */}
         <aside className="lg:col-span-4 space-y-6" id="home-sidebar">
           
-          {/* Box 1: Homework Checker for pupils */}
-          <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-md space-y-4" id="homework-checker">
-            <div className="flex items-center space-x-2 border-b border-gray-50 pb-3">
-              <GraduationCap className="text-indigo-600 animate-pulse" size={20} />
-              <h3 className="font-extrabold text-gray-800 text-base">Bài tập thầy cô giao</h3>
+          {/* Box 1: Student Golden Board */}
+          <div className="bg-gradient-to-br from-slate-950 to-indigo-950 text-white rounded-3xl p-6 border border-white/10 shadow-md space-y-4" id="student-golden-board">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center space-x-2">
+                <Award className="text-amber-300 animate-pulse" size={20} />
+                <h3 className="font-extrabold text-base">Bảng Vàng</h3>
+              </div>
+              <select
+                value={leaderboardPeriod}
+                onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
+                className="bg-white/10 border border-white/10 rounded-xl px-2.5 py-1.5 text-[10px] font-black text-white outline-none"
+                style={{ colorScheme: 'dark' }}
+              >
+                <option value="week">Tuần này</option>
+                <option value="month">Tháng này</option>
+              </select>
             </div>
 
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Em có mã mời lớp hoặc bài tập từ thầy cô? Hãy nhấp vào bài tập tương ứng của lớp em bên dưới để hoàn thành nhận điểm!
+            <p className="text-xs text-white/70 leading-relaxed">
+              Vinh danh học sinh chăm học dựa trên kết quả chơi game, độ chính xác, số ngày học và mức tiến bộ. Mỗi bộ từ vựng và mỗi chế độ chơi chỉ tính kết quả tốt nhất.
             </p>
 
-            <div className="space-y-3" id="home-assignments-list">
-              {assignments.length === 0 ? (
-                <div className="text-center py-6 text-gray-400 text-xs italic">
-                  Chưa có bài tập nào được giao gần đây.
+            {homeLeaderboard.length === 0 ? (
+              <div className="text-center py-6 text-white/50 text-xs italic">
+                Chưa có kết quả học tập nào để vinh danh.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2">
+                  {homeLeaderboard.slice(0, 3).map((entry, index) => (
+                    <div key={entry.studentKey || entry.studentName} className="rounded-2xl bg-white/10 border border-white/10 p-3 text-center">
+                      <div className="text-2xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
+                      <p className="mt-1 truncate text-xs font-black">{entry.studentName}</p>
+                      <p className="text-[10px] text-amber-200 font-bold">{entry.honorScore} điểm</p>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                assignments.map((assign) => (
-                  <button
-                    key={assign.id}
-                    onClick={() => {
-                      const foundSet = vocabSets.find(s => s.id === assign.vocabSetId);
-                      if (foundSet) {
-                        setSelectedSet(foundSet);
-                        setStudentName(user?.name || 'Học sinh');
-                        setActiveAssignmentId(assign.id);
-                        setActiveGameId(assign.gameId);
-                      }
-                    }}
-                    className="w-full text-left p-3.5 bg-gray-50 hover:bg-indigo-50/30 border border-gray-100 hover:border-indigo-100 rounded-2xl transition-all cursor-pointer block"
-                  >
-                    <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded block w-fit mb-1.5">
-                      {assign.className}
-                    </span>
-                    <strong className="text-xs font-extrabold text-gray-800 block leading-tight">{assign.title}</strong>
-                    <span className="text-[10px] text-gray-400 font-medium block mt-1">Hạn nộp: {assign.dueDate}</span>
-                  </button>
-                ))
-              )}
-            </div>
+
+                <div className="space-y-2" id="home-leaderboard-list">
+                  {homeLeaderboard.map((entry, index) => (
+                    <div key={`${entry.studentKey || entry.studentName}-${index}`} className="flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-3 py-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-6 h-6 rounded-full bg-indigo-500/30 text-indigo-100 flex items-center justify-center text-[10px] font-black shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-extrabold">{entry.studentName}</p>
+                          <p className="text-[10px] text-white/50">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-amber-200">{entry.honorScore}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Box 2: System info overview card */}
