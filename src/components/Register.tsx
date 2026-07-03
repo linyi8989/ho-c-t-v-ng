@@ -67,7 +67,7 @@ export default function Register({ onNavigateToLogin, onNavigateToHome }: Regist
             <BookOpen size={32} />
           </div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight mt-4">ĐĂNG KÝ TÀI KHOẢN</h2>
-          <p className="text-xs text-gray-400 font-medium">Tạo tài khoản mới hoàn toàn miễn phí tại V-Homework</p>
+          <p className="text-xs text-gray-400 font-medium">Tạo tài khoản mới hoàn toàn miễn phí tại Cô Diệu Tiếng Anh</p>
         </div>
 
         {error && (

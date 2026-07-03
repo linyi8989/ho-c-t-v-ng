@@ -30,6 +30,8 @@ const getAssignmentLink = (set: VocabSet) => {
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
 
+const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
+
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -88,6 +90,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   // Notifications
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [shareLinkNotice, setShareLinkNotice] = useState<{ title: string; url: string } | null>(null);
+
+  const gradeOptions = React.useMemo(() => {
+    return Array.from(new Set([
+      ...DEFAULT_GRADE_OPTIONS,
+      ...classes.map(cls => cls.name).filter(Boolean),
+      ...vocabSets.map(set => set.gradeLevel).filter(Boolean),
+      editorGrade
+    ]));
+  }, [classes, vocabSets, editorGrade]);
 
   // Authenticated custom fetch wrapper
   const authFetch = (url: string, options: any = {}) => {
@@ -196,7 +207,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       term: '',
       meaning: '',
       ipa: '',
-      pos: 'Noun',
+      pos: '',
       example: '',
       exampleMeaning: '',
       displayOrder: editorItems.length + 1
@@ -237,7 +248,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         term: terms[i] || '',
         meaning: meanings[i] || meanings[meanings.length - 1] || '',
         ipa: ipas[i] || '',
-        pos: 'Noun',
+        pos: '',
         example: '',
         exampleMeaning: '',
         displayOrder: editorItems.length + i + 1
@@ -251,50 +262,83 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     showNotification(`Đã ghép thành công ${importedItems.length} từ vựng vào bảng.`);
   };
 
-  // Auto phonetic IPA generator using server proxy API
+  const applyMissingVocabDetails = (itemId: string, details: Partial<VocabItem>) => {
+    setEditorItems(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
+      return {
+        ...item,
+        meaning: item.meaning.trim() ? item.meaning : (details.meaning || item.meaning),
+        ipa: item.ipa.trim() ? item.ipa : (details.ipa || item.ipa),
+        pos: item.pos.trim() ? item.pos : (details.pos || item.pos),
+        example: item.example.trim() ? item.example : (details.example || item.example),
+        exampleMeaning: item.exampleMeaning.trim() ? item.exampleMeaning : (details.exampleMeaning || item.exampleMeaning),
+        audioUrl: item.audioUrl || details.audioUrl
+      };
+    }));
+  };
+
+  const hasMissingGeneratedFields = (item: VocabItem) => {
+    return !item.meaning.trim() ||
+      !item.ipa.trim() ||
+      !item.pos.trim() ||
+      !item.example.trim() ||
+      !item.exampleMeaning.trim() ||
+      !item.audioUrl;
+  };
+
+  // Auto-fill missing row details using server proxy AI API
   const handleGenerateIpaForRow = async (id: string, term: string) => {
     if (!term.trim()) return;
     try {
-      const res = await authFetch('/api/ai/ipa', {
+      const currentItem = editorItems.find(item => item.id === id);
+      const res = await authFetch('/api/ai/vocab-detail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: term })
+        body: JSON.stringify({
+          word: term,
+          meaning: currentItem?.meaning || '',
+          grade: editorGrade
+        })
       });
       const data = await res.json();
-      if (data.ipa) {
-        handleUpdateItemValue(id, 'ipa', data.ipa);
+      if (res.ok) {
+        applyMissingVocabDetails(id, data);
       }
     } catch (err) {
-      console.error("Error generating IPA:", err);
+      console.error("Error generating vocabulary details:", err);
     }
   };
 
   const handleGenerateAllBlankIpas = async () => {
     let count = 0;
-    const itemsWithEmptyIpa = editorItems.filter(item => !item.ipa.trim() && item.term.trim());
-    if (itemsWithEmptyIpa.length === 0) {
-      showNotification("Tất cả các từ trong bảng đều đã có phiên âm IPA.");
+    const itemsWithMissingDetails = editorItems.filter(item => item.term.trim() && hasMissingGeneratedFields(item));
+    if (itemsWithMissingDetails.length === 0) {
+      showNotification("Tất cả các từ trong bảng đều đã đủ IPA, loại từ, ví dụ và dịch nghĩa ví dụ.");
       return;
     }
 
-    showNotification("Đang sinh phiên âm IPA tự động bằng AI...");
-    for (const item of itemsWithEmptyIpa) {
+    showNotification("Đang tự sinh các phần còn thiếu bằng AI...");
+    for (const item of itemsWithMissingDetails) {
       try {
-        const res = await authFetch('/api/ai/ipa', {
+        const res = await authFetch('/api/ai/vocab-detail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ word: item.term })
+          body: JSON.stringify({
+            word: item.term,
+            meaning: item.meaning,
+            grade: editorGrade
+          })
         });
         const data = await res.json();
-        if (data.ipa) {
-          handleUpdateItemValue(item.id, 'ipa', data.ipa);
+        if (res.ok) {
+          applyMissingVocabDetails(item.id, data);
           count++;
         }
       } catch (err) {
         console.error(err);
       }
     }
-    showNotification(`Đã tự động tạo xong ${count} phiên âm IPA.`);
+    showNotification(`Đã tự động bổ sung thông tin cho ${count} từ vựng.`);
   };
 
   // AI Vocab set generator (Tích hợp thực tế với Gemini)
@@ -656,7 +700,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <BookOpen size={20} />
           </span>
           <div>
-            <h1 className="font-black text-gray-800 tracking-tight text-base leading-snug">V-Homework</h1>
+            <h1 className="font-black text-gray-800 tracking-tight text-base leading-snug">Cô Diệu Tiếng Anh</h1>
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
               {user?.role === 'super_admin' ? 'Hệ thống Admin' : 'Dashboard Giáo Viên'}
             </p>
@@ -956,9 +1000,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   className="p-3 bg-gray-50 border border-gray-100 hover:border-indigo-200 rounded-2xl outline-none text-sm font-semibold text-gray-600"
                 >
                   <option value="">Tất cả Lớp học</option>
-                  <option value="Lớp 3">Lớp 3</option>
-                  <option value="Lớp 6">Lớp 6</option>
-                  <option value="Lớp 10">Lớp 10</option>
+                  {gradeOptions.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
                 </select>
 
                 <select
@@ -1141,9 +1185,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       onChange={(e) => setEditorGrade(e.target.value)}
                       className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-gray-600 text-sm"
                     >
-                      <option value="Lớp 3">Lớp 3</option>
-                      <option value="Lớp 6">Lớp 6</option>
-                      <option value="Lớp 10">Lớp 10</option>
+                      {gradeOptions.map(option => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -1223,9 +1267,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                         className="w-full p-3.5 bg-white/10 rounded-2xl border border-white/10 outline-none text-white font-bold text-sm"
                         style={{ colorScheme: 'dark' }}
                       >
-                        <option value="Lớp 3">Tiểu học (Lớp 3)</option>
-                        <option value="Lớp 6">THCS (Lớp 6)</option>
-                        <option value="Lớp 10">THPT (Lớp 10)</option>
+                        {gradeOptions.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -1323,7 +1367,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pb-4 border-b border-gray-50">
                 <div className="space-y-0.5">
                   <h3 className="font-extrabold text-gray-800 text-base">Danh sách từ vựng ({editorItems.length} từ)</h3>
-                  <p className="text-xs text-gray-400 font-medium">Bấm "Thêm dòng" để soạn thảo hoặc click "Tự sinh IPA" cho phần còn thiếu.</p>
+                  <p className="text-xs text-gray-400 font-medium">Bấm "Thêm dòng" để soạn thảo hoặc tự sinh các phần còn thiếu trong bảng.</p>
                 </div>
 
                 <div className="flex space-x-2">
@@ -1333,7 +1377,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     id="auto-generate-ipa-btn"
                   >
                     <Sparkles size={14} />
-                    <span>Tự sinh tất cả IPA trống</span>
+                    <span>Tự sinh các phần còn thiếu</span>
                   </button>
 
                   <button
@@ -1404,33 +1448,40 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               <button
                                 onClick={() => handleGenerateIpaForRow(item.id, item.term)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                                title="Tự động tạo IPA"
+                                title="Tự động bổ sung IPA, loại từ, ví dụ và dịch ví dụ"
                               >
                                 <Sparkles size={12} />
                               </button>
                             </div>
                           </td>
                           <td className="p-3">
-                            <select
-                              value={item.pos}
-                              onChange={(e) => handleUpdateItemValue(item.id, 'pos', e.target.value)}
-                              className="w-full p-2.5 bg-gray-50 border border-gray-100 rounded-xl outline-none text-xs font-semibold"
-                            >
-                              <option value="Noun">Noun</option>
-                              <option value="Verb">Verb</option>
-                              <option value="Adjective">Adjective</option>
-                              <option value="Adverb">Adverb</option>
-                              <option value="Phrase">Phrase</option>
-                            </select>
-                          </td>
-                          <td className="p-3 space-y-2">
                             <input
                               type="text"
-                              value={item.example}
-                              onChange={(e) => handleUpdateItemValue(item.id, 'example', e.target.value)}
-                              placeholder="English example sentence..."
-                              className="w-full p-2 bg-gray-50 border border-gray-100 focus:bg-white rounded-xl outline-none text-xs"
+                              value={item.pos}
+                              onChange={(e) => handleUpdateItemValue(item.id, 'pos', e.target.value)}
+                              placeholder="Noun, Verb..."
+                              className="w-full p-2.5 bg-gray-50 border border-gray-100 hover:border-indigo-300 focus:bg-white focus:border-indigo-500 rounded-xl outline-none text-xs font-semibold transition-all"
                             />
+                          </td>
+                          <td className="p-3 space-y-2">
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={item.example}
+                                onChange={(e) => handleUpdateItemValue(item.id, 'example', e.target.value)}
+                                placeholder="English example sentence..."
+                                className="w-full p-2 pr-9 bg-gray-50 border border-gray-100 focus:bg-white rounded-xl outline-none text-xs"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => item.example.trim() && speakEnglish(item.example)}
+                                disabled={!item.example.trim()}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 rounded-lg transition-all cursor-pointer"
+                                title="Nghe ví dụ tiếng Anh"
+                              >
+                                <Volume2 size={12} />
+                              </button>
+                            </div>
                             <input
                               type="text"
                               value={item.exampleMeaning}

@@ -111,7 +111,7 @@ export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginP
             <BookOpen size={32} />
           </div>
           <h2 className="text-2xl font-black text-gray-900 tracking-tight mt-4">ĐĂNG NHẬP HỆ THỐNG</h2>
-          <p className="text-xs text-gray-400 font-medium">Đăng nhập để vào khu học tập và chơi game cùng V-Homework</p>
+          <p className="text-xs text-gray-400 font-medium">Đăng nhập để vào khu học tập và chơi game cùng Cô Diệu Tiếng Anh</p>
         </div>
 
         {/* Auth Method Selector */}

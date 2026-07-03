@@ -10,6 +10,8 @@ import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 
+const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
+
 export default function App() {
   const { user, token, logout, loading } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -35,6 +37,14 @@ export default function App() {
   const [studentName, setStudentName] = useState('');
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | undefined>(undefined);
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
+
+  const homeGradeOptions = React.useMemo(() => {
+    return Array.from(new Set([
+      ...DEFAULT_GRADE_OPTIONS,
+      ...classes.map(cls => cls.name).filter(Boolean),
+      ...vocabSets.map(set => set.gradeLevel).filter(Boolean)
+    ]));
+  }, [classes, vocabSets]);
 
   // Load authenticated data on mount or token change
   const loadHomeData = async () => {
@@ -145,10 +155,68 @@ export default function App() {
     setAdminMode(true); // Switch to student view representation
   };
 
+  const normalizeSearchText = (value: string) => {
+    return value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const expandSearchTerms = (query: string) => {
+    const normalized = normalizeSearchText(query);
+    if (!normalized) return [];
+
+    const aliases: Record<string, string[]> = {
+      'so dem': ['number', 'numbers', 'counting', 'cardinal', 'cardinal numbers', 'so'],
+      number: ['so dem', 'so', 'numbers', 'counting', 'cardinal'],
+      numbers: ['so dem', 'so', 'number', 'counting', 'cardinal'],
+      counting: ['so dem', 'number', 'numbers', 'dem so'],
+      'so thu tu': ['ordinal', 'ordinal numbers', 'order', 'sequence'],
+      ordinal: ['so thu tu', 'ordinal numbers', 'order'],
+      color: ['mau sac', 'colors', 'colour', 'colours'],
+      colors: ['mau sac', 'color', 'colour', 'colours'],
+      'mau sac': ['color', 'colors', 'colour', 'colours'],
+      animal: ['dong vat', 'animals'],
+      animals: ['dong vat', 'animal'],
+      'dong vat': ['animal', 'animals'],
+    };
+
+    return Array.from(new Set([normalized, ...(aliases[normalized] || [])].map(normalizeSearchText)));
+  };
+
+  const getSetSearchCorpus = (set: VocabSet) => {
+    const itemText = set.items
+      .map(item => [
+        item.term,
+        item.meaning,
+        item.ipa,
+        item.pos,
+        item.example,
+        item.exampleMeaning,
+        item.notes
+      ].filter(Boolean).join(' '))
+      .join(' ');
+
+    return normalizeSearchText([
+      set.title,
+      set.description,
+      set.subject,
+      set.gradeLevel,
+      set.creatorName,
+      ...(set.tags || []),
+      itemText
+    ].filter(Boolean).join(' '));
+  };
+
   // Filter public sets on home page
   const filteredSets = vocabSets.filter(set => {
-    const matchSearch = set.title.toLowerCase().includes(homeSearch.toLowerCase()) || 
-                        set.description.toLowerCase().includes(homeSearch.toLowerCase());
+    const searchTerms = expandSearchTerms(homeSearch);
+    const searchableText = getSetSearchCorpus(set);
+    const matchSearch = searchTerms.length === 0 || searchTerms.some(term => searchableText.includes(term));
     const matchGrade = homeGrade ? set.gradeLevel === homeGrade : true;
     const visibility = set.visibility || (set.status === 'private' ? 'assignment' : set.status);
     return visibility === 'public' && matchSearch && matchGrade;
@@ -161,7 +229,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
-        <p className="text-gray-500 font-bold text-sm">Đang kết nối hệ thống V-Homework...</p>
+        <p className="text-gray-500 font-bold text-sm">Đang kết nối hệ thống Cô Diệu Tiếng Anh...</p>
       </div>
     );
   }
@@ -322,8 +390,8 @@ export default function App() {
               <BookOpen size={20} />
             </span>
             <div>
-              <span className="font-black text-gray-900 tracking-tight text-lg leading-none block">V-Homework</span>
-              <span className="text-[10px] text-indigo-600 font-bold tracking-widest uppercase">VOCABULARY</span>
+              <span className="font-black text-gray-900 tracking-tight text-lg leading-none block">Cô Diệu Tiếng Anh</span>
+              <span className="text-[10px] text-indigo-600 font-bold tracking-widest uppercase">ENGLISH VOCABULARY</span>
             </div>
           </div>
 
@@ -361,11 +429,14 @@ export default function App() {
 
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 tracking-tight leading-none md:leading-tight">
           Học từ vựng thật vui,<br />
-          Nhớ siêu lâu cùng <span className="text-indigo-600 underline decoration-indigo-300">V-Homework</span>!
+          Nhớ siêu lâu cùng <span className="text-indigo-600 underline decoration-indigo-300">Tiếng Anh Cô Diệu</span>!
         </h1>
 
-        <p className="text-gray-500 text-sm md:text-base max-w-xl mx-auto leading-relaxed">
-          Nền tảng học tập từ vựng tiếng Anh thế hệ mới. Đa dạng 5 thể loại game luyện tập phản xạ, âm thanh chuẩn xác, giao bài tập tự động từ thầy cô cực tiện lợi.
+        <p className="text-gray-500 text-sm md:text-base max-w-3xl mx-auto leading-relaxed">
+          Tiếng Anh Cô Diệu là nền tảng học từ vựng tiếng Anh hiện đại, được xây dựng với mong muốn giúp học sinh học dễ hơn, nhớ lâu hơn và tiến bộ mỗi ngày. Ứng dụng kết hợp bài học từ vựng với nhiều thể loại game luyện tập sinh động, âm thanh chuẩn xác và hệ thống giao bài tập tự động tiện lợi từ giáo viên.
+        </p>
+        <p className="text-gray-500 text-sm md:text-base max-w-3xl mx-auto leading-relaxed">
+          Không chỉ là một công cụ học tập, Tiếng Anh Cô Diệu còn là nơi cô Diệu gửi gắm tâm huyết giảng dạy, sự kiên nhẫn và mong muốn đồng hành cùng từng học sinh trên hành trình chinh phục tiếng Anh. Mỗi bài học được thiết kế để các em vừa học, vừa chơi, vừa rèn phản xạ, giúp việc ghi nhớ từ vựng trở nên nhẹ nhàng và thú vị hơn.
         </p>
       </header>
 
@@ -385,16 +456,26 @@ export default function App() {
             </div>
 
             {/* Quick Filter */}
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-72">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={homeSearch}
+                  onChange={(e) => setHomeSearch(e.target.value)}
+                  placeholder="Tìm bài học, ví dụ: số đếm, number..."
+                  className="w-full p-2.5 pl-10 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 placeholder-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                />
+              </div>
               <select
                 value={homeGrade}
                 onChange={(e) => setHomeGrade(e.target.value)}
-                className="p-2.5 px-4 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600"
+                className="p-2.5 px-4 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
               >
                 <option value="">Tất cả khối lớp</option>
-                <option value="Lớp 3">Lớp 3</option>
-                <option value="Lớp 6">Lớp 6</option>
-                <option value="Lớp 10">Lớp 10</option>
+                {homeGradeOptions.map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -428,7 +509,7 @@ export default function App() {
                   </div>
 
                   <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-gray-400">Tác giả: {set.creatorName || 'V-Homework'}</span>
+                    <span className="text-[10px] font-semibold text-gray-400">Tác giả: {set.creatorName || 'Cô Diệu Tiếng Anh'}</span>
                     
                     <button
                       onClick={() => {
@@ -497,7 +578,7 @@ export default function App() {
           <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-3xl p-6 shadow-md space-y-3" id="system-info-card">
             <div className="flex items-center space-x-1.5 text-indigo-300 font-bold text-xs">
               <Star size={14} className="fill-indigo-400 text-indigo-400" />
-              <span>V-Homework Engine v1.0</span>
+              <span>Cô Diệu Tiếng Anh Engine v1.0</span>
             </div>
             <h4 className="font-extrabold text-sm">Nền tảng Học tập Toàn diện</h4>
             <p className="text-[11px] text-white/70 leading-relaxed">
@@ -511,7 +592,7 @@ export default function App() {
       {/* Footer copyright */}
       <footer className="bg-white border-t border-gray-100 py-6 text-center text-xs text-gray-400" id="footer">
         <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-2">
-          <span>© 2026 V-Homework. Crafted with maximum performance and modern web design patterns.</span>
+          <span>© 2026 Cô Diệu Tiếng Anh. Crafted with maximum performance and modern web design patterns.</span>
           <span className="font-semibold text-gray-500">English Vocabulary Web Application</span>
         </div>
       </footer>

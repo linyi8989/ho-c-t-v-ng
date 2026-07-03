@@ -449,7 +449,82 @@ app.post("/api/ai/ipa", authenticateUser, async (req, res) => {
   }
 });
 
-// 4. AI: Batch generate full vocab set
+// 4. AI: Fill missing details for a single vocabulary row
+app.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
+  const { word, meaning, grade } = req.body;
+  try {
+    if (!word || typeof word !== "string") {
+      return res.status(400).json({ error: "Tham số 'word' là bắt buộc." });
+    }
+
+    const fallback = {
+      term: word,
+      meaning: meaning || "",
+      ipa: `/${word.toLowerCase()}/`,
+      pos: "Word/Phrase",
+      example: `This is ${word}.`,
+      exampleMeaning: meaning ? `Đây là ${meaning}.` : "",
+      audioUrl: ""
+    };
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.json({ ...fallback, isFallback: true });
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Complete missing English vocabulary learning details for this row.
+Word or phrase: "${word}"
+Existing Vietnamese meaning, if any: "${meaning || ""}"
+Target level: "${grade || "primary school"}"
+
+Return ONLY one valid JSON object with:
+- "meaning": concise Vietnamese meaning.
+- "ipa": standard American English IPA transcription, surrounded by slashes.
+- "pos": part of speech, such as Noun, Verb, Adjective, Adverb, Phrase, Preposition, Determiner.
+- "example": one simple English example sentence using the word naturally.
+- "exampleMeaning": Vietnamese translation of the example sentence.
+- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            meaning: { type: Type.STRING },
+            ipa: { type: Type.STRING },
+            pos: { type: Type.STRING },
+            example: { type: Type.STRING },
+            exampleMeaning: { type: Type.STRING },
+            audioUrl: { type: Type.STRING }
+          },
+          required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
+        }
+      }
+    });
+
+    const parsedData = JSON.parse(response.text?.trim() || "{}");
+    res.json({
+      ...fallback,
+      ...parsedData,
+      term: word
+    });
+  } catch (error: any) {
+    console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
+    res.json({
+      term: word,
+      meaning: meaning || "",
+      ipa: `/${(word || "").toLowerCase()}/`,
+      pos: "Word/Phrase",
+      example: `This is ${word}.`,
+      exampleMeaning: meaning ? `Đây là ${meaning}.` : "",
+      audioUrl: "",
+      isFallback: true
+    });
+  }
+});
+
+// 5. AI: Batch generate full vocab set
 app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   const { topic, grade, wordsCount = 5 } = req.body;
   try {

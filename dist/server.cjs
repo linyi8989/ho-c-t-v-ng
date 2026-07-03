@@ -1550,6 +1550,75 @@ app2.post("/api/ai/ipa", authenticateUser, async (req, res) => {
     res.json({ ipa: `/${(word || "").toLowerCase()}/`, isFallback: true });
   }
 });
+app2.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
+  const { word, meaning, grade } = req.body;
+  try {
+    if (!word || typeof word !== "string") {
+      return res.status(400).json({ error: "Tham s\u1ED1 'word' l\xE0 b\u1EAFt bu\u1ED9c." });
+    }
+    const fallback = {
+      term: word,
+      meaning: meaning || "",
+      ipa: `/${word.toLowerCase()}/`,
+      pos: "Word/Phrase",
+      example: `This is ${word}.`,
+      exampleMeaning: meaning ? `\u0110\xE2y l\xE0 ${meaning}.` : "",
+      audioUrl: ""
+    };
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.json({ ...fallback, isFallback: true });
+    }
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Complete missing English vocabulary learning details for this row.
+Word or phrase: "${word}"
+Existing Vietnamese meaning, if any: "${meaning || ""}"
+Target level: "${grade || "primary school"}"
+
+Return ONLY one valid JSON object with:
+- "meaning": concise Vietnamese meaning.
+- "ipa": standard American English IPA transcription, surrounded by slashes.
+- "pos": part of speech, such as Noun, Verb, Adjective, Adverb, Phrase, Preposition, Determiner.
+- "example": one simple English example sentence using the word naturally.
+- "exampleMeaning": Vietnamese translation of the example sentence.
+- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: import_genai.Type.OBJECT,
+          properties: {
+            meaning: { type: import_genai.Type.STRING },
+            ipa: { type: import_genai.Type.STRING },
+            pos: { type: import_genai.Type.STRING },
+            example: { type: import_genai.Type.STRING },
+            exampleMeaning: { type: import_genai.Type.STRING },
+            audioUrl: { type: import_genai.Type.STRING }
+          },
+          required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
+        }
+      }
+    });
+    const parsedData = JSON.parse(response.text?.trim() || "{}");
+    res.json({
+      ...fallback,
+      ...parsedData,
+      term: word
+    });
+  } catch (error) {
+    console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
+    res.json({
+      term: word,
+      meaning: meaning || "",
+      ipa: `/${(word || "").toLowerCase()}/`,
+      pos: "Word/Phrase",
+      example: `This is ${word}.`,
+      exampleMeaning: meaning ? `\u0110\xE2y l\xE0 ${meaning}.` : "",
+      audioUrl: "",
+      isFallback: true
+    });
+  }
+});
 app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   const { topic, grade, wordsCount = 5 } = req.body;
   try {
