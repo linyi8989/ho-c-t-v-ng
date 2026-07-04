@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
@@ -31,7 +31,7 @@ const getAssignmentLink = (set: VocabSet) => {
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
 
-const DEFAULT_GRADE_OPTIONS = ['Lá»›p 3', 'Lá»›p 6', 'Lá»›p 10'];
+const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
@@ -66,7 +66,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [editorTitle, setEditorTitle] = useState('');
   const [editorDescription, setEditorDescription] = useState('');
   const [editorSubject, setEditorSubject] = useState('English');
-  const [editorGrade, setEditorGrade] = useState('Lá»›p 3');
+  const [editorGrade, setEditorGrade] = useState('Lớp 3');
   const [editorStatus, setEditorStatus] = useState<VocabVisibility>('public');
   const [editorTags, setEditorTags] = useState<string[]>([]);
   const [editorItems, setEditorItems] = useState<VocabItem[]>([]);
@@ -78,7 +78,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   // AI Generation States
   const [aiTopic, setAiTopic] = useState('');
-  const [aiGrade, setAiGrade] = useState('Lá»›p 3');
+  const [aiGrade, setAiGrade] = useState('Lớp 3');
   const [aiCount, setAiCount] = useState(5);
   const [isAiGenerating, setIsAiGenerating] = useState(false);
 
@@ -181,7 +181,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditorTitle('');
     setEditorDescription('');
     setEditorSubject('General English');
-    setEditorGrade('Lá»›p 3');
+    setEditorGrade('Lớp 3');
     setEditorStatus('public');
     setEditorTags(['basic']);
     setEditorItems([]);
@@ -233,14 +233,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditorItems(prev => prev.filter(item => item.id !== id));
   };
 
-  // Batch import text converter (GhÃ©p nhanh nhiá»u dÃ²ng)
+  // Batch import text converter (Ghép nhanh nhiều dòng)
   const handleProcessBatchAdd = () => {
     const terms = batchTerms.split('\n').map(t => t.trim()).filter(Boolean);
     const meanings = batchMeanings.split('\n').map(m => m.trim()).filter(Boolean);
     const ipas = batchIpas.split('\n').map(i => i.trim());
 
     if (terms.length === 0 || meanings.length === 0) {
-      showNotification("HÃ£y nháº­p dá»¯ liá»‡u tá»« vÃ  nghÄ©a trÆ°á»›c khi ghÃ©p.", "error");
+      showNotification("Hãy nhập dữ liệu từ và nghĩa trước khi ghép.", "error");
       return;
     }
 
@@ -264,7 +264,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
-    showNotification(`ÄÃ£ ghÃ©p thÃ nh cÃ´ng ${importedItems.length} tá»« vá»±ng vÃ o báº£ng.`);
+    showNotification(`Đã ghép thành công ${importedItems.length} từ vựng vào bảng.`);
   };
 
   const applyMissingVocabDetails = (itemId: string, details: Partial<VocabItem>) => {
@@ -322,11 +322,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     let fallbackCount = 0;
     const itemsWithMissingDetails = editorItems.filter(item => item.term.trim() && hasMissingGeneratedFields(item));
     if (itemsWithMissingDetails.length === 0) {
-      showNotification("Táº¥t cáº£ cÃ¡c tá»« trong báº£ng Ä‘á»u Ä‘Ã£ Ä‘á»§ IPA, loáº¡i tá»«, vÃ­ dá»¥ vÃ  dá»‹ch nghÄ©a vÃ­ dá»¥.");
+      showNotification("Tất cả các từ trong bảng đều đã đủ IPA, loại từ, ví dụ và dịch nghĩa ví dụ.");
       return;
     }
 
-    showNotification("Äang tá»± sinh cÃ¡c pháº§n cÃ²n thiáº¿u báº±ng AI...");
+    showNotification("Đang tự sinh các phần còn thiếu bằng AI...");
     for (const item of itemsWithMissingDetails) {
       try {
         const res = await authFetch('/api/ai/vocab-detail', {
@@ -355,15 +355,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     }
   };
 
-  // AI Vocab set generator (TÃ­ch há»£p thá»±c táº¿ vá»›i Gemini)
+  // AI Vocab set generator (Tích hợp thực tế với Gemini)
   const handleGenerateSetByAI = async () => {
     if (!aiTopic.trim()) {
-      showNotification("HÃ£y nháº­p chá»§ Ä‘á» Ä‘á»ƒ AI táº¡o tá»« vá»±ng.", "error");
+      showNotification("Hãy nhập chủ đề để AI tạo từ vựng.", "error");
       return;
     }
 
     setIsAiGenerating(true);
-    showNotification("Há»‡ thá»‘ng Gemini Ä‘ang táº¡o bá»™ tá»« vá»±ng thÃ´ng minh cho em...");
+    showNotification("Hệ thống Gemini đang tạo bộ từ vựng thông minh cho em...");
 
     try {
       const res = await authFetch('/api/ai/generate', {
@@ -398,11 +398,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           showNotification(`Đã sử dụng AI tạo thành công ${generated.length} từ vựng thuộc chủ đề "${aiTopic}"!`);
         }
       } else {
-        showNotification(data.error || "KhÃ´ng thá»ƒ táº¡o tá»« vá»±ng báº±ng AI. HÃ£y thá»­ láº¡i.", "error");
+        showNotification(data.error || "Không thể tạo từ vựng bằng AI. Hãy thử lại.", "error");
       }
     } catch (err: any) {
       console.error(err);
-      showNotification("Lá»—i káº¿t ná»‘i AI: " + err.message, "error");
+      showNotification("Lỗi kết nối AI: " + err.message, "error");
     } finally {
       setIsAiGenerating(false);
     }
@@ -410,12 +410,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   const handleSaveSet = () => {
     if (!editorTitle.trim()) {
-      showNotification("HÃ£y Ä‘iá»n tÃªn bá»™ tá»« vá»±ng.", "error");
+      showNotification("Hãy điền tên bộ từ vựng.", "error");
       return;
     }
 
     if (editorItems.length === 0) {
-      showNotification("Danh sÃ¡ch tá»« vá»±ng trá»‘ng. HÃ£y thÃªm Ã­t nháº¥t má»™t tá»«.", "error");
+      showNotification("Danh sách từ vựng trống. Hãy thêm ít nhất một từ.", "error");
       return;
     }
 
@@ -428,7 +428,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       status: editorStatus === 'assignment' ? 'private' : editorStatus,
       tags: editorTags,
       createdBy: user?.id || "teacher-1",
-      creatorName: user?.name || "CÃ´ Tháº£o English",
+      creatorName: user?.name || "Cô Thảo English",
       items: editorItems.map((item, idx) => ({ ...item, displayOrder: idx + 1 }))
     };
 
@@ -442,7 +442,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     })
     .then(res => res.json())
     .then(data => {
-      showNotification("LÆ°u bá»™ tá»« vá»±ng thÃ nh cÃ´ng!");
+      showNotification("Lưu bộ từ vựng thành công!");
       const savedVisibility = getSetVisibility(data);
       const assignmentUrl = getAssignmentLink(data);
       if (savedVisibility === 'assignment' && assignmentUrl) {
@@ -455,7 +455,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     })
     .catch(err => {
       console.error(err);
-      showNotification("KhÃ´ng thá»ƒ lÆ°u bá»™ tá»« vá»±ng.", "error");
+      showNotification("Không thể lưu bộ từ vựng.", "error");
     });
   };
 
@@ -464,19 +464,19 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     authFetch(`/api/vocab-sets/${id}/clone`, { method: 'POST' })
       .then(res => res.json())
       .then(data => {
-        showNotification(`ÄÃ£ sao chÃ©p bá»™ tá»« vá»±ng thÃ nh cÃ´ng.`);
+        showNotification(`Đã sao chép bộ từ vựng thành công.`);
         refreshData();
       })
       .catch(err => console.error(err));
   };
 
   const handleDeleteSet = (id: string) => {
-    if (!window.confirm("Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n xÃ³a bá»™ tá»« vá»±ng nÃ y? HÃ nh Ä‘á»™ng nÃ y cÅ©ng sáº½ gá»¡ bá» táº¥t cáº£ bÃ i giao tÆ°Æ¡ng á»©ng.")) return;
+    if (!window.confirm("Bạn có chắc chắn muốn xóa bộ từ vựng này? Hành động này cũng sẽ gỡ bỏ tất cả bài giao tương ứng.")) return;
     
     authFetch(`/api/vocab-sets/${id}`, { method: 'DELETE' })
       .then(res => res.json())
       .then(data => {
-        showNotification("ÄÃ£ xÃ³a bá»™ tá»« vá»±ng thÃ nh cÃ´ng.");
+        showNotification("Đã xóa bộ từ vựng thành công.");
         refreshData();
       })
       .catch(err => console.error(err));
@@ -497,7 +497,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     })
     .then(res => res.json())
     .then(data => {
-      showNotification(`Táº¡o lá»›p "${data.name}" thÃ nh cÃ´ng vá»›i mÃ£ má»i: ${data.code}`);
+      showNotification(`Tạo lớp "${data.name}" thành công với mã mời: ${data.code}`);
       setNewClassName('');
       refreshData();
     })
@@ -516,7 +516,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     })
     .then(res => res.json())
     .then(data => {
-      showNotification(`ÄÃ£ thÃªm há»c sinh "${data.studentName}" vÃ o lá»›p thÃ nh cÃ´ng.`);
+      showNotification(`Đã thêm học sinh "${data.studentName}" vào lớp thành công.`);
       setNewMemberNames(prev => ({ ...prev, [classId]: '' }));
       refreshData();
     })
@@ -524,28 +524,28 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   };
 
   const handleDeleteClassMember = (classId: string, memberId: string, studentName: string) => {
-    if (!window.confirm(`Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n xÃ³a há»c sinh "${studentName}" khá»i lá»›p?`)) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa học sinh "${studentName}" khỏi lớp?`)) return;
 
     authFetch(`/api/classes/${classId}/members/${memberId}`, {
       method: 'DELETE'
     })
     .then(res => res.json())
     .then(() => {
-      showNotification(`ÄÃ£ xÃ³a há»c sinh khá»i lá»›p.`);
+      showNotification(`Đã xóa học sinh khỏi lớp.`);
       refreshData();
     })
     .catch(err => console.error(err));
   };
 
   const handleDeleteClass = (id: string, className: string) => {
-    if (!window.confirm(`Báº¡n cÃ³ cháº¯c cháº¯n muá»‘n xÃ³a lá»›p "${className}"? HÃ nh Ä‘á»™ng nÃ y sáº½ gá»¡ bá» táº¥t cáº£ há»c sinh vÃ  bÃ i táº­p Ä‘Ã£ giao.`)) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa lớp "${className}"? Hành động này sẽ gỡ bỏ tất cả học sinh và bài tập đã giao.`)) return;
 
     authFetch(`/api/classes/${id}`, {
       method: 'DELETE'
     })
     .then(res => res.json())
     .then(() => {
-      showNotification(`ÄÃ£ xÃ³a lá»›p "${className}" thÃ nh cÃ´ng.`);
+      showNotification(`Đã xóa lớp "${className}" thành công.`);
       refreshData();
     })
     .catch(err => console.error(err));
@@ -555,7 +555,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleCreateAssignment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignClassId || !assignSetId || !assignDueDate) {
-      showNotification("Vui lÃ²ng Ä‘iá»n Ä‘á»§ thÃ´ng tin giao bÃ i.", "error");
+      showNotification("Vui lòng điền đủ thông tin giao bài.", "error");
       return;
     }
 
@@ -572,7 +572,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       gameId: assignGameId,
       dueDate: assignDueDate,
       createdBy: user?.id || "teacher-1",
-      title: assignTitle.trim() || `Há»c tá»« vá»±ng: ${selectedSet.title}`
+      title: assignTitle.trim() || `Học từ vựng: ${selectedSet.title}`
     };
 
     authFetch('/api/assignments', {
@@ -582,7 +582,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     })
     .then(res => res.json())
     .then(data => {
-      showNotification("Giao bÃ i táº­p cho há»c sinh lá»›p thÃ nh cÃ´ng!");
+      showNotification("Giao bài tập cho học sinh lớp thành công!");
       setAssignClassId('');
       setAssignSetId('');
       setAssignDueDate('');
@@ -597,7 +597,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     authFetch(`/api/assignments/${id}`, { method: 'DELETE' })
       .then(res => res.json())
       .then(() => {
-        showNotification("ÄÃ£ thu há»“i bÃ i giao thÃ nh cÃ´ng.");
+        showNotification("Đã thu hồi bài giao thành công.");
         refreshData();
       })
       .catch(err => console.error(err));
@@ -631,10 +631,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   }, [results, assignments]);
 
   const leaderboardTitleMap: Record<LeaderboardCategory, string> = {
-    gold: 'Báº£ng vÃ ng tuáº§n nÃ y',
-    diligent: 'ChÄƒm chá»‰ nháº¥t',
-    accurate: 'ChÃ­nh xÃ¡c nháº¥t',
-    improved: 'Tiáº¿n bá»™ nháº¥t'
+    gold: 'Bảng vàng tuần này',
+    diligent: 'Chăm chỉ nhất',
+    accurate: 'Chính xác nhất',
+    improved: 'Tiến bộ nhất'
   };
 
   // --- SUPER ADMIN ACCOUNT MANAGEMENT ---
@@ -648,13 +648,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       if (data.error) {
         showNotification(data.error, "error");
       } else {
-        showNotification("Cáº­p nháº­t vai trÃ² ngÆ°á»i dÃ¹ng thÃ nh cÃ´ng!");
+        showNotification("Cập nhật vai trò người dùng thành công!");
         refreshData();
       }
     })
     .catch(err => {
       console.error(err);
-      showNotification("KhÃ´ng thá»ƒ cáº­p nháº­t vai trÃ² ngÆ°á»i dÃ¹ng.", "error");
+      showNotification("Không thể cập nhật vai trò người dùng.", "error");
     });
   };
 
@@ -669,13 +669,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       if (data.error) {
         showNotification(data.error, "error");
       } else {
-        showNotification(newStatus === 'blocked' ? "ÄÃ£ khÃ³a tÃ i khoáº£n thÃ nh cÃ´ng!" : "ÄÃ£ má»Ÿ khÃ³a tÃ i khoáº£n thÃ nh cÃ´ng!");
+        showNotification(newStatus === 'blocked' ? "Đã khóa tài khoản thành công!" : "Đã mở khóa tài khoản thành công!");
         refreshData();
       }
     })
     .catch(err => {
       console.error(err);
-      showNotification("KhÃ´ng thá»ƒ cáº­p nháº­t tráº¡ng thÃ¡i tÃ i khoáº£n.", "error");
+      showNotification("Không thể cập nhật trạng thái tài khoản.", "error");
     });
   };
 
@@ -706,7 +706,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       {shareLinkNotice && (
         <div className="fixed top-20 right-4 z-50 w-[min(92vw,420px)] bg-white border border-indigo-100 rounded-3xl shadow-xl p-4 space-y-3" id="assignment-link-panel">
           <div>
-            <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bÃ i riÃªng</p>
+            <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bài riêng</p>
             <p className="text-sm font-extrabold text-gray-800 truncate">{shareLinkNotice.title}</p>
           </div>
           <div className="flex gap-2">
@@ -718,7 +718,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <button
               onClick={() => {
                 navigator.clipboard?.writeText(shareLinkNotice.url);
-                showNotification("ÄÃ£ copy link giao bÃ i.");
+                showNotification("Đã copy link giao bài.");
               }}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs transition-all"
             >
@@ -729,7 +729,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             onClick={() => setShareLinkNotice(null)}
             className="text-xs font-bold text-gray-400 hover:text-gray-700"
           >
-            ÄÃ³ng
+            Đóng
           </button>
         </div>
       )}
@@ -743,9 +743,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <BookOpen size={20} />
           </span>
           <div>
-            <h1 className="font-black text-gray-800 tracking-tight text-base leading-snug">CÃ´ Diá»‡u Tiáº¿ng Anh</h1>
+            <h1 className="font-black text-gray-800 tracking-tight text-base leading-snug">Cô Diệu Tiếng Anh</h1>
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-              {user?.role === 'super_admin' ? 'Há»‡ thá»‘ng Admin' : 'Dashboard GiÃ¡o ViÃªn'}
+              {user?.role === 'super_admin' ? 'Hệ thống Admin' : 'Dashboard Giáo Viên'}
             </p>
           </div>
         </div>
@@ -760,7 +760,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-dashboard"
           >
             <Layers size={18} />
-            <span>Tá»•ng quan</span>
+            <span>Tổng quan</span>
           </button>
           
           <button
@@ -771,7 +771,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-sets"
           >
             <BookOpen size={18} />
-            <span>Kho tá»« vá»±ng</span>
+            <span>Kho từ vựng</span>
           </button>
 
           <button
@@ -782,7 +782,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-editor"
           >
             <Plus size={18} />
-            <span>Soáº¡n tá»« vá»±ng má»›i</span>
+            <span>Soạn từ vựng mới</span>
           </button>
 
           <button
@@ -793,7 +793,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-classes"
           >
             <Users size={18} />
-            <span>Quáº£n lÃ½ Lá»›p há»c</span>
+            <span>Quản lý Lớp học</span>
           </button>
 
           <button
@@ -804,7 +804,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             id="tab-results"
           >
             <Award size={18} />
-            <span>Báº£ng vÃ ng há»c sinh</span>
+            <span>Bảng vàng học sinh</span>
           </button>
 
           {/* SUPER ADMIN ONLY TABS */}
@@ -818,7 +818,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 id="tab-users"
               >
                 <Shield size={18} className="text-amber-500" />
-                <span>Quáº£n lÃ½ TÃ i khoáº£n</span>
+                <span>Quản lý Tài khoản</span>
               </button>
 
               <button
@@ -829,7 +829,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 id="tab-audit-logs"
               >
                 <FileText size={18} className="text-amber-500" />
-                <span>Nháº­t kÃ½ há»‡ thá»‘ng</span>
+                <span>Nhật ký hệ thống</span>
               </button>
             </>
           )}
@@ -842,7 +842,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               {user?.name?.substring(0, 2).toUpperCase() || 'AD'}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-bold text-gray-800 truncate">{user?.name || 'Há»‡ thá»‘ng Admin'}</p>
+              <p className="text-xs font-bold text-gray-800 truncate">{user?.name || 'Hệ thống Admin'}</p>
               <p className="text-[10px] text-gray-400 truncate">{user?.email || 'admin@vocabulary.edu.vn'}</p>
             </div>
           </div>
@@ -861,15 +861,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             {/* Greetings Banner */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
               <div>
-                <h2 className="text-2xl font-black text-gray-800">Xin chÃ o, CÃ´ Tháº£o!</h2>
-                <p className="text-gray-400 text-sm font-medium">HÃ´m nay hÃ£y cÃ¹ng cÃ¡c há»c sinh há»c tháº­t nhiá»u tá»« vá»±ng má»›i nhÃ©.</p>
+                <h2 className="text-2xl font-black text-gray-800">Xin chào, Cô Thảo!</h2>
+                <p className="text-gray-400 text-sm font-medium">Hôm nay hãy cùng các học sinh học thật nhiều từ vựng mới nhé.</p>
               </div>
               <button
                 onClick={handleOpenNewEditor}
                 className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-md transition-all flex items-center space-x-2 cursor-pointer active:scale-95 text-sm"
               >
                 <Plus size={16} />
-                <span>Soáº¡n bá»™ tá»« má»›i</span>
+                <span>Soạn bộ từ mới</span>
               </button>
             </div>
 
@@ -880,7 +880,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <BookOpen size={24} />
                 </span>
                 <div>
-                  <span className="text-xs font-bold text-gray-400 block uppercase">Bá»˜ Tá»ª Vá»°NG</span>
+                  <span className="text-xs font-bold text-gray-400 block uppercase">BỘ TỪ VỰNG</span>
                   <span className="text-2xl font-black text-gray-800">{vocabSets.length}</span>
                 </div>
               </div>
@@ -890,7 +890,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <Users size={24} />
                 </span>
                 <div>
-                  <span className="text-xs font-bold text-gray-400 block uppercase">Lá»šP Há»ŒC</span>
+                  <span className="text-xs font-bold text-gray-400 block uppercase">LỚP HỌC</span>
                   <span className="text-2xl font-black text-gray-800">{classes.length}</span>
                 </div>
               </div>
@@ -900,7 +900,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <Star size={24} />
                 </span>
                 <div>
-                  <span className="text-xs font-bold text-gray-400 block uppercase">Há»ŒC SINH VINH DANH</span>
+                  <span className="text-xs font-bold text-gray-400 block uppercase">HỌC SINH VINH DANH</span>
                   <span className="text-2xl font-black text-gray-800">{dashboardGoldRows.length}</span>
                 </div>
               </div>
@@ -910,7 +910,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <Award size={24} />
                 </span>
                 <div>
-                  <span className="text-xs font-bold text-gray-400 block uppercase">LÆ¯á»¢T HOÃ€N THÃ€NH</span>
+                  <span className="text-xs font-bold text-gray-400 block uppercase">LƯỢT HOÀN THÀNH</span>
                   <span className="text-2xl font-black text-gray-800">{results.length}</span>
                 </div>
               </div>
@@ -922,28 +922,28 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               {/* Left Column: Recent Student Results */}
               <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-50">
-                  <h3 className="font-extrabold text-gray-800 text-base">Hoáº¡t Ä‘á»™ng luyá»‡n táº­p gáº§n Ä‘Ã¢y</h3>
-                  <button onClick={() => setActiveTab('results')} className="text-xs font-bold text-indigo-600 hover:underline">Xem táº¥t cáº£</button>
+                  <h3 className="font-extrabold text-gray-800 text-base">Hoạt động luyện tập gần đây</h3>
+                  <button onClick={() => setActiveTab('results')} className="text-xs font-bold text-indigo-600 hover:underline">Xem tất cả</button>
                 </div>
 
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
                   {results.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400 text-sm">ChÆ°a cÃ³ há»c sinh nÃ o hoÃ n thÃ nh trÃ² chÆ¡i.</div>
+                    <div className="text-center py-8 text-gray-400 text-sm">Chưa có học sinh nào hoàn thành trò chơi.</div>
                   ) : (
                     results.map((res) => (
                       <div key={res.id} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
                         <div className="space-y-0.5">
                           <strong className="text-sm font-bold text-gray-800">{res.studentName}</strong>
-                          <p className="text-xs text-gray-400">ChÆ¡i {GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId}</p>
+                          <p className="text-xs text-gray-400">Chơi {GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId}</p>
                           <p className="text-[10px] text-gray-400 font-mono">{res.vocabSetTitle}</p>
                         </div>
                         <div className="text-right">
                           <span className={`px-2.5 py-1 text-xs font-black rounded-full ${
                             res.score >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'
                           }`}>
-                            {res.score} Ä‘iá»ƒm
+                            {res.score} điểm
                           </span>
-                          <span className="text-[10px] text-gray-400 block mt-1">ÄÃºng: {res.correctAnswers}/{res.totalQuestions}</span>
+                          <span className="text-[10px] text-gray-400 block mt-1">Đúng: {res.correctAnswers}/{res.totalQuestions}</span>
                         </div>
                       </div>
                     ))
@@ -954,19 +954,19 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               {/* Right Column: Golden Board Quick Summary */}
               <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-50">
-                  <h3 className="font-extrabold text-gray-800 text-base">Báº£ng vÃ ng tuáº§n nÃ y</h3>
-                  <button onClick={() => setActiveTab('results')} className="text-xs font-bold text-indigo-600 hover:underline">Xem báº£ng vÃ ng</button>
+                  <h3 className="font-extrabold text-gray-800 text-base">Bảng vàng tuần này</h3>
+                  <button onClick={() => setActiveTab('results')} className="text-xs font-bold text-indigo-600 hover:underline">Xem bảng vàng</button>
                 </div>
 
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
                   {dashboardGoldRows.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400 text-sm">ChÆ°a cÃ³ dá»¯ liá»‡u Ä‘á»ƒ vinh danh há»c sinh.</div>
+                    <div className="text-center py-8 text-gray-400 text-sm">Chưa có dữ liệu để vinh danh học sinh.</div>
                   ) : (
                     dashboardGoldRows.map((entry, index) => (
                       <div key={`${entry.studentName}-${index}`} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
                         <div className="space-y-0.5">
-                          <strong className="text-sm font-bold text-gray-800">{index === 0 ? 'ðŸ¥‡ ' : index === 1 ? 'ðŸ¥ˆ ' : index === 2 ? 'ðŸ¥‰ ' : ''}{entry.studentName}</strong>
-                          <p className="text-xs text-indigo-600 font-semibold">{entry.completedLessons} bÃ i hoÃ n thÃ nh â€¢ {entry.averageAccuracy}% Ä‘Ãºng</p>
+                          <strong className="text-sm font-bold text-gray-800">{index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : ''}{entry.studentName}</strong>
+                          <p className="text-xs text-indigo-600 font-semibold">{entry.completedLessons} bài hoàn thành • {entry.averageAccuracy}% đúng</p>
                           <p className="text-[10px] text-gray-400 font-mono">{entry.badges[0]}</p>
                         </div>
                         <span className="px-2.5 py-1 text-xs font-black rounded-full bg-amber-50 text-amber-700">
@@ -989,15 +989,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           <div className="space-y-6 animate-fade-in" id="sets-tab-content">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-800">Kho tá»« vá»±ng cá»§a tÃ´i</h2>
-                <p className="text-gray-400 text-sm">NÆ¡i lÆ°u trá»¯ vÃ  soáº¡n tháº£o cÃ¡c bá»™ tháº» tá»« vá»±ng Ä‘á»ƒ giao cho há»c sinh.</p>
+                <h2 className="text-2xl font-black text-gray-800">Kho từ vựng của tôi</h2>
+                <p className="text-gray-400 text-sm">Nơi lưu trữ và soạn thảo các bộ thẻ từ vựng để giao cho học sinh.</p>
               </div>
               <button
                 onClick={handleOpenNewEditor}
                 className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer active:scale-95"
               >
                 <Plus size={18} />
-                <span>Soáº¡n bá»™ tá»« má»›i</span>
+                <span>Soạn bộ từ mới</span>
               </button>
             </div>
 
@@ -1007,7 +1007,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="TÃ¬m kiáº¿m bá»™ tá»« vá»±ng theo tÃªn, mÃ´ táº£, mÃ´n há»c..."
+                  placeholder="Tìm kiếm bộ từ vựng theo tên, mô tả, môn học..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full p-3.5 pl-11 bg-gray-50 rounded-2xl outline-none focus:bg-white focus:ring-4 focus:ring-indigo-50 border border-gray-100 focus:border-indigo-400 font-semibold text-sm"
@@ -1020,7 +1020,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   onChange={(e) => setFilterGrade(e.target.value)}
                   className="p-3 bg-gray-50 border border-gray-100 hover:border-indigo-200 rounded-2xl outline-none text-sm font-semibold text-gray-600"
                 >
-                  <option value="">Táº¥t cáº£ Lá»›p há»c</option>
+                  <option value="">Tất cả Lớp học</option>
                   {gradeOptions.map(option => (
                     <option key={option} value={option}>{option}</option>
                   ))}
@@ -1031,10 +1031,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   onChange={(e) => setFilterStatus(e.target.value)}
                   className="p-3 bg-gray-50 border border-gray-100 hover:border-indigo-200 rounded-2xl outline-none text-sm font-semibold text-gray-600"
                 >
-                  <option value="">Táº¥t cáº£ Tráº¡ng thÃ¡i</option>
-                  <option value="public">CÃ´ng khai</option>
-                  <option value="draft">Báº£n nhÃ¡p</option>
-                  <option value="assignment">Giao bÃ i táº­p báº±ng link riÃªng</option>
+                  <option value="">Tất cả Trạng thái</option>
+                  <option value="public">Công khai</option>
+                  <option value="draft">Bản nháp</option>
+                  <option value="assignment">Giao bài tập bằng link riêng</option>
                 </select>
               </div>
             </div>
@@ -1042,7 +1042,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             {/* Grid list of sets */}
             {filteredSets.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 font-medium">
-                KhÃ´ng tÃ¬m tháº¥y bá»™ tá»« vá»±ng nÃ o khá»›p vá»›i Ä‘iá»u kiá»‡n tÃ¬m kiáº¿m.
+                Không tìm thấy bộ từ vựng nào khớp với điều kiện tìm kiếm.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="sets-grid">
@@ -1060,13 +1060,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           visibility === 'public' ? 'bg-emerald-50 text-emerald-600' :
                           visibility === 'draft' ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
                         }`}>
-                          {visibility === 'public' ? 'CÃ”NG KHAI' : visibility === 'draft' ? 'Báº¢N NHÃP' : 'LINK RIÃŠNG'}
+                          {visibility === 'public' ? 'CÔNG KHAI' : visibility === 'draft' ? 'BẢN NHÁP' : 'LINK RIÊNG'}
                         </span>
                       </div>
 
                       <div className="space-y-1">
                         <h3 className="font-extrabold text-gray-800 text-lg leading-tight truncate-2-lines">{set.title}</h3>
-                        <p className="text-xs text-gray-400 font-medium">Chá»§ Ä‘á»: {set.subject}</p>
+                        <p className="text-xs text-gray-400 font-medium">Chủ đề: {set.subject}</p>
                         <p className="text-sm text-gray-500 line-clamp-3 leading-relaxed mt-1">{set.description}</p>
                       </div>
 
@@ -1077,7 +1077,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       </div>
                       {visibility === 'assignment' && assignmentLink && (
                         <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
-                          <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bÃ i</p>
+                          <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bài</p>
                           <div className="flex gap-2">
                             <input
                               value={assignmentLink}
@@ -1087,10 +1087,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                             <button
                               onClick={() => {
                                 navigator.clipboard?.writeText(assignmentLink);
-                                showNotification("ÄÃ£ copy link giao bÃ i.");
+                                showNotification("Đã copy link giao bài.");
                               }}
                               className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer"
-                              title="Copy link giao bÃ i"
+                              title="Copy link giao bài"
                             >
                               <Copy size={14} />
                             </button>
@@ -1100,34 +1100,34 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     </div>
 
                     <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-                      <span className="text-xs text-gray-400 font-semibold">{set.items.length} tá»« vá»±ng</span>
+                      <span className="text-xs text-gray-400 font-semibold">{set.items.length} từ vựng</span>
                       
                       <div className="flex space-x-1">
                         <button
                           onClick={() => onViewAsStudent(set)}
                           className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer"
-                          title="Há»c táº­p"
+                          title="Học tập"
                         >
                           <Play size={14} />
                         </button>
                         <button
                           onClick={() => handleOpenEditEditor(set)}
                           className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl transition-all cursor-pointer"
-                          title="Sá»­a"
+                          title="Sửa"
                         >
                           <Edit2 size={14} />
                         </button>
                         <button
                           onClick={() => handleCloneSet(set.id)}
                           className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl transition-all cursor-pointer"
-                          title="NhÃ¢n báº£n"
+                          title="Nhân bản"
                         >
                           <Copy size={14} />
                         </button>
                         <button
                           onClick={() => handleDeleteSet(set.id)}
                           className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-all cursor-pointer"
-                          title="XÃ³a"
+                          title="Xóa"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -1150,9 +1150,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <div>
                 <h2 className="text-2xl font-black text-gray-800">
-                  {editingSetId ? "Chá»‰nh sá»­a bá»™ tá»« vá»±ng" : "Soáº¡n tháº£o bá»™ tá»« vá»±ng má»›i"}
+                  {editingSetId ? "Chỉnh sửa bộ từ vựng" : "Soạn thảo bộ từ vựng mới"}
                 </h2>
-                <p className="text-gray-400 text-sm">Äiá»n Ä‘áº§y Ä‘á»§ thÃ´ng tin bÃªn dÆ°á»›i hoáº·c dÃ¹ng AI sinh nhanh tá»« vá»±ng.</p>
+                <p className="text-gray-400 text-sm">Điền đầy đủ thông tin bên dưới hoặc dùng AI sinh nhanh từ vựng.</p>
               </div>
 
               <div className="flex space-x-2">
@@ -1160,14 +1160,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   onClick={() => setActiveTab('vocab-sets')}
                   className="py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-2xl text-sm transition-all cursor-pointer"
                 >
-                  Há»§y bá»
+                  Hủy bỏ
                 </button>
                 <button
                   onClick={handleSaveSet}
                   className="py-3 px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-sm shadow-md transition-all cursor-pointer active:scale-95"
                   id="save-vocabset-btn"
                 >
-                  LÆ°u bá»™ tá»« vá»±ng
+                  Lưu bộ từ vựng
                 </button>
               </div>
             </div>
@@ -1176,22 +1176,22 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-6" id="editor-details-form">
               <div className="md:col-span-8 space-y-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase text-gray-400">TÃªn bá»™ tá»« vá»±ng *</label>
+                  <label className="text-xs font-bold uppercase text-gray-400">Tên bộ từ vựng *</label>
                   <input
                     type="text"
                     value={editorTitle}
                     onChange={(e) => setEditorTitle(e.target.value)}
-                    placeholder="VÃ­ dá»¥: Ordinal Numbers (Sá»‘ thá»© tá»±)"
+                    placeholder="Ví dụ: Ordinal Numbers (Số thứ tự)"
                     className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 focus:border-indigo-400 focus:bg-white outline-none font-bold text-gray-800 text-lg transition-all"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase text-gray-400">MÃ´ táº£ chi tiáº¿t</label>
+                  <label className="text-xs font-bold uppercase text-gray-400">Mô tả chi tiết</label>
                   <textarea
                     value={editorDescription}
                     onChange={(e) => setEditorDescription(e.target.value)}
-                    placeholder="MÃ´ táº£ ngáº¯n gá»n vá» bÃ i há»c tá»« vá»±ng nÃ y..."
+                    placeholder="Mô tả ngắn gọn về bài học từ vựng này..."
                     className="w-full p-4 h-24 bg-gray-50 rounded-2xl border border-gray-100 focus:border-indigo-400 focus:bg-white outline-none font-semibold text-gray-600 text-sm transition-all resize-none"
                   />
                 </div>
@@ -1200,7 +1200,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               <div className="md:col-span-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-bold uppercase text-gray-400">Khá»‘i lá»›p há»c</label>
+                    <label className="text-xs font-bold uppercase text-gray-400">Khối lớp học</label>
                     <select
                       value={editorGrade}
                       onChange={(e) => setEditorGrade(e.target.value)}
@@ -1213,7 +1213,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold uppercase text-gray-400">MÃ´n há»c/Chá»§ Ä‘á»</label>
+                    <label className="text-xs font-bold uppercase text-gray-400">Môn học/Chủ đề</label>
                     <input
                       type="text"
                       value={editorSubject}
@@ -1225,20 +1225,20 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase text-gray-400">Tráº¡ng thÃ¡i chia sáº»</label>
+                  <label className="text-xs font-bold uppercase text-gray-400">Trạng thái chia sẻ</label>
                   <select
                     value={editorStatus}
                     onChange={(e) => setEditorStatus(e.target.value as any)}
                     className="w-full p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-bold text-gray-600 text-sm"
                   >
-                    <option value="public">CÃ´ng khai: Hiá»ƒn thá»‹ á»Ÿ trang chá»§, ai cÅ©ng cÃ³ thá»ƒ há»c</option>
-                    <option value="assignment">Giao bÃ i táº­p báº±ng link riÃªng: KhÃ´ng hiá»‡n cÃ´ng khai, chá»‰ ai cÃ³ link má»›i lÃ m Ä‘Æ°á»£c</option>
-                    <option value="draft">Báº£n nhÃ¡p: Chá»‰ lÆ°u táº¡m, há»c sinh chÆ°a xem Ä‘Æ°á»£c</option>
+                    <option value="public">Công khai: Hiển thị ở trang chủ, ai cũng có thể học</option>
+                    <option value="assignment">Giao bài tập bằng link riêng: Không hiện công khai, chỉ ai có link mới làm được</option>
+                    <option value="draft">Bản nháp: Chỉ lưu tạm, học sinh chưa xem được</option>
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase text-gray-400">Tá»« khÃ³a/Tags (cÃ¡ch nhau báº±ng pháº©y)</label>
+                  <label className="text-xs font-bold uppercase text-gray-400">Từ khóa/Tags (cách nhau bằng phẩy)</label>
                   <input
                     type="text"
                     value={editorTags.join(', ')}
@@ -1260,19 +1260,19 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 
                 <div className="flex items-center space-x-2 border-b border-white/10 pb-3">
                   <Sparkles className="text-amber-300 animate-pulse" size={20} />
-                  <h3 className="font-extrabold text-base">Táº¡o bá»™ tá»« vá»±ng tháº§n tá»‘c báº±ng Gemini AI</h3>
+                  <h3 className="font-extrabold text-base">Tạo bộ từ vựng thần tốc bằng Gemini AI</h3>
                 </div>
 
                 <p className="text-xs text-white/80 leading-relaxed">
-                  Nháº­p tÃªn chá»§ Ä‘á» (vÃ­ dá»¥: "School items", "Family members", "Weather") vÃ  chá»n sá»‘ lÆ°á»£ng tá»«, trÃ­ tuá»‡ nhÃ¢n táº¡o Gemini sáº½ tá»± Ä‘á»™ng sinh trá»n bá»™ tá»«, nghÄ©a, vÃ­ dá»¥ tiáº¿ng Anh kÃ¨m dá»‹ch tiáº¿ng Viá»‡t hoÃ n chá»‰nh!
+                  Nhập tên chủ đề (ví dụ: "School items", "Family members", "Weather") và chọn số lượng từ, trí tuệ nhân tạo Gemini sẽ tự động sinh trọn bộ từ, nghĩa, ví dụ tiếng Anh kèm dịch tiếng Việt hoàn chỉnh!
                 </p>
 
                 <div className="space-y-3 pt-1">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-white/60">TÃªn chá»§ Ä‘á» tiáº¿ng Anh hoáº·c tiáº¿ng Viá»‡t</label>
+                    <label className="text-[10px] font-black uppercase text-white/60">Tên chủ đề tiếng Anh hoặc tiếng Việt</label>
                     <input
                       type="text"
-                      placeholder="VÃ­ dá»¥: Household chores (Viá»‡c nhÃ )"
+                      placeholder="Ví dụ: Household chores (Việc nhà)"
                       value={aiTopic}
                       onChange={(e) => setAiTopic(e.target.value)}
                       className="w-full p-3.5 bg-white/10 focus:bg-white focus:text-gray-800 rounded-2xl border border-white/10 focus:border-indigo-400 outline-none font-bold text-sm text-white placeholder-white/40 transition-all"
@@ -1281,7 +1281,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Äá»™ tuá»•i/Lá»›p há»c</label>
+                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Độ tuổi/Lớp học</label>
                       <select
                         value={aiGrade}
                         onChange={(e) => setAiGrade(e.target.value)}
@@ -1295,16 +1295,16 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Sá»‘ lÆ°á»£ng tá»«</label>
+                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Số lượng từ</label>
                       <select
                         value={aiCount}
                         onChange={(e) => setAiCount(Number(e.target.value))}
                         className="w-full p-3.5 bg-white/10 rounded-2xl border border-white/10 outline-none text-white font-bold text-sm"
                         style={{ colorScheme: 'dark' }}
                       >
-                        <option value="5">5 tá»« vá»±ng</option>
-                        <option value="8">8 tá»« vá»±ng</option>
-                        <option value="12">12 tá»« vá»±ng</option>
+                        <option value="5">5 từ vựng</option>
+                        <option value="8">8 từ vựng</option>
+                        <option value="12">12 từ vựng</option>
                       </select>
                     </div>
                   </div>
@@ -1318,12 +1318,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     {isAiGenerating ? (
                       <>
                         <RefreshCw className="animate-spin" size={18} />
-                        <span>Äang táº¡o... (máº¥t khoáº£ng vÃ i giÃ¢y)</span>
+                        <span>Đang tạo... (mất khoảng vài giây)</span>
                       </>
                     ) : (
                       <>
                         <Sparkles size={18} />
-                        <span>Sinh tá»« vá»±ng báº±ng AI</span>
+                        <span>Sinh từ vựng bằng AI</span>
                       </>
                     )}
                   </button>
@@ -1334,12 +1334,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4 flex flex-col justify-between" id="batch-paste-panel">
                 <div className="flex items-center space-x-2 border-b border-gray-50 pb-3">
                   <ListPlus className="text-indigo-600" size={20} />
-                  <h3 className="font-extrabold text-gray-800 text-base">Nháº­p nhanh tá»« vá»±ng nhiá»u dÃ²ng</h3>
+                  <h3 className="font-extrabold text-gray-800 text-base">Nhập nhanh từ vựng nhiều dòng</h3>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Cá»™t Tá»« Tiáº¿ng Anh</label>
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Cột Từ Tiếng Anh</label>
                     <textarea
                       value={batchTerms}
                       onChange={(e) => setBatchTerms(e.target.value)}
@@ -1349,23 +1349,23 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Cá»™t NghÄ©a Tiáº¿ng Viá»‡t</label>
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Cột Nghĩa Tiếng Việt</label>
                     <textarea
                       value={batchMeanings}
                       onChange={(e) => setBatchMeanings(e.target.value)}
-                      placeholder="quáº£ tÃ¡o&#10;quáº£ chuá»‘i&#10;con mÃ¨o"
+                      placeholder="quả táo&#10;quả chuối&#10;con mèo"
                       className="w-full h-24 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1 pt-2">
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Cá»™t PhiÃªn Ã¢m IPA (CÃ³ thá»ƒ Ä‘á»ƒ trá»‘ng)</label>
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột Phiên âm IPA (Có thể để trống)</label>
                   <input
                     type="text"
                     value={batchIpas}
                     onChange={(e) => setBatchIpas(e.target.value)}
-                    placeholder="/ËˆÃ¦pl/, /ËˆsekÉ™nd/, ..."
+                    placeholder="/ˈæpl/, /ˈsekənd/, ..."
                     className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none text-xs"
                   />
                 </div>
@@ -1376,7 +1376,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-50 disabled:text-gray-300 text-indigo-700 font-bold rounded-xl transition-all border border-indigo-100 text-sm mt-3 cursor-pointer"
                   id="process-batch-btn"
                 >
-                  GhÃ©p dá»¯ liá»‡u vÃ o báº£ng tá»« vá»±ng
+                  Ghép dữ liệu vào bảng từ vựng
                 </button>
               </div>
 
@@ -1387,8 +1387,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pb-4 border-b border-gray-50">
                 <div className="space-y-0.5">
-                  <h3 className="font-extrabold text-gray-800 text-base">Danh sÃ¡ch tá»« vá»±ng ({editorItems.length} tá»«)</h3>
-                  <p className="text-xs text-gray-400 font-medium">Báº¥m "ThÃªm dÃ²ng" Ä‘á»ƒ soáº¡n tháº£o hoáº·c tá»± sinh cÃ¡c pháº§n cÃ²n thiáº¿u trong báº£ng.</p>
+                  <h3 className="font-extrabold text-gray-800 text-base">Danh sách từ vựng ({editorItems.length} từ)</h3>
+                  <p className="text-xs text-gray-400 font-medium">Bấm "Thêm dòng" để soạn thảo hoặc tự sinh các phần còn thiếu trong bảng.</p>
                 </div>
 
                 <div className="flex space-x-2">
@@ -1398,7 +1398,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     id="auto-generate-ipa-btn"
                   >
                     <Sparkles size={14} />
-                    <span>Tá»± sinh cÃ¡c pháº§n cÃ²n thiáº¿u</span>
+                    <span>Tự sinh các phần còn thiếu</span>
                   </button>
 
                   <button
@@ -1407,7 +1407,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     id="add-single-row-btn"
                   >
                     <Plus size={14} />
-                    <span>ThÃªm dÃ²ng tá»« má»›i</span>
+                    <span>Thêm dòng từ mới</span>
                   </button>
                 </div>
               </div>
@@ -1418,19 +1418,19 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <thead>
                     <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
                       <th className="p-4 text-center w-12">STT</th>
-                      <th className="p-4 w-44">Tá»« Tiáº¿ng Anh *</th>
-                      <th className="p-4 w-44">NghÄ©a Tiáº¿ng Viá»‡t *</th>
-                      <th className="p-4 w-36">PhÃ¡t Ã¢m IPA</th>
-                      <th className="p-4 w-28">Loáº¡i tá»«</th>
-                      <th className="p-4 min-w-[200px]">VÃ­ dá»¥ minh há»a</th>
-                      <th className="p-4 text-center w-12">Thao tÃ¡c</th>
+                      <th className="p-4 w-44">Từ Tiếng Anh *</th>
+                      <th className="p-4 w-44">Nghĩa Tiếng Việt *</th>
+                      <th className="p-4 w-36">Phát âm IPA</th>
+                      <th className="p-4 w-28">Loại từ</th>
+                      <th className="p-4 min-w-[200px]">Ví dụ minh họa</th>
+                      <th className="p-4 text-center w-12">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {editorItems.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="p-12 text-center text-gray-400 text-sm font-medium">
-                          Danh sÃ¡ch tá»« vá»±ng trá»‘ng. HÃ£y thÃªm dÃ²ng hoáº·c sá»­ dá»¥ng cÃ¡c cÃ´ng cá»¥ sinh nhanh á»Ÿ trÃªn!
+                          Danh sách từ vựng trống. Hãy thêm dòng hoặc sử dụng các công cụ sinh nhanh ở trên!
                         </td>
                       </tr>
                     ) : (
@@ -1444,7 +1444,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               type="text"
                               value={item.term}
                               onChange={(e) => handleUpdateItemValue(item.id, 'term', e.target.value)}
-                              placeholder="Tá»« tiáº¿ng Anh"
+                              placeholder="Từ tiếng Anh"
                               className="w-full p-2.5 bg-gray-50 border border-gray-100 hover:border-indigo-300 focus:bg-white focus:border-indigo-500 rounded-xl outline-none font-bold text-sm transition-all"
                             />
                           </td>
@@ -1453,7 +1453,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               type="text"
                               value={item.meaning}
                               onChange={(e) => handleUpdateItemValue(item.id, 'meaning', e.target.value)}
-                              placeholder="NghÄ©a tiáº¿ng Viá»‡t"
+                              placeholder="Nghĩa tiếng Việt"
                               className="w-full p-2.5 bg-gray-50 border border-gray-100 hover:border-indigo-300 focus:bg-white focus:border-indigo-500 rounded-xl outline-none font-semibold text-sm transition-all"
                             />
                           </td>
@@ -1469,7 +1469,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               <button
                                 onClick={() => handleGenerateIpaForRow(item.id, item.term)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                                title="Tá»± Ä‘á»™ng bá»• sung IPA, loáº¡i tá»«, vÃ­ dá»¥ vÃ  dá»‹ch vÃ­ dá»¥"
+                                title="Tự động bổ sung IPA, loại từ, ví dụ và dịch ví dụ"
                               >
                                 <Sparkles size={12} />
                               </button>
@@ -1498,7 +1498,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                 onClick={() => item.example.trim() && speakEnglish(item.example)}
                                 disabled={!item.example.trim()}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-30 rounded-lg transition-all cursor-pointer"
-                                title="Nghe vÃ­ dá»¥ tiáº¿ng Anh"
+                                title="Nghe ví dụ tiếng Anh"
                               >
                                 <Volume2 size={12} />
                               </button>
@@ -1507,7 +1507,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               type="text"
                               value={item.exampleMeaning}
                               onChange={(e) => handleUpdateItemValue(item.id, 'exampleMeaning', e.target.value)}
-                              placeholder="Dá»‹ch nghÄ©a tiáº¿ng Viá»‡t..."
+                              placeholder="Dịch nghĩa tiếng Việt..."
                               className="w-full p-2 bg-gray-50 border border-gray-100 focus:bg-white rounded-xl outline-none text-xs text-gray-500"
                             />
                           </td>
@@ -1515,7 +1515,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                             <button
                               onClick={() => handleDeleteItemRow(item.id)}
                               className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
-                              title="XÃ³a dÃ²ng"
+                              title="Xóa dòng"
                             >
                               <Trash2 size={14} />
                             </button>
@@ -1537,15 +1537,15 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           <div className="space-y-8 animate-fade-in" id="classes-tab-content">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-800">Quáº£n lÃ½ Lá»›p há»c</h2>
-                <p className="text-gray-400 text-sm">Quáº£n lÃ½ danh sÃ¡ch cÃ¡c lá»›p há»c cá»§a cÃ´ vÃ  theo dÃµi cÃ¡c há»c sinh Ä‘Äƒng kÃ½.</p>
+                <h2 className="text-2xl font-black text-gray-800">Quản lý Lớp học</h2>
+                <p className="text-gray-400 text-sm">Quản lý danh sách các lớp học của cô và theo dõi các học sinh đăng ký.</p>
               </div>
 
               {/* Add New Class Form Box */}
               <form onSubmit={handleCreateClass} className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="TÃªn lá»›p há»c má»›i..."
+                  placeholder="Tên lớp học mới..."
                   value={newClassName}
                   onChange={(e) => setNewClassName(e.target.value)}
                   className="p-3 bg-white border border-gray-100 hover:border-indigo-300 rounded-2xl outline-none font-bold text-sm focus:ring-4 focus:ring-indigo-50 transition-all text-gray-800 min-w-[200px]"
@@ -1556,7 +1556,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-extrabold rounded-2xl text-sm shadow-md transition-all whitespace-nowrap cursor-pointer"
                   id="create-class-btn"
                 >
-                  Táº¡o lá»›p
+                  Tạo lớp
                 </button>
               </form>
             </div>
@@ -1564,7 +1564,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             {/* Grid list of classes */}
             {classes.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400">
-                CÃ´ chÆ°a táº¡o lá»›p há»c nÃ o. HÃ£y nháº­p tÃªn lá»›p Ä‘á»ƒ khá»Ÿi táº¡o á»Ÿ trÃªn nhÃ©!
+                Cô chưa tạo lớp học nào. Hãy nhập tên lớp để khởi tạo ở trên nhé!
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="classes-grid">
@@ -1575,13 +1575,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <div className="flex justify-between items-start pb-2 border-b border-gray-50">
                         <div>
                           <h3 className="font-extrabold text-gray-800 text-lg">{cls.name}</h3>
-                          <span className="text-xs text-gray-400">MÃ£ tham gia lá»›p: <strong className="font-mono text-indigo-600 font-black text-sm bg-indigo-50 px-2 py-0.5 rounded">{cls.code}</strong></span>
+                          <span className="text-xs text-gray-400">Mã tham gia lớp: <strong className="font-mono text-indigo-600 font-black text-sm bg-indigo-50 px-2 py-0.5 rounded">{cls.code}</strong></span>
                         </div>
                         <div className="flex items-center space-x-1.5">
                           <button
                             onClick={() => handleDeleteClass(cls.id, cls.name)}
                             className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer border border-transparent hover:border-rose-500/20"
-                            title="XÃ³a lá»›p há»c"
+                            title="Xóa lớp học"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -1594,12 +1594,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       {/* Simple list of student members inside class */}
                       <div className="space-y-2">
                         <div className="flex justify-between items-center">
-                          <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Há»c sinh Ä‘Äƒng kÃ½ trong lá»›p ({enrolledMembers.length}):</p>
+                          <p className="text-xs font-black uppercase text-gray-400 tracking-wider">Học sinh đăng ký trong lớp ({enrolledMembers.length}):</p>
                         </div>
                         
                         <div className="bg-gray-50/50 rounded-2xl p-4 max-h-[160px] overflow-y-auto space-y-2 border border-gray-100">
                           {enrolledMembers.length === 0 ? (
-                            <p className="text-xs text-gray-400 italic">ChÆ°a cÃ³ há»c sinh nÃ o Ä‘Æ°á»£c thÃªm vÃ o lá»›p nÃ y.</p>
+                            <p className="text-xs text-gray-400 italic">Chưa có học sinh nào được thêm vào lớp này.</p>
                           ) : (
                             enrolledMembers.map((member, idx) => (
                               <div key={member.id} className="flex items-center justify-between text-sm text-gray-700 font-semibold bg-white p-2 rounded-xl border border-gray-100">
@@ -1610,7 +1610,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                 <button
                                   onClick={() => handleDeleteClassMember(cls.id, member.id, member.studentName)}
                                   className="p-1 text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-all cursor-pointer"
-                                  title="XÃ³a há»c sinh khá»i lá»›p"
+                                  title="Xóa học sinh khỏi lớp"
                                 >
                                   <Trash2 size={12} />
                                 </button>
@@ -1624,7 +1624,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <form onSubmit={(e) => handleAddClassMember(cls.id, e)} className="flex gap-2 pt-3 border-t border-white/5">
                         <input
                           type="text"
-                          placeholder="Há» vÃ  tÃªn há»c sinh..."
+                          placeholder="Họ và tên học sinh..."
                           value={newMemberNames[cls.id] || ''}
                           onChange={(e) => setNewMemberNames(prev => ({ ...prev, [cls.id]: e.target.value }))}
                           className="flex-1 p-2 bg-slate-950/45 border border-white/10 rounded-xl outline-none text-xs font-bold text-gray-100 placeholder-gray-500 focus:border-indigo-500/50"
@@ -1634,7 +1634,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           disabled={!(newMemberNames[cls.id] || '').trim()}
                           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:translate-y-0 text-white text-xs font-extrabold rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-sm"
                         >
-                          ThÃªm há»c sinh
+                          Thêm học sinh
                         </button>
                       </form>
                     </div>
@@ -1657,39 +1657,39 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               <div className="lg:col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-5" id="assignment-creation-box">
                 <div className="flex items-center space-x-2 pb-3 border-b border-gray-50">
                   <Send className="text-indigo-600" size={18} />
-                  <h3 className="font-extrabold text-gray-800 text-base">Giao bÃ i táº­p má»›i</h3>
+                  <h3 className="font-extrabold text-gray-800 text-base">Giao bài tập mới</h3>
                 </div>
 
                 <form onSubmit={handleCreateAssignment} className="space-y-4">
                   
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">Chá»n lá»›p há»c *</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Chọn lớp học *</label>
                     <select
                       value={assignClassId}
                       onChange={(e) => setAssignClassId(e.target.value)}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                       required
                     >
-                      <option value="">-- Chá»n lá»›p há»c --</option>
+                      <option value="">-- Chọn lớp học --</option>
                       {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">Chá»n bá»™ tá»« vá»±ng *</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Chọn bộ từ vựng *</label>
                     <select
                       value={assignSetId}
                       onChange={(e) => setAssignSetId(e.target.value)}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                       required
                     >
-                      <option value="">-- Chá»n bá»™ tá»« --</option>
+                      <option value="">-- Chọn bộ từ --</option>
                       {vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">Thá»ƒ loáº¡i game yÃªu cáº§u *</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Thể loại game yêu cầu *</label>
                     <select
                       value={assignGameId}
                       onChange={(e) => setAssignGameId(e.target.value)}
@@ -1701,7 +1701,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">Háº¡n ná»™p bÃ i táº­p *</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Hạn nộp bài tập *</label>
                     <input
                       type="date"
                       value={assignDueDate}
@@ -1712,10 +1712,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">TiÃªu Ä‘á» giao bÃ i táº­p (TÃ¹y chá»n)</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Tiêu đề giao bài tập (Tùy chọn)</label>
                     <input
                       type="text"
-                      placeholder="VÃ­ dá»¥: Luyá»‡n flashcard trÆ°á»›c buá»•i há»c"
+                      placeholder="Ví dụ: Luyện flashcard trước buổi học"
                       value={assignTitle}
                       onChange={(e) => setAssignTitle(e.target.value)}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-semibold text-gray-600 text-sm focus:bg-white"
@@ -1727,7 +1727,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer mt-4 text-sm"
                     id="schedule-assignment-btn"
                   >
-                    XÃ¡c nháº­n giao bÃ i
+                    Xác nhận giao bài
                   </button>
 
                 </form>
@@ -1736,12 +1736,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               {/* Column 2: Scheduled Assignments grid list */}
               <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4" id="assignments-scheduled-grid">
                 <div className="pb-3 border-b border-gray-50">
-                  <h3 className="font-extrabold text-gray-800 text-base">BÃ i táº­p Ä‘Ã£ giao ({assignments.length})</h3>
+                  <h3 className="font-extrabold text-gray-800 text-base">Bài tập đã giao ({assignments.length})</h3>
                 </div>
 
                 <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                   {assignments.length === 0 ? (
-                    <div className="text-center py-16 text-gray-400 text-sm font-medium">CÃ´ chÆ°a giao bÃ i táº­p nÃ o cho há»c sinh.</div>
+                    <div className="text-center py-16 text-gray-400 text-sm font-medium">Cô chưa giao bài tập nào cho học sinh.</div>
                   ) : (
                     assignments.map((assign) => (
                       <div key={assign.id} className="p-4 bg-gray-50/50 border border-gray-100 rounded-3xl flex justify-between items-center" id={`assignment-strip-${assign.id}`}>
@@ -1749,16 +1749,16 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           <h4 className="font-extrabold text-gray-800 text-base leading-tight">{assign.title}</h4>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 font-semibold">
                             <span className="text-indigo-600">{assign.className}</span>
-                            <span>â€¢</span>
+                            <span>•</span>
                             <span className="font-mono">{assign.vocabSetTitle}</span>
-                            <span>â€¢</span>
+                            <span>•</span>
                             <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase uppercase">
                               {GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
                             </span>
                           </div>
                           <div className="flex items-center space-x-1.5 text-[10px] text-gray-400 font-semibold pt-1">
                             <Calendar size={12} />
-                            <span>Háº¡n ná»™p: {assign.dueDate}</span>
+                            <span>Hạn nộp: {assign.dueDate}</span>
                           </div>
                         </div>
 
@@ -1771,14 +1771,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               }
                             }}
                             className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer"
-                            title="Há»c thá»­ game nÃ y"
+                            title="Học thử game này"
                           >
                             <Play size={14} />
                           </button>
                           <button
                             onClick={() => handleDeleteAssignment(assign.id)}
                             className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-all cursor-pointer"
-                            title="Thu há»“i bÃ i táº­p"
+                            title="Thu hồi bài tập"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -1800,9 +1800,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           <div className="space-y-6 animate-fade-in" id="results-tab-content">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-100">Báº£ng VÃ ng / Vinh danh há»c sinh chÄƒm há»c</h2>
+                <h2 className="text-2xl font-black text-gray-100">Bảng Vàng / Vinh danh học sinh chăm học</h2>
                 <p className="text-slate-400 text-sm">
-                  Xáº¿p háº¡ng dá»±a trÃªn káº¿t quáº£ tá»‘t nháº¥t cá»§a tá»«ng há»c sinh theo má»—i bá»™ tá»« vá»±ng vÃ  má»—i cháº¿ Ä‘á»™ chÆ¡i, trÃ¡nh cá»™ng Ä‘iá»ƒm khÃ´ng cÃ´ng báº±ng khi chÆ¡i láº·p láº¡i.
+                  Xếp hạng dựa trên kết quả tốt nhất của từng học sinh theo mỗi bộ từ vựng và mỗi chế độ chơi, tránh cộng điểm không công bằng khi chơi lặp lại.
                 </p>
               </div>
 
@@ -1812,25 +1812,25 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
                   className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
                 >
-                  <option value="week">Tuáº§n nÃ y</option>
-                  <option value="month">ThÃ¡ng nÃ y</option>
+                  <option value="week">Tuần này</option>
+                  <option value="month">Tháng này</option>
                 </select>
                 <select
                   value={leaderboardCategory}
                   onChange={(e) => setLeaderboardCategory(e.target.value as LeaderboardCategory)}
                   className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
                 >
-                  <option value="gold">Báº£ng vÃ ng tuáº§n nÃ y</option>
-                  <option value="diligent">ChÄƒm chá»‰ nháº¥t</option>
-                  <option value="accurate">ChÃ­nh xÃ¡c nháº¥t</option>
-                  <option value="improved">Tiáº¿n bá»™ nháº¥t</option>
+                  <option value="gold">Bảng vàng tuần này</option>
+                  <option value="diligent">Chăm chỉ nhất</option>
+                  <option value="accurate">Chính xác nhất</option>
+                  <option value="improved">Tiến bộ nhất</option>
                 </select>
                 <select
                   value={leaderboardClassId}
                   onChange={(e) => setLeaderboardClassId(e.target.value)}
                   className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
                 >
-                  <option value="">Táº¥t cáº£ lá»›p</option>
+                  <option value="">Tất cả lớp</option>
                   {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
                 </select>
                 <select
@@ -1838,7 +1838,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   onChange={(e) => setLeaderboardVocabSetId(e.target.value)}
                   className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
                 >
-                  <option value="">Táº¥t cáº£ bá»™ tá»«</option>
+                  <option value="">Tất cả bộ từ</option>
                   {vocabSets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
                 </select>
               </div>
@@ -1852,11 +1852,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 }`}>
                   <div className="absolute inset-0 bg-white/[0.03] pointer-events-none" />
                   <div className="flex items-start justify-between">
-                    <span className="text-4xl">{index === 0 ? 'ðŸ¥‡' : index === 1 ? 'ðŸ¥ˆ' : 'ðŸ¥‰'}</span>
-                    <span className="text-xs font-black bg-white/12 border border-white/15 px-3 py-1 rounded-full text-white">{entry.honorScore} Ä‘iá»ƒm</span>
+                    <span className="text-4xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</span>
+                    <span className="text-xs font-black bg-white/12 border border-white/15 px-3 py-1 rounded-full text-white">{entry.honorScore} điểm</span>
                   </div>
                   <h3 className="mt-4 text-lg font-black text-white truncate">{entry.studentName}</h3>
-                  <p className="text-xs font-bold text-slate-300 mt-1">{entry.completedLessons} bÃ i â€¢ {entry.averageAccuracy}% Ä‘Ãºng â€¢ {entry.studyDays} ngÃ y há»c</p>
+                  <p className="text-xs font-bold text-slate-300 mt-1">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày học</p>
                   <p className="mt-3 text-[11px] font-black text-amber-100 bg-white/12 border border-white/15 rounded-xl px-3 py-2 inline-block">{entry.badges[0]}</p>
                 </div>
               ))}
@@ -1865,7 +1865,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             <div className="bg-slate-950 rounded-3xl p-6 border border-slate-800 shadow-xl overflow-hidden" id="leaderboard-sheet">
               <div className="flex items-center justify-between pb-4 border-b border-slate-800">
                 <h3 className="font-extrabold text-slate-100 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardRows.length})</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Äiá»ƒm = BÃ i x50 + Tá»· lá»‡ Ä‘Ãºng x3 + NgÃ y há»c x20 + Tiáº¿n bá»™</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase">Điểm = Bài x50 + Tỷ lệ đúng x3 + Ngày học x20 + Tiến bộ</p>
               </div>
 
               <div className="overflow-x-auto rounded-2xl border border-slate-800 mt-4">
@@ -1873,21 +1873,21 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <thead>
                     <tr className="bg-slate-900 text-[10px] font-black uppercase text-slate-400 border-b border-slate-800">
                       <th className="p-4">STT</th>
-                      <th className="p-4">Há»c sinh</th>
-                      <th className="p-4 text-center">BÃ i hoÃ n thÃ nh</th>
-                      <th className="p-4 text-center">CÃ¢u Ä‘Ãºng</th>
-                      <th className="p-4 text-center">CÃ¢u sai</th>
-                      <th className="p-4 text-center">Tá»· lá»‡ Ä‘Ãºng</th>
-                      <th className="p-4 text-center">Sá»‘ ngÃ y há»c</th>
-                      <th className="p-4 text-center">Äiá»ƒm vinh danh</th>
-                      <th className="p-4">Huy hiá»‡u</th>
+                      <th className="p-4">Học sinh</th>
+                      <th className="p-4 text-center">Bài hoàn thành</th>
+                      <th className="p-4 text-center">Câu đúng</th>
+                      <th className="p-4 text-center">Câu sai</th>
+                      <th className="p-4 text-center">Tỷ lệ đúng</th>
+                      <th className="p-4 text-center">Số ngày học</th>
+                      <th className="p-4 text-center">Điểm vinh danh</th>
+                      <th className="p-4">Huy hiệu</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {leaderboardRows.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="p-12 text-center text-slate-400 text-sm font-medium">
-                          ChÆ°a cÃ³ dá»¯ liá»‡u phÃ¹ há»£p Ä‘á»ƒ láº­p báº£ng vinh danh.
+                          Chưa có dữ liệu phù hợp để lập bảng vinh danh.
                         </td>
                       </tr>
                     ) : (
@@ -1938,8 +1938,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         {activeTab === 'users' && user?.role === 'super_admin' && (
           <div className="space-y-6 animate-fade-in" id="users-tab-content">
             <div>
-              <h2 className="text-2xl font-black text-gray-800">Quáº£n lÃ½ TÃ i khoáº£n ngÆ°á»i dÃ¹ng</h2>
-              <p className="text-gray-400 text-sm">Xem danh sÃ¡ch, tÃ¬m kiáº¿m, phÃ¢n quyá»n vai trÃ² (Role) vÃ  kÃ­ch hoáº¡t/khoÃ¡ (Lock) tÃ i khoáº£n há»c sinh, giÃ¡o viÃªn.</p>
+              <h2 className="text-2xl font-black text-gray-800">Quản lý Tài khoản người dùng</h2>
+              <p className="text-gray-400 text-sm">Xem danh sách, tìm kiếm, phân quyền vai trò (Role) và kích hoạt/khoá (Lock) tài khoản học sinh, giáo viên.</p>
             </div>
 
             {/* Filters Row */}
@@ -1948,7 +1948,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <Search className="absolute left-4 top-3 text-gray-400" size={18} />
                 <input
                   type="text"
-                  placeholder="TÃ¬m theo tÃªn, email, sá»‘ Ä‘iá»‡n thoáº¡i..."
+                  placeholder="Tìm theo tên, email, số điện thoại..."
                   value={usersSearch}
                   onChange={(e) => setUsersSearch(e.target.value)}
                   className="w-full bg-gray-50 border-0 rounded-2xl py-2.5 pl-11 pr-4 text-sm font-semibold text-gray-700 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
@@ -1963,10 +1963,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     onChange={(e) => setUsersRoleFilter(e.target.value)}
                     className="bg-transparent border-0 text-xs font-bold text-gray-500 focus:ring-0 outline-none cursor-pointer py-2 pr-8"
                   >
-                    <option value="">Táº¥t cáº£ vai trÃ²</option>
+                    <option value="">Tất cả vai trò</option>
                     <option value="super_admin">Super Admin</option>
-                    <option value="teacher">GiÃ¡o viÃªn (Teacher)</option>
-                    <option value="student">Há»c sinh (Student)</option>
+                    <option value="teacher">Giáo viên (Teacher)</option>
+                    <option value="student">Học sinh (Student)</option>
                   </select>
                 </div>
 
@@ -1977,9 +1977,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     onChange={(e) => setUsersStatusFilter(e.target.value)}
                     className="bg-transparent border-0 text-xs font-bold text-gray-500 focus:ring-0 outline-none cursor-pointer py-2 pr-8"
                   >
-                    <option value="">Táº¥t cáº£ tráº¡ng thÃ¡i</option>
-                    <option value="active">Äang hoáº¡t Ä‘á»™ng</option>
-                    <option value="blocked">ÄÃ£ khÃ³a</option>
+                    <option value="">Tất cả trạng thái</option>
+                    <option value="active">Đang hoạt động</option>
+                    <option value="blocked">Đã khóa</option>
                   </select>
                 </div>
               </div>
@@ -1992,19 +1992,19 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <thead>
                     <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
                       <th className="p-4">STT</th>
-                      <th className="p-4">TÃªn hiá»ƒn thá»‹</th>
-                      <th className="p-4">LiÃªn há»‡ (Email / SÄT)</th>
-                      <th className="p-4">ID tÃ i khoáº£n</th>
-                      <th className="p-4 text-center">Vai trÃ²</th>
-                      <th className="p-4 text-center">Tráº¡ng thÃ¡i</th>
-                      <th className="p-4 text-center">HÃ nh Ä‘á»™ng</th>
+                      <th className="p-4">Tên hiển thị</th>
+                      <th className="p-4">Liên hệ (Email / SĐT)</th>
+                      <th className="p-4">ID tài khoản</th>
+                      <th className="p-4 text-center">Vai trò</th>
+                      <th className="p-4 text-center">Trạng thái</th>
+                      <th className="p-4 text-center">Hành động</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredUsers.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="p-12 text-center text-gray-400 text-sm font-medium">
-                          KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n ngÆ°á»i dÃ¹ng nÃ o khá»›p vá»›i bá»™ lá»c.
+                          Không tìm thấy tài khoản người dùng nào khớp với bộ lọc.
                         </td>
                       </tr>
                     ) : (
@@ -2016,12 +2016,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               <span className="w-8 h-8 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-xs">
                                 {(u.name || 'U').charAt(0).toUpperCase()}
                               </span>
-                              <strong className="text-gray-800 font-bold">{u.name || 'ChÆ°a Ä‘áº·t tÃªn'}</strong>
+                              <strong className="text-gray-800 font-bold">{u.name || 'Chưa đặt tên'}</strong>
                             </div>
                           </td>
                           <td className="p-4">
                             <div className="flex flex-col">
-                              <span className="text-xs text-gray-600 font-medium">{u.email || 'KhÃ´ng cÃ³ email'}</span>
+                              <span className="text-xs text-gray-600 font-medium">{u.email || 'Không có email'}</span>
                               {u.phone && <span className="text-[10px] text-gray-400 font-bold">{u.phone}</span>}
                             </div>
                           </td>
@@ -2035,8 +2035,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
                               className="bg-gray-50 text-xs font-bold text-gray-700 border-0 rounded-xl py-1.5 px-3 focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer"
                             >
-                              <option value="student">Há»c sinh (Student)</option>
-                              <option value="teacher">GiÃ¡o viÃªn (Teacher)</option>
+                              <option value="student">Học sinh (Student)</option>
+                              <option value="teacher">Giáo viên (Teacher)</option>
                               <option value="super_admin">Super Admin</option>
                             </select>
                           </td>
@@ -2044,7 +2044,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
                               u.status === 'blocked' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
                             }`}>
-                              {u.status === 'blocked' ? 'ÄÃ£ khÃ³a' : 'Hoáº¡t Ä‘á»™ng'}
+                              {u.status === 'blocked' ? 'Đã khóa' : 'Hoạt động'}
                             </span>
                           </td>
                           <td className="p-4 text-center">
@@ -2056,12 +2056,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                     ? 'bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100'
                                     : 'bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100'
                                 }`}
-                                title={u.status === 'blocked' ? 'Má»Ÿ khÃ³a tÃ i khoáº£n' : 'KhÃ³a tÃ i khoáº£n'}
+                                title={u.status === 'blocked' ? 'Mở khóa tài khoản' : 'Khóa tài khoản'}
                               >
                                 {u.status === 'blocked' ? <Unlock size={14} /> : <Lock size={14} />}
                               </button>
                             ) : (
-                              <span className="text-xs text-gray-400 italic">Báº£n thÃ¢n</span>
+                              <span className="text-xs text-gray-400 italic">Bản thân</span>
                             )}
                           </td>
                         </tr>
@@ -2080,8 +2080,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         {activeTab === 'audit-logs' && user?.role === 'super_admin' && (
           <div className="space-y-6 animate-fade-in" id="audit-logs-tab-content">
             <div>
-              <h2 className="text-2xl font-black text-gray-800">Nháº­t kÃ½ há»‡ thá»‘ng (Audit Logs)</h2>
-              <p className="text-gray-400 text-sm">Ghi chÃ©p cÃ¡c sá»± kiá»‡n quan trá»ng trong há»‡ thá»‘ng: Ä‘Äƒng kÃ½ má»›i, cáº­p nháº­t vai trÃ², khÃ³a/má»Ÿ khÃ³a tÃ i khoáº£n.</p>
+              <h2 className="text-2xl font-black text-gray-800">Nhật ký hệ thống (Audit Logs)</h2>
+              <p className="text-gray-400 text-sm">Ghi chép các sự kiện quan trọng trong hệ thống: đăng ký mới, cập nhật vai trò, khóa/mở khóa tài khoản.</p>
             </div>
 
             {/* Logs Timeline Card */}
@@ -2091,17 +2091,17 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <thead>
                     <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
                       <th className="p-4 w-16">STT</th>
-                      <th className="p-4 w-48">Thá»i gian</th>
-                      <th className="p-4 w-40">HÃ nh Ä‘á»™ng</th>
-                      <th className="p-4 w-52">NgÆ°á»i thá»±c hiá»‡n</th>
-                      <th className="p-4">Chi tiáº¿t hÃ nh Ä‘á»™ng</th>
+                      <th className="p-4 w-48">Thời gian</th>
+                      <th className="p-4 w-40">Hành động</th>
+                      <th className="p-4 w-52">Người thực hiện</th>
+                      <th className="p-4">Chi tiết hành động</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {auditLogs.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="p-12 text-center text-gray-400 text-sm font-medium">
-                          ChÆ°a cÃ³ nháº­t kÃ½ hoáº¡t Ä‘á»™ng nÃ o Ä‘Æ°á»£c ghi nháº­n.
+                          Chưa có nhật ký hoạt động nào được ghi nhận.
                         </td>
                       </tr>
                     ) : (
@@ -2127,7 +2127,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                             </td>
                             <td className="p-4">
                               <div className="flex flex-col">
-                                <span className="text-gray-800 font-bold">{log.userName || 'Há»‡ thá»‘ng'}</span>
+                                <span className="text-gray-800 font-bold">{log.userName || 'Hệ thống'}</span>
                                 <span className="text-[10px] text-gray-400">{log.userEmail || ''}</span>
                               </div>
                             </td>
