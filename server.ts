@@ -281,6 +281,9 @@ const preSeedDb = async () => {
 // ============================================================================
 // GEMINI CLIENT INITIALIZATION
 // ============================================================================
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
+
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -296,6 +299,136 @@ const getGeminiClient = () => {
     }
   });
 };
+
+function getOpenAIKey() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn("OPENAI_API_KEY is not defined. OpenAI paid fallback is disabled.");
+    return "";
+  }
+  return apiKey;
+}
+
+function sanitizeAiError(provider: string, error: any) {
+  const status = error?.status || error?.statusCode || error?.response?.status;
+  const message = String(error?.message || error || "Unknown AI error")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***")
+    .slice(0, 240);
+  return status ? `${provider} ${status}: ${message}` : `${provider}: ${message}`;
+}
+
+function extractOpenAIText(data: any) {
+  if (typeof data?.output_text === "string") return data.output_text;
+
+  const chunks: string[] = [];
+  for (const item of data?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") {
+        chunks.push(content.text);
+      }
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
+async function generateWithOpenAI(prompt: string) {
+  const apiKey = getOpenAIKey();
+  if (!apiKey) return null;
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: prompt,
+      text: {
+        format: { type: "text" }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const error = new Error(errorText || `OpenAI request failed with status ${response.status}`) as any;
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  const text = extractOpenAIText(data);
+  if (!text) {
+    throw new Error("OpenAI response did not include text output.");
+  }
+
+  return text;
+}
+
+async function generateAiText(prompt: string, geminiConfig?: any) {
+  const errors: string[] = [];
+  const gemini = getGeminiClient();
+
+  if (gemini) {
+    try {
+      const response = await gemini.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        ...(geminiConfig ? { config: geminiConfig } : {})
+      });
+      return {
+        text: response.text?.trim() || "",
+        provider: "gemini",
+        errors
+      };
+    } catch (error: any) {
+      const message = sanitizeAiError("Gemini", error);
+      errors.push(message);
+      console.warn("Gemini unavailable, trying OpenAI fallback:", message);
+    }
+  } else {
+    errors.push("Gemini: GEMINI_API_KEY is not configured.");
+  }
+
+  try {
+    const text = await generateWithOpenAI(prompt);
+    if (text) {
+      return {
+        text: text.trim(),
+        provider: "openai",
+        errors
+      };
+    }
+    errors.push("OpenAI: OPENAI_API_KEY is not configured.");
+  } catch (error: any) {
+    const message = sanitizeAiError("OpenAI", error);
+    errors.push(message);
+    console.warn("OpenAI fallback unavailable, using local fallback:", message);
+  }
+
+  return {
+    text: "",
+    provider: "fallback",
+    errors
+  };
+}
+
+function parseAiJson(text: string) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) throw new Error("AI returned empty text.");
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (match?.[1]) {
+      return JSON.parse(match[1].trim());
+    }
+    throw new Error("AI returned invalid JSON.");
+  }
+}
 
 // Fallback Vocabulary Generator
 function getFallbackVocabulary(topic: string, count: number): any[] {
@@ -431,21 +564,25 @@ app.post("/api/ai/ipa", authenticateUser, async (req, res) => {
       return res.status(400).json({ error: "Tham số 'word' là bắt buộc." });
     }
 
-    const ai = getGeminiClient();
-    if (!ai) {
-      return res.json({ ipa: `/${word.toLowerCase()}/` });
-    }
+    const result = await generateAiText(
+      `Provide the standard American English IPA phonetic transcription for the word/phrase: "${word}". Output ONLY the IPA string surrounded by slashes. Do not add any extra explanations or formatting.`
+    );
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Provide the standard American English IPA phonetic transcription for the word/phrase: "${word}". Output ONLY the IPA string surrounded by slashes, e.g., "/ˈæpl/". Do not add any extra explanations or formatting.`,
+    const ipa = result.text || `/${word.toLowerCase()}/`;
+    res.json({
+      ipa,
+      aiProvider: result.provider,
+      isFallback: result.provider === "fallback",
+      aiErrors: result.errors
     });
-
-    const ipa = response.text?.trim() || `/${word.toLowerCase()}/`;
-    res.json({ ipa });
   } catch (error: any) {
     console.warn("AI IPA generator service unavailable, returning fallback:", error.message);
-    res.json({ ipa: `/${(word || "").toLowerCase()}/`, isFallback: true });
+    res.json({
+      ipa: `/${(word || "").toLowerCase()}/`,
+      isFallback: true,
+      aiProvider: "fallback",
+      aiErrors: [sanitizeAiError("AI", error)]
+    });
   }
 });
 
@@ -501,15 +638,54 @@ function isWeakVocabularyExample(example: any, word: string) {
     normalizedExample.includes("is a vocabulary word");
 }
 
+function hashText(value: string) {
+  return Array.from(value || "").reduce((hash, char) => {
+    return ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  }, 0);
+}
+
 function buildFallbackExample(word: string, meaning?: string) {
   const cleanWord = String(word || "").trim();
   const cleanMeaning = String(meaning || "").trim();
-  return {
-    example: `On a bright weekend morning, my friends and I talked about the ${cleanWord} while planning a small adventure together.`,
-    exampleMeaning: cleanMeaning
-      ? `Vào một buổi sáng cuối tuần đẹp trời, tôi và các bạn đã nói về ${cleanMeaning} khi cùng nhau lên kế hoạch cho một chuyến đi nhỏ.`
-      : `Vào một buổi sáng cuối tuần đẹp trời, tôi và các bạn đã dùng từ "${cleanWord}" khi cùng nhau lên kế hoạch cho một chuyến đi nhỏ.`
-  };
+  const wordForSentence = cleanWord || "learning";
+  const meaningForSentence = cleanMeaning || wordForSentence;
+  const templates = [
+    {
+      example: `During a lively class discussion, ${wordForSentence} helped everyone connect the lesson with something useful in daily life.`,
+      exampleMeaning: `Trong một buổi thảo luận sôi nổi trên lớp, ${meaningForSentence} đã giúp mọi người liên hệ bài học với điều hữu ích trong đời sống hằng ngày.`
+    },
+    {
+      example: `After school, I wrote ${wordForSentence} in my notebook and used it in a sentence about my own day.`,
+      exampleMeaning: `Sau giờ học, tôi viết ${meaningForSentence} vào vở và dùng nó trong một câu nói về ngày của chính mình.`
+    },
+    {
+      example: `When the group project became difficult, ${wordForSentence} gave us a clear idea to explain our work with more confidence.`,
+      exampleMeaning: `Khi bài làm nhóm trở nên khó hơn, ${meaningForSentence} đã cho chúng tôi một ý tưởng rõ ràng để giải thích bài làm tự tin hơn.`
+    },
+    {
+      example: `At home, my younger brother asked about ${wordForSentence}, so I tried to explain it with a simple and funny example.`,
+      exampleMeaning: `Ở nhà, em trai tôi hỏi về ${meaningForSentence}, nên tôi cố giải thích bằng một ví dụ đơn giản và thú vị.`
+    },
+    {
+      example: `In the middle of the lesson, the teacher used ${wordForSentence} to turn a normal question into an interesting challenge.`,
+      exampleMeaning: `Giữa giờ học, giáo viên đã dùng ${meaningForSentence} để biến một câu hỏi bình thường thành một thử thách thú vị.`
+    },
+    {
+      example: `Before the quiz, I reviewed ${wordForSentence} carefully because small details can make a big difference in learning.`,
+      exampleMeaning: `Trước bài kiểm tra, tôi ôn lại ${meaningForSentence} thật cẩn thận vì những chi tiết nhỏ có thể tạo nên khác biệt lớn trong học tập.`
+    },
+    {
+      example: `My friend smiled when she finally understood ${wordForSentence}, and the whole exercise suddenly felt much easier.`,
+      exampleMeaning: `Bạn tôi mỉm cười khi cuối cùng đã hiểu ${meaningForSentence}, và cả bài luyện tập bỗng trở nên dễ hơn nhiều.`
+    },
+    {
+      example: `On the classroom board, ${wordForSentence} became the key idea that helped us remember the story behind the lesson.`,
+      exampleMeaning: `Trên bảng lớp, ${meaningForSentence} trở thành ý chính giúp chúng tôi nhớ câu chuyện phía sau bài học.`
+    }
+  ];
+
+  const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates.length;
+  return templates[index];
 }
 
 // 4. AI: Fill missing details for a single vocabulary row
@@ -531,14 +707,7 @@ app.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
       audioUrl: ""
     };
 
-    const ai = getGeminiClient();
-    if (!ai) {
-      return res.json({ ...fallback, isFallback: true });
-    }
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Complete missing English vocabulary learning details for this row.
+    const prompt = `Complete missing English vocabulary learning details for this row.
 Word or phrase: "${word}"
 Existing Vietnamese meaning, if any: "${meaning || ""}"
 Target level: "${grade || "primary school"}"
@@ -547,27 +716,31 @@ Return ONLY one valid JSON object with:
 - "meaning": concise Vietnamese meaning.
 - "ipa": standard American English IPA transcription, surrounded by slashes.
 - "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-- "example": write ONE complete English sentence that CONTAINS the exact vocabulary word or phrase "${word}" and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Do not use short templates like "This is ...". Make the sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If the word naturally appears in a common expression, idiom, proverb, collocation, or everyday saying, use it.
+- "example": write ONE complete English sentence that CONTAINS the exact vocabulary word or phrase "${word}" and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Do not use short templates like "This is ...". Make the sentence close to daily life, warm, vivid, and long enough to include context, action, and details. Make the situation specific to "${word}" and "${meaning || ""}", not a reusable generic sentence. If the word naturally appears in a common expression, idiom, proverb, collocation, or everyday saying, use it.
 - "exampleMeaning": Vietnamese translation of the example sentence.
-- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            meaning: { type: Type.STRING },
-            ipa: { type: Type.STRING },
-            pos: { type: Type.STRING },
-            example: { type: Type.STRING },
-            exampleMeaning: { type: Type.STRING },
-            audioUrl: { type: Type.STRING }
-          },
-          required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
-        }
+- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`;
+
+    const result = await generateAiText(prompt, {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          meaning: { type: Type.STRING },
+          ipa: { type: Type.STRING },
+          pos: { type: Type.STRING },
+          example: { type: Type.STRING },
+          exampleMeaning: { type: Type.STRING },
+          audioUrl: { type: Type.STRING }
+        },
+        required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
       }
     });
 
-    const parsedData = JSON.parse(response.text?.trim() || "{}");
+    if (result.provider === "fallback") {
+      return res.json({ ...fallback, isFallback: true, aiProvider: "fallback", aiErrors: result.errors });
+    }
+
+    const parsedData = parseAiJson(result.text);
     const exampleData = isWeakVocabularyExample(parsedData.example, word)
       ? buildFallbackExample(word, parsedData.meaning || meaning)
       : {
@@ -580,7 +753,9 @@ Return ONLY one valid JSON object with:
       pos: normalizePartOfSpeech(parsedData.pos),
       example: exampleData.example,
       exampleMeaning: exampleData.exampleMeaning || parsedData.exampleMeaning || fallback.exampleMeaning,
-      term: word
+      term: word,
+      aiProvider: result.provider,
+      aiErrors: result.errors
     });
   } catch (error: any) {
     console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
@@ -593,7 +768,9 @@ Return ONLY one valid JSON object with:
       example: fallbackExample.example,
       exampleMeaning: fallbackExample.exampleMeaning,
       audioUrl: "",
-      isFallback: true
+      isFallback: true,
+      aiProvider: "fallback",
+      aiErrors: [sanitizeAiError("AI", error)]
     });
   }
 });
@@ -606,48 +783,48 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
       return res.status(400).json({ error: "Tham số 'topic' là bắt buộc." });
     }
 
-    const ai = getGeminiClient();
-    if (!ai) {
-      const fallbackList = getFallbackVocabulary(topic, wordsCount);
-      return res.json(fallbackList);
-    }
-
     const prompt = `Generate a JSON array of exactly ${wordsCount} English vocabulary words for topic: "${topic}" targeted for students at grade level: "${grade || 'primary school'}". 
     Each word item MUST have the following attributes:
     1. "term": English word or short phrase.
     2. "meaning": Vietnamese meaning.
     3. "ipa": Standard IPA phonetic transcription.
     4. "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-    5. "example": ONE complete English sentence that contains the exact vocabulary word or phrase and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Avoid short template sentences like "This is ...". Prefer a sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
+    5. "example": ONE complete English sentence that contains the exact vocabulary word or phrase and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Avoid short template sentences like "This is ...". Every item must have a different situation and sentence structure; do not reuse one frame by replacing only the vocabulary word. Prefer a sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
     6. "exampleMeaning": Vietnamese translation of that example.
     
     Make sure example sentences are easy to understand for the specified grade level but still rich, close to daily life, and interesting for students.
     Return ONLY valid JSON. Avoid markdown blocks.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              term: { type: Type.STRING },
-              meaning: { type: Type.STRING },
-              ipa: { type: Type.STRING },
-              pos: { type: Type.STRING },
-              example: { type: Type.STRING },
-              exampleMeaning: { type: Type.STRING }
-            },
-            required: ["term", "meaning", "ipa", "pos", "example", "exampleMeaning"]
-          }
+    const result = await generateAiText(prompt, {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            term: { type: Type.STRING },
+            meaning: { type: Type.STRING },
+            ipa: { type: Type.STRING },
+            pos: { type: Type.STRING },
+            example: { type: Type.STRING },
+            exampleMeaning: { type: Type.STRING }
+          },
+          required: ["term", "meaning", "ipa", "pos", "example", "exampleMeaning"]
         }
       }
     });
 
-    const parsedData = JSON.parse(response.text?.trim() || "[]");
+    if (result.provider === "fallback") {
+      const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item: any) => ({
+        ...item,
+        isFallback: true,
+        aiProvider: "fallback",
+        aiErrors: result.errors
+      }));
+      return res.json(fallbackList);
+    }
+
+    const parsedData = parseAiJson(result.text);
     res.json(Array.isArray(parsedData) ? parsedData.map((item: any) => {
       const fallbackExample = buildFallbackExample(item.term, item.meaning);
       const exampleData = isWeakVocabularyExample(item.example, item.term)
@@ -661,12 +838,19 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
         ...item,
         pos: normalizePartOfSpeech(item.pos),
         example: exampleData.example,
-        exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning
+        exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning,
+        aiProvider: result.provider,
+        aiErrors: result.errors
       };
     }) : []);
   } catch (error: any) {
     console.warn("AI generation service unavailable, returning fallback:", error.message);
-    const fallbackList = getFallbackVocabulary(topic, wordsCount);
+    const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item: any) => ({
+      ...item,
+      isFallback: true,
+      aiProvider: "fallback",
+      aiErrors: [sanitizeAiError("AI", error)]
+    }));
     res.json(fallbackList);
   }
 });
@@ -1394,3 +1578,7 @@ function normalizeVocabSetForSave(payload: any, existing: any = {}) {
 start().catch((err) => {
   console.error("Failed to start fullstack server", err);
 });
+
+
+
+
