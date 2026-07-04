@@ -80,14 +80,30 @@ export interface GameSession {
   incorrectAnswers: number;
 }
 
+export interface PronunciationAttempt {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  vocabularySetId: string;
+  wordId: string;
+  targetText: string;
+  recognizedText: string;
+  score: number;
+  correctWords: number;
+  totalWords: number;
+  attemptCount: number;
+  playedAt: string;
+  gameSessionId?: string;
+}
+
 export interface GameConfig {
   gameId: string;
   title: string;
   description: string;
-  category: 'flashcard' | 'quiz' | 'fill' | 'matching' | 'memory' | 'millionaire' | 'speed';
+  category: 'flashcard' | 'quiz' | 'fill' | 'matching' | 'memory' | 'millionaire' | 'speaking' | 'speed';
   icon: string; // name of lucide icon
   color: string; // Tailwind bg/text class
-  componentName: 'FlashcardGame' | 'QuizGame' | 'FillBlankGame' | 'MatchingGame' | 'MemoryGame' | 'MillionaireGame' | 'HangmanGame';
+  componentName: 'FlashcardGame' | 'QuizGame' | 'FillBlankGame' | 'MatchingGame' | 'MemoryGame' | 'MillionaireGame' | 'SpeakingAIGame' | 'HangmanGame';
   requiredFields: string[];
   config: Record<string, any>;
 }

@@ -75,6 +75,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [batchTerms, setBatchTerms] = useState('');
   const [batchMeanings, setBatchMeanings] = useState('');
   const [batchIpas, setBatchIpas] = useState('');
+  const [batchPartsOfSpeech, setBatchPartsOfSpeech] = useState('');
+  const [batchExamples, setBatchExamples] = useState('');
+  const [batchExampleMeanings, setBatchExampleMeanings] = useState('');
 
   // AI Generation States
   const [aiTopic, setAiTopic] = useState('');
@@ -188,6 +191,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
+    setBatchPartsOfSpeech('');
+    setBatchExamples('');
+    setBatchExampleMeanings('');
     setActiveTab('editor');
   };
 
@@ -203,6 +209,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
+    setBatchPartsOfSpeech('');
+    setBatchExamples('');
+    setBatchExampleMeanings('');
     setActiveTab('editor');
   };
 
@@ -235,27 +244,42 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   // Batch import text converter (Ghép nhanh nhiều dòng)
   const handleProcessBatchAdd = () => {
-    const terms = batchTerms.split('\n').map(t => t.trim()).filter(Boolean);
-    const meanings = batchMeanings.split('\n').map(m => m.trim()).filter(Boolean);
-    const ipas = batchIpas.split('\n').map(i => i.trim());
+    const splitLines = (value: string) => value.split('\n').map(line => line.trim());
+    const terms = splitLines(batchTerms);
+    const meanings = splitLines(batchMeanings);
+    const ipas = splitLines(batchIpas);
+    const partsOfSpeech = splitLines(batchPartsOfSpeech);
+    const examples = splitLines(batchExamples);
+    const exampleMeanings = splitLines(batchExampleMeanings);
+    const nonEmptyTerms = terms.filter(Boolean);
+    const nonEmptyMeanings = meanings.filter(Boolean);
 
-    if (terms.length === 0 || meanings.length === 0) {
+    if (nonEmptyTerms.length === 0 || nonEmptyMeanings.length === 0) {
       showNotification("Hãy nhập dữ liệu từ và nghĩa trước khi ghép.", "error");
       return;
     }
 
-    const linesCount = Math.max(terms.length, meanings.length);
+    const linesCount = Math.max(
+      terms.length,
+      meanings.length,
+      ipas.length,
+      partsOfSpeech.length,
+      examples.length,
+      exampleMeanings.length
+    );
     const importedItems: VocabItem[] = [];
 
     for (let i = 0; i < linesCount; i++) {
+      if (!terms[i] && !meanings[i]) continue;
+
       importedItems.push({
         id: `item-${Date.now()}-${i}`,
         term: terms[i] || '',
-        meaning: meanings[i] || meanings[meanings.length - 1] || '',
+        meaning: meanings[i] || nonEmptyMeanings[nonEmptyMeanings.length - 1] || '',
         ipa: ipas[i] || '',
-        pos: '',
-        example: '',
-        exampleMeaning: '',
+        pos: partsOfSpeech[i] || '',
+        example: examples[i] || '',
+        exampleMeaning: exampleMeanings[i] || '',
         displayOrder: editorItems.length + i + 1
       });
     }
@@ -264,6 +288,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
+    setBatchPartsOfSpeech('');
+    setBatchExamples('');
+    setBatchExampleMeanings('');
     showNotification(`Đã ghép thành công ${importedItems.length} từ vựng vào bảng.`);
   };
 
@@ -1152,7 +1179,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <h2 className="text-2xl font-black text-gray-800">
                   {editingSetId ? "Chỉnh sửa bộ từ vựng" : "Soạn thảo bộ từ vựng mới"}
                 </h2>
-                <p className="text-gray-400 text-sm">Điền đầy đủ thông tin bên dưới hoặc dùng AI sinh nhanh từ vựng.</p>
+                <p className="text-gray-400 text-sm">Điền đầy đủ thông tin bên dưới hoặc nhập nhanh nhiều dòng để đưa dữ liệu vào bảng.</p>
               </div>
 
               <div className="flex space-x-2">
@@ -1250,136 +1277,90 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               </div>
             </div>
 
-            {/* Smart Creation Helpers (AI Creator + Quick Batch Paste Board) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              
-              {/* Box A: Gemini AI Set Generator */}
-              <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white rounded-3xl p-6 shadow-md space-y-4 relative overflow-hidden" id="ai-creator-panel">
-                {/* Sparkles design */}
-                <div className="absolute right-0 bottom-0 w-36 h-36 bg-white/5 rounded-full blur-3xl -mr-10 -mb-10" />
-                
-                <div className="flex items-center space-x-2 border-b border-white/10 pb-3">
-                  <Sparkles className="text-amber-300 animate-pulse" size={20} />
-                  <h3 className="font-extrabold text-base">Tạo bộ từ vựng thần tốc bằng Gemini AI</h3>
-                </div>
-
-                <p className="text-xs text-white/80 leading-relaxed">
-                  Nhập tên chủ đề (ví dụ: "School items", "Family members", "Weather") và chọn số lượng từ, trí tuệ nhân tạo Gemini sẽ tự động sinh trọn bộ từ, nghĩa, ví dụ tiếng Anh kèm dịch tiếng Việt hoàn chỉnh!
-                </p>
-
-                <div className="space-y-3 pt-1">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-white/60">Tên chủ đề tiếng Anh hoặc tiếng Việt</label>
-                    <input
-                      type="text"
-                      placeholder="Ví dụ: Household chores (Việc nhà)"
-                      value={aiTopic}
-                      onChange={(e) => setAiTopic(e.target.value)}
-                      className="w-full p-3.5 bg-white/10 focus:bg-white focus:text-gray-800 rounded-2xl border border-white/10 focus:border-indigo-400 outline-none font-bold text-sm text-white placeholder-white/40 transition-all"
-                    />
+            {/* Quick Batch Paste Board */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-5" id="batch-paste-panel">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 border-b border-gray-50 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <ListPlus className="text-indigo-600" size={20} />
+                    <h3 className="font-extrabold text-gray-800 text-base">Nhập nhanh từ vựng nhiều dòng</h3>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Độ tuổi/Lớp học</label>
-                      <select
-                        value={aiGrade}
-                        onChange={(e) => setAiGrade(e.target.value)}
-                        className="w-full p-3.5 bg-white/10 rounded-2xl border border-white/10 outline-none text-white font-bold text-sm"
-                        style={{ colorScheme: 'dark' }}
-                      >
-                        {gradeOptions.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-white/60 font-semibold">Số lượng từ</label>
-                      <select
-                        value={aiCount}
-                        onChange={(e) => setAiCount(Number(e.target.value))}
-                        className="w-full p-3.5 bg-white/10 rounded-2xl border border-white/10 outline-none text-white font-bold text-sm"
-                        style={{ colorScheme: 'dark' }}
-                      >
-                        <option value="5">5 từ vựng</option>
-                        <option value="8">8 từ vựng</option>
-                        <option value="12">12 từ vựng</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleGenerateSetByAI}
-                    disabled={isAiGenerating || !aiTopic.trim()}
-                    className="w-full py-4 bg-amber-400 hover:bg-amber-300 disabled:bg-white/20 disabled:text-white/40 font-black text-indigo-900 rounded-2xl transition-all shadow-md flex items-center justify-center space-x-2 cursor-pointer"
-                    id="ai-generate-vocab-btn"
-                  >
-                    {isAiGenerating ? (
-                      <>
-                        <RefreshCw className="animate-spin" size={18} />
-                        <span>Đang tạo... (mất khoảng vài giây)</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={18} />
-                        <span>Sinh từ vựng bằng AI</span>
-                      </>
-                    )}
-                  </button>
+                  <p className="text-xs text-gray-400 font-medium">
+                    Mỗi dòng ở các ô bên dưới sẽ ghép thành một dòng tương ứng trong bảng từ vựng.
+                  </p>
                 </div>
               </div>
 
-              {/* Box B: Double-Column Batch Import Board */}
-              <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4 flex flex-col justify-between" id="batch-paste-panel">
-                <div className="flex items-center space-x-2 border-b border-gray-50 pb-3">
-                  <ListPlus className="text-indigo-600" size={20} />
-                  <h3 className="font-extrabold text-gray-800 text-base">Nhập nhanh từ vựng nhiều dòng</h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Cột Từ Tiếng Anh</label>
-                    <textarea
-                      value={batchTerms}
-                      onChange={(e) => setBatchTerms(e.target.value)}
-                      placeholder="apple&#10;banana&#10;cat"
-                      className="w-full h-24 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-xs focus:bg-white focus:border-indigo-400 resize-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Cột Nghĩa Tiếng Việt</label>
-                    <textarea
-                      value={batchMeanings}
-                      onChange={(e) => setBatchMeanings(e.target.value)}
-                      placeholder="quả táo&#10;quả chuối&#10;con mèo"
-                      className="w-full h-24 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1 pt-2">
-                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột Phiên âm IPA (Có thể để trống)</label>
-                  <input
-                    type="text"
-                    value={batchIpas}
-                    onChange={(e) => setBatchIpas(e.target.value)}
-                    placeholder="/ˈæpl/, /ˈsekənd/, ..."
-                    className="w-full p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none text-xs"
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột từ tiếng Anh *</label>
+                  <textarea
+                    value={batchTerms}
+                    onChange={(e) => setBatchTerms(e.target.value)}
+                    placeholder="apple&#10;banana&#10;cat"
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-xs focus:bg-white focus:border-indigo-400 resize-none"
                   />
                 </div>
 
-                <button
-                  onClick={handleProcessBatchAdd}
-                  disabled={!batchTerms.trim() || !batchMeanings.trim()}
-                  className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-50 disabled:text-gray-300 text-indigo-700 font-bold rounded-xl transition-all border border-indigo-100 text-sm mt-3 cursor-pointer"
-                  id="process-batch-btn"
-                >
-                  Ghép dữ liệu vào bảng từ vựng
-                </button>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột nghĩa tiếng Việt *</label>
+                  <textarea
+                    value={batchMeanings}
+                    onChange={(e) => setBatchMeanings(e.target.value)}
+                    placeholder="quả táo&#10;quả chuối&#10;con mèo"
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột phiên âm IPA</label>
+                  <textarea
+                    value={batchIpas}
+                    onChange={(e) => setBatchIpas(e.target.value)}
+                    placeholder="/ˈæpl/&#10;/bəˈnænə/&#10;/kæt/"
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-xs focus:bg-white focus:border-indigo-400 resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột từ loại</label>
+                  <textarea
+                    value={batchPartsOfSpeech}
+                    onChange={(e) => setBatchPartsOfSpeech(e.target.value)}
+                    placeholder="Noun&#10;Noun&#10;Noun"
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột ví dụ tiếng Anh</label>
+                  <textarea
+                    value={batchExamples}
+                    onChange={(e) => setBatchExamples(e.target.value)}
+                    placeholder="I eat an apple after lunch.&#10;She puts a banana in her school bag.&#10;The cat sleeps near the window."
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-gray-400">Cột dịch nghĩa tiếng Việt</label>
+                  <textarea
+                    value={batchExampleMeanings}
+                    onChange={(e) => setBatchExampleMeanings(e.target.value)}
+                    placeholder="Tôi ăn một quả táo sau bữa trưa.&#10;Cô ấy bỏ một quả chuối vào cặp đi học.&#10;Con mèo ngủ gần cửa sổ."
+                    className="w-full h-36 p-3 bg-gray-50 rounded-xl border border-gray-100 outline-none font-semibold text-xs focus:bg-white focus:border-indigo-400 resize-none"
+                  />
+                </div>
               </div>
 
+              <button
+                onClick={handleProcessBatchAdd}
+                disabled={!batchTerms.trim() || !batchMeanings.trim()}
+                className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-50 disabled:text-gray-300 text-indigo-700 font-bold rounded-xl transition-all border border-indigo-100 text-sm cursor-pointer"
+                id="process-batch-btn"
+              >
+                Ghép dữ liệu vào bảng từ vựng
+              </button>
             </div>
 
             {/* Main Interactive Vocabulary Grid Table */}

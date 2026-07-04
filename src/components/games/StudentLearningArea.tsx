@@ -14,6 +14,7 @@ import FillBlankGame from './FillBlankGame';
 import MatchingGame from './MatchingGame';
 import MemoryGame from './MemoryGame';
 import MillionaireGame from './MillionaireGame';
+import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
 
 interface StudentLearningAreaProps {
@@ -293,6 +294,17 @@ export default function StudentLearningArea({
         return <MemoryGame {...gameProps} />;
       case 'MillionaireGame':
         return <MillionaireGame {...gameProps} />;
+      case 'SpeakingAIGame':
+        return (
+          <SpeakingAIGame
+            {...gameProps}
+            studentId={guestId}
+            studentName={studentName}
+            vocabularySetId={vocabSet.id}
+            gameSessionId={session?.id}
+            authToken={token}
+          />
+        );
       default:
         return (
           <div className="p-8 text-center text-gray-500 bg-white rounded-2xl border border-gray-100">
@@ -504,7 +516,7 @@ export default function StudentLearningArea({
 
             {/* List Game Templates grouped by category */}
             <div className="space-y-6" id="games-grouped-list">
-              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'].map(category => {
+              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire', 'speaking'].map(category => {
                 const categoryGames = GAMES_LIST.filter(g => g.category === category);
                 const categoryTitles: Record<string, string> = {
                   flashcard: '⚡ Nhóm Flashcard',
@@ -512,7 +524,8 @@ export default function StudentLearningArea({
                   fill: '⌨️ Nhóm Điền từ / Viết',
                   matching: '🧩 Nhóm Ghép đôi',
                   memory: '🧠 Nhóm Luyện trí nhớ',
-                  millionaire: 'Ai là triệu phú'
+                  millionaire: 'Ai là triệu phú',
+                  speaking: 'Luyện nói'
                 };
 
                 return (

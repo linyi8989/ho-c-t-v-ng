@@ -1380,7 +1380,38 @@ app.put("/api/game-sessions/:id", async (req, res) => {
   }
 });
 
-// 21. GAME RESULTS: Get all finished game sessions
+// 21. PRONUNCIATION ATTEMPTS: Save one speaking practice attempt
+app.post("/api/pronunciation-attempts", async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const now = new Date().toISOString();
+    const id = payload.id || `pronunciation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const attempt = {
+      id,
+      studentId: payload.studentId || payload.guestId || "guest",
+      studentName: payload.studentName || "",
+      vocabularySetId: payload.vocabularySetId || payload.vocabSetId || "",
+      wordId: payload.wordId || "",
+      targetText: payload.targetText || "",
+      recognizedText: payload.recognizedText || "",
+      score: Math.max(0, Math.min(100, Number(payload.score || 0))),
+      correctWords: Math.max(0, Number(payload.correctWords || 0)),
+      totalWords: Math.max(0, Number(payload.totalWords || 0)),
+      attemptCount: Math.max(1, Number(payload.attemptCount || 1)),
+      gameSessionId: payload.gameSessionId || "",
+      gameId: "speaking-ai",
+      playedAt: payload.playedAt || now,
+      createdAt: now
+    };
+
+    await adminDb.collection("pronunciation_attempts").doc(id).set(attempt);
+    res.status(201).json(attempt);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 22. GAME RESULTS: Get all finished game sessions
 app.get("/api/results", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("game_sessions").get();
@@ -1401,7 +1432,7 @@ app.get("/api/results", authenticateUser, async (req, res) => {
 // SUPER ADMIN EXCLUSIVE INTERFACES
 // ============================================================================
 
-// 22. ADMIN: List all registered users (With role & status updates, classes filtering)
+// 23. ADMIN: List all registered users (With role & status updates, classes filtering)
 app.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
   try {
     const snapshot = await adminDb.collection("users").get();

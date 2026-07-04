@@ -175,5 +175,21 @@ export const GAMES_LIST: GameConfig[] = [
       answerType: 'meaning',
       enableLifelines: true
     }
+  },
+
+  // --- SPEAKING PRACTICE GROUP ---
+  {
+    gameId: 'speaking-ai',
+    title: 'Luyện nói cùng AI',
+    description: 'Nghe mẫu, đọc lại từ hoặc câu ví dụ, rồi nhận điểm phát âm bằng nhận diện giọng nói.',
+    category: 'speaking',
+    icon: 'Mic',
+    color: 'from-sky-500 to-indigo-600',
+    componentName: 'SpeakingAIGame',
+    requiredFields: ['term', 'meaning'],
+    config: {
+      targetMode: 'example_or_term',
+      recognitionLang: 'en-US'
+    }
   }
 ];

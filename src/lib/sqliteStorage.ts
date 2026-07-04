@@ -32,6 +32,8 @@ const collectionTableMap: Record<string, string> = {
   gamesessions: 'game_results',
   game_results: 'game_results',
   gameresults: 'game_results',
+  pronunciation_attempts: 'game_results',
+  pronunciationattempts: 'game_results',
   audit_logs: 'audit_logs',
   auditlogs: 'audit_logs',
   settings: 'settings',
