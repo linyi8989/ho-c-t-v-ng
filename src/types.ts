@@ -106,4 +106,5 @@ export interface GameConfig {
   componentName: 'FlashcardGame' | 'QuizGame' | 'FillBlankGame' | 'MatchingGame' | 'MemoryGame' | 'MillionaireGame' | 'SpeakingAIGame' | 'HangmanGame';
   requiredFields: string[];
   config: Record<string, any>;
+  hidden?: boolean;
 }

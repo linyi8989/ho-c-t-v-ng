@@ -27,6 +27,7 @@ interface StudentLearningAreaProps {
 
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
+const VISIBLE_GAMES_LIST = GAMES_LIST.filter((game) => !game.hidden);
 
 function createGuestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -82,10 +83,10 @@ export default function StudentLearningArea({
   // Load initial game if requested
   useEffect(() => {
     if (initialGameId) {
-      const g = GAMES_LIST.find(game => game.gameId === initialGameId);
+      const g = VISIBLE_GAMES_LIST.find(game => game.gameId === initialGameId);
       if (g) setSelectedGame(g);
     } else {
-      setSelectedGame(GAMES_LIST[0]); // Default to first game
+      setSelectedGame(VISIBLE_GAMES_LIST[0]); // Default to first visible game
     }
   }, [initialGameId]);
 
@@ -489,8 +490,8 @@ export default function StudentLearningArea({
                       </button>
                       <button
                         onClick={() => {
-                          const nextGameIdx = (GAMES_LIST.findIndex(g => g.gameId === selectedGame?.gameId) + 1) % GAMES_LIST.length;
-                          setSelectedGame(GAMES_LIST[nextGameIdx]);
+                          const nextGameIdx = (VISIBLE_GAMES_LIST.findIndex(g => g.gameId === selectedGame?.gameId) + 1) % VISIBLE_GAMES_LIST.length;
+                          setSelectedGame(VISIBLE_GAMES_LIST[nextGameIdx]);
                         }}
                         className="py-3 px-6 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
                         id="next-game-overlay-btn"
@@ -516,8 +517,8 @@ export default function StudentLearningArea({
 
             {/* List Game Templates grouped by category */}
             <div className="space-y-6" id="games-grouped-list">
-              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire', 'speaking'].map(category => {
-                const categoryGames = GAMES_LIST.filter(g => g.category === category);
+              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'].map(category => {
+                const categoryGames = VISIBLE_GAMES_LIST.filter(g => g.category === category);
                 const categoryTitles: Record<string, string> = {
                   flashcard: '⚡ Nhóm Flashcard',
                   quiz: '✏️ Nhóm Trắc nghiệm',

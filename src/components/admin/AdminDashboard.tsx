@@ -1677,7 +1677,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                       required
                     >
-                      {GAMES_LIST.map(g => <option key={g.gameId} value={g.gameId}>{g.title} ({g.category})</option>)}
+                      {GAMES_LIST.filter(g => !g.hidden).map(g => <option key={g.gameId} value={g.gameId}>{g.title} ({g.category})</option>)}
                     </select>
                   </div>
 

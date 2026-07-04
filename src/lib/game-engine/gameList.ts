@@ -187,6 +187,7 @@ export const GAMES_LIST: GameConfig[] = [
     color: 'from-sky-500 to-indigo-600',
     componentName: 'SpeakingAIGame',
     requiredFields: ['term', 'meaning'],
+    hidden: true,
     config: {
       targetMode: 'example_or_term',
       recognitionLang: 'en-US'

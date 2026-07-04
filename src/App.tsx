@@ -547,15 +547,19 @@ export default function App() {
       </nav>
 
       {/* Hero Welcome banner */}
-      <header className="max-w-4xl mx-auto text-center px-4 pt-12 pb-8 space-y-4" id="home-hero">
+      <header className="max-w-6xl mx-auto text-center px-4 pt-12 pb-8 space-y-4" id="home-hero">
         <span className="inline-flex items-center space-x-1 bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full border border-indigo-100">
           <Sparkles size={12} className="text-indigo-500 animate-bounce" />
           <span>Game hóa Từ vựng tiếng Anh đột phá</span>
         </span>
 
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 tracking-tight leading-none md:leading-tight">
-          Học từ vựng thật vui,<br />
-          Nhớ siêu lâu cùng <span className="text-indigo-600 underline decoration-indigo-300">Tiếng Anh Cô Diệu</span>!
+        <h1 className="font-black text-gray-950 leading-[1.08] tracking-normal">
+          <span className="block text-3xl sm:text-4xl lg:text-5xl">
+            Học từ vựng thật vui,
+          </span>
+          <span className="block text-2xl sm:text-4xl lg:text-5xl whitespace-nowrap">
+            Nhớ siêu lâu cùng <span className="text-indigo-500 underline decoration-indigo-300 decoration-4 underline-offset-4">Tiếng Anh Cô Diệu</span>!
+          </span>
         </h1>
 
         <p className="text-gray-500 text-sm md:text-base max-w-3xl mx-auto leading-relaxed">
