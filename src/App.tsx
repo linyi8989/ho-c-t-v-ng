@@ -553,12 +553,12 @@ export default function App() {
           <span>Game hóa Từ vựng tiếng Anh đột phá</span>
         </span>
 
-        <h1 className="font-black text-gray-950 leading-[1.08] tracking-normal">
+        <h1 className="font-black text-blue-200 leading-[1.08] tracking-normal">
           <span className="block text-3xl sm:text-4xl lg:text-5xl">
             Học từ vựng thật vui,
           </span>
           <span className="block text-2xl sm:text-4xl lg:text-5xl whitespace-nowrap">
-            Nhớ siêu lâu cùng <span className="text-indigo-500 underline decoration-indigo-300 decoration-4 underline-offset-4">Tiếng Anh Cô Diệu</span>!
+            Nhớ siêu lâu cùng <span className="text-blue-200 underline decoration-blue-300 decoration-4 underline-offset-4">Tiếng Anh Cô Diệu</span>!
           </span>
         </h1>
 
