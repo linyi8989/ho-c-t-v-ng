@@ -413,9 +413,9 @@ export default function StudentLearningArea({
                     <button
                       onClick={() => setIsMuted(!isMuted)}
                       className={`p-2 rounded-xl transition-all border cursor-pointer ${
-                        isMuted 
-                          ? 'bg-rose-50 border-rose-200 text-rose-500' 
-                          : 'bg-gray-50 border-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-100'
+                        !isMuted
+                          ? 'bg-emerald-100 border-emerald-300 text-slate-950 ring-2 ring-emerald-200'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                       }`}
                       title={isMuted ? "Bật âm thanh" : "Tắt âm thanh"}
                       id="mute-toggle"
@@ -427,8 +427,8 @@ export default function StudentLearningArea({
                       onClick={handleShuffle}
                       className={`p-2 rounded-xl transition-all border cursor-pointer ${
                         isRandomized 
-                          ? 'bg-indigo-50 border-indigo-200 text-indigo-600' 
-                          : 'bg-gray-50 border-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-100'
+                          ? 'bg-emerald-100 border-emerald-300 text-slate-950 ring-2 ring-emerald-200'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                       }`}
                       title="Trộn từ vựng"
                       id="shuffle-toggle"
@@ -438,7 +438,11 @@ export default function StudentLearningArea({
 
                     <button
                       onClick={handleToggleFullscreen}
-                      className="p-2 bg-gray-50 border border-gray-100 text-gray-500 hover:text-indigo-600 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
+                      className={`p-2 rounded-xl transition-all border cursor-pointer ${
+                        isFullscreen
+                          ? 'bg-emerald-100 border-emerald-300 text-slate-950 ring-2 ring-emerald-200'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                      }`}
                       title="Toàn màn hình"
                       id="fullscreen-toggle"
                     >

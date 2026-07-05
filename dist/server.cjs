@@ -2390,7 +2390,13 @@ app2.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_
     }
     const userData = userDoc.data();
     await userRef.update({ role });
-    await adminAuth.setCustomUserClaims(targetUserId, { role });
+    let customClaimWarning = "";
+    try {
+      await adminAuth.setCustomUserClaims(targetUserId, { role });
+    } catch (claimErr) {
+      customClaimWarning = claimErr?.message || "Could not update Firebase custom claims.";
+      console.warn(`Could not update custom claims for ${targetUserId}: ${customClaimWarning}`);
+    }
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -2398,7 +2404,7 @@ app2.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_
       "UPDATE_USER_ROLE",
       `\u0110\xE3 thay \u0111\u1ED5i vai tr\xF2 c\u1EE7a user "${userData?.name}" (${userData?.email}) t\u1EEB ${userData?.role} th\xE0nh ${role}`
     );
-    res.json({ success: true, userId: targetUserId, role });
+    res.json({ success: true, userId: targetUserId, role, customClaimWarning });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

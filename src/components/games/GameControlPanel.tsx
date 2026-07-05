@@ -43,7 +43,7 @@ export default function GameControlPanel({
           <button
             onClick={onPrev}
             disabled={currentIndex === 0}
-            className="flex items-center space-x-2 px-6 py-3 bg-slate-800 hover:bg-slate-750 disabled:opacity-30 disabled:hover:bg-slate-800 text-slate-300 font-bold rounded-xl transition-all cursor-pointer border border-white/10 shadow-lg active:scale-95"
+            className="flex items-center space-x-2 px-6 py-3 bg-white hover:bg-emerald-50 disabled:opacity-40 disabled:hover:bg-white text-slate-950 font-bold rounded-xl transition-all cursor-pointer border border-emerald-100 shadow-sm active:scale-95"
             id="premium-prev-btn"
           >
             <ChevronLeft size={18} />
@@ -53,7 +53,7 @@ export default function GameControlPanel({
           {/* Large circular sound button */}
           <button
             onClick={onPlaySound}
-            className="p-4 bg-sky-500 hover:bg-sky-600 text-white rounded-full transition-all cursor-pointer shadow-lg shadow-sky-500/20 hover:scale-105 active:scale-95 border border-sky-400/30 flex items-center justify-center"
+            className="p-4 bg-emerald-100 hover:bg-emerald-200 text-slate-950 rounded-full transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95 border border-emerald-300 flex items-center justify-center"
             title="Phát âm tiếng Anh"
             id="premium-speak-btn"
           >
@@ -63,7 +63,7 @@ export default function GameControlPanel({
           {/* Next Button */}
           <button
             onClick={onNext}
-            className="flex items-center space-x-2 px-6 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl transition-all cursor-pointer border border-sky-400/30 shadow-lg shadow-sky-500/20 active:scale-95"
+            className="flex items-center space-x-2 px-6 py-3 bg-emerald-100 hover:bg-emerald-200 text-slate-950 font-bold rounded-xl transition-all cursor-pointer border border-emerald-300 shadow-sm active:scale-95"
             id="premium-next-btn"
           >
             <span>Next</span>
@@ -73,22 +73,22 @@ export default function GameControlPanel({
       )}
 
       {/* Row 2: Status Indicator and Toggles */}
-      <div className="flex flex-wrap items-center justify-center gap-6 px-5 py-3.5 bg-slate-900/90 backdrop-blur-md rounded-2xl border border-white/10 w-full shadow-xl">
+      <div className="flex flex-wrap items-center justify-center gap-6 px-5 py-3.5 bg-white backdrop-blur-md rounded-2xl border border-emerald-100 w-full shadow-sm">
         {/* Word counter */}
         {showLinearControls && totalItems > 0 && (
-          <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 rounded-lg text-xs font-bold font-mono shadow-xs">
+          <span className="px-3 py-1 bg-emerald-100 border border-emerald-300 text-slate-950 rounded-lg text-xs font-bold font-mono shadow-xs">
             Word {currentIndex + 1} / {totalItems}
           </span>
         )}
 
         {/* Random Toggle */}
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-300 font-bold select-none">Random</span>
+          <span className="text-xs text-slate-950 font-bold select-none">Random</span>
           <button
             type="button"
             onClick={onToggleRandom}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              isRandomized ? 'bg-sky-500' : 'bg-slate-700'
+              isRandomized ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
             }`}
             id="toggle-random"
           >
@@ -102,12 +102,12 @@ export default function GameControlPanel({
 
         {/* Sound Toggle */}
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-300 font-bold select-none">Sound</span>
+          <span className="text-xs text-slate-950 font-bold select-none">Sound</span>
           <button
             type="button"
             onClick={onToggleSound}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              isSoundOn ? 'bg-sky-500' : 'bg-slate-700'
+              isSoundOn ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
             }`}
             id="toggle-sound"
           >
@@ -122,12 +122,12 @@ export default function GameControlPanel({
         {/* Next Toggle (Auto-advance Autoplay - Show only if supported/linear) */}
         {showLinearControls && onToggleAutoNext && (
           <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-300 font-bold select-none">Next</span>
+            <span className="text-xs text-slate-950 font-bold select-none">Next</span>
             <button
               type="button"
               onClick={onToggleAutoNext}
               className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                isAutoNextOn ? 'bg-sky-500' : 'bg-slate-700'
+                isAutoNextOn ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
               }`}
               id="toggle-autonext"
             >
@@ -143,7 +143,7 @@ export default function GameControlPanel({
         {/* Full Screen button */}
         <button
           onClick={onToggleFullscreen}
-          className="flex items-center space-x-1.5 px-3 py-1 bg-slate-850 hover:bg-slate-750 border border-white/10 rounded-lg text-xs font-bold text-slate-300 cursor-pointer transition-all active:scale-95"
+          className="flex items-center space-x-1.5 px-3 py-1 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg text-xs font-bold text-slate-950 cursor-pointer transition-all active:scale-95"
           id="premium-fullscreen-btn"
         >
           {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
