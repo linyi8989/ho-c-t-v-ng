@@ -28,6 +28,16 @@ interface StudentLearningAreaProps {
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const VISIBLE_GAMES_LIST = GAMES_LIST.filter((game) => !game.hidden);
+const GAME_CATEGORY_ORDER = ['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'] as const;
+const GAME_CATEGORY_TITLES: Record<string, string> = {
+  flashcard: 'Nhóm Flashcard',
+  quiz: 'Nhóm Trắc nghiệm',
+  fill: 'Nhóm Điền từ / Viết',
+  matching: 'Nhóm Ghép đôi',
+  memory: 'Nhóm Luyện trí nhớ',
+  millionaire: 'Ai là triệu phú',
+  speaking: 'Luyện nói'
+};
 
 function createGuestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -395,7 +405,7 @@ export default function StudentLearningArea({
                 {/* Active Game Utilities Bar */}
                 <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                   <div className="flex items-center space-x-3">
-                    <span className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <span className={`game-icon ${selectedGame?.category || 'flashcard'}`}>
                       <Sparkles size={18} />
                     </span>
                     <div>
@@ -521,22 +531,13 @@ export default function StudentLearningArea({
 
             {/* List Game Templates grouped by category */}
             <div className="space-y-6" id="games-grouped-list">
-              {['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'].map(category => {
+              {GAME_CATEGORY_ORDER.map(category => {
                 const categoryGames = VISIBLE_GAMES_LIST.filter(g => g.category === category);
-                const categoryTitles: Record<string, string> = {
-                  flashcard: '⚡ Nhóm Flashcard',
-                  quiz: '✏️ Nhóm Trắc nghiệm',
-                  fill: '⌨️ Nhóm Điền từ / Viết',
-                  matching: '🧩 Nhóm Ghép đôi',
-                  memory: '🧠 Nhóm Luyện trí nhớ',
-                  millionaire: 'Ai là triệu phú',
-                  speaking: 'Luyện nói'
-                };
 
                 return (
                   <div key={category} className="space-y-2">
-                    <h4 className="text-xs font-black uppercase text-gray-400 tracking-wider">
-                      {categoryTitles[category]}
+                    <h4 className={`game-category-label ${category}`}>
+                      {GAME_CATEGORY_TITLES[category]}
                     </h4>
                     
                     <div className="grid grid-cols-1 gap-2">
@@ -555,21 +556,17 @@ export default function StudentLearningArea({
                                 element?.focus();
                               }
                             }}
-                            className={`flex items-start text-left p-3 rounded-2xl border-2 transition-all cursor-pointer ${
-                              isActive 
-                                ? 'border-indigo-600 bg-indigo-50/50 shadow-sm' 
-                                : 'border-gray-100 hover:border-indigo-100 hover:bg-gray-50/50'
-                            }`}
+                            className={`game-card ${game.category} ${isActive ? 'active selected' : ''}`}
                             id={`sidebar-game-btn-${game.gameId}`}
                           >
-                            <span className={`p-2.5 bg-gradient-to-br ${game.color} text-white rounded-xl shadow-xs shrink-0 mr-3 mt-0.5`}>
+                            <span className={`game-icon ${game.category}`}>
                               <BookOpen size={16} />
                             </span>
                             <div className="space-y-0.5">
-                              <span className="font-bold text-gray-800 text-sm leading-snug block">
+                              <span className="game-card-title">
                                 {game.title}
                               </span>
-                              <span className="text-[10px] text-gray-400 font-semibold uppercase block">
+                              <span className={`game-card-badge ${game.category}`}>
                                 {game.category} game
                               </span>
                             </div>

@@ -108,6 +108,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     ]));
   }, [classes, vocabSets, editorGrade]);
 
+  const teacherDisplayName = React.useMemo(() => {
+    const rawName = (user?.name || '').trim();
+    if (!rawName) return 'cô';
+    const firstName = rawName.split(/\s+/)[0];
+    return `cô ${firstName}`;
+  }, [user?.name]);
+
   // Authenticated custom fetch wrapper
   const authFetch = (url: string, options: any = {}) => {
     return fetch(url, {
@@ -890,7 +897,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             {/* Greetings Banner */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
               <div>
-                <h2 className="text-2xl font-black text-gray-800">Xin chào, Cô Thảo!</h2>
+                <h2 className="text-2xl font-black text-gray-800">Xin chào, {teacherDisplayName}!</h2>
                 <p className="text-gray-400 text-sm font-medium">Hôm nay hãy cùng các học sinh học thật nhiều từ vựng mới nhé.</p>
               </div>
               <button

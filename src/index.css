@@ -925,3 +925,777 @@ tr:hover {
     padding: 0.75rem !important;
   }
 }
+
+/* Game Category Palette
+   Centralized pastel colors for the student game picker and active game header.
+   Keep category classes in sync with GameConfig.category. */
+:root {
+  --game-flashcard-bg: #fce7f3;
+  --game-flashcard-bg-hover: #fbcfe8;
+  --game-flashcard-border: #f472b6;
+  --game-flashcard-text: #db2777;
+  --game-flashcard-ring: rgba(219, 39, 119, 0.18);
+
+  --game-quiz-bg: #eff6ff;
+  --game-quiz-bg-hover: #dbeafe;
+  --game-quiz-border: #60a5fa;
+  --game-quiz-text: #2563eb;
+  --game-quiz-ring: rgba(37, 99, 235, 0.18);
+
+  --game-fill-bg: #f0fdf4;
+  --game-fill-bg-hover: #dcfce7;
+  --game-fill-border: #86efac;
+  --game-fill-text: #16a34a;
+  --game-fill-ring: rgba(22, 163, 74, 0.18);
+
+  --game-matching-bg: #f5f3ff;
+  --game-matching-bg-hover: #ede9fe;
+  --game-matching-border: #a78bfa;
+  --game-matching-text: #7c3aed;
+  --game-matching-ring: rgba(124, 58, 237, 0.18);
+
+  --game-memory-bg: #fff7ed;
+  --game-memory-bg-hover: #ffedd5;
+  --game-memory-border: #fdba74;
+  --game-memory-text: #ea580c;
+  --game-memory-ring: rgba(234, 88, 12, 0.18);
+
+  --game-millionaire-bg: #ecfeff;
+  --game-millionaire-bg-hover: #cffafe;
+  --game-millionaire-border: #67e8f9;
+  --game-millionaire-text: #0891b2;
+  --game-millionaire-ring: rgba(8, 145, 178, 0.18);
+
+  --game-speaking-bg: #f0f9ff;
+  --game-speaking-bg-hover: #e0f2fe;
+  --game-speaking-border: #7dd3fc;
+  --game-speaking-text: #0284c7;
+  --game-speaking-ring: rgba(2, 132, 199, 0.18);
+}
+
+#student-area-root .game-card,
+#games-grouped-list .game-card {
+  --game-bg: #f8fafc;
+  --game-bg-hover: #f1f5f9;
+  --game-border: #cbd5e1;
+  --game-text: #334155;
+  --game-ring: rgba(51, 65, 85, 0.14);
+  display: flex !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+  padding: 0.875rem !important;
+  text-align: left !important;
+  background: var(--game-bg) !important;
+  border: 2px solid color-mix(in srgb, var(--game-border) 55%, white) !important;
+  border-radius: 1rem !important;
+  color: var(--game-text) !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04) !important;
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease !important;
+  cursor: pointer !important;
+}
+
+#student-area-root .game-card:hover,
+#games-grouped-list .game-card:hover {
+  background: var(--game-bg-hover) !important;
+  border-color: var(--game-border) !important;
+  box-shadow: 0 12px 26px var(--game-ring) !important;
+  transform: translateY(-1px) !important;
+}
+
+#student-area-root .game-card.active,
+#student-area-root .game-card.selected,
+#games-grouped-list .game-card.active,
+#games-grouped-list .game-card.selected {
+  background: var(--game-bg-hover) !important;
+  border-color: var(--game-text) !important;
+  box-shadow: 0 0 0 4px var(--game-ring), 0 14px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+#student-area-root .game-card-title,
+#games-grouped-list .game-card-title {
+  display: block;
+  color: #111827 !important;
+  font-size: 0.875rem;
+  font-weight: 800;
+  line-height: 1.25rem;
+}
+
+#student-area-root .game-card-badge,
+#games-grouped-list .game-card-badge,
+#student-area-root .game-category-label,
+#games-grouped-list .game-category-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0 !important;
+  text-transform: uppercase;
+  color: var(--game-text) !important;
+}
+
+#student-area-root .game-card-badge,
+#games-grouped-list .game-card-badge {
+  margin-top: 0.25rem;
+  padding: 0.28rem 0.5rem;
+  background: rgba(255, 255, 255, 0.62) !important;
+  border: 1px solid color-mix(in srgb, var(--game-border) 70%, white) !important;
+}
+
+#student-area-root .game-category-label,
+#games-grouped-list .game-category-label {
+  padding: 0.4rem 0.65rem;
+  background: var(--game-bg) !important;
+  border: 1px solid color-mix(in srgb, var(--game-border) 70%, white) !important;
+}
+
+#student-area-root .game-icon,
+#games-grouped-list .game-icon {
+  --game-bg: #f8fafc;
+  --game-border: #cbd5e1;
+  --game-text: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 0.75rem;
+  margin-top: 0.125rem;
+  padding: 0.625rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  border-radius: 0.875rem;
+  background: #ffffff !important;
+  border: 1px solid var(--game-border) !important;
+  color: var(--game-text) !important;
+  box-shadow: 0 8px 18px var(--game-ring, rgba(15, 23, 42, 0.08)) !important;
+}
+
+#student-area-root .game-icon svg,
+#games-grouped-list .game-icon svg {
+  color: currentColor !important;
+}
+
+#student-area-root .flashcard,
+#games-grouped-list .flashcard {
+  --game-bg: var(--game-flashcard-bg);
+  --game-bg-hover: var(--game-flashcard-bg-hover);
+  --game-border: var(--game-flashcard-border);
+  --game-text: var(--game-flashcard-text);
+  --game-ring: var(--game-flashcard-ring);
+}
+
+#student-area-root .quiz,
+#games-grouped-list .quiz {
+  --game-bg: var(--game-quiz-bg);
+  --game-bg-hover: var(--game-quiz-bg-hover);
+  --game-border: var(--game-quiz-border);
+  --game-text: var(--game-quiz-text);
+  --game-ring: var(--game-quiz-ring);
+}
+
+#student-area-root .fill,
+#games-grouped-list .fill {
+  --game-bg: var(--game-fill-bg);
+  --game-bg-hover: var(--game-fill-bg-hover);
+  --game-border: var(--game-fill-border);
+  --game-text: var(--game-fill-text);
+  --game-ring: var(--game-fill-ring);
+}
+
+#student-area-root .matching,
+#games-grouped-list .matching {
+  --game-bg: var(--game-matching-bg);
+  --game-bg-hover: var(--game-matching-bg-hover);
+  --game-border: var(--game-matching-border);
+  --game-text: var(--game-matching-text);
+  --game-ring: var(--game-matching-ring);
+}
+
+#student-area-root .memory,
+#games-grouped-list .memory {
+  --game-bg: var(--game-memory-bg);
+  --game-bg-hover: var(--game-memory-bg-hover);
+  --game-border: var(--game-memory-border);
+  --game-text: var(--game-memory-text);
+  --game-ring: var(--game-memory-ring);
+}
+
+#student-area-root .millionaire,
+#games-grouped-list .millionaire {
+  --game-bg: var(--game-millionaire-bg);
+  --game-bg-hover: var(--game-millionaire-bg-hover);
+  --game-border: var(--game-millionaire-border);
+  --game-text: var(--game-millionaire-text);
+  --game-ring: var(--game-millionaire-ring);
+}
+
+#student-area-root .speaking,
+#games-grouped-list .speaking {
+  --game-bg: var(--game-speaking-bg);
+  --game-bg-hover: var(--game-speaking-bg-hover);
+  --game-border: var(--game-speaking-border);
+  --game-text: var(--game-speaking-text);
+  --game-ring: var(--game-speaking-ring);
+}
+
+/* Contrast & Accessibility Final Pass
+   This is intentionally last: it corrects light-theme regressions where old
+   dark-mode utility classes became too faint on pastel backgrounds. */
+:root {
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;
+  --icon-primary: #1f2937;
+  --accent-blue: #2563eb;
+  --accent-blue-hover: #1d4ed8;
+  --accent-blue-soft: #eff6ff;
+  --accent-blue-border: #93c5fd;
+  --button-disabled-bg: #f3f4f6;
+  --button-disabled-border: #d1d5db;
+  --card-hover-bg: #f8fbff;
+  --card-selected-bg: #eaf3ff;
+  --card-selected-border: #2563eb;
+  --card-selected-ring: rgba(37, 99, 235, 0.18);
+}
+
+.text-primary {
+  color: var(--text-primary) !important;
+}
+
+.text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+.text-muted {
+  color: var(--text-muted) !important;
+}
+
+.icon-primary {
+  color: var(--icon-primary) !important;
+}
+
+.button-active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+.button-disabled,
+button:disabled,
+[aria-disabled="true"] {
+  background: var(--button-disabled-bg) !important;
+  border-color: var(--button-disabled-border) !important;
+  color: var(--text-disabled) !important;
+  opacity: 0.72 !important;
+  cursor: not-allowed !important;
+}
+
+.card-hover:hover {
+  background: var(--card-hover-bg) !important;
+  border-color: var(--accent-blue-border) !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+.card-selected {
+  background: var(--card-selected-bg) !important;
+  border-color: var(--card-selected-border) !important;
+  box-shadow: 0 0 0 4px var(--card-selected-ring) !important;
+}
+
+body,
+#root,
+#app-root,
+#student-area-root,
+#admin-dashboard-container,
+#game-stage,
+#active-game-viewport {
+  color: var(--text-primary) !important;
+}
+
+#app-root,
+#student-area-root,
+#admin-dashboard-container {
+  background: #ffffff !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+strong,
+.font-black,
+.font-extrabold,
+.font-bold {
+  color: var(--text-primary) !important;
+}
+
+p,
+label,
+small,
+.text-sm,
+.text-xs,
+.text-\[10px\],
+.text-\[11px\],
+.text-gray-400,
+.text-gray-500,
+.text-gray-600,
+.text-slate-400,
+.text-slate-500,
+.text-slate-600,
+.text-zinc-400,
+.text-zinc-500,
+.text-zinc-600 {
+  color: var(--text-secondary) !important;
+}
+
+.text-white,
+[class*="text-white/"],
+.text-gray-100,
+.text-gray-200,
+.text-slate-100,
+.text-slate-200,
+.text-blue-100,
+.text-blue-200,
+.text-purple-100,
+.text-purple-200,
+.text-indigo-100,
+.text-indigo-200 {
+  color: var(--text-primary) !important;
+}
+
+svg {
+  color: currentColor;
+}
+
+button svg,
+a svg,
+.game-icon svg {
+  color: currentColor !important;
+}
+
+/* Saturated controls can keep white text; pastel surfaces must not. */
+.bg-indigo-600,
+.bg-indigo-700,
+.bg-blue-600,
+.bg-blue-700,
+.bg-sky-600,
+.bg-emerald-600,
+.bg-rose-600,
+.bg-red-600,
+.bg-amber-600,
+button.bg-indigo-600,
+button.bg-indigo-700,
+button.bg-blue-600,
+button.bg-blue-700,
+a.bg-indigo-600,
+a.bg-blue-600,
+#save-vocabset-btn,
+#submit-name-btn {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18) !important;
+}
+
+.bg-indigo-600 *,
+.bg-indigo-700 *,
+.bg-blue-600 *,
+.bg-blue-700 *,
+.bg-sky-600 *,
+.bg-emerald-600 *,
+.bg-rose-600 *,
+.bg-red-600 *,
+.bg-amber-600 *,
+button.bg-indigo-600 *,
+button.bg-indigo-700 *,
+button.bg-blue-600 *,
+button.bg-blue-700 *,
+#save-vocabset-btn *,
+#submit-name-btn * {
+  color: #ffffff !important;
+}
+
+.bg-indigo-600:hover,
+.bg-indigo-700:hover,
+.bg-blue-600:hover,
+.bg-blue-700:hover,
+button.bg-indigo-600:hover,
+button.bg-indigo-700:hover,
+button.bg-blue-600:hover,
+button.bg-blue-700:hover,
+#save-vocabset-btn:hover,
+#submit-name-btn:hover {
+  background: var(--accent-blue-hover) !important;
+  border-color: var(--accent-blue-hover) !important;
+  color: #ffffff !important;
+}
+
+.bg-indigo-50,
+.bg-blue-50,
+.bg-sky-50,
+.bg-cyan-50 {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue) !important;
+}
+
+.text-indigo-500,
+.text-indigo-600,
+.text-indigo-700,
+.text-blue-500,
+.text-blue-600,
+.text-blue-700,
+.text-sky-500,
+.text-sky-600,
+.text-cyan-600,
+a {
+  color: var(--accent-blue) !important;
+}
+
+/* Keep semantic badges readable. */
+.bg-emerald-50,
+.bg-emerald-100 {
+  background: #ecfdf5 !important;
+  border-color: #86efac !important;
+  color: #047857 !important;
+}
+
+.bg-rose-50,
+.bg-rose-100,
+.bg-red-50,
+.bg-red-100 {
+  background: #fff1f2 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
+}
+
+.bg-amber-50,
+.bg-amber-100,
+.bg-orange-50,
+.bg-orange-100 {
+  background: #fffbeb !important;
+  border-color: #fcd34d !important;
+  color: #b45309 !important;
+}
+
+/* Avoid invisible translucent dark-mode leftovers on the light theme. */
+[class*="bg-white/"],
+[class*="border-white/"] {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: var(--text-primary) !important;
+}
+
+/* Opacity utilities used for readable UI should never make text/icons vanish. */
+.opacity-10,
+.opacity-20,
+.opacity-30,
+.opacity-40 {
+  opacity: 0.62 !important;
+}
+
+button .opacity-10,
+button .opacity-20,
+button .opacity-30,
+button .opacity-40,
+svg.opacity-10,
+svg.opacity-20,
+svg.opacity-30,
+svg.opacity-40 {
+  opacity: 0.65 !important;
+}
+
+button:not(:disabled) {
+  color: var(--text-primary) !important;
+}
+
+button:not(:disabled).bg-indigo-600,
+button:not(:disabled).bg-indigo-700,
+button:not(:disabled).bg-blue-600,
+button:not(:disabled).bg-blue-700,
+button:not(:disabled)#save-vocabset-btn,
+button:not(:disabled)#submit-name-btn {
+  color: #ffffff !important;
+}
+
+input,
+select,
+textarea {
+  color: var(--text-primary) !important;
+  border-color: #cbd5e1 !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Header and brand areas */
+#navbar {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: #e5e7eb !important;
+}
+
+#navbar .bg-indigo-600,
+#admin-sidebar .bg-indigo-600,
+#student-header .bg-indigo-600 {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+#navbar .bg-indigo-600 svg,
+#admin-sidebar .bg-indigo-600 svg,
+#student-header .bg-indigo-600 svg {
+  color: #ffffff !important;
+}
+
+#student-header {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #e5e7eb !important;
+}
+
+#student-header .bg-indigo-50,
+#student-header .bg-blue-50,
+#student-header [class*="bg-indigo-"] {
+  background: var(--accent-blue-soft) !important;
+  border: 1px solid var(--accent-blue-border) !important;
+  color: var(--accent-blue) !important;
+}
+
+#student-header .text-white,
+#student-header [class*="text-white/"],
+#student-header .text-indigo-100,
+#student-header .text-blue-100 {
+  color: var(--text-primary) !important;
+}
+
+#student-header svg,
+#navbar svg {
+  color: currentColor !important;
+}
+
+/* Game shell and progress */
+#game-stage {
+  background: #ffffff !important;
+  border-color: #dbe2ea !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08) !important;
+}
+
+#game-stage > .border-b {
+  border-color: #dbe2ea !important;
+}
+
+#game-stage h2,
+#game-stage h3,
+#game-stage .font-black {
+  color: var(--text-primary) !important;
+}
+
+#game-stage p,
+#game-stage .text-xs,
+#game-stage .text-sm {
+  color: var(--text-secondary) !important;
+}
+
+#game-stage .text-indigo-600,
+#game-stage .text-blue-600 {
+  color: var(--accent-blue) !important;
+}
+
+#game-stage [role="progressbar"],
+#game-stage progress,
+#game-stage .bg-gray-200,
+#game-stage .bg-slate-200 {
+  border-color: #bfdbfe !important;
+}
+
+/* Flashcards */
+#game-stage .backface-hidden,
+#game-stage .perspective .backface-hidden {
+  background: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.12) !important;
+}
+
+#game-stage .backface-hidden .bg-white\/5,
+#game-stage .backface-hidden .bg-slate-900 {
+  background: #f9fafb !important;
+  border-color: #d1d5db !important;
+}
+
+#game-stage .backface-hidden h2,
+#game-stage .backface-hidden .text-gray-100 {
+  color: var(--text-primary) !important;
+}
+
+#game-stage .backface-hidden .text-gray-200,
+#game-stage .backface-hidden .text-gray-400 {
+  color: var(--text-secondary) !important;
+}
+
+/* Sidebar game category contrast */
+#games-catalogue-sidebar,
+#games-grouped-list {
+  color: var(--text-primary) !important;
+}
+
+#games-catalogue-sidebar h3,
+#games-catalogue-sidebar h4,
+#games-grouped-list h4 {
+  color: var(--text-primary) !important;
+}
+
+#student-area-root .game-category-label,
+#games-grouped-list .game-category-label {
+  color: var(--game-text) !important;
+  border-color: var(--game-border) !important;
+  background: var(--game-bg) !important;
+}
+
+#student-area-root .game-card,
+#games-grouped-list .game-card {
+  color: var(--text-primary) !important;
+}
+
+#student-area-root .game-card-title,
+#games-grouped-list .game-card-title {
+  color: var(--text-primary) !important;
+}
+
+#student-area-root .game-card-badge,
+#games-grouped-list .game-card-badge {
+  color: var(--game-text) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+}
+
+#student-area-root .game-icon,
+#games-grouped-list .game-icon {
+  background: #ffffff !important;
+  color: var(--game-text) !important;
+  border-color: var(--game-border) !important;
+}
+
+#student-area-root .game-card.active,
+#student-area-root .game-card.selected,
+#games-grouped-list .game-card.active,
+#games-grouped-list .game-card.selected {
+  border-color: var(--game-text) !important;
+  box-shadow: 0 0 0 4px var(--game-ring), 0 14px 30px rgba(15, 23, 42, 0.1) !important;
+}
+
+/* Control panels */
+#premium-slider-controls,
+#premium-slider-controls * {
+  color: var(--text-primary) !important;
+}
+
+#premium-slider-controls > div:last-child {
+  background: #ffffff !important;
+  border-color: #d1d5db !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06) !important;
+}
+
+#premium-slider-controls button:not(:disabled) {
+  color: var(--text-primary) !important;
+  border-color: #93c5fd !important;
+}
+
+#premium-slider-controls button:disabled {
+  opacity: 0.68 !important;
+  color: var(--text-disabled) !important;
+}
+
+#toggle-random.bg-emerald-400,
+#toggle-sound.bg-emerald-400,
+#toggle-autonext.bg-emerald-400,
+#mute-toggle.bg-emerald-100,
+#shuffle-toggle.bg-emerald-100,
+#fullscreen-toggle.bg-emerald-100 {
+  background: #bbf7d0 !important;
+  border-color: #22c55e !important;
+  color: #14532d !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18) !important;
+}
+
+#toggle-random.bg-slate-200,
+#toggle-sound.bg-slate-200,
+#toggle-autonext.bg-slate-200,
+#mute-toggle.bg-slate-100,
+#shuffle-toggle.bg-slate-100,
+#fullscreen-toggle.bg-slate-100 {
+  background: #e5e7eb !important;
+  border-color: #cbd5e1 !important;
+  color: #374151 !important;
+}
+
+/* Completion overlay and modals */
+#score-summary-overlay,
+.fixed.inset-0.bg-black\/60 > div {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: var(--text-primary) !important;
+  border-color: #d1d5db !important;
+}
+
+#score-summary-overlay h3,
+#score-summary-overlay p,
+#score-summary-overlay span {
+  color: var(--text-primary) !important;
+}
+
+#score-summary-overlay button:not(:disabled) {
+  border-color: var(--accent-blue-border) !important;
+  color: var(--text-primary) !important;
+}
+
+#score-summary-overlay button.bg-indigo-500 {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+/* Login/register/admin forms */
+#admin-dashboard-container,
+#admin-dashboard-container * {
+  color: inherit;
+}
+
+#admin-dashboard-container h1,
+#admin-dashboard-container h2,
+#admin-dashboard-container h3,
+#admin-dashboard-container h4,
+#admin-dashboard-container strong {
+  color: var(--text-primary) !important;
+}
+
+#admin-dashboard-container p,
+#admin-dashboard-container label,
+#admin-dashboard-container .text-gray-400,
+#admin-dashboard-container .text-gray-500,
+#admin-dashboard-container .text-gray-600 {
+  color: var(--text-secondary) !important;
+}
+
+#admin-dashboard-container button:disabled,
+#admin-dashboard-container select:disabled,
+#admin-dashboard-container input:disabled,
+#admin-dashboard-container textarea:disabled {
+  opacity: 0.72 !important;
+  color: var(--text-disabled) !important;
+  background: var(--button-disabled-bg) !important;
+}
+
+#admin-dashboard-container .bg-indigo-600,
+#admin-dashboard-container button.bg-indigo-600 {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+#admin-dashboard-container .bg-indigo-600 *,
+#admin-dashboard-container button.bg-indigo-600 * {
+  color: #ffffff !important;
+}
