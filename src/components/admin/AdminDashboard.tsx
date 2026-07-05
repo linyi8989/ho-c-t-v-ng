@@ -675,7 +675,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       if (data.error) {
         showNotification(data.error, "error");
       } else {
-        showNotification("Cập nhật vai trò người dùng thành công!");
+        showNotification(data.customClaimWarning
+          ? "Đã cập nhật vai trò trong hệ thống. Nếu tài khoản chưa thấy quyền mới, hãy đăng xuất rồi đăng nhập lại."
+          : "Cập nhật vai trò người dùng thành công!");
         refreshData();
       }
     })
@@ -1586,7 +1588,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               <div key={member.id} className="flex items-center justify-between text-sm text-gray-700 font-semibold bg-white p-2 rounded-xl border border-gray-100">
                                 <div className="flex items-center space-x-2">
                                   <span className="w-5 h-5 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
-                                  <span className="text-gray-100">{member.studentName}</span>
+                                  <span className="text-gray-800">{member.studentName}</span>
                                 </div>
                                 <button
                                   onClick={() => handleDeleteClassMember(cls.id, member.id, member.studentName)}
@@ -1608,7 +1610,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           placeholder="Họ và tên học sinh..."
                           value={newMemberNames[cls.id] || ''}
                           onChange={(e) => setNewMemberNames(prev => ({ ...prev, [cls.id]: e.target.value }))}
-                          className="flex-1 p-2 bg-slate-950/45 border border-white/10 rounded-xl outline-none text-xs font-bold text-gray-100 placeholder-gray-500 focus:border-indigo-500/50"
+                          className="flex-1 p-2 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-900 placeholder-gray-400 focus:border-blue-500"
                         />
                         <button
                           type="submit"
@@ -1781,8 +1783,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           <div className="space-y-6 animate-fade-in" id="results-tab-content">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-100">Bảng Vàng / Vinh danh học sinh chăm học</h2>
-                <p className="text-slate-400 text-sm">
+                <h2 className="text-2xl font-black text-gray-900">Bảng Vàng / Vinh danh học sinh chăm học</h2>
+                <p className="text-gray-500 text-sm">
                   Xếp hạng dựa trên kết quả tốt nhất của từng học sinh theo mỗi bộ từ vựng và mỗi chế độ chơi, tránh cộng điểm không công bằng khi chơi lặp lại.
                 </p>
               </div>
@@ -1791,7 +1793,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <select
                   value={leaderboardPeriod}
                   onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
-                  className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
+                  className="p-3 bg-white border border-gray-200 rounded-2xl outline-none text-xs font-bold text-gray-900 focus:border-blue-500"
                 >
                   <option value="week">Tuần này</option>
                   <option value="month">Tháng này</option>
@@ -1799,7 +1801,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <select
                   value={leaderboardCategory}
                   onChange={(e) => setLeaderboardCategory(e.target.value as LeaderboardCategory)}
-                  className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
+                  className="p-3 bg-white border border-gray-200 rounded-2xl outline-none text-xs font-bold text-gray-900 focus:border-blue-500"
                 >
                   <option value="gold">Bảng vàng tuần này</option>
                   <option value="diligent">Chăm chỉ nhất</option>
@@ -1809,7 +1811,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <select
                   value={leaderboardClassId}
                   onChange={(e) => setLeaderboardClassId(e.target.value)}
-                  className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
+                  className="p-3 bg-white border border-gray-200 rounded-2xl outline-none text-xs font-bold text-gray-900 focus:border-blue-500"
                 >
                   <option value="">Tất cả lớp</option>
                   {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
@@ -1817,7 +1819,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 <select
                   value={leaderboardVocabSetId}
                   onChange={(e) => setLeaderboardVocabSetId(e.target.value)}
-                  className="p-3 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-xs font-bold text-slate-100 focus:border-indigo-400"
+                  className="p-3 bg-white border border-gray-200 rounded-2xl outline-none text-xs font-bold text-gray-900 focus:border-blue-500"
                 >
                   <option value="">Tất cả bộ từ</option>
                   {vocabSets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
@@ -1827,32 +1829,31 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {leaderboardRows.slice(0, 3).map((entry, index) => (
-                <div key={entry.studentKey || entry.studentName} className={`rounded-3xl p-5 border shadow-lg overflow-hidden relative ${
-                  index === 0 ? 'bg-gradient-to-br from-amber-950 via-slate-950 to-yellow-900 border-amber-400/30 shadow-amber-950/30' :
-                  index === 1 ? 'bg-gradient-to-br from-slate-800 via-slate-950 to-indigo-950 border-slate-400/25 shadow-slate-950/30' : 'bg-gradient-to-br from-orange-950 via-slate-950 to-rose-950 border-orange-400/30 shadow-orange-950/30'
+                <div key={entry.studentKey || entry.studentName} className={`rounded-3xl p-5 border shadow-sm overflow-hidden relative ${
+                  index === 0 ? 'bg-amber-50 border-amber-200' :
+                  index === 1 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'
                 }`}>
-                  <div className="absolute inset-0 bg-white/[0.03] pointer-events-none" />
                   <div className="flex items-start justify-between">
                     <span className="text-4xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</span>
-                    <span className="text-xs font-black bg-white/12 border border-white/15 px-3 py-1 rounded-full text-white">{entry.honorScore} điểm</span>
+                    <span className="text-xs font-black bg-white border border-gray-200 px-3 py-1 rounded-full text-blue-700">{entry.honorScore} điểm</span>
                   </div>
-                  <h3 className="mt-4 text-lg font-black text-white truncate">{entry.studentName}</h3>
-                  <p className="text-xs font-bold text-slate-300 mt-1">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày học</p>
-                  <p className="mt-3 text-[11px] font-black text-amber-100 bg-white/12 border border-white/15 rounded-xl px-3 py-2 inline-block">{entry.badges[0]}</p>
+                  <h3 className="mt-4 text-lg font-black text-gray-950 truncate">{entry.studentName}</h3>
+                  <p className="text-xs font-bold text-gray-600 mt-1">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày học</p>
+                  <p className="mt-3 text-[11px] font-black text-blue-700 bg-white border border-blue-100 rounded-xl px-3 py-2 inline-block">{entry.badges[0]}</p>
                 </div>
               ))}
             </div>
 
-            <div className="bg-slate-950 rounded-3xl p-6 border border-slate-800 shadow-xl overflow-hidden" id="leaderboard-sheet">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <h3 className="font-extrabold text-slate-100 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardRows.length})</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Điểm = Bài x50 + Tỷ lệ đúng x3 + Ngày học x20 + Tiến bộ</p>
+            <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm overflow-hidden" id="leaderboard-sheet">
+              <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+                <h3 className="font-extrabold text-gray-950 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardRows.length})</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase">Điểm = Bài x50 + Tỷ lệ đúng x3 + Ngày học x20 + Tiến bộ</p>
               </div>
 
-              <div className="overflow-x-auto rounded-2xl border border-slate-800 mt-4">
+              <div className="overflow-x-auto rounded-2xl border border-gray-200 mt-4">
                 <table className="w-full text-left border-collapse" id="leaderboard-table">
                   <thead>
-                    <tr className="bg-slate-900 text-[10px] font-black uppercase text-slate-400 border-b border-slate-800">
+                    <tr className="bg-gray-50 text-[10px] font-black uppercase text-gray-600 border-b border-gray-200">
                       <th className="p-4">STT</th>
                       <th className="p-4">Học sinh</th>
                       <th className="p-4 text-center">Bài hoàn thành</th>
@@ -1864,40 +1865,40 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <th className="p-4">Huy hiệu</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-gray-200">
                     {leaderboardRows.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-12 text-center text-slate-400 text-sm font-medium">
+                        <td colSpan={9} className="p-12 text-center text-gray-500 text-sm font-medium">
                           Chưa có dữ liệu phù hợp để lập bảng vinh danh.
                         </td>
                       </tr>
                     ) : (
                       leaderboardRows.map((entry, index) => (
-                        <tr key={`${entry.studentKey || entry.studentName}-${index}`} className="hover:bg-white/5 text-sm font-semibold text-slate-200">
-                          <td className="p-4 text-slate-400 text-xs font-bold">{index + 1}</td>
+                        <tr key={`${entry.studentKey || entry.studentName}-${index}`} className="hover:bg-blue-50/50 text-sm font-semibold text-gray-800">
+                          <td className="p-4 text-gray-500 text-xs font-bold">{index + 1}</td>
                           <td className="p-4">
                             <div className="flex items-center space-x-2">
-                              <span className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-400/20 flex items-center justify-center font-bold text-xs">
+                              <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center font-bold text-xs">
                                 {entry.studentName.charAt(0).toUpperCase()}
                               </span>
                               <div>
-                                <strong className="text-slate-100 font-bold">{entry.studentName}</strong>
-                                {entry.className && <p className="text-[10px] text-slate-400">{entry.className}</p>}
+                                <strong className="text-gray-950 font-bold">{entry.studentName}</strong>
+                                {entry.className && <p className="text-[10px] text-gray-500">{entry.className}</p>}
                               </div>
                             </div>
                           </td>
                           <td className="p-4 text-center">{entry.completedLessons}</td>
-                          <td className="p-4 text-center text-emerald-300 font-bold">{entry.correctAnswers}</td>
-                          <td className="p-4 text-center text-rose-300 font-bold">{entry.incorrectAnswers}</td>
-                          <td className="p-4 text-center font-black text-sky-300">{entry.averageAccuracy}%</td>
+                          <td className="p-4 text-center text-emerald-700 font-bold">{entry.correctAnswers}</td>
+                          <td className="p-4 text-center text-rose-700 font-bold">{entry.incorrectAnswers}</td>
+                          <td className="p-4 text-center font-black text-blue-700">{entry.averageAccuracy}%</td>
                           <td className="p-4 text-center">{entry.studyDays}</td>
                           <td className="p-4 text-center">
-                            <span className="px-3 py-1.5 rounded-full text-xs font-black bg-amber-300/15 text-amber-200 border border-amber-300/20">{entry.honorScore}</span>
+                            <span className="px-3 py-1.5 rounded-full text-xs font-black bg-blue-50 text-blue-700 border border-blue-100">{entry.honorScore}</span>
                           </td>
                           <td className="p-4">
                             <div className="flex flex-wrap gap-1">
                               {entry.badges.map(badge => (
-                                <span key={badge} className="text-[10px] font-black bg-indigo-400/15 text-indigo-200 border border-indigo-300/15 px-2 py-1 rounded-full">
+                                <span key={badge} className="text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-100 px-2 py-1 rounded-full">
                                   {badge}
                                 </span>
                               ))}

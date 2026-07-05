@@ -1464,8 +1464,16 @@ app.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_a
     const userData = userDoc.data();
     await userRef.update({ role });
 
-    // Set custom claim on firebase authentication as well
-    await adminAuth.setCustomUserClaims(targetUserId, { role });
+    // Custom claims are useful for Firebase-side rules, but app permissions are
+    // resolved from the users profile document above. Do not roll back the role
+    // update if claims cannot be written, especially in SQLite/app-data mode.
+    let customClaimWarning = "";
+    try {
+      await adminAuth.setCustomUserClaims(targetUserId, { role });
+    } catch (claimErr: any) {
+      customClaimWarning = claimErr?.message || "Could not update Firebase custom claims.";
+      console.warn(`Could not update custom claims for ${targetUserId}: ${customClaimWarning}`);
+    }
 
     // Audit Log
     await logAuditAction(
@@ -1476,7 +1484,7 @@ app.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_a
       `Đã thay đổi vai trò của user "${userData?.name}" (${userData?.email}) từ ${userData?.role} thành ${role}`
     );
 
-    res.json({ success: true, userId: targetUserId, role });
+    res.json({ success: true, userId: targetUserId, role, customClaimWarning });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

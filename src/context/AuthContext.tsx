@@ -141,16 +141,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const fetchProfile = async (firebaseUserInstance: FirebaseUser, phone?: string) => {
+  const fetchProfile = async (
+    firebaseUserInstance: FirebaseUser,
+    phone?: string,
+    forceRefreshToken = false,
+    waitForProfileSync = false
+  ) => {
     const idToken = await withTimeout(
-      firebaseUserInstance.getIdToken(),
+      firebaseUserInstance.getIdToken(forceRefreshToken),
       "Timed out while getting Firebase ID token."
     );
     const fallbackProfile = createDefaultProfile(firebaseUserInstance, phone);
 
     setToken(idToken);
     setUser(fallbackProfile);
-    void syncProfileFromStores(firebaseUserInstance, idToken, fallbackProfile);
+    const syncPromise = syncProfileFromStores(firebaseUserInstance, idToken, fallbackProfile);
+    if (waitForProfileSync) {
+      await syncPromise;
+    } else {
+      void syncPromise;
+    }
   };
 
   useEffect(() => {
@@ -159,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (fUser) {
           setFirebaseUser(fUser);
-          await fetchProfile(fUser);
+          await fetchProfile(fUser, undefined, false, false);
         } else {
           setFirebaseUser(null);
           setUser(null);
@@ -186,7 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     if (firebaseUser) {
-      await fetchProfile(firebaseUser);
+      await fetchProfile(firebaseUser, undefined, true, true);
     }
   };
 
@@ -268,7 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, pass);
       setFirebaseUser(credential.user);
-      await fetchProfile(credential.user);
+      await fetchProfile(credential.user, undefined, true, true);
     } catch (err) {
       console.error(err);
       throw err;
@@ -282,7 +292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const credential = await signInWithPopup(auth, googleProvider);
       setFirebaseUser(credential.user);
-      await fetchProfile(credential.user);
+      await fetchProfile(credential.user, undefined, true, true);
     } catch (err) {
       console.error(err);
       throw err;
@@ -313,7 +323,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await phoneConfirmation.confirm(otp);
       setFirebaseUser(result.user);
-      await fetchProfile(result.user);
+      await fetchProfile(result.user, undefined, true, true);
     } catch (err) {
       console.error("OTP Verification failed:", err);
       throw err;
