@@ -478,11 +478,12 @@ export default function App() {
 
       {/* Toggle back to admin bar if teacher is exploring as student */}
       {isStaff && adminMode && (
-        <div className="bg-indigo-600 text-white px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
+        <div className="bg-indigo-600 text-white px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm" id="student-preview-admin-bar">
           <span>💡 Bạn đang xem giao diện với tư cách Học Sinh</span>
           <button 
             onClick={() => setAdminMode(false)}
             className="bg-white/20 hover:bg-white/30 text-white border border-white/40 px-3 py-1 rounded-xl transition-all cursor-pointer text-[10px]"
+            id="back-to-admin-btn"
           >
             Quay lại trang Quản Trị
           </button>
@@ -548,7 +549,7 @@ export default function App() {
 
       {/* Hero Welcome banner */}
       <header className="max-w-6xl mx-auto text-center px-4 pt-12 pb-8 space-y-4" id="home-hero">
-        <span className="inline-flex items-center space-x-1 bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full border border-indigo-100">
+        <span className="inline-flex items-center space-x-1 bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full border border-indigo-100" id="home-hero-badge">
           <Sparkles size={12} className="text-indigo-500 animate-bounce" />
           <span>Game hóa Từ vựng tiếng Anh đột phá</span>
         </span>
