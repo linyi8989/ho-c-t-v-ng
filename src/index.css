@@ -345,3 +345,583 @@ th, td {
   backface-visibility: hidden !important;
   -webkit-backface-visibility: hidden !important;
 }
+
+/* Global Light Theme Override
+   The app previously used a dark glass theme with broad utility overrides.
+   Keep this block last so admin, student, and game screens render as a clean
+   white interface with black text and blue accents. */
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root,
+#app-root,
+#student-area-root,
+#admin-dashboard-container,
+#game-stage,
+#active-game-viewport {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+body::before {
+  background: #ffffff !important;
+  background-image: none !important;
+}
+
+header,
+nav.sticky,
+.glass-panel,
+.glass-button,
+.glass-input,
+#game-stage,
+#score-summary-overlay,
+#student-golden-board,
+#system-info-card,
+#games-catalogue-sidebar,
+[class*="bg-white/"],
+[class*="bg-slate-"],
+[class*="bg-gray-"],
+[class*="bg-zinc-"],
+[class*="bg-neutral-"],
+[class*="bg-stone-"] {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.bg-white,
+.bg-gray-50,
+.bg-gray-50\/50,
+.bg-gray-50\/30,
+.bg-gray-100,
+.bg-slate-50,
+.bg-slate-100,
+.bg-slate-100\/50,
+.bg-slate-50\/50 {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.bg-gradient-to-br,
+.bg-gradient-to-r,
+.bg-gradient-to-l,
+.bg-gradient-to-t,
+.bg-gradient-to-b,
+[class*="bg-gradient"] {
+  background-image: none !important;
+}
+
+.text-white,
+[class*="text-white/"],
+.text-gray-100,
+.text-gray-200,
+.text-gray-300,
+.text-gray-400,
+.text-gray-500,
+.text-gray-600,
+.text-gray-700,
+.text-gray-800,
+.text-gray-900,
+.text-slate-100,
+.text-slate-200,
+.text-slate-300,
+.text-slate-400,
+.text-slate-500,
+.text-slate-600,
+.text-slate-700,
+.text-slate-800,
+.text-slate-900,
+.text-zinc-100,
+.text-zinc-200,
+.text-zinc-300,
+.text-zinc-400,
+.text-zinc-500,
+.text-zinc-600,
+.text-zinc-700,
+.text-zinc-800,
+.text-zinc-900 {
+  color: #111827 !important;
+}
+
+a,
+.text-blue-500,
+.text-blue-600,
+.text-blue-700,
+.text-indigo-400,
+.text-indigo-500,
+.text-indigo-600,
+.text-indigo-700,
+.text-indigo-800,
+.text-violet-400,
+.text-violet-500,
+.text-violet-600,
+.text-purple-500,
+.text-purple-600,
+.text-sky-500,
+.text-sky-600 {
+  color: #2563eb !important;
+}
+
+.bg-indigo-50,
+.bg-indigo-50\/50,
+.bg-indigo-50\/30,
+.bg-indigo-500,
+.bg-indigo-600,
+.bg-indigo-700,
+.bg-indigo-800,
+.bg-violet-500,
+.bg-violet-600,
+.bg-purple-500,
+.bg-purple-600,
+.bg-sky-500,
+.bg-blue-500,
+.bg-blue-600 {
+  background: #dbeafe !important;
+  border: 1px solid #93c5fd !important;
+  color: #111827 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.bg-indigo-500:hover,
+.bg-indigo-600:hover,
+.bg-indigo-700:hover,
+.bg-indigo-800:hover,
+.bg-violet-500:hover,
+.bg-violet-600:hover,
+.bg-purple-500:hover,
+.bg-purple-600:hover,
+.bg-sky-500:hover,
+.bg-blue-500:hover,
+.bg-blue-600:hover {
+  background: #bfdbfe !important;
+  border-color: #60a5fa !important;
+  color: #111827 !important;
+}
+
+button:not([disabled]) {
+  color: #111827 !important;
+  text-shadow: none !important;
+}
+
+button:not([disabled]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-amber"]):not([class*="bg-yellow"]):not([class*="bg-green"]) {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+
+button:not([disabled]):hover {
+  box-shadow: none !important;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+  outline: none !important;
+}
+
+table,
+thead,
+tbody,
+tr,
+th,
+td {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+}
+
+thead {
+  background: #f8fafc !important;
+}
+
+tr:hover {
+  background: #f9fafb !important;
+}
+
+.border,
+.border-b,
+.border-t,
+.border-r,
+.border-l,
+.border-gray-100,
+.border-gray-200,
+.border-gray-300,
+.border-slate-100,
+.border-white\/5,
+.border-white\/10,
+.border-white\/15 {
+  border-color: #e5e7eb !important;
+}
+
+.fixed.inset-0.bg-black\/60 {
+  background: rgba(15, 23, 42, 0.22) !important;
+}
+
+.fixed.inset-0.bg-black\/60 > div {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18) !important;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #bfdbfe;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #93c5fd;
+}
+
+/* Admin Product UI
+   Light, classroom-friendly interface inspired by modern vocabulary tools.
+   Scoped to Admin so data flow, routes, and game logic stay untouched. */
+#admin-dashboard-container {
+  --admin-bg: #f5f7fa;
+  --admin-surface: #ffffff;
+  --admin-surface-soft: #f8fafc;
+  --admin-border: #e6eaf0;
+  --admin-text: #111827;
+  --admin-muted: #64748b;
+  --admin-faint: #94a3b8;
+  --admin-accent: #3b82f6;
+  --admin-accent-hover: #2563eb;
+  --admin-accent-soft: #eff6ff;
+  --admin-accent-border: #bfdbfe;
+  --admin-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+  --admin-shadow-hover: 0 18px 42px rgba(15, 23, 42, 0.1);
+  background: var(--admin-bg) !important;
+  color: var(--admin-text) !important;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
+}
+
+#admin-dashboard-container * {
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+}
+
+#admin-main-panel {
+  max-width: none !important;
+  width: 100% !important;
+  background: var(--admin-bg) !important;
+}
+
+#admin-sidebar {
+  background: var(--admin-surface) !important;
+  border-color: var(--admin-border) !important;
+  box-shadow: 8px 0 28px rgba(15, 23, 42, 0.04) !important;
+}
+
+@media (min-width: 768px) {
+  #admin-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+}
+
+#admin-sidebar > div:first-child {
+  border-color: var(--admin-border) !important;
+  padding-block: 1.25rem !important;
+}
+
+#admin-sidebar h1,
+#admin-main-panel h2,
+#admin-main-panel h3,
+#admin-main-panel h4 {
+  color: var(--admin-text) !important;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
+  font-weight: 800 !important;
+}
+
+#admin-sidebar p,
+#admin-main-panel p,
+#admin-main-panel label,
+#admin-main-panel .text-gray-400,
+#admin-main-panel .text-gray-500,
+#admin-main-panel .text-slate-400,
+#admin-main-panel .text-slate-500 {
+  color: var(--admin-muted) !important;
+}
+
+#admin-sidebar nav button {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: #475569 !important;
+  border-radius: 0.875rem !important;
+  box-shadow: none !important;
+}
+
+#admin-sidebar nav button:hover {
+  background: var(--admin-surface-soft) !important;
+  border-color: var(--admin-border) !important;
+  color: var(--admin-text) !important;
+}
+
+#admin-sidebar nav button.bg-indigo-50,
+#admin-sidebar nav button.text-indigo-700 {
+  background: var(--admin-accent-soft) !important;
+  border-color: var(--admin-accent-border) !important;
+  color: var(--admin-accent-hover) !important;
+}
+
+#admin-sidebar nav button svg {
+  color: currentColor !important;
+}
+
+#admin-sidebar > div:last-child {
+  background: var(--admin-surface-soft) !important;
+  border-color: var(--admin-border) !important;
+}
+
+#admin-dashboard-container .bg-white,
+#admin-main-panel > div > .bg-white,
+#admin-main-panel section,
+#editor-details-form,
+#batch-paste-panel,
+#editor-items-grid,
+#leaderboard-sheet,
+#assignment-creation-box,
+#assignments-scheduled-grid,
+#assignment-link-panel,
+#admin-main-panel [id^="class-card-"],
+#admin-main-panel [id^="set-card-"] {
+  background: var(--admin-surface) !important;
+  border: 1px solid var(--admin-border) !important;
+  box-shadow: var(--admin-shadow) !important;
+}
+
+#admin-main-panel .bg-white:hover,
+#admin-main-panel [id^="class-card-"]:hover,
+#admin-main-panel [id^="set-card-"]:hover {
+  box-shadow: var(--admin-shadow-hover) !important;
+}
+
+#admin-main-panel .bg-gray-50,
+#admin-main-panel .bg-gray-50\/50,
+#admin-main-panel .bg-gray-100,
+#admin-main-panel [class*="bg-gray-50"],
+#admin-main-panel [class*="bg-slate-50"] {
+  background: var(--admin-surface-soft) !important;
+  border-color: var(--admin-border) !important;
+}
+
+#admin-main-panel input,
+#admin-main-panel select,
+#admin-main-panel textarea,
+#assignment-link-panel input {
+  background: #ffffff !important;
+  border: 1px solid #dbe2ea !important;
+  color: var(--admin-text) !important;
+  box-shadow: none !important;
+  min-height: 2.5rem;
+}
+
+#admin-main-panel input:hover,
+#admin-main-panel select:hover,
+#admin-main-panel textarea:hover,
+#assignment-link-panel input:hover {
+  border-color: #b7c4d3 !important;
+}
+
+#admin-main-panel input:focus,
+#admin-main-panel select:focus,
+#admin-main-panel textarea:focus,
+#assignment-link-panel input:focus {
+  border-color: var(--admin-accent) !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14) !important;
+}
+
+#admin-main-panel input::placeholder,
+#admin-main-panel textarea::placeholder {
+  color: var(--admin-faint) !important;
+}
+
+#admin-dashboard-container .bg-indigo-500,
+#admin-dashboard-container .bg-indigo-600,
+#admin-dashboard-container .bg-indigo-700,
+#admin-dashboard-container .bg-blue-500,
+#admin-dashboard-container .bg-blue-600,
+#admin-dashboard-container button.bg-indigo-600,
+#admin-dashboard-container button.bg-indigo-700,
+#save-vocabset-btn {
+  background: var(--admin-accent) !important;
+  border-color: var(--admin-accent) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.18) !important;
+}
+
+#admin-dashboard-container .bg-indigo-500:hover,
+#admin-dashboard-container .bg-indigo-600:hover,
+#admin-dashboard-container .bg-indigo-700:hover,
+#admin-dashboard-container .bg-blue-500:hover,
+#admin-dashboard-container .bg-blue-600:hover,
+#admin-dashboard-container button.bg-indigo-600:hover,
+#admin-dashboard-container button.bg-indigo-700:hover,
+#save-vocabset-btn:hover {
+  background: var(--admin-accent-hover) !important;
+  border-color: var(--admin-accent-hover) !important;
+  color: #ffffff !important;
+}
+
+#admin-dashboard-container button:not([disabled]):not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-rose-50):not(.bg-emerald-50):not(.bg-amber-50) {
+  background: var(--admin-accent-soft) !important;
+  border-color: var(--admin-accent-border) !important;
+  color: var(--admin-accent-hover) !important;
+}
+
+#admin-dashboard-container button:not([disabled]):not(.bg-indigo-600):not(.bg-indigo-700):hover {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+}
+
+#admin-dashboard-container .text-indigo-500,
+#admin-dashboard-container .text-indigo-600,
+#admin-dashboard-container .text-indigo-700,
+#admin-dashboard-container .text-blue-600,
+#admin-dashboard-container a {
+  color: var(--admin-accent-hover) !important;
+}
+
+#admin-dashboard-container .bg-indigo-50,
+#admin-dashboard-container .bg-blue-50 {
+  background: var(--admin-accent-soft) !important;
+  border-color: var(--admin-accent-border) !important;
+  color: var(--admin-accent-hover) !important;
+}
+
+#admin-dashboard-container .bg-emerald-50 {
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+
+#admin-dashboard-container .bg-rose-50,
+#admin-dashboard-container .bg-red-50 {
+  background: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+  color: #be123c !important;
+}
+
+#admin-dashboard-container .bg-amber-50,
+#admin-dashboard-container .bg-orange-50 {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
+}
+
+#admin-dashboard-container table {
+  width: 100%;
+  background: var(--admin-surface) !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+#admin-dashboard-container thead,
+#admin-dashboard-container thead tr,
+#admin-dashboard-container th {
+  background: var(--admin-surface-soft) !important;
+  color: #475569 !important;
+  border-color: var(--admin-border) !important;
+}
+
+#admin-dashboard-container th {
+  font-size: 0.72rem !important;
+  line-height: 1rem !important;
+  font-weight: 800 !important;
+  white-space: nowrap;
+}
+
+#admin-dashboard-container td {
+  color: var(--admin-text) !important;
+  border-color: var(--admin-border) !important;
+}
+
+#admin-dashboard-container tbody tr {
+  background: #ffffff !important;
+  border-color: var(--admin-border) !important;
+}
+
+#admin-dashboard-container tbody tr:hover {
+  background: #f8fbff !important;
+}
+
+#admin-dashboard-container .overflow-x-auto {
+  border-color: var(--admin-border) !important;
+}
+
+#admin-toast {
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14) !important;
+}
+
+#admin-dashboard-container ::-webkit-scrollbar-track {
+  background: #eef2f7 !important;
+}
+
+#admin-dashboard-container ::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 999px;
+}
+
+#admin-dashboard-container ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
+}
+
+@media (max-width: 767px) {
+  #admin-main-panel {
+    padding: 1rem !important;
+  }
+
+  #admin-sidebar {
+    box-shadow: none !important;
+  }
+
+  #admin-sidebar nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  #admin-sidebar nav button {
+    justify-content: flex-start;
+    padding: 0.75rem !important;
+  }
+}
