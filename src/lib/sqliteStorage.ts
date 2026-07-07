@@ -548,11 +548,9 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_results_user_id ON results(user_id);
     CREATE INDEX IF NOT EXISTS idx_results_assignment_id ON results(assignment_id);
     CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
-    CREATE INDEX IF NOT EXISTS idx_results_expires_at ON results(expires_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
-    CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
   persistDb();
 }
