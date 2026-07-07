@@ -281,7 +281,10 @@ export default function MillionaireGame({
 
   if (gameFinished) {
     return (
-      <div className="w-full max-w-3xl mx-auto rounded-3xl border border-violet-300/20 bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 p-6 md:p-10 text-center shadow-2xl">
+      <div
+        className="w-full max-w-3xl mx-auto rounded-3xl border border-gray-100 bg-white p-6 md:p-10 text-center shadow-xl"
+        id="millionaire-result-screen"
+      >
         <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-yellow-300/40 bg-yellow-300/10 text-yellow-200">
           <Sparkles size={42} />
         </div>
@@ -305,7 +308,8 @@ export default function MillionaireGame({
         </div>
         <button
           onClick={handleRestart}
-          className="mt-8 inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-black text-white shadow-lg transition-all hover:bg-indigo-500 active:scale-95"
+          className="button-active mt-8 inline-flex items-center gap-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 border border-blue-700 px-6 py-3 text-sm font-black text-white shadow-lg transition-all active:scale-95 cursor-pointer"
+          id="millionaire-play-again-btn"
         >
           <RotateCcw size={18} />
           <span>Chơi lại</span>

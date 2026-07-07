@@ -497,7 +497,7 @@ export default function StudentLearningArea({
                     <div className="flex space-x-3">
                       <button
                         onClick={() => setGameResult(null)}
-                        className="py-3 px-6 bg-white/10 hover:bg-white/15 text-white border border-white/15 font-bold rounded-xl transition-all cursor-pointer text-sm"
+                        className="py-3 px-6 bg-white hover:bg-emerald-50 text-slate-950 border border-emerald-300 font-bold rounded-xl transition-all cursor-pointer text-sm"
                         id="retry-overlay-btn"
                       >
                         Chơi lại
@@ -507,7 +507,7 @@ export default function StudentLearningArea({
                           const nextGameIdx = (VISIBLE_GAMES_LIST.findIndex(g => g.gameId === selectedGame?.gameId) + 1) % VISIBLE_GAMES_LIST.length;
                           setSelectedGame(VISIBLE_GAMES_LIST[nextGameIdx]);
                         }}
-                        className="py-3 px-6 bg-indigo-500 hover:bg-indigo-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
+                        className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white border border-blue-700 font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
                         id="next-game-overlay-btn"
                       >
                         Chuyển Game tiếp theo

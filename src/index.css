@@ -1653,9 +1653,46 @@ textarea::placeholder {
   color: var(--text-primary) !important;
 }
 
-#score-summary-overlay button.bg-indigo-500 {
+#score-summary-overlay button.bg-indigo-500,
+#score-summary-overlay button.bg-indigo-600,
+#next-game-overlay-btn,
+#millionaire-play-again-btn {
   background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
   color: #ffffff !important;
+}
+
+#score-summary-overlay button.bg-indigo-500 *,
+#score-summary-overlay button.bg-indigo-600 *,
+#next-game-overlay-btn *,
+#millionaire-play-again-btn * {
+  color: #ffffff !important;
+}
+
+#score-summary-overlay button.bg-indigo-500:hover,
+#score-summary-overlay button.bg-indigo-600:hover,
+#next-game-overlay-btn:hover,
+#millionaire-play-again-btn:hover {
+  background: var(--accent-blue-hover) !important;
+  border-color: var(--accent-blue-hover) !important;
+  color: #ffffff !important;
+}
+
+#retry-overlay-btn {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--text-primary) !important;
+}
+
+#retry-overlay-btn *,
+#retry-overlay-btn svg {
+  color: var(--text-primary) !important;
+}
+
+#retry-overlay-btn:hover {
+  background: #dbeafe !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--text-primary) !important;
 }
 
 /* Login/register/admin forms */
@@ -1724,6 +1761,55 @@ textarea::placeholder {
   background: #eff6ff !important;
   border-color: #93c5fd !important;
   color: #1e40af !important;
+}
+
+#admin-mode-banner {
+  background: #fef3c7 !important;
+  border-bottom: 1px solid #f59e0b !important;
+  color: #78350f !important;
+}
+
+#admin-mode-banner > span {
+  color: #78350f !important;
+  font-weight: 900 !important;
+}
+
+#view-student-page-btn {
+  background: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22) !important;
+}
+
+#view-student-page-btn:hover {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  color: #ffffff !important;
+}
+
+#admin-banner-logout-btn {
+  background: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  color: #1f2937 !important;
+  font-weight: 900 !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
+}
+
+#admin-banner-logout-btn svg,
+#admin-banner-logout-btn span {
+  color: #1f2937 !important;
+}
+
+#admin-banner-logout-btn:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+#admin-banner-logout-btn:hover svg,
+#admin-banner-logout-btn:hover span {
+  color: #b91c1c !important;
 }
 
 #home-hero {
