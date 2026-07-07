@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
@@ -6,6 +6,7 @@ import {
 import { VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
+import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
 
 // Import our games
 import FlashcardGame from './FlashcardGame';
@@ -89,6 +90,8 @@ export default function StudentLearningArea({
   const [session, setSession] = useState<GameSession | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [gameResult, setGameResult] = useState<{ score: number; correct: number; incorrect: number } | null>(null);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
+  const [leaderboardSessions, setLeaderboardSessions] = useState<GameSession[]>([]);
 
   // Load initial game if requested
   useEffect(() => {
@@ -112,6 +115,42 @@ export default function StudentLearningArea({
     }
     setNameSubmitted(true);
   }, [propStudentName]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLeaderboard = async () => {
+      try {
+        const res = await fetch('/api/public/results');
+        if (!res.ok) throw new Error('Public results API failed');
+        const data = await res.json();
+        if (isMounted) setLeaderboardSessions(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn('Public results API unreachable, falling back to direct Firestore query:', err);
+        try {
+          const { collection, getDocs } = await import('firebase/firestore');
+          const { db } = await import('../../lib/firebase');
+          const querySnapshot = await getDocs(collection(db, 'game_sessions'));
+          const list: GameSession[] = [];
+          querySnapshot.forEach((docSnap) => {
+            const data = docSnap.data() as any;
+            if (data.completedAt) {
+              list.push({ id: docSnap.id, ...data } as GameSession);
+            }
+          });
+          if (isMounted) setLeaderboardSessions(list);
+        } catch (firestoreErr) {
+          console.error('Direct Firestore public leaderboard fetch failed:', firestoreErr);
+        }
+      }
+    };
+
+    loadLeaderboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmitName = () => {
     const normalizedName = studentName.trim();
@@ -226,6 +265,20 @@ export default function StudentLearningArea({
 
     if (!session) return;
 
+    const completedSession: GameSession = {
+      ...session,
+      score,
+      totalQuestions: correct + incorrect,
+      correctAnswers: correct,
+      incorrectAnswers: incorrect,
+      completedAt: new Date().toISOString()
+    };
+
+    setLeaderboardSessions(prev => {
+      const withoutCurrent = prev.filter(item => item.id !== completedSession.id);
+      return [completedSession, ...withoutCurrent];
+    });
+
     // Update session stats on the server
     fetch(`/api/game-sessions/${session.id}`, {
       method: 'PUT',
@@ -258,7 +311,7 @@ export default function StudentLearningArea({
           totalQuestions: correct + incorrect,
           correctAnswers: correct,
           incorrectAnswers: incorrect,
-          completedAt: new Date().toISOString(),
+          completedAt: completedSession.completedAt,
           status: 'completed'
         };
         await updateDoc(sessionRef, updatedData);
@@ -275,6 +328,13 @@ export default function StudentLearningArea({
       speakEnglish(term);
     }
   };
+
+  const learningLeaderboard = useMemo<LeaderboardEntry[]>(() => {
+    return buildLeaderboard(leaderboardSessions, [], {
+      period: leaderboardPeriod,
+      vocabSetId: vocabSet.id
+    }).gold.slice(0, 8);
+  }, [leaderboardSessions, leaderboardPeriod, vocabSet.id]);
 
   // Render game in focus
   const renderActiveGame = () => {
@@ -542,6 +602,98 @@ export default function StudentLearningArea({
                   </div>
                 )}
               </div>
+
+              <section
+                className="bg-white rounded-3xl p-6 md:p-8 border border-amber-200 shadow-xl space-y-5"
+                id="learning-golden-board"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shadow-sm">
+                      <Trophy size={24} />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-gray-900 text-lg">Bảng vàng học sinh</h3>
+                      <p className="text-xs text-gray-500 font-semibold">
+                        Xếp hạng theo kết quả tốt nhất trong bộ từ này.
+                      </p>
+                    </div>
+                  </div>
+
+                  <select
+                    value={leaderboardPeriod}
+                    onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
+                    id="learning-golden-period"
+                  >
+                    <option value="week">Tuần này</option>
+                    <option value="month">Tháng này</option>
+                  </select>
+                </div>
+
+                {learningLeaderboard.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-8 text-center">
+                    <Award className="mx-auto text-amber-500" size={30} />
+                    <p className="mt-3 text-sm font-bold text-gray-700">
+                      Chưa có kết quả nào cho bộ từ này.
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Hoàn thành một game để xuất hiện trên bảng vàng.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {learningLeaderboard.slice(0, 3).map((entry, index) => (
+                        <div
+                          key={`podium-${entry.studentKey || entry.studentName}-${index}`}
+                          className={`rounded-2xl border p-4 text-center shadow-sm ${
+                            index === 0
+                              ? 'bg-amber-50 border-amber-300'
+                              : index === 1
+                                ? 'bg-slate-50 border-slate-200'
+                                : 'bg-orange-50 border-orange-200'
+                          }`}
+                        >
+                          <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white border border-current/20 text-sm font-black text-gray-900">
+                            {index + 1}
+                          </div>
+                          <p className="mt-2 truncate text-sm font-black text-gray-900">{entry.studentName}</p>
+                          <p className="text-xs font-black text-amber-700">{entry.honorScore} điểm</p>
+                          <p className="mt-1 text-[11px] font-semibold text-gray-500">
+                            {entry.averageAccuracy}% đúng
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2" id="learning-golden-list">
+                      {learningLeaderboard.map((entry, index) => (
+                        <div
+                          key={`${entry.studentKey || entry.studentName}-${index}`}
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-amber-100 bg-white px-4 py-3 shadow-sm"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 border border-amber-200 text-xs font-black text-amber-700">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-extrabold text-gray-900">{entry.studentName}</p>
+                              <p className="text-[11px] font-semibold text-gray-500">
+                                {entry.completedLessons} game • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-black text-amber-700">{entry.honorScore}</p>
+                            <p className="text-[10px] font-bold text-gray-400">điểm</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
 
             </>
           )}
