@@ -349,8 +349,8 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
 
   if (table === 'results' || table === 'game_results') {
     run(
-      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, expires_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         assignment_id = excluded.assignment_id,
         user_id = excluded.user_id,
@@ -359,6 +359,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         score = excluded.score,
         correct = excluded.correct,
         incorrect = excluded.incorrect,
+        expires_at = excluded.expires_at,
         data_json = excluded.data_json`,
       [
         id,
@@ -370,6 +371,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         Number(data.correct || data.correctAnswers || 0),
         Number(data.incorrect || data.incorrectAnswers || 0),
         data.completedAt || data.startedAt || createdAt,
+        data.expiresAt || data.expires_at || null,
         dataJson,
       ]
     );
@@ -504,6 +506,7 @@ function runSchemaMigration() {
       correct INTEGER,
       incorrect INTEGER,
       created_at TEXT,
+      expires_at TEXT,
       data_json TEXT NOT NULL
     );
 
@@ -517,6 +520,7 @@ function runSchemaMigration() {
       correct INTEGER,
       incorrect INTEGER,
       created_at TEXT,
+      expires_at TEXT,
       data_json TEXT NOT NULL
     );
 
@@ -543,8 +547,12 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_assignments_user_id ON assignments(user_id);
     CREATE INDEX IF NOT EXISTS idx_results_user_id ON results(user_id);
     CREATE INDEX IF NOT EXISTS idx_results_assignment_id ON results(assignment_id);
+    CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_results_expires_at ON results(expires_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
+    CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
   persistDb();
 }
@@ -556,6 +564,25 @@ function hasMigration(id: string) {
 function markMigration(id: string) {
   run('INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)', [id, nowIso()]);
   sqliteLastMigration = id;
+}
+
+function tableHasColumn(table: string, column: string) {
+  return all(`PRAGMA table_info(${table})`).some(row => row.name === column);
+}
+
+function migrateActivityExpiryColumns() {
+  for (const table of ['results', 'game_results']) {
+    if (!tableHasColumn(table, 'expires_at')) {
+      run(`ALTER TABLE ${table} ADD COLUMN expires_at TEXT`);
+    }
+  }
+
+  run(`
+    CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_results_expires_at ON results(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
+  `);
 }
 
 function getJsonImportCandidates() {
@@ -652,6 +679,7 @@ export async function initializeSQLiteStorage() {
       const existing = fs.existsSync(sqliteDbPath) ? fs.readFileSync(sqliteDbPath) : undefined;
       sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
       runSchemaMigration();
+      migrateActivityExpiryColumns();
       migrateFromJsonIfNeeded();
       sqliteReady = true;
       sqliteLastError = null;

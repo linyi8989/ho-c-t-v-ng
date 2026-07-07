@@ -66,18 +66,46 @@ export interface Assignment {
 
 export interface GameSession {
   id: string;
+  userId?: string;
+  studentId?: string;
   assignmentId?: string;
   vocabSetId: string;
   vocabSetTitle: string;
   gameId: string;
+  gameName?: string;
+  gameType?: string;
   studentName: string;
   guestId?: string;
   startedAt: string;
+  endedAt?: string;
   completedAt?: string;
+  createdAt?: string;
+  expiresAt?: string;
+  durationMs?: number;
+  durationSeconds?: number;
+  accuracy?: number;
   score: number;
   totalQuestions: number;
   correctAnswers: number;
   incorrectAnswers: number;
+  answerDetails?: GameAnswerDetail[];
+}
+
+export interface GameAnswerDetail {
+  questionIndex: number;
+  wordId?: string;
+  word?: string;
+  questionText?: string;
+  correctAnswer?: string;
+  userAnswer?: string;
+  selectedAnswer?: string;
+  isCorrect: boolean;
+  timeSpentMs?: number;
+  options?: string[];
+}
+
+export interface GameCompletionDetails {
+  answerDetails?: GameAnswerDetail[];
 }
 
 export interface PronunciationAttempt {

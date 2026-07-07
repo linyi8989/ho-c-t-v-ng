@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, AlertCircle, Sparkles } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -13,7 +13,7 @@ interface QuizGameProps {
     enableSound?: boolean;
     autoPlaySound?: boolean;
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -40,6 +40,7 @@ export default function QuizGame({
   const [correctCount, setCorrectCount] = useState(0);
   const [incorrectCount, setIncorrectCount] = useState(0);
   const [quizFinished, setQuizFinished] = useState(false);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const isSoundOn = !isMuted;
   const currentItem = items[currentIndex];
@@ -57,6 +58,7 @@ export default function QuizGame({
     setSelectedAnswer(null);
     setIsAnswered(false);
     setQuizFinished(false);
+    answerDetailsRef.current = [];
   }, [items, config]);
 
   // Generate randomized multi-choice options
@@ -114,6 +116,20 @@ export default function QuizGame({
     setIsAnswered(true);
 
     const isCorrect = option === correctAnswer;
+    answerDetailsRef.current = [
+      ...answerDetailsRef.current,
+      {
+        questionIndex: currentIndex,
+        wordId: currentItem.id,
+        word: currentItem.term,
+        questionText: config.questionType === 'meaning' ? currentItem.meaning : currentItem.term,
+        correctAnswer,
+        selectedAnswer: option,
+        userAnswer: option,
+        isCorrect,
+        options: options.slice(0, 6)
+      }
+    ];
     if (isCorrect) {
       setCorrectCount(prev => prev + 1);
       // Play a high pitched audio cue or speak the term
@@ -132,7 +148,9 @@ export default function QuizGame({
       // Completed last question
       const total = items.length;
       const finalScore = Math.round((correctCount / total) * 100);
-      onComplete(finalScore, correctCount, incorrectCount);
+      onComplete(finalScore, correctCount, incorrectCount, {
+        answerDetails: answerDetailsRef.current
+      });
       setQuizFinished(true);
     }
   };
@@ -185,7 +203,7 @@ export default function QuizGame({
             <div className="py-4">
               <button
                 onClick={() => handlePlaySound()}
-                className="p-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all hover:scale-105 active:scale-95 shadow-lg shadow-indigo-200 cursor-pointer flex items-center justify-center"
+                className="p-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all hover:scale-105 active:scale-95 shadow-lg shadow-indigo-200 cursor-pointer flex items-center justify-center border border-blue-700"
                 id="play-sound-btn"
               >
                 <Volume2 size={36} className="animate-pulse" />
@@ -219,7 +237,7 @@ export default function QuizGame({
       {/* Answer Options Grid */}
       <div className="grid grid-cols-1 gap-3 mb-6" id="quiz-options-container">
         {options.map((option, idx) => {
-          let optionStyle = "border-gray-100 bg-white hover:bg-gray-50 text-gray-700 hover:border-indigo-200";
+          let optionStyle = "border-blue-200 bg-indigo-50 hover:bg-blue-50 text-slate-950 hover:border-blue-300";
           let icon = null;
 
           if (isAnswered) {
@@ -233,7 +251,7 @@ export default function QuizGame({
               icon = <X size={18} className="text-rose-600 shrink-0" />;
             } else {
               // Dim other options
-              optionStyle = "border-gray-100 bg-gray-50/50 text-gray-400 opacity-60";
+              optionStyle = "border-gray-200 bg-gray-50 text-gray-600";
             }
           }
 
@@ -250,7 +268,7 @@ export default function QuizGame({
                 <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold border shrink-0 ${
                   isAnswered 
                     ? (option === correctAnswer ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : 'bg-gray-100 text-gray-400')
-                    : 'bg-indigo-50 border-indigo-100 text-indigo-600'
+                    : 'bg-white border-blue-300 text-blue-600'
                 }`}>
                   {String.fromCharCode(65 + idx)}
                 </span>

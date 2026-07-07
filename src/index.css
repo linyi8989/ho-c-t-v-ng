@@ -1695,6 +1695,173 @@ textarea::placeholder {
   color: var(--text-primary) !important;
 }
 
+#sound-button-front,
+#play-sound-btn {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18) !important;
+}
+
+#sound-button-front *,
+#sound-button-front svg,
+#play-sound-btn *,
+#play-sound-btn svg {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#sound-button-front:hover,
+#play-sound-btn:hover {
+  background: var(--accent-blue-hover) !important;
+  border-color: var(--accent-blue-hover) !important;
+}
+
+#quiz-options-container button {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+#quiz-options-container button span,
+#quiz-options-container button svg {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#quiz-options-container button:disabled {
+  opacity: 1 !important;
+  color: var(--text-secondary) !important;
+}
+
+#quiz-options-container button.border-emerald-300 {
+  background: #ecfdf5 !important;
+  border-color: #86efac !important;
+  color: #047857 !important;
+}
+
+#quiz-options-container button.border-rose-300 {
+  background: #fff1f2 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
+}
+
+#quiz-options-container button.border-gray-200,
+#quiz-options-container button.border-gray-100 {
+  background: #f8fafc !important;
+  border-color: #d1d5db !important;
+  color: var(--text-secondary) !important;
+}
+
+#quiz-options-container button > div > span:first-child {
+  background: #ffffff !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue) !important;
+}
+
+#quiz-options-container button.border-emerald-300 > div > span:first-child {
+  background: #d1fae5 !important;
+  border-color: #86efac !important;
+  color: #047857 !important;
+}
+
+#quiz-options-container button.border-rose-300 > div > span:first-child {
+  background: #ffe4e6 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
+}
+
+#hint-trigger,
+#fill-feedback-sound-btn {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue) !important;
+  opacity: 1 !important;
+}
+
+#hint-trigger svg,
+#fill-feedback-sound-btn svg {
+  color: var(--accent-blue) !important;
+  opacity: 1 !important;
+}
+
+#hint-trigger:hover,
+#fill-feedback-sound-btn:hover {
+  background: #dbeafe !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue-hover) !important;
+}
+
+#matching-grid-container button {
+  opacity: 1 !important;
+}
+
+#matching-grid-container button.border-emerald-500,
+#matching-grid-container button.border-emerald-500:disabled {
+  background: #d1fae5 !important;
+  border-color: #10b981 !important;
+  color: #065f46 !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18) !important;
+}
+
+#matching-grid-container button.border-rose-400 {
+  background: #ffe4e6 !important;
+  border-color: #f43f5e !important;
+  color: #9f1239 !important;
+  opacity: 1 !important;
+}
+
+#millionaire-pronounce-btn {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue) !important;
+  opacity: 1 !important;
+}
+
+#millionaire-pronounce-btn svg,
+#millionaire-pronounce-btn span {
+  color: var(--accent-blue) !important;
+  opacity: 1 !important;
+}
+
+#millionaire-pronounce-btn:hover {
+  background: #dbeafe !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--accent-blue-hover) !important;
+}
+
+#millionaire-game-root button.border-blue-300 {
+  background: var(--accent-blue-soft) !important;
+  border-color: var(--accent-blue-border) !important;
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+#millionaire-game-root button.border-blue-300:hover,
+#millionaire-game-root button.hover\:border-blue-500:hover {
+  background: #dbeafe !important;
+  border-color: var(--accent-blue) !important;
+  color: var(--text-primary) !important;
+}
+
+#millionaire-game-root button.border-emerald-500,
+#millionaire-game-root button.border-emerald-500:disabled {
+  background: #d1fae5 !important;
+  border-color: #10b981 !important;
+  color: #065f46 !important;
+  opacity: 1 !important;
+}
+
+#millionaire-game-root button.border-rose-500,
+#millionaire-game-root button.border-rose-500:disabled {
+  background: #ffe4e6 !important;
+  border-color: #f43f5e !important;
+  color: #9f1239 !important;
+  opacity: 1 !important;
+}
+
 /* Login/register/admin forms */
 #admin-dashboard-container,
 #admin-dashboard-container * {

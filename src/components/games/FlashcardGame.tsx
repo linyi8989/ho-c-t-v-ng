@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Volume2, HelpCircle, CheckCircle } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -13,7 +13,7 @@ interface FlashcardGameProps {
     enableSound?: boolean;
     autoPlaySound?: boolean;
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -38,6 +38,7 @@ export default function FlashcardGame({
   const [learnedCount, setLearnedCount] = useState<Record<string, 'known' | 'unknown'>>({});
   const [isCompleted, setIsCompleted] = useState(false);
   const [isAutoNextOn, setIsAutoNextOn] = useState(false);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const isSoundOn = !isMuted;
   const currentItem = items[currentIndex];
@@ -49,6 +50,7 @@ export default function FlashcardGame({
     setLearnedCount({});
     setIsCompleted(false);
     setIsAutoNextOn(false);
+    answerDetailsRef.current = [];
   }, [items, config]);
 
   // Auto-pronounce on word change
@@ -94,7 +96,9 @@ export default function FlashcardGame({
       const correct = Object.values(learnedCount).filter(v => v === 'known').length;
       const total = items.length;
       const correctCount = correct > 0 ? correct : total; // Fallback to all correct if slide-through only
-      onComplete(Math.round((correctCount / total) * 100), correctCount, total - correctCount);
+      onComplete(Math.round((correctCount / total) * 100), correctCount, total - correctCount, {
+        answerDetails: answerDetailsRef.current
+      });
       setIsCompleted(true);
     }
   };
@@ -108,6 +112,18 @@ export default function FlashcardGame({
 
   const markLearned = (status: 'known' | 'unknown') => {
     if (!currentItem) return;
+    answerDetailsRef.current = [
+      ...answerDetailsRef.current.filter(detail => detail.wordId !== currentItem.id),
+      {
+        questionIndex: currentIndex,
+        wordId: currentItem.id,
+        word: currentItem.term,
+        questionText: config.front === 'meaning' ? currentItem.meaning : currentItem.term,
+        correctAnswer: config.back === 'meaning' ? currentItem.meaning : currentItem.term,
+        userAnswer: status === 'known' ? 'Đã thuộc' : 'Chưa thuộc',
+        isCorrect: status === 'known'
+      }
+    ];
     setLearnedCount(prev => ({
       ...prev,
       [currentItem.id]: status
@@ -129,7 +145,7 @@ export default function FlashcardGame({
         <div className="flex flex-col items-center justify-center h-full space-y-4">
           <button
             onClick={handlePlaySound}
-            className="p-8 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-full transition-all hover:scale-105 cursor-pointer shadow-sm border border-indigo-500/20"
+            className="p-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all hover:scale-105 cursor-pointer shadow-sm border border-blue-700"
             id="sound-button-front"
           >
             <Volume2 size={48} className="animate-pulse" />

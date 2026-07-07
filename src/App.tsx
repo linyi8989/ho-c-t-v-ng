@@ -445,18 +445,20 @@ export default function App() {
     return (
       <div className="relative">
         {/* Toggle bar back to student representation */}
-        <div className="bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30 text-amber-900 px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm">
+        <div className="bg-amber-500/20 backdrop-blur-md border-b border-amber-500/30 text-amber-900 px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm" id="admin-mode-banner">
           <span>⚠️ Bạn đang ở giao diện Quản Trị ({user?.role === 'super_admin' ? 'Super Admin' : 'Giáo viên'})</span>
           <div className="flex items-center space-x-3">
             <button 
               onClick={() => setAdminMode(true)}
               className="bg-amber-600 hover:bg-amber-700 text-white border-0 px-3 py-1.5 rounded-xl transition-all cursor-pointer font-bold text-[10px]"
+              id="view-student-page-btn"
             >
               Xem trang học sinh
             </button>
             <button 
               onClick={() => logout()}
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 border-0 px-3 py-1.5 rounded-xl transition-all cursor-pointer font-bold text-[10px] flex items-center space-x-1"
+              id="admin-banner-logout-btn"
             >
               <LogOut size={12} />
               <span>Đăng xuất</span>

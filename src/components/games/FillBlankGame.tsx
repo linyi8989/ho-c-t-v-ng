@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, ArrowRight, HelpCircle, Info } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -11,7 +11,7 @@ interface FillBlankGameProps {
     mode: 'complete' | 'missing_letters';
     promptType: 'meaning' | 'meaning_and_hint';
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -38,6 +38,7 @@ export default function FillBlankGame({
   const [incorrectCount, setIncorrectCount] = useState(0);
   const [isCorrect, setIsCorrect] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const currentItem = items[currentIndex];
@@ -52,6 +53,7 @@ export default function FillBlankGame({
     setUserInput('');
     setIsSubmitted(false);
     setShowHint(false);
+    answerDetailsRef.current = [];
   }, [items, config]);
 
   useEffect(() => {
@@ -118,6 +120,18 @@ export default function FillBlankGame({
     const matched = cleanInput === cleanTarget;
     setIsCorrect(matched);
     setIsSubmitted(true);
+    answerDetailsRef.current = [
+      ...answerDetailsRef.current,
+      {
+        questionIndex: currentIndex,
+        wordId: currentItem.id,
+        word: currentItem.term,
+        questionText: currentItem.meaning,
+        correctAnswer: targetWord,
+        userAnswer: userInput.trim(),
+        isCorrect: matched
+      }
+    ];
 
     if (matched) {
       setCorrectCount(prev => prev + 1);
@@ -135,7 +149,9 @@ export default function FillBlankGame({
     } else {
       const total = items.length;
       const score = Math.round((correctCount / total) * 100);
-      onComplete(score, correctCount, incorrectCount);
+      onComplete(score, correctCount, incorrectCount, {
+        answerDetails: answerDetailsRef.current
+      });
     }
   };
 
@@ -194,9 +210,9 @@ export default function FillBlankGame({
               {formattedHintWord.split('').map((char, index) => (
                 <span 
                   key={index} 
-                  className={char === '_' ? 'text-amber-500 border-b-2 border-amber-500 mx-0.5 animate-pulse' : 'mx-0.5'}
+                  className={char === '_' ? 'inline-block w-5 border-b-2 border-amber-500 mx-0.5 align-baseline animate-pulse' : 'mx-0.5'}
                 >
-                  {char}
+                  {char === '_' ? '\u00a0' : char}
                 </span>
               ))}
             </div>
@@ -241,7 +257,7 @@ export default function FillBlankGame({
             <button
               type="button"
               onClick={() => setShowHint(!showHint)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 hover:bg-gray-100 text-gray-400 hover:text-indigo-600 rounded-lg transition-all cursor-pointer"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-indigo-50 hover:bg-blue-50 text-blue-600 border border-blue-300 rounded-lg transition-all cursor-pointer"
               title="Gợi ý chữ cái"
               id="hint-trigger"
             >
@@ -322,8 +338,9 @@ export default function FillBlankGame({
             <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
               <button
                 onClick={handlePlaySound}
-                className="p-3 bg-white/80 hover:bg-white text-gray-700 rounded-xl transition-all cursor-pointer border border-current/10"
+                className="p-3 bg-indigo-50 hover:bg-blue-50 text-blue-600 rounded-xl transition-all cursor-pointer border border-blue-300"
                 title="Nghe phát âm"
+                id="fill-feedback-sound-btn"
               >
                 <Volume2 size={20} />
               </button>

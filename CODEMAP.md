@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-02
+Last updated: 2026-07-05
 
 ## 1. Project Overview
 
@@ -741,3 +741,402 @@ If improving data/security:
 3. Read `firestore.rules`.
 4. Search frontend for direct `firebase/firestore` calls.
 
+## 19. Current State Addendum - 2026-07-05
+
+This section records important changes made after the original 2026-07-02 codemap.
+
+### Branding And Static Assets
+
+- Browser tab title is now `Tiếng Anh Cô Diệu`.
+- `index.html` includes:
+  - `<link rel="icon" type="image/png" href="/logo.png" />`
+  - `<link rel="apple-touch-icon" href="/logo.png" />`
+- `public/logo.png` is the current favicon/logo source.
+- Production build copies it to `dist/client/logo.png`.
+
+### Storage Architecture
+
+The backend now supports multiple storage modes:
+
+- `firebase-first`: use Firebase/Firestore when diagnostics pass, with local resilience.
+- local JSON fallback through the compatibility layer in `src/lib/firebaseAdmin.ts`.
+- SQLite mode through `src/lib/sqliteStorage.ts` when `STORAGE_MODE=sqlite`.
+
+SQLite notes:
+
+- `src/lib/sqliteStorage.ts` stores normalized tables plus `data_json`.
+- `vocab_items.audio_url` already exists and maps from `audioUrl`.
+- `vocab_sets` are saved with nested `items`, and items are also upserted into `vocab_items`.
+- `game_sessions` include `guestId` through JSON/data fields and are used for leaderboard identity.
+
+### Auth And Student Identity
+
+- Firebase Auth remains the login layer for teachers/admins.
+- Student free-learning flow uses guest identity:
+  - localStorage key `msdieu_guest_id`
+  - localStorage key `msdieu_student_name`
+- `GameSession` has optional `guestId`.
+- This prevents leaderboard grouping by `studentName` alone.
+- Registration is intended for teachers/admins at `/reg`, not required for students to learn.
+
+### Sharing / Assignment Visibility
+
+Vocabulary set visibility now has three meanings:
+
+- `public`: appears on student home/public lists.
+- `assignment`: private by public listing, accessible through generated assignment/share link.
+- `draft`: admin-only editing state.
+
+Fields in use:
+
+- `visibility?: 'public' | 'assignment' | 'draft'`
+- `shareToken?`
+- `assignmentSlug?`
+
+Student public lists should only show `visibility === 'public'` or legacy public status after compatibility handling.
+
+### Games
+
+Current visible game categories:
+
+- `flashcard`
+- `quiz`
+- `fill`
+- `matching`
+- `memory`
+- `millionaire`
+
+Current hidden/experimental category:
+
+- `speaking`
+
+New or changed game files:
+
+- `src/components/games/MillionaireGame.tsx`
+  - `gameId`: `millionaire-vocab`
+  - category: `millionaire`
+  - max 15 questions
+  - uses `audioUrl`/alternate audio fields for learning audio when available
+  - game-show SFX paths under `/sounds/millionaire/*.mp3`, safely ignored if missing
+- `src/components/games/SpeakingAIGame.tsx`
+  - `gameId`: `speaking-ai`
+  - currently hidden in `GAMES_LIST`
+  - Web Speech recognition for pronunciation practice
+  - uses item audio if available, otherwise `speakEnglish`
+
+Registry:
+
+- `src/lib/game-engine/gameList.ts` has `hidden?: boolean` support.
+- `StudentLearningArea.tsx` derives `VISIBLE_GAMES_LIST = GAMES_LIST.filter(game => !game.hidden)`.
+
+### Leaderboard / Bảng Vàng
+
+- `src/lib/leaderboard.ts` computes honor score from completed game sessions.
+- Current concept:
+  - best result per student/vocab set/game mode
+  - completed lessons
+  - average accuracy
+  - study days
+  - improvement bonus
+- Student home and Admin results tab both use leaderboard-derived rows.
+
+### UI Theme
+
+The app has been moved from dark/glass to light mode.
+
+Important file:
+
+- `src/index.css`
+
+Important CSS regions:
+
+- global light theme override
+- admin product UI
+- game category pastel palette
+- contrast/accessibility final pass
+- student home polish
+
+Current UI constraints:
+
+- Keep white/light backgrounds.
+- Use dark readable text: `#111827`, `#1F2937`, `#4B5563`, `#6B7280`.
+- Avoid white text on pastel/light backgrounds.
+- Disabled UI should remain visible around opacity `0.68 - 0.72`.
+- Game categories use pastel identity colors via CSS variables.
+
+## 20. Current Audio / Speech Map
+
+### Current Implementation
+
+The default pronunciation path is browser Web Speech API:
+
+- `src/lib/game-engine/speech.ts`
+  - exports `speakEnglish(text: string)`
+  - uses `window.speechSynthesis`
+  - chooses a US English browser voice if available
+  - rate is `0.9`
+
+Current callers:
+
+- `FlashcardGame.tsx`
+- `QuizGame.tsx`
+- `FillBlankGame.tsx`
+- `MatchingGame.tsx`
+- `MemoryGame.tsx`
+- `StudentLearningArea.tsx`
+- `AdminDashboard.tsx` example audio preview
+- `SpeakingAIGame.tsx` fallback
+
+Current direct audio URL support:
+
+- `VocabItem.audioUrl?: string`
+- `MillionaireGame.tsx` can play `item.audioUrl` or alternate fields:
+  - `audio`
+  - `sound`
+  - `pronunciationAudio`
+- `SpeakingAIGame.tsx` can play `audioUrl` when target text is the term.
+- AI vocab detail routes currently return `audioUrl: ""`; no server-side audio generation exists yet.
+
+### Problem With Current Web Speech Path
+
+Browser speech is fast and free but inconsistent:
+
+- Voice quality depends on device/browser/OS.
+- Some browsers have poor or missing English voices.
+- Pronunciation may differ between machines.
+- It cannot be cached centrally.
+- It cannot guarantee teacher-approved voice quality.
+
+## 21. Recommended TTS Audio Architecture
+
+Goal: replace browser-only pronunciation with generated TTS files while keeping Web Speech as the last fallback.
+
+### Recommended Audio Priority On Client
+
+Create a single audio helper, for example `src/lib/game-engine/audio.ts`:
+
+1. If item has `audioUrl`, play that file.
+2. Else call backend endpoint to generate/get cached TTS:
+   - `POST /api/tts/vocab-item`
+   - payload: `{ vocabSetId, itemId, text, kind: 'term' | 'example', voice?, lang? }`
+3. Backend returns `{ audioUrl, cached: boolean }`.
+4. Client plays returned `audioUrl`.
+5. If backend/TTS/storage fails, fallback to `speakEnglish(text)`.
+
+All games should call the helper instead of calling `speakEnglish` directly.
+
+### Suggested File Storage
+
+Use Firebase Storage for audio binary files.
+
+Recommended paths:
+
+```text
+tts/
+  vocab-sets/{vocabSetId}/items/{itemId}/term-en-US-{voice}-{hash}.mp3
+  vocab-sets/{vocabSetId}/items/{itemId}/example-en-US-{voice}-{hash}.mp3
+```
+
+Alternative path for dedupe across sets:
+
+```text
+tts/cache/en-US/{voice}/{sha256(normalizedText)}.mp3
+```
+
+Recommended hybrid:
+
+- Store canonical file by text hash for dedupe.
+- Save the generated URL/reference back to the vocab item for fast lookup.
+
+### Suggested Metadata Fields
+
+Extend `VocabItem` carefully:
+
+```ts
+audioUrl?: string;
+exampleAudioUrl?: string;
+audioStoragePath?: string;
+exampleAudioStoragePath?: string;
+audioGeneratedAt?: string;
+audioVoice?: string;
+audioProvider?: 'openai' | 'google' | 'azure' | 'firebase' | 'other';
+audioTextHash?: string;
+```
+
+For SQLite:
+
+- Existing `vocab_items.audio_url` can continue storing `audioUrl`.
+- Additional fields can stay in `data_json` first.
+- Add normalized columns later only if querying/filtering by audio state is needed.
+
+For Firestore:
+
+- Add fields directly to each item object inside `vocab_sets.items`.
+- Optionally maintain separate metadata collection:
+
+```text
+tts_assets/{hash}
+```
+
+Fields:
+
+- `text`
+- `normalizedText`
+- `lang`
+- `voice`
+- `provider`
+- `storagePath`
+- `downloadUrl`
+- `createdAt`
+- `lastUsedAt`
+
+### Backend API Shape
+
+Recommended endpoints:
+
+- `POST /api/tts/generate`
+  - teacher/admin only for batch generation and editor actions.
+- `POST /api/tts/resolve`
+  - authenticated or public-safe depending on student access model.
+  - returns cached/generated URL for one text.
+- `POST /api/vocab-sets/:id/audio/generate-missing`
+  - teacher/admin only.
+  - generates all missing term/example audio in a set.
+
+Response:
+
+```json
+{
+  "audioUrl": "https://...",
+  "storagePath": "tts/cache/en-US/voice/hash.mp3",
+  "cached": true,
+  "provider": "openai",
+  "textHash": "..."
+}
+```
+
+### Performance Strategy For Fast Student Playback
+
+Best user experience:
+
+1. Generate audio when teacher saves or edits a vocab set.
+2. Store permanent/cacheable file in Firebase Storage.
+3. Save `audioUrl`/`exampleAudioUrl` in vocab item metadata.
+4. Student page preloads only nearby/current audio:
+   - current word
+   - next word
+   - current example if visible
+5. Browser plays static file directly from CDN/Storage URL.
+6. Runtime generation should be fallback only, not default for every click.
+
+This avoids slow first-play latency during games.
+
+### Firebase Storage Fit
+
+Firebase Storage is a good fit for this app if configured correctly:
+
+- It stores binary MP3/WAV files separately from Firestore/SQLite data.
+- It does not conflict with existing Firestore/Auth usage.
+- It matches the existing Firebase project and service-account model.
+- It gives CDN-like download URLs and browser caching.
+- It avoids bloating Firestore documents with base64/audio data.
+
+Important: do not store audio binary in Firestore documents.
+
+### Required Firebase Changes
+
+Current code imports:
+
+- frontend `firebase/app`, `firebase/auth`, `firebase/firestore`
+- backend `firebase-admin/app`, `firebase-admin/firestore`, `firebase-admin/auth`
+
+To use Firebase Storage:
+
+- Add backend Admin Storage import:
+
+```ts
+import { getStorage } from 'firebase-admin/storage';
+```
+
+- Initialize app with `storageBucket` if needed:
+
+```ts
+initializeApp({
+  credential: cert(serviceAccount),
+  projectId: serviceAccount.projectId,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET
+});
+```
+
+- Add env:
+
+```text
+FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+```
+
+The frontend already has `VITE_FIREBASE_STORAGE_BUCKET` in `src/lib/firebase.ts`, but TTS upload should be backend-only because provider API keys must stay server-side.
+
+### Security Rules Recommendation
+
+For easiest playback:
+
+- Store generated audio under a path that can be publicly read, or use long-lived signed download URLs saved in data.
+- Writes must be backend/admin only.
+
+Recommended:
+
+- backend uploads audio
+- backend sets metadata/contentType
+- app saves `downloadUrl`
+- students only read URL; no client write permissions
+
+### Provider Strategy
+
+Recommended provider order if you already have OpenAI:
+
+1. OpenAI TTS for high quality paid generation.
+2. Optional cheaper/free provider as first layer if desired.
+3. Web Speech API fallback only when TTS generation fails.
+
+Keep provider hidden behind server abstraction:
+
+```ts
+generateTtsAudio({ text, voice, format }): Promise<Buffer>
+```
+
+This prevents game components from depending on a vendor.
+
+### Migration Plan
+
+Phase 1 - safe foundation:
+
+- Add `src/lib/game-engine/audio.ts`.
+- Replace game `speakEnglish(term)` calls with `playLearningAudio(item, 'term')`.
+- Keep current behavior by falling back to `speakEnglish`.
+
+Phase 2 - backend TTS cache:
+
+- Add Firebase Storage initialization to backend.
+- Add `/api/tts/resolve`.
+- Add hash-based cache lookup.
+- Add provider call only on cache miss.
+
+Phase 3 - editor/batch generation:
+
+- Add admin button: `Tạo audio còn thiếu`.
+- On save, optionally enqueue/generate audio for missing terms.
+- Save `audioUrl` and `exampleAudioUrl`.
+
+Phase 4 - optimization:
+
+- Preload current/next audio in `StudentLearningArea`.
+- Add diagnostics for Storage and TTS provider quota.
+- Add cleanup script for unused audio if needed.
+
+### Risk Notes
+
+- Firebase Storage itself will not conflict with current app.
+- The biggest risks are billing/quota and making runtime generation too slow.
+- Avoid generating audio on every student click.
+- Avoid storing signed URLs that expire too soon unless the app can refresh them.
+- Prefer deterministic hash paths to prevent duplicate audio files.

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { RefreshCw, HelpCircle, Trophy } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { RefreshCw, HelpCircle, Trophy, Timer } from 'lucide-react';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -10,7 +10,7 @@ interface MemoryGameProps {
   config: {
     gridSize?: 'small' | 'large';
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -45,6 +45,10 @@ export default function MemoryGame({
   const [matchesCount, setMatchesCount] = useState(0);
   const [gameFinished, setGameFinished] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   // Determine active item count (usually 6 items = 12 cards for small screen, 8 items = 16 cards max)
   const activeItemsCount = Math.min(items.length, 6);
@@ -82,11 +86,31 @@ export default function MemoryGame({
     setMatchesCount(0);
     setGameFinished(false);
     setIsLocked(false);
+    setTimeElapsed(0);
+    setIsPlaying(true);
+    answerDetailsRef.current = [];
   };
 
   useEffect(() => {
     initGame();
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [items, config]);
+
+  useEffect(() => {
+    if (isPlaying && !gameFinished) {
+      timerRef.current = setInterval(() => {
+        setTimeElapsed(prev => prev + 1);
+      }, 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isPlaying, gameFinished]);
 
   const handleCardClick = (clickedIdx: number) => {
     if (isLocked) return;
@@ -115,6 +139,19 @@ export default function MemoryGame({
       const secondCard = cards[nextFlipped[1]];
 
       const isMatch = firstCard.itemId === secondCard.itemId && firstCard.type !== secondCard.type;
+      answerDetailsRef.current = [
+        ...answerDetailsRef.current,
+        {
+          questionIndex: moves,
+          wordId: firstCard.itemId === secondCard.itemId ? firstCard.itemId : firstCard.itemId,
+          questionText: firstCard.text,
+          correctAnswer: isMatch ? secondCard.text : 'Thẻ ghép đúng tương ứng',
+          selectedAnswer: secondCard.text,
+          userAnswer: `${firstCard.text} - ${secondCard.text}`,
+          isCorrect: isMatch,
+          options: [firstCard.text, secondCard.text]
+        }
+      ];
 
       if (isMatch) {
         // Matched! Keep them open
@@ -133,11 +170,14 @@ export default function MemoryGame({
             // Check win condition
             if (nextVal === activeItemsCount) {
               setGameFinished(true);
+              setIsPlaying(false);
               // Max score 100, reduce score as moves exceed perfect moves (activeItemsCount)
               const perfectMoves = activeItemsCount;
               const excessMoves = Math.max(0, moves + 1 - perfectMoves);
               const score = Math.max(50, 100 - excessMoves * 4);
-              onComplete(score, activeItemsCount, moves + 1);
+              onComplete(score, activeItemsCount, moves + 1, {
+                answerDetails: answerDetailsRef.current
+              });
             }
             return nextVal;
           });
@@ -160,6 +200,12 @@ export default function MemoryGame({
     }
   };
 
+  const formatTime = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remainingSecs = secs % 60;
+    return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+  };
+
   if (!items || items.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500 bg-white rounded-2xl shadow-sm border border-gray-100" id="memory-empty">
@@ -172,7 +218,11 @@ export default function MemoryGame({
     <div className="w-full max-w-2xl mx-auto space-y-6" id="memory-game-root">
       {/* Game Header Metrics */}
       <div className="flex items-center justify-between gap-4 mb-6 px-2 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm" id="memory-stats-bar">
-        <div className="flex space-x-4 text-sm font-semibold text-gray-600">
+        <div className="flex flex-wrap items-center gap-4 text-sm font-semibold text-gray-600">
+          <span className="inline-flex items-center gap-1.5">
+            <Timer size={16} className="text-indigo-600" />
+            <strong className="font-mono text-gray-700">{formatTime(timeElapsed)}</strong>
+          </span>
           <span>Lượt đi: <strong className="text-indigo-600 text-base">{moves}</strong></span>
           <span>Đã ghép: <strong className="text-emerald-600 text-base">{matchesCount} / {activeItemsCount}</strong></span>
         </div>
@@ -245,7 +295,7 @@ export default function MemoryGame({
           <div className="space-y-2">
             <h2 className="text-2xl font-black text-gray-800">Trí nhớ tuyệt vời!</h2>
             <p className="text-gray-500 text-sm max-w-sm">
-              Bạn đã lật trúng tất cả các thẻ từ vựng với <strong className="text-indigo-600">{moves} lượt mở bài</strong>.
+              Bạn đã lật trúng tất cả các thẻ từ vựng trong <strong className="text-indigo-600">{formatTime(timeElapsed)}</strong> với <strong className="text-indigo-600">{moves} lượt mở bài</strong>.
             </p>
           </div>
 
@@ -258,6 +308,11 @@ export default function MemoryGame({
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">SỐ LẦN LẬT</p>
               <p className="text-2xl font-black text-indigo-600">{moves}</p>
+            </div>
+            <div className="border-r border-gray-200" />
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">THỜI GIAN</p>
+              <p className="text-2xl font-black text-indigo-600">{formatTime(timeElapsed)}</p>
             </div>
           </div>
 

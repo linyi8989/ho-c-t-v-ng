@@ -3,7 +3,7 @@ import {
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
 } from 'lucide-react';
-import { VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
+import { GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
@@ -28,6 +28,7 @@ interface StudentLearningAreaProps {
 
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
+const ACTIVITY_TTL_DAYS = 7;
 const VISIBLE_GAMES_LIST = GAMES_LIST.filter((game) => !game.hidden);
 const GAME_CATEGORY_ORDER = ['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'] as const;
 const GAME_CATEGORY_TITLES: Record<string, string> = {
@@ -70,6 +71,10 @@ function getStoredStudentName() {
   } catch {
     return '';
   }
+}
+
+function addDaysIso(baseIso: string, days: number) {
+  return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export default function StudentLearningArea({ 
@@ -185,7 +190,10 @@ export default function StudentLearningArea({
         vocabSetId: vocabSet.id,
         vocabSetTitle: vocabSet.title,
         gameId: selectedGame.gameId,
+        gameName: selectedGame.title,
+        gameType: selectedGame.category,
         studentName: studentName,
+        studentId: guestId,
         guestId
       })
     })
@@ -202,19 +210,24 @@ export default function StudentLearningArea({
         const { doc, setDoc } = await import('firebase/firestore');
         const { db } = await import('../../lib/firebase');
         const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const startedAt = new Date().toISOString();
         const sessionData = {
           id: sessionId,
           assignmentId: assignmentId || null,
           vocabSetId: vocabSet.id,
           vocabSetTitle: vocabSet.title,
           gameId: selectedGame.gameId,
+          gameName: selectedGame.title,
+          gameType: selectedGame.category,
           studentName: studentName,
+          studentId: guestId,
           guestId,
           score: 0,
           totalQuestions: 0,
           correctAnswers: 0,
           incorrectAnswers: 0,
-          startedAt: new Date().toISOString(),
+          startedAt,
+          createdAt: startedAt,
           status: 'started'
         };
         await setDoc(doc(db, 'game_sessions', sessionId), sessionData);
@@ -260,18 +273,42 @@ export default function StudentLearningArea({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const handleGameComplete = (score: number, correct: number, incorrect: number) => {
+  const handleGameComplete = (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => {
     setGameResult({ score, correct, incorrect });
 
     if (!session) return;
 
+    const endedAt = new Date().toISOString();
+    const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+    const durationMs = Math.max(0, new Date(endedAt).getTime() - startedAtMs);
+    const totalQuestions = correct + incorrect;
+    const accuracy = totalQuestions > 0 ? Math.round((correct / totalQuestions) * 100) : 0;
+    const answerDetails = (details?.answerDetails || []).slice(0, 200).map(detail => ({
+      questionIndex: detail.questionIndex,
+      wordId: detail.wordId,
+      word: detail.word,
+      questionText: detail.questionText,
+      correctAnswer: detail.correctAnswer,
+      userAnswer: detail.userAnswer,
+      selectedAnswer: detail.selectedAnswer,
+      isCorrect: Boolean(detail.isCorrect),
+      timeSpentMs: detail.timeSpentMs,
+      options: detail.options?.slice(0, 6)
+    }));
+
     const completedSession: GameSession = {
       ...session,
       score,
-      totalQuestions: correct + incorrect,
+      totalQuestions,
       correctAnswers: correct,
       incorrectAnswers: incorrect,
-      completedAt: new Date().toISOString()
+      endedAt,
+      completedAt: endedAt,
+      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS),
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1000),
+      accuracy,
+      answerDetails
     };
 
     setLeaderboardSessions(prev => {
@@ -288,9 +325,15 @@ export default function StudentLearningArea({
       },
       body: JSON.stringify({
         score,
-        totalQuestions: correct + incorrect,
+        totalQuestions,
         correctAnswers: correct,
-        incorrectAnswers: incorrect
+        incorrectAnswers: incorrect,
+        endedAt,
+        expiresAt: completedSession.expiresAt,
+        durationMs,
+        durationSeconds: Math.round(durationMs / 1000),
+        accuracy,
+        answerDetails
       })
     })
     .then(res => {
@@ -308,10 +351,16 @@ export default function StudentLearningArea({
         const sessionRef = doc(db, 'game_sessions', session.id);
         const updatedData = {
           score,
-          totalQuestions: correct + incorrect,
+          totalQuestions,
           correctAnswers: correct,
           incorrectAnswers: incorrect,
           completedAt: completedSession.completedAt,
+          endedAt,
+          expiresAt: completedSession.expiresAt,
+          durationMs,
+          durationSeconds: Math.round(durationMs / 1000),
+          accuracy,
+          answerDetails,
           status: 'completed'
         };
         await updateDoc(sessionRef, updatedData);

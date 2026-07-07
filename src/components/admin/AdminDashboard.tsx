@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
-  Shield, FileText, Lock, Unlock, Star
+  Shield, FileText, Lock, Unlock, Star, X
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
@@ -33,6 +33,25 @@ const getAssignmentLink = (set: VocabSet) => {
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
+function formatVietnamDateTime(value?: string) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  const pad = (num: number) => num.toString().padStart(2, '0');
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatDuration(totalSeconds?: number) {
+  const secs = Math.max(0, Math.round(totalSeconds || 0));
+  const mins = Math.floor(secs / 60);
+  const remainingSecs = secs % 60;
+  return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+}
+
+function getSessionEndTime(session: GameSession) {
+  return session.endedAt || session.completedAt;
+}
+
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -57,6 +76,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [leaderboardCategory, setLeaderboardCategory] = useState<LeaderboardCategory>('gold');
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardVocabSetId, setLeaderboardVocabSetId] = useState('');
+  const [selectedActivity, setSelectedActivity] = useState<GameSession | null>(null);
 
   // Class Roster dynamic input states
   const [newMemberNames, setNewMemberNames] = useState<Record<string, string>>({});
@@ -660,6 +680,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     );
   }, [results, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
 
+  const recentResults = React.useMemo(() => {
+    return [...results]
+      .filter(res => getSessionEndTime(res))
+      .sort((a, b) => new Date(getSessionEndTime(b) || 0).getTime() - new Date(getSessionEndTime(a) || 0).getTime())
+      .slice(0, 10);
+  }, [results]);
+
   const dashboardGoldRows = React.useMemo(() => {
     return getLeaderboardByCategory(results, assignments, { period: 'week' }, 'gold').slice(0, 5);
   }, [results, assignments]);
@@ -767,6 +794,111 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           >
             Đóng
           </button>
+        </div>
+      )}
+
+      {selectedActivity && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" id="activity-detail-modal">
+          <div className="w-full max-w-5xl max-h-[88vh] overflow-hidden bg-white rounded-3xl border border-gray-200 shadow-2xl flex flex-col">
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-gray-100">
+              <div>
+                <p className="text-[10px] font-black uppercase text-blue-600">Chi tiết lượt luyện tập</p>
+                <h3 className="mt-1 text-xl font-black text-gray-900">
+                  {selectedActivity.studentName} • {selectedActivity.gameName || GAMES_LIST.find(g => g.gameId === selectedActivity.gameId)?.title || selectedActivity.gameId}
+                </h3>
+                <p className="text-xs font-semibold text-gray-500">{selectedActivity.vocabSetTitle}</p>
+              </div>
+              <button
+                onClick={() => setSelectedActivity(null)}
+                className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700"
+                aria-label="Đóng chi tiết hoạt động"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-5 space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-blue-600">Điểm</p>
+                  <p className="mt-1 text-2xl font-black text-gray-900">{selectedActivity.score}</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-emerald-700">Đúng / Tổng</p>
+                  <p className="mt-1 text-2xl font-black text-gray-900">{selectedActivity.correctAnswers}/{selectedActivity.totalQuestions}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-amber-700">Độ chính xác</p>
+                  <p className="mt-1 text-2xl font-black text-gray-900">{selectedActivity.accuracy ?? Math.round((selectedActivity.correctAnswers / Math.max(1, selectedActivity.totalQuestions)) * 100)}%</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-black uppercase text-slate-600">Thời lượng</p>
+                  <p className="mt-1 text-2xl font-black text-gray-900">{formatDuration(selectedActivity.durationSeconds || Math.round((selectedActivity.durationMs || 0) / 1000))}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase text-gray-400">Bắt đầu</p>
+                  <p className="mt-1 font-bold text-gray-800">{formatVietnamDateTime(selectedActivity.startedAt)}</p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase text-gray-400">Kết thúc</p>
+                  <p className="mt-1 font-bold text-gray-800">{formatVietnamDateTime(getSessionEndTime(selectedActivity))}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center justify-between gap-3 bg-gray-50 px-4 py-3 border-b border-gray-200">
+                  <h4 className="text-sm font-black text-gray-900">Danh sách câu trả lời</h4>
+                  <span className="text-xs font-bold text-gray-500">{selectedActivity.answerDetails?.length || 0} dòng</span>
+                </div>
+
+                {!selectedActivity.answerDetails || selectedActivity.answerDetails.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-gray-400">
+                    Lượt chơi này chưa có dữ liệu chi tiết từng câu.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-white">
+                          <th className="p-3 text-[10px] font-black uppercase text-gray-500">#</th>
+                          <th className="p-3 text-[10px] font-black uppercase text-gray-500">Câu hỏi</th>
+                          <th className="p-3 text-[10px] font-black uppercase text-gray-500">Học sinh chọn</th>
+                          <th className="p-3 text-[10px] font-black uppercase text-gray-500">Đáp án đúng</th>
+                          <th className="p-3 text-[10px] font-black uppercase text-gray-500">Kết quả</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedActivity.answerDetails.map((detail, index) => (
+                          <tr key={`${selectedActivity.id}-detail-${index}`} className="border-t border-gray-100">
+                            <td className="p-3 text-xs font-bold text-gray-500">{detail.questionIndex + 1 || index + 1}</td>
+                            <td className="p-3">
+                              <p className="text-sm font-bold text-gray-900">{detail.questionText || detail.word || '--'}</p>
+                              {detail.wordId && <p className="text-[10px] font-mono text-gray-400">{detail.wordId}</p>}
+                              {detail.options && detail.options.length > 0 && (
+                                <p className="mt-1 text-[10px] text-gray-500">Lựa chọn: {detail.options.join(' | ')}</p>
+                              )}
+                            </td>
+                            <td className="p-3 text-sm font-semibold text-gray-700">{detail.userAnswer || detail.selectedAnswer || '--'}</td>
+                            <td className="p-3 text-sm font-semibold text-gray-700">{detail.correctAnswer || '--'}</td>
+                            <td className="p-3">
+                              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
+                                detail.isCorrect ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                              }`}>
+                                {detail.isCorrect ? 'Đúng' : 'Sai'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -963,17 +1095,27 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 </div>
 
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                  {results.length === 0 ? (
+                  {recentResults.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">Chưa có học sinh nào hoàn thành trò chơi.</div>
                   ) : (
-                    results.map((res) => (
-                      <div key={res.id} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
-                        <div className="space-y-0.5">
+                    recentResults.map((res) => (
+                      <button
+                        key={res.id}
+                        onClick={() => setSelectedActivity(res)}
+                        className="w-full p-3.5 bg-gray-50/50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl flex justify-between items-start text-left transition-all"
+                      >
+                        <div className="space-y-1 min-w-0 pr-3">
                           <strong className="text-sm font-bold text-gray-800">{res.studentName}</strong>
-                          <p className="text-xs text-gray-400">Chơi {GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId}</p>
-                          <p className="text-[10px] text-gray-400 font-mono">{res.vocabSetTitle}</p>
+                          <p className="text-xs text-gray-500">Chơi {res.gameName || GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId}</p>
+                          <p className="text-[10px] text-gray-400 font-mono truncate">{res.vocabSetTitle}</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-gray-500">
+                            <span>Bắt đầu: {formatVietnamDateTime(res.startedAt)}</span>
+                            <span>Kết thúc: {formatVietnamDateTime(getSessionEndTime(res))}</span>
+                            <span>Thời lượng: {formatDuration(res.durationSeconds || Math.round((res.durationMs || 0) / 1000))}</span>
+                            <span>Trạng thái: Hoàn thành</span>
+                          </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <span className={`px-2.5 py-1 text-xs font-black rounded-full ${
                             res.score >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'
                           }`}>
@@ -981,7 +1123,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           </span>
                           <span className="text-[10px] text-gray-400 block mt-1">Đúng: {res.correctAnswers}/{res.totalQuestions}</span>
                         </div>
-                      </div>
+                      </button>
                     ))
                   )}
                 </div>

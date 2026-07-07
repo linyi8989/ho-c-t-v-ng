@@ -135,6 +135,40 @@ const requireRole = (allowedRoles: ('super_admin' | 'teacher' | 'student')[]) =>
   };
 };
 
+const ACTIVITY_TTL_DAYS = 7;
+const ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+function addDaysIso(baseIso: string, days: number) {
+  return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function getActivityTime(data: any) {
+  return data.completedAt || data.endedAt || data.createdAt || data.startedAt || "";
+}
+
+function isExpiredActivity(data: any, nowMs = Date.now()) {
+  if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
+  const createdOrCompleted = data.createdAt || data.completedAt || data.endedAt;
+  return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
+}
+
+async function cleanupExpiredGameSessions() {
+  const snapshot = await adminDb.collection("game_sessions").get();
+  const nowMs = Date.now();
+  const deletions: Promise<void>[] = [];
+
+  snapshot.forEach(doc => {
+    const data = doc.data();
+    if (isExpiredActivity(data, nowMs)) {
+      deletions.push(adminDb.collection("game_sessions").doc(doc.id).delete());
+    }
+  });
+
+  if (deletions.length > 0) {
+    await Promise.all(deletions);
+  }
+}
+
 // ============================================================================
 // DATABASE PRE-SEEDING LOGIC FOR FIRESTORE
 // ============================================================================
@@ -910,15 +944,19 @@ app.get("/api/public/vocab-sets", async (req, res) => {
 // 7. PUBLIC GAME RESULTS: Minimal completed sessions for the student golden board
 app.get("/api/public/results", async (req, res) => {
   try {
+    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list: any[] = [];
+    const cutoff = Date.now() - ACTIVITY_TTL_MS;
 
     snapshot.forEach(doc => {
       const data = doc.data();
       if (!data.completedAt) return;
+      if (isExpiredActivity(data)) return;
+      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
 
       list.push({
-        id: data.id,
+        id: data.id || doc.id,
         assignmentId: data.assignmentId,
         vocabSetId: data.vocabSetId,
         vocabSetTitle: data.vocabSetTitle,
@@ -930,10 +968,17 @@ app.get("/api/public/results", async (req, res) => {
         score: data.score || 0,
         totalQuestions: data.totalQuestions || 0,
         correctAnswers: data.correctAnswers || 0,
-        incorrectAnswers: data.incorrectAnswers || 0
+        incorrectAnswers: data.incorrectAnswers || 0,
+        endedAt: data.endedAt || data.completedAt,
+        durationMs: data.durationMs || 0,
+        durationSeconds: data.durationSeconds || 0,
+        accuracy: data.accuracy || 0,
+        createdAt: data.createdAt,
+        expiresAt: data.expiresAt
       });
     });
 
+    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1336,10 +1381,12 @@ app.post("/api/game-sessions", async (req, res) => {
   try {
     const payload = req.body;
     const id = `session-${Date.now()}`;
+    const now = new Date().toISOString();
     const newSession = {
       ...payload,
       id,
-      startedAt: new Date().toISOString(),
+      startedAt: now,
+      createdAt: now,
       status: "started",
       score: 0,
       totalQuestions: 0,
@@ -1366,11 +1413,40 @@ app.put("/api/game-sessions/:id", async (req, res) => {
       return res.status(404).json({ error: "Session không tồn tại." });
     }
 
+    const endedAt = payload.endedAt || new Date().toISOString();
+    const startedAt = existing.data()?.startedAt || payload.startedAt || endedAt;
+    const durationMs = Math.max(0, Number(payload.durationMs ?? (new Date(endedAt).getTime() - new Date(startedAt).getTime())));
+    const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
+    const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
+    const sanitizedAnswerDetails = Array.isArray(payload.answerDetails)
+      ? payload.answerDetails.slice(0, 200).map((item: any, index: number) => ({
+          questionIndex: Number.isFinite(Number(item.questionIndex)) ? Number(item.questionIndex) : index,
+          wordId: item.wordId || "",
+          word: item.word || "",
+          questionText: item.questionText || "",
+          correctAnswer: item.correctAnswer || "",
+          userAnswer: item.userAnswer || "",
+          selectedAnswer: item.selectedAnswer || "",
+          isCorrect: Boolean(item.isCorrect),
+          timeSpentMs: item.timeSpentMs ? Number(item.timeSpentMs) : undefined,
+          options: Array.isArray(item.options) ? item.options.slice(0, 6).map((option: any) => String(option).slice(0, 160)) : undefined
+        }))
+      : [];
+
     const updatedSession = {
       ...existing.data(),
       ...payload,
+      answerDetails: sanitizedAnswerDetails,
+      totalQuestions,
+      correctAnswers,
+      incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
+      accuracy: totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0,
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1000),
       status: "completed",
-      completedAt: new Date().toISOString()
+      endedAt,
+      completedAt: endedAt,
+      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
     };
 
     await docRef.set(updatedSession);
@@ -1414,14 +1490,17 @@ app.post("/api/pronunciation-attempts", async (req, res) => {
 // 22. GAME RESULTS: Get all finished game sessions
 app.get("/api/results", authenticateUser, async (req, res) => {
   try {
+    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list: any[] = [];
+    const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach(doc => {
       const data = doc.data();
-      if (data.completedAt) {
-        list.push(data);
+      if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
+        list.push({ ...data, id: data.id || doc.id });
       }
     });
+    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1566,7 +1645,10 @@ async function start() {
   });
 
   firebaseDiagnosticReady
-    .then(() => preSeedDb())
+    .then(async () => {
+      await preSeedDb();
+      await cleanupExpiredGameSessions();
+    })
     .catch((err) => {
       console.error("Background Firebase startup tasks failed", err);
     });

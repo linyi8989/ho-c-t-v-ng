@@ -353,8 +353,8 @@ function upsertDoc(collectionName, id, inputData) {
   }
   if (table === "results" || table === "game_results") {
     run(
-      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, expires_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         assignment_id = excluded.assignment_id,
         user_id = excluded.user_id,
@@ -363,6 +363,7 @@ function upsertDoc(collectionName, id, inputData) {
         score = excluded.score,
         correct = excluded.correct,
         incorrect = excluded.incorrect,
+        expires_at = excluded.expires_at,
         data_json = excluded.data_json`,
       [
         id,
@@ -374,6 +375,7 @@ function upsertDoc(collectionName, id, inputData) {
         Number(data.correct || data.correctAnswers || 0),
         Number(data.incorrect || data.incorrectAnswers || 0),
         data.completedAt || data.startedAt || createdAt,
+        data.expiresAt || data.expires_at || null,
         dataJson
       ]
     );
@@ -503,6 +505,7 @@ function runSchemaMigration() {
       correct INTEGER,
       incorrect INTEGER,
       created_at TEXT,
+      expires_at TEXT,
       data_json TEXT NOT NULL
     );
 
@@ -516,6 +519,7 @@ function runSchemaMigration() {
       correct INTEGER,
       incorrect INTEGER,
       created_at TEXT,
+      expires_at TEXT,
       data_json TEXT NOT NULL
     );
 
@@ -542,8 +546,12 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_assignments_user_id ON assignments(user_id);
     CREATE INDEX IF NOT EXISTS idx_results_user_id ON results(user_id);
     CREATE INDEX IF NOT EXISTS idx_results_assignment_id ON results(assignment_id);
+    CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_results_expires_at ON results(expires_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
+    CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
   persistDb();
 }
@@ -553,6 +561,22 @@ function hasMigration(id) {
 function markMigration(id) {
   run("INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)", [id, nowIso()]);
   sqliteLastMigration = id;
+}
+function tableHasColumn(table, column) {
+  return all(`PRAGMA table_info(${table})`).some((row) => row.name === column);
+}
+function migrateActivityExpiryColumns() {
+  for (const table of ["results", "game_results"]) {
+    if (!tableHasColumn(table, "expires_at")) {
+      run(`ALTER TABLE ${table} ADD COLUMN expires_at TEXT`);
+    }
+  }
+  run(`
+    CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_results_expires_at ON results(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
+  `);
 }
 function getJsonImportCandidates() {
   return [
@@ -639,6 +663,7 @@ async function initializeSQLiteStorage() {
       const existing = import_fs.default.existsSync(sqliteDbPath) ? import_fs.default.readFileSync(sqliteDbPath) : void 0;
       sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
       runSchemaMigration();
+      migrateActivityExpiryColumns();
       migrateFromJsonIfNeeded();
       sqliteReady = true;
       sqliteLastError = null;
@@ -1288,6 +1313,33 @@ var requireRole = (allowedRoles) => {
     next();
   };
 };
+var ACTIVITY_TTL_DAYS = 7;
+var ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1e3;
+function addDaysIso(baseIso, days) {
+  return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1e3).toISOString();
+}
+function getActivityTime(data) {
+  return data.completedAt || data.endedAt || data.createdAt || data.startedAt || "";
+}
+function isExpiredActivity(data, nowMs = Date.now()) {
+  if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
+  const createdOrCompleted = data.createdAt || data.completedAt || data.endedAt;
+  return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
+}
+async function cleanupExpiredGameSessions() {
+  const snapshot = await adminDb.collection("game_sessions").get();
+  const nowMs = Date.now();
+  const deletions = [];
+  snapshot.forEach((doc) => {
+    const data = doc.data();
+    if (isExpiredActivity(data, nowMs)) {
+      deletions.push(adminDb.collection("game_sessions").doc(doc.id).delete());
+    }
+  });
+  if (deletions.length > 0) {
+    await Promise.all(deletions);
+  }
+}
 var preSeedDb = async () => {
   try {
     console.log("Checking and seeding database if empty...");
@@ -1948,13 +2000,17 @@ app2.get("/api/public/vocab-sets", async (req, res) => {
 });
 app2.get("/api/public/results", async (req, res) => {
   try {
+    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list = [];
+    const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
       const data = doc.data();
       if (!data.completedAt) return;
+      if (isExpiredActivity(data)) return;
+      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       list.push({
-        id: data.id,
+        id: data.id || doc.id,
         assignmentId: data.assignmentId,
         vocabSetId: data.vocabSetId,
         vocabSetTitle: data.vocabSetTitle,
@@ -1966,9 +2022,16 @@ app2.get("/api/public/results", async (req, res) => {
         score: data.score || 0,
         totalQuestions: data.totalQuestions || 0,
         correctAnswers: data.correctAnswers || 0,
-        incorrectAnswers: data.incorrectAnswers || 0
+        incorrectAnswers: data.incorrectAnswers || 0,
+        endedAt: data.endedAt || data.completedAt,
+        durationMs: data.durationMs || 0,
+        durationSeconds: data.durationSeconds || 0,
+        accuracy: data.accuracy || 0,
+        createdAt: data.createdAt,
+        expiresAt: data.expiresAt
       });
     });
+    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2285,10 +2348,12 @@ app2.post("/api/game-sessions", async (req, res) => {
   try {
     const payload = req.body;
     const id = `session-${Date.now()}`;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
     const newSession = {
       ...payload,
       id,
-      startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      startedAt: now,
+      createdAt: now,
       status: "started",
       score: 0,
       totalQuestions: 0,
@@ -2310,11 +2375,37 @@ app2.put("/api/game-sessions/:id", async (req, res) => {
     if (!existing.exists) {
       return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
+    const endedAt = payload.endedAt || (/* @__PURE__ */ new Date()).toISOString();
+    const startedAt = existing.data()?.startedAt || payload.startedAt || endedAt;
+    const durationMs = Math.max(0, Number(payload.durationMs ?? new Date(endedAt).getTime() - new Date(startedAt).getTime()));
+    const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
+    const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
+    const sanitizedAnswerDetails = Array.isArray(payload.answerDetails) ? payload.answerDetails.slice(0, 200).map((item, index) => ({
+      questionIndex: Number.isFinite(Number(item.questionIndex)) ? Number(item.questionIndex) : index,
+      wordId: item.wordId || "",
+      word: item.word || "",
+      questionText: item.questionText || "",
+      correctAnswer: item.correctAnswer || "",
+      userAnswer: item.userAnswer || "",
+      selectedAnswer: item.selectedAnswer || "",
+      isCorrect: Boolean(item.isCorrect),
+      timeSpentMs: item.timeSpentMs ? Number(item.timeSpentMs) : void 0,
+      options: Array.isArray(item.options) ? item.options.slice(0, 6).map((option) => String(option).slice(0, 160)) : void 0
+    })) : [];
     const updatedSession = {
       ...existing.data(),
       ...payload,
+      answerDetails: sanitizedAnswerDetails,
+      totalQuestions,
+      correctAnswers,
+      incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
+      accuracy: totalQuestions > 0 ? Math.round(correctAnswers / totalQuestions * 100) : 0,
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1e3),
       status: "completed",
-      completedAt: (/* @__PURE__ */ new Date()).toISOString()
+      endedAt,
+      completedAt: endedAt,
+      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
     };
     await docRef.set(updatedSession);
     res.json(updatedSession);
@@ -2352,14 +2443,17 @@ app2.post("/api/pronunciation-attempts", async (req, res) => {
 });
 app2.get("/api/results", authenticateUser, async (req, res) => {
   try {
+    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list = [];
+    const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
       const data = doc.data();
-      if (data.completedAt) {
-        list.push(data);
+      if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
+        list.push({ ...data, id: data.id || doc.id });
       }
     });
+    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2465,7 +2559,10 @@ async function start() {
   app2.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
-  firebaseDiagnosticReady.then(() => preSeedDb()).catch((err) => {
+  firebaseDiagnosticReady.then(async () => {
+    await preSeedDb();
+    await cleanupExpiredGameSessions();
+  }).catch((err) => {
     console.error("Background Firebase startup tasks failed", err);
   });
 }

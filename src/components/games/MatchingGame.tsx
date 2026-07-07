@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, RotateCcw, Timer, Zap, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -10,7 +10,7 @@ interface MatchingGameProps {
   config: {
     matchType: 'term_to_meaning';
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -48,6 +48,7 @@ export default function MatchingGame({
   const [gameFinished, setGameFinished] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   // Initialize and shuffle cards
   const initGame = () => {
@@ -82,6 +83,7 @@ export default function MatchingGame({
     setTimeElapsed(0);
     setGameFinished(false);
     setIsPlaying(true);
+    answerDetailsRef.current = [];
   };
 
   useEffect(() => {
@@ -116,7 +118,9 @@ export default function MatchingGame({
       // Calculate score based on mistakes
       // Max score 100, deduct 5 points per mistake, floor at 50
       const score = Math.max(50, 100 - mistakes * 5);
-      onComplete(score, activeItemsCount, mistakes);
+      onComplete(score, activeItemsCount, mistakes, {
+        answerDetails: answerDetailsRef.current
+      });
     }
   }, [matchedItemIds, mistakes, items, gameFinished]);
 
@@ -143,6 +147,19 @@ export default function MatchingGame({
       setAttempts(prev => prev + 1);
 
       const isPair = selectedCard.itemId === card.itemId && selectedCard.type !== card.type;
+      answerDetailsRef.current = [
+        ...answerDetailsRef.current,
+        {
+          questionIndex: attempts,
+          wordId: selectedCard.itemId === card.itemId ? card.itemId : selectedCard.itemId,
+          questionText: selectedCard.text,
+          correctAnswer: isPair ? card.text : 'Cặp đúng tương ứng',
+          selectedAnswer: card.text,
+          userAnswer: `${selectedCard.text} - ${card.text}`,
+          isCorrect: isPair,
+          options: [selectedCard.text, card.text]
+        }
+      ];
 
       if (isPair) {
         // Matched successfully
@@ -217,7 +234,7 @@ export default function MatchingGame({
               } else if (isFailed) {
                 borderStyle = "border-rose-400 bg-rose-50 text-rose-800 animate-shake";
               } else if (isMatched) {
-                borderStyle = "border-emerald-200 bg-emerald-50 text-emerald-800 font-medium opacity-0 pointer-events-none scale-90";
+                borderStyle = "border-emerald-500 bg-emerald-100 text-emerald-900 font-black ring-2 ring-emerald-200 pointer-events-none";
               }
 
               return (

@@ -9,7 +9,7 @@ import {
   Sparkles,
   Volume2,
 } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -26,7 +26,7 @@ interface SpeakingAIGameProps {
     targetMode?: 'term' | 'example' | 'example_or_term';
     recognitionLang?: string;
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -279,7 +279,16 @@ export default function SpeakingAIGame({
     const averageScore = attempted ? Math.round(totalScore / attempted) : 0;
     const correct = attemptResults.filter((item) => item.score >= 70).length;
     const incorrect = Math.max(playableItems.length - correct, 0);
-    onComplete(averageScore, correct, incorrect);
+    onComplete(averageScore, correct, incorrect, {
+      answerDetails: attemptResults.map((item, index) => ({
+        questionIndex: index,
+        wordId: item.wordId,
+        questionText: item.targetText,
+        correctAnswer: item.targetText,
+        userAnswer: item.recognizedText,
+        isCorrect: item.score >= 70
+      }))
+    });
   };
 
   const goNext = () => {

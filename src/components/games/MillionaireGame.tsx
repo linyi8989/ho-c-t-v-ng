@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Check,
@@ -6,9 +6,11 @@ import {
   HelpCircle,
   RotateCcw,
   Sparkles,
+  Timer,
   X,
 } from 'lucide-react';
-import { VocabItem } from '../../types';
+import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface MillionaireGameProps {
@@ -17,7 +19,7 @@ interface MillionaireGameProps {
     maxQuestions?: number;
     enableLifelines?: boolean;
   };
-  onComplete: (score: number, correct: number, incorrect: number) => void;
+  onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -85,6 +87,12 @@ function formatPrize(value: number): string {
   return value.toLocaleString('en-US');
 }
 
+function formatTime(secs: number): string {
+  const mins = Math.floor(secs / 60);
+  const remainingSecs = secs % 60;
+  return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+}
+
 export default function MillionaireGame({
   items,
   config,
@@ -107,7 +115,10 @@ export default function MillionaireGame({
   const [usedFiftyFifty, setUsedFiftyFifty] = useState(false);
   const [usedPhoneticHint, setUsedPhoneticHint] = useState(false);
   const [showPhoneticHint, setShowPhoneticHint] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
   const completionRef = useRef(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const maxQuestions = Math.min(config.maxQuestions || 15, PRIZE_LADDER.length);
 
@@ -144,6 +155,21 @@ export default function MillionaireGame({
   const learningAudioUrl = currentQuestion ? getLearningAudioUrl(currentQuestion.item) : undefined;
   const imageUrl = currentQuestion ? getImageUrl(currentQuestion.item) : undefined;
 
+  useEffect(() => {
+    if (!currentQuestion || gameFinished) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+
+    timerRef.current = setInterval(() => {
+      setTimeElapsed(prev => prev + 1);
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [currentQuestion, gameFinished]);
+
   const playEffect = (name: string) => {
     if (isMuted || typeof Audio === 'undefined') return;
 
@@ -160,7 +186,12 @@ export default function MillionaireGame({
   };
 
   const playLearningAudio = () => {
-    if (isMuted || !learningAudioUrl) return;
+    if (isMuted || !currentQuestion) return;
+
+    if (!learningAudioUrl) {
+      speakEnglish(currentQuestion.item.term);
+      return;
+    }
 
     try {
       const audio = new Audio(learningAudioUrl);
@@ -179,7 +210,9 @@ export default function MillionaireGame({
     completionRef.current = true;
     setFinalScore(score);
     setGameFinished(true);
-    onComplete(score, correct, incorrect);
+    onComplete(score, correct, incorrect, {
+      answerDetails: answerDetailsRef.current
+    });
   };
 
   const resetQuestionState = () => {
@@ -197,6 +230,20 @@ export default function MillionaireGame({
     playEffect('select');
 
     const isCorrect = answer === currentQuestion.correctAnswer;
+    answerDetailsRef.current = [
+      ...answerDetailsRef.current,
+      {
+        questionIndex: currentIndex,
+        wordId: currentQuestion.item.id,
+        word: currentQuestion.item.term,
+        questionText: currentQuestion.item.term,
+        correctAnswer: currentQuestion.correctAnswer,
+        selectedAnswer: answer,
+        userAnswer: answer,
+        isCorrect,
+        options: currentQuestion.answers.slice(0, 4)
+      }
+    ];
 
     window.setTimeout(() => {
       if (isCorrect) {
@@ -253,6 +300,8 @@ export default function MillionaireGame({
     setIncorrectCount(0);
     setGameFinished(false);
     setFinalScore(0);
+    setTimeElapsed(0);
+    answerDetailsRef.current = [];
     setUsedFiftyFifty(false);
     setUsedPhoneticHint(false);
     resetQuestionState();
@@ -292,6 +341,10 @@ export default function MillionaireGame({
         <p className="mt-3 text-sm text-slate-300">
           Bạn trả lời đúng {correctCount} câu và đạt {formatPrize(finalScore)} điểm.
         </p>
+        <p className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+          <Timer size={14} />
+          <span>{formatTime(timeElapsed)}</span>
+        </p>
         <div className="mt-8 grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div>
             <span className="block text-[10px] font-black uppercase text-slate-400">Điểm</span>
@@ -329,11 +382,17 @@ export default function MillionaireGame({
               </span>
               <h2 className="mt-1 text-2xl font-black text-white">Ai là triệu phú</h2>
             </div>
-            <div className="rounded-2xl border border-yellow-300/30 bg-yellow-300/10 px-4 py-2 text-right">
-              <span className="block text-[10px] font-black uppercase text-yellow-100/70">
-                Câu {currentIndex + 1}/{questions.length}
-              </span>
-              <strong className="text-lg text-yellow-200">{formatPrize(currentPrize)}</strong>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="inline-flex items-center gap-1.5 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">
+                <Timer size={14} />
+                <span>{formatTime(timeElapsed)}</span>
+              </div>
+              <div className="rounded-2xl border border-yellow-300/30 bg-yellow-300/10 px-4 py-2 text-right">
+                <span className="block text-[10px] font-black uppercase text-yellow-100/70">
+                  Câu {currentIndex + 1}/{questions.length}
+                </span>
+                <strong className="text-lg text-yellow-200">{formatPrize(currentPrize)}</strong>
+              </div>
             </div>
           </div>
 
@@ -355,8 +414,9 @@ export default function MillionaireGame({
             </button>
             <button
               onClick={playLearningAudio}
-              disabled={!learningAudioUrl || isMuted || lockedAnswer}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+              disabled={isMuted || lockedAnswer}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100 disabled:opacity-70"
+              id="millionaire-pronounce-btn"
             >
               <Headphones size={14} />
               <span>Nghe phát âm</span>
@@ -398,16 +458,16 @@ export default function MillionaireGame({
               const isCorrect = answer === currentQuestion.correctAnswer;
               const isRemoved = removedAnswers.has(answer);
               let stateClass =
-                'border-blue-300/20 bg-slate-900/70 text-white hover:border-yellow-300/60 hover:bg-blue-900/80';
+                'border-blue-300 bg-blue-50 text-slate-950 hover:border-blue-500 hover:bg-blue-100 hover:shadow-md';
 
               if (lockedAnswer && isCorrect) {
-                stateClass = 'border-emerald-300 bg-emerald-500/20 text-emerald-100';
+                stateClass = 'border-emerald-500 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-200';
               } else if (lockedAnswer && isSelected && !isCorrect) {
-                stateClass = 'border-rose-300 bg-rose-500/20 text-rose-100';
+                stateClass = 'border-rose-500 bg-rose-100 text-rose-900 ring-2 ring-rose-200';
               } else if (isSelected) {
-                stateClass = 'border-yellow-300 bg-yellow-300/20 text-yellow-100';
+                stateClass = 'border-blue-600 bg-blue-100 text-blue-900 ring-2 ring-blue-200';
               } else if (isRemoved) {
-                stateClass = 'border-white/5 bg-slate-900/30 text-slate-500 opacity-40';
+                stateClass = 'border-gray-200 bg-gray-50 text-gray-500 opacity-70';
               }
 
               return (
@@ -420,7 +480,7 @@ export default function MillionaireGame({
                   whileTap={!lockedAnswer && !isRemoved ? { scale: 0.98 } : {}}
                 >
                   <span className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-yellow-300/40 bg-yellow-300/10 text-sm font-black text-yellow-200">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-300 bg-white text-sm font-black text-blue-700">
                       {ANSWER_LABELS[idx]}
                     </span>
                     <span className="text-sm md:text-base font-bold leading-snug">{answer}</span>
