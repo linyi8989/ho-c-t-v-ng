@@ -152,23 +152,6 @@ function isExpiredActivity(data: any, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 
-async function cleanupExpiredGameSessions() {
-  const snapshot = await adminDb.collection("game_sessions").get();
-  const nowMs = Date.now();
-  const deletions: Promise<void>[] = [];
-
-  snapshot.forEach(doc => {
-    const data = doc.data();
-    if (isExpiredActivity(data, nowMs)) {
-      deletions.push(adminDb.collection("game_sessions").doc(doc.id).delete());
-    }
-  });
-
-  if (deletions.length > 0) {
-    await Promise.all(deletions);
-  }
-}
-
 // ============================================================================
 // DATABASE PRE-SEEDING LOGIC FOR FIRESTORE
 // ============================================================================
@@ -944,7 +927,6 @@ app.get("/api/public/vocab-sets", async (req, res) => {
 // 7. PUBLIC GAME RESULTS: Minimal completed sessions for the student golden board
 app.get("/api/public/results", async (req, res) => {
   try {
-    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list: any[] = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
@@ -1490,7 +1472,6 @@ app.post("/api/pronunciation-attempts", async (req, res) => {
 // 22. GAME RESULTS: Get all finished game sessions
 app.get("/api/results", authenticateUser, async (req, res) => {
   try {
-    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list: any[] = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
@@ -1647,7 +1628,6 @@ async function start() {
   firebaseDiagnosticReady
     .then(async () => {
       await preSeedDb();
-      await cleanupExpiredGameSessions();
     })
     .catch((err) => {
       console.error("Background Firebase startup tasks failed", err);

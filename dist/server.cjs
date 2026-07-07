@@ -871,8 +871,21 @@ if (isSQLiteStorageMode) {
 var LocalDbEngine = class {
   constructor() {
     this.memoryCache = null;
-    this.filePath = import_path2.default.join(process.cwd(), "db.json");
+    this.filePath = process.env.LOCAL_DB_PATH || "/home/qzmivzbj/app-data/vhomework/db.json";
+    this.ensurePersistentFile();
     this.load();
+  }
+  ensurePersistentFile() {
+    const legacyPath = import_path2.default.join(process.cwd(), "db.json");
+    try {
+      import_fs2.default.mkdirSync(import_path2.default.dirname(this.filePath), { recursive: true });
+      if (!import_fs2.default.existsSync(this.filePath) && import_fs2.default.existsSync(legacyPath)) {
+        import_fs2.default.copyFileSync(legacyPath, this.filePath);
+      }
+    } catch (err) {
+      console.error("LocalDbEngine failed to prepare persistent database:", err);
+      this.filePath = legacyPath;
+    }
   }
   mapCollectionKey(name) {
     const lower = name.toLowerCase();
@@ -1325,20 +1338,6 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
   const createdOrCompleted = data.createdAt || data.completedAt || data.endedAt;
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
-}
-async function cleanupExpiredGameSessions() {
-  const snapshot = await adminDb.collection("game_sessions").get();
-  const nowMs = Date.now();
-  const deletions = [];
-  snapshot.forEach((doc) => {
-    const data = doc.data();
-    if (isExpiredActivity(data, nowMs)) {
-      deletions.push(adminDb.collection("game_sessions").doc(doc.id).delete());
-    }
-  });
-  if (deletions.length > 0) {
-    await Promise.all(deletions);
-  }
 }
 var preSeedDb = async () => {
   try {
@@ -2000,7 +1999,6 @@ app2.get("/api/public/vocab-sets", async (req, res) => {
 });
 app2.get("/api/public/results", async (req, res) => {
   try {
-    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
@@ -2443,7 +2441,6 @@ app2.post("/api/pronunciation-attempts", async (req, res) => {
 });
 app2.get("/api/results", authenticateUser, async (req, res) => {
   try {
-    await cleanupExpiredGameSessions();
     const snapshot = await adminDb.collection("game_sessions").get();
     const list = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
@@ -2561,7 +2558,6 @@ async function start() {
   });
   firebaseDiagnosticReady.then(async () => {
     await preSeedDb();
-    await cleanupExpiredGameSessions();
   }).catch((err) => {
     console.error("Background Firebase startup tasks failed", err);
   });

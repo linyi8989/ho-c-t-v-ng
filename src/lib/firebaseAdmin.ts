@@ -51,8 +51,22 @@ class LocalDbEngine {
   private memoryCache: any = null;
 
   constructor() {
-    this.filePath = path.join(process.cwd(), "db.json");
+    this.filePath = process.env.LOCAL_DB_PATH || "/home/qzmivzbj/app-data/vhomework/db.json";
+    this.ensurePersistentFile();
     this.load();
+  }
+
+  private ensurePersistentFile() {
+    const legacyPath = path.join(process.cwd(), "db.json");
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      if (!fs.existsSync(this.filePath) && fs.existsSync(legacyPath)) {
+        fs.copyFileSync(legacyPath, this.filePath);
+      }
+    } catch (err) {
+      console.error("LocalDbEngine failed to prepare persistent database:", err);
+      this.filePath = legacyPath;
+    }
   }
 
   private mapCollectionKey(name: string): string {
