@@ -294,27 +294,53 @@ export default function StudentLearningArea({
 
     switch (selectedGame.componentName) {
       case 'FlashcardGame':
-        return <FlashcardGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <FlashcardGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'QuizGame':
-        return <QuizGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <QuizGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'FillBlankGame':
-        return <FillBlankGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <FillBlankGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'MatchingGame':
-        return <MatchingGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <MatchingGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'MemoryGame':
-        return <MemoryGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <MemoryGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'MillionaireGame':
-        return <MillionaireGame {...gameProps} />;
+        return (
+          <React.Fragment key={selectedGame.gameId}>
+            <MillionaireGame {...gameProps} />
+          </React.Fragment>
+        );
       case 'SpeakingAIGame':
         return (
-          <SpeakingAIGame
-            {...gameProps}
-            studentId={guestId}
-            studentName={studentName}
-            vocabularySetId={vocabSet.id}
-            gameSessionId={session?.id}
-            authToken={token}
-          />
+          <React.Fragment key={selectedGame.gameId}>
+            <SpeakingAIGame
+              {...gameProps}
+              studentId={guestId}
+              studentName={studentName}
+              vocabularySetId={vocabSet.id}
+              gameSessionId={session?.id}
+              authToken={token}
+            />
+          </React.Fragment>
         );
       default:
         return (

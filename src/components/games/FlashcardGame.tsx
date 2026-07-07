@@ -42,13 +42,14 @@ export default function FlashcardGame({
   const isSoundOn = !isMuted;
   const currentItem = items[currentIndex];
 
-  // Reset indices and counts when items change (e.g. from parent shuffles)
+  // Reset indices and counts when the deck or flashcard mode changes.
   useEffect(() => {
     setCurrentIndex(0);
     setIsFlipped(false);
     setLearnedCount({});
     setIsCompleted(false);
-  }, [items]);
+    setIsAutoNextOn(false);
+  }, [items, config]);
 
   // Auto-pronounce on word change
   useEffect(() => {
