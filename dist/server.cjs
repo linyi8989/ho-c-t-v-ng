@@ -2251,15 +2251,56 @@ app2.get("/api/vocab-sets/share/:token", async (req, res) => {
     if (!token) {
       return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
     }
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    let found = null;
-    snapshot.forEach((doc) => {
-      const set = doc.data();
-      const setToken = set.shareToken || set.assignmentSlug;
-      if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
-        found = normalizeVocabSetForSave(set, set);
+    const assignmentsSnapshot = await adminDb.collection("assignments").get();
+    const assignments = [];
+    let matchedAssignment = null;
+    assignmentsSnapshot.forEach((doc) => {
+      const assignment = { id: doc.id, ...doc.data() };
+      assignments.push(assignment);
+      const assignmentToken = assignment.shareToken || assignment.assignmentSlug || assignment.id;
+      if (!matchedAssignment && assignmentToken === token) {
+        matchedAssignment = assignment;
       }
     });
+    const snapshot = await adminDb.collection("vocab_sets").get();
+    let found = null;
+    if (matchedAssignment) {
+      snapshot.forEach((doc) => {
+        const set = { id: doc.id, ...doc.data() };
+        if (!found && set.id === matchedAssignment.vocabSetId) {
+          found = {
+            ...normalizeVocabSetForSave(set, set),
+            assignmentId: matchedAssignment.id,
+            assignmentGameId: matchedAssignment.gameId,
+            assignmentTitle: matchedAssignment.title,
+            classId: matchedAssignment.classId,
+            className: matchedAssignment.className
+          };
+        }
+      });
+    } else {
+      snapshot.forEach((doc) => {
+        const set = { id: doc.id, ...doc.data() };
+        const setToken = set.shareToken || set.assignmentSlug;
+        if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
+          found = normalizeVocabSetForSave(set, set);
+        }
+      });
+      if (found) {
+        const matchingAssignments = assignments.filter((assignment) => assignment.vocabSetId === found.id);
+        if (matchingAssignments.length === 1) {
+          const assignment = matchingAssignments[0];
+          found = {
+            ...found,
+            assignmentId: assignment.id,
+            assignmentGameId: assignment.gameId,
+            assignmentTitle: assignment.title,
+            classId: assignment.classId,
+            className: assignment.className
+          };
+        }
+      }
+    }
     if (!found) {
       return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
     }
@@ -2681,9 +2722,12 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const payload = req.body;
     const id = `assign-${Date.now()}`;
+    const shareToken = payload.shareToken || payload.assignmentSlug || createShareToken();
     const newAssign = {
       ...payload,
       id,
+      shareToken,
+      assignmentSlug: shareToken,
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id
     };

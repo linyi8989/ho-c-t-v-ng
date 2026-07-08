@@ -68,12 +68,19 @@ export interface VocabSet {
   visibility?: 'public' | 'assignment' | 'draft';
   shareToken?: string;
   assignmentSlug?: string;
+  assignmentId?: string;
+  assignmentGameId?: string;
+  classId?: string;
+  className?: string;
+  assignmentTitle?: string;
   ttsSettings?: TtsSettings;
   items: VocabItem[];
 }
 
 export interface Assignment {
   id: string;
+  shareToken?: string;
+  assignmentSlug?: string;
   classId: string;
   className: string;
   vocabSetId: string;

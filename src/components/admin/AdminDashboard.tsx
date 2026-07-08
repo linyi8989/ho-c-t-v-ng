@@ -31,6 +31,11 @@ const getAssignmentLink = (set: VocabSet) => {
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
 
+const getAssignmentRecordLink = (assignment: Assignment) => {
+  const token = assignment.shareToken || assignment.assignmentSlug || assignment.id;
+  return token ? `${window.location.origin}/assignment/${token}` : '';
+};
+
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
   autoGenerate: false,
   provider: 'ai33',
@@ -2627,7 +2632,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   {assignments.length === 0 ? (
                     <div className="text-center py-16 text-gray-400 text-sm font-medium">Cô chưa giao bài tập nào cho học sinh.</div>
                   ) : (
-                    assignments.map((assign) => (
+                    assignments.map((assign) => {
+                      const assignmentLink = getAssignmentRecordLink(assign);
+                      return (
                       <div key={assign.id} className="p-4 bg-gray-50/50 border border-gray-100 rounded-3xl flex justify-between items-center" id={`assignment-strip-${assign.id}`}>
                         <div className="space-y-1">
                           <h4 className="font-extrabold text-gray-800 text-base leading-tight">{assign.title}</h4>
@@ -2646,12 +2653,37 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           </div>
                         </div>
 
+                        <div className="flex items-center gap-2 pt-2">
+                          <input
+                            value={assignmentLink}
+                            readOnly
+                            className="min-w-0 max-w-[340px] bg-white border border-indigo-100 rounded-xl px-3 py-2 text-[11px] font-semibold text-gray-600"
+                          />
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(assignmentLink);
+                              showNotification("Da copy link bai giao.");
+                            }}
+                            className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer border border-indigo-100"
+                            title="Copy link bai giao"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+
                         <div className="flex space-x-1 shrink-0">
                           <button
                             onClick={() => {
                               const foundSet = vocabSets.find(s => s.id === assign.vocabSetId);
                               if (foundSet) {
-                                onViewAsStudent(foundSet, assign.gameId, assign.id);
+                                onViewAsStudent({
+                                  ...foundSet,
+                                  assignmentId: assign.id,
+                                  assignmentGameId: assign.gameId,
+                                  classId: assign.classId,
+                                  className: assign.className,
+                                  assignmentTitle: assign.title
+                                }, assign.gameId, assign.id);
                               }
                             }}
                             className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer"
@@ -2668,7 +2700,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           </button>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

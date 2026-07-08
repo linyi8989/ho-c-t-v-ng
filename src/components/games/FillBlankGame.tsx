@@ -20,6 +20,14 @@ interface FillBlankGameProps {
   onToggleFullscreen: () => void;
 }
 
+function normalizeAnswerText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[‘’‚‛`´]/g, "'")
+    .replace(/\s+/g, ' ');
+}
+
 export default function FillBlankGame({
   items,
   config,
@@ -114,8 +122,8 @@ export default function FillBlankGame({
     e.preventDefault();
     if (isSubmitted || !userInput.trim()) return;
 
-    const cleanInput = userInput.trim().toLowerCase();
-    const cleanTarget = targetWord.toLowerCase();
+    const cleanInput = normalizeAnswerText(userInput);
+    const cleanTarget = normalizeAnswerText(targetWord);
 
     const matched = cleanInput === cleanTarget;
     setIsCorrect(matched);
@@ -289,7 +297,7 @@ export default function FillBlankGame({
           <button
             type="submit"
             disabled={!userInput.trim()}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-lg rounded-2xl transition-all shadow-md active:scale-98 cursor-pointer flex items-center justify-center space-x-2"
+            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 border border-blue-700 disabled:bg-blue-100 disabled:text-blue-700 disabled:border-blue-200 text-white font-black text-lg rounded-2xl transition-all shadow-lg shadow-indigo-100 active:scale-98 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed flex items-center justify-center space-x-2"
             id="submit-answer-btn"
           >
             <span>KIỂM TRA ĐÁP ÁN</span>

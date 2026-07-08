@@ -391,7 +391,10 @@ export default function App() {
       <StudentLearningArea
         vocabSet={privateAssignmentSet}
         studentName=""
-        initialGameId={undefined}
+        assignmentId={privateAssignmentSet.assignmentId}
+        assignmentClassId={privateAssignmentSet.classId}
+        assignmentClassName={privateAssignmentSet.className}
+        initialGameId={privateAssignmentSet.assignmentGameId}
         onBack={() => { window.location.href = '/'; }}
       />
     );
@@ -428,6 +431,8 @@ export default function App() {
         vocabSet={selectedSet}
         studentName={studentName}
         assignmentId={activeAssignmentId}
+        assignmentClassId={selectedSet.classId}
+        assignmentClassName={selectedSet.className}
         initialGameId={activeGameId}
         onBack={() => {
           setSelectedSet(null);

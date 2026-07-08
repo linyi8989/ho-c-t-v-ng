@@ -22,6 +22,8 @@ interface StudentLearningAreaProps {
   vocabSet: VocabSet;
   studentName: string;
   assignmentId?: string;
+  assignmentClassId?: string;
+  assignmentClassName?: string;
   initialGameId?: string;
   onBack: () => void;
 }
@@ -90,6 +92,8 @@ export default function StudentLearningArea({
   vocabSet, 
   studentName: propStudentName, 
   assignmentId, 
+  assignmentClassId,
+  assignmentClassName,
   initialGameId, 
   onBack 
 }: StudentLearningAreaProps) {
@@ -204,7 +208,9 @@ export default function StudentLearningArea({
         gameType: selectedGame.category,
         studentName: studentName,
         studentId: guestId,
-        guestId
+        guestId,
+        classId: assignmentClassId || vocabSet.classId || undefined,
+        className: assignmentClassName || vocabSet.className || undefined
       })
     })
     .then(res => {
@@ -232,6 +238,8 @@ export default function StudentLearningArea({
           studentName: studentName,
           studentId: guestId,
           guestId,
+          classId: assignmentClassId || vocabSet.classId || '',
+          className: assignmentClassName || vocabSet.className || '',
           score: 0,
           totalQuestions: 0,
           correctAnswers: 0,
@@ -247,7 +255,7 @@ export default function StudentLearningArea({
         console.error("Direct Firestore game session creation failed:", firestoreErr);
       }
     });
-  }, [selectedGame, nameSubmitted, studentName, guestId, vocabSet, assignmentId, token]);
+  }, [selectedGame, nameSubmitted, studentName, guestId, vocabSet, assignmentId, assignmentClassId, assignmentClassName, token]);
 
   const handleShuffle = () => {
     if (isRandomized) {

@@ -12,6 +12,7 @@ export interface LeaderboardFilters {
 export interface LeaderboardEntry {
   studentKey?: string;
   studentName: string;
+  classId?: string;
   completedLessons: number;
   correctAnswers: number;
   incorrectAnswers: number;
@@ -79,6 +80,11 @@ function getSessionClassName(session: GameSession, assignments: Assignment[]) {
   return assignments.find(assign => assign.id === session.assignmentId)?.className || '';
 }
 
+function getLeaderboardStudentKey(session: GameSession, assignments: Assignment[]) {
+  const classId = getSessionClassId(session, assignments);
+  return [getStudentIdentity(session), classId || 'no-class'].join('|');
+}
+
 function isBetterSession(candidate: GameSession, current: GameSession | undefined) {
   if (!current) return true;
   const candidateTotal = Math.max(1, candidate.correctAnswers + candidate.incorrectAnswers || candidate.totalQuestions || 0);
@@ -110,6 +116,7 @@ function getBestSessions(
 
     const key = [
       getStudentIdentity(session),
+      getSessionClassId(session, assignments) || 'no-class',
       session.vocabSetId || 'unknown-set',
       session.gameId || 'unknown-game'
     ].join('|');
@@ -126,10 +133,12 @@ function summarizeSessions(bestSessions: GameSession[], assignments: Assignment[
   const byStudent = new Map<string, LeaderboardEntry>();
 
   for (const session of bestSessions) {
-    const key = getStudentIdentity(session);
+    const key = getLeaderboardStudentKey(session, assignments);
+    const classId = getSessionClassId(session, assignments);
     const completedAt = sessionCompletedAt(session);
     const entry = byStudent.get(key) || {
       studentName: session.studentName || 'Học sinh',
+      classId,
       completedLessons: 0,
       correctAnswers: 0,
       incorrectAnswers: 0,

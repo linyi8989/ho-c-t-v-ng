@@ -881,6 +881,9 @@ Registry:
 - The in-game leaderboard supports a class filter beside the week/month filter.
 - Student names in the in-game leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
 - `/api/public/results` returns `classId`/`className`; old sessions are backfilled at read time from `assignmentId`, and new sessions store class metadata when created.
+- Assignment links must use assignment-level tokens (`assignments.shareToken` / `assignmentSlug` / id), not only vocab-set share links. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
+- `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; the session keeps the class at the time of the assigned work. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
+- Legacy sessions without `assignmentId` and without `classId`/`className` cannot be reliably class-filtered. Do not infer class only from `studentName`, because names can duplicate and students can move classes.
 
 ### UI Theme
 
