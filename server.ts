@@ -355,6 +355,14 @@ async function generateCachedTtsAudio(inputText: string, settings: Required<TtsS
     };
   }
 
+  if (force && fs.existsSync(targetPath)) {
+    try {
+      fs.unlinkSync(targetPath);
+    } catch (err) {
+      console.warn("Could not remove old TTS cache before regeneration:", err);
+    }
+  }
+
   const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
   const providerAudioUrl = await pollAi33AudioUrl(taskId);
   await downloadAudioToCache(providerAudioUrl, targetPath);

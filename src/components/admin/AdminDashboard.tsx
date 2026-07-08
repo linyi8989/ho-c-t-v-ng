@@ -67,6 +67,41 @@ function getSessionEndTime(session: GameSession) {
   return session.endedAt || session.completedAt;
 }
 
+type ParsedBulkVocabularyRow = Pick<VocabItem, 'term' | 'meaning' | 'ipa' | 'pos' | 'example' | 'exampleMeaning'>;
+
+function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow[]; errors: string[] } {
+  const rows: ParsedBulkVocabularyRow[] = [];
+  const errors: string[] = [];
+
+  input.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line) return;
+
+    const parts = line.split('|').map(part => part.trim());
+    if (parts.length < 2 || parts.length > 4) {
+      errors.push(`Dong ${index + 1}: sai dinh dang. Hay dung word | meaning | ipa | partOfSpeech.`);
+      return;
+    }
+
+    const [term = '', meaning = '', ipa = '', pos = ''] = parts;
+    if (!term || !meaning) {
+      errors.push(`Dong ${index + 1}: thieu tu tieng Anh hoac nghia tieng Viet.`);
+      return;
+    }
+
+    rows.push({
+      term,
+      meaning,
+      ipa,
+      pos,
+      example: '',
+      exampleMeaning: ''
+    });
+  });
+
+  return { rows, errors };
+}
+
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -117,6 +152,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [batchPartsOfSpeech, setBatchPartsOfSpeech] = useState('');
   const [batchExamples, setBatchExamples] = useState('');
   const [batchExampleMeanings, setBatchExampleMeanings] = useState('');
+  const [batchVocabularyText, setBatchVocabularyText] = useState('');
 
   // AI Generation States
   const [aiTopic, setAiTopic] = useState('');
@@ -430,7 +466,16 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       return;
     }
 
-    setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '', audioWarnings: [] } : item));
+    setEditorItems(prev => prev.map(item => item.id === itemId ? {
+      ...item,
+      audioUrl: force ? '' : item.audioUrl,
+      audioPath: force ? '' : item.audioPath,
+      audioHash: force ? '' : item.audioHash,
+      audioStatus: 'generating',
+      audioError: '',
+      audioWarnings: [],
+      audioUpdatedAt: new Date().toISOString()
+    } : item));
     try {
       const res = await authFetch('/api/tts/preview', {
         method: 'POST',
@@ -466,7 +511,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         audioUpdatedAt: new Date().toISOString(),
         audioGeneratedAt: new Date().toISOString()
       } : item));
-      showNotification('Da tao audio cho tu nay. Bam luu bo tu de luu metadata audio.');
+      showNotification(force
+        ? 'Da tao lai audio cho tu nay. Bam luu bo tu de luu metadata audio.'
+        : 'Da tao audio cho tu nay. Bam luu bo tu de luu metadata audio.'
+      );
     } catch (err: any) {
       setEditorItems(prev => prev.map(item => item.id === itemId ? {
         ...item,
@@ -547,6 +595,34 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
   // Batch import text converter (Ghép nhanh nhiều dòng)
   const handleProcessBatchAdd = () => {
+    const parsed = parseBulkVocabularyText(batchVocabularyText);
+
+    if (!batchVocabularyText.trim()) {
+      showNotification("Hay dan du lieu tu vung truoc khi ghep.", "error");
+      return;
+    }
+
+    if (parsed.errors.length > 0) {
+      showNotification(parsed.errors.slice(0, 3).join(' '), "error");
+      return;
+    }
+
+    if (parsed.rows.length === 0) {
+      showNotification("Khong co dong du lieu hop le de ghep.", "error");
+      return;
+    }
+
+    const importedItems: VocabItem[] = parsed.rows.map((row, index) => ({
+      id: `item-${Date.now()}-${index}`,
+      ...row,
+      displayOrder: editorItems.length + index + 1
+    }));
+
+    setEditorItems([...editorItems, ...importedItems]);
+    setBatchVocabularyText('');
+    showNotification(`Da ghep thanh cong ${importedItems.length} tu vung vao bang.`);
+    return;
+
     const splitLines = (value: string) => value.split('\n').map(line => line.trim());
     const terms = splitLines(batchTerms);
     const meanings = splitLines(batchMeanings);
@@ -570,12 +646,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       examples.length,
       exampleMeanings.length
     );
-    const importedItems: VocabItem[] = [];
+    const legacyImportedItems: VocabItem[] = [];
 
     for (let i = 0; i < linesCount; i++) {
       if (!terms[i] && !meanings[i]) continue;
 
-      importedItems.push({
+      legacyImportedItems.push({
         id: `item-${Date.now()}-${i}`,
         term: terms[i] || '',
         meaning: meanings[i] || nonEmptyMeanings[nonEmptyMeanings.length - 1] || '',
@@ -587,7 +663,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       });
     }
 
-    setEditorItems([...editorItems, ...importedItems]);
+    setEditorItems([...editorItems, ...legacyImportedItems]);
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
@@ -1933,7 +2009,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     <Volume2 size={18} className="text-indigo-600" />
                     <h3 className="font-extrabold text-gray-800 text-sm">CÃ i Ä‘áº·t phÃ¡t Ã¢m TTS</h3>
                   </div>
-                  <p className="text-xs text-gray-400 font-medium">
+                  <p className="hidden">
+                    Moi dong mot tu theo dang: word | meaning | ipa | partOfSpeech.
+                  </p>
+                  <p className="hidden">
                     Táº¡o audio ná»n sau khi lÆ°u. Há»c sinh sáº½ phÃ¡t file Ä‘Ã£ cache, khÃ´ng gá»i TTS má»—i láº§n nghe.
                   </p>
                 </div>
@@ -2028,13 +2107,26 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                     <ListPlus className="text-indigo-600" size={20} />
                     <h3 className="font-extrabold text-gray-800 text-base">Nhập nhanh từ vựng nhiều dòng</h3>
                   </div>
-                  <p className="text-xs text-gray-400 font-medium">
+                  <p className="text-xs text-gray-500 font-semibold">
+                    Moi dong mot tu theo dang: word | meaning | ipa | partOfSpeech.
+                  </p>
+                  <p className="hidden">
                     Mỗi dòng ở các ô bên dưới sẽ ghép thành một dòng tương ứng trong bảng từ vựng.
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-gray-500">D&#225;n d&#7919; li&#7879;u t&#7915; v&#7921;ng</label>
+                <textarea
+                  value={batchVocabularyText}
+                  onChange={(e) => setBatchVocabularyText(e.target.value)}
+                  placeholder={'traffic | giao th\u00f4ng | /\u02c8tr\u00e6f\u026ak/ | noun\nroad | con \u0111\u01b0\u1eddng | /r\u0259\u028ad/ | noun\nturn | r\u1ebd, l\u01b0\u1ee3t | /t\u025c\u02d0n/ | verb, noun'}
+                  className="w-full min-h-[220px] p-4 bg-gray-50 rounded-2xl border border-gray-100 outline-none font-mono text-sm leading-7 focus:bg-white focus:border-indigo-400 resize-y"
+                />
+              </div>
+
+              <div className="hidden">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase text-gray-400">Cột từ tiếng Anh *</label>
                   <textarea
@@ -2098,7 +2190,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
 
               <button
                 onClick={handleProcessBatchAdd}
-                disabled={!batchTerms.trim() || !batchMeanings.trim()}
+                disabled={!batchVocabularyText.trim()}
                 className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-50 disabled:text-gray-300 text-indigo-700 font-bold rounded-xl transition-all border border-indigo-100 text-sm cursor-pointer"
                 id="process-batch-btn"
               >
@@ -2294,7 +2386,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                   {item.audioWarnings[0]}
                                 </span>
                               )}
-                              <div className="flex items-center gap-1">
+                              <div className="flex flex-wrap items-center gap-1">
                                 <button
                                   type="button"
                                   onClick={() => handlePlayItemAudio(item)}
@@ -2306,12 +2398,33 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleGenerateItemAudioBeforeSave(item.id, Boolean(item.audioUrl || item.audioStatus === 'failed'))}
-                                  disabled={!item.term.trim()}
-                                  className="p-2 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
+                                  onClick={() => handleGenerateItemAudioBeforeSave(item.id, false)}
+                                  disabled={
+                                    !item.term.trim() ||
+                                    item.audioStatus === 'generating' ||
+                                    item.audioStatus === 'queued' ||
+                                    Boolean(item.audioUrl || item.audioHash || item.audioStatus === 'ready')
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-2 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                                  title="Tao audio moi cho dong nay"
+                                >
+                                  <Play size={13} />
+                                  <span className="text-[10px] font-black">Tao</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateItemAudioBeforeSave(item.id, true)}
+                                  disabled={
+                                    !item.term.trim() ||
+                                    item.audioStatus === 'generating' ||
+                                    item.audioStatus === 'queued' ||
+                                    (!item.audioUrl && !item.audioHash && item.audioStatus !== 'failed')
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-2 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
                                   title="Tạo hoặc tạo lại audio cho dòng này"
                                 >
                                   <RefreshCw size={13} />
+                                  <span className="text-[10px] font-black">Tao lai</span>
                                 </button>
                               </div>
                             </div>

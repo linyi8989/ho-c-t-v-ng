@@ -370,6 +370,11 @@ body,
   color: currentColor !important;
 }
 
+#vocab-editor-table th:nth-child(6),
+#vocab-editor-table td:nth-child(6) {
+  display: none !important;
+}
+
 body::before {
   background: #ffffff !important;
   background-image: none !important;
