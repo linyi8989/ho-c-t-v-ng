@@ -857,11 +857,6 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       } else {
         setShareLinkNotice(null);
       }
-      if (ttsSettings.autoGenerate && data.id) {
-        setTtsQueuedSetId(data.id);
-        showNotification("Luu bo tu thanh cong. Audio con thieu dang duoc tao nen.");
-        setTimeout(() => refreshEditorAudioStatus(data.id), 3000);
-      }
       refreshData();
       setActiveTab('vocab-sets');
     })
@@ -1798,16 +1793,6 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       T&#7841;o audio tr&#432;&#7899;c khi l&#432;u. Khi b&#7845;m L&#432;u b&#7897; t&#7915;, metadata audio s&#7869; &#273;&#432;&#7907;c l&#432;u c&#249;ng t&#7915; v&#7921;ng.
                     </p>
                   </div>
-
-                  <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 font-bold text-xs w-fit">
-                    <input
-                      type="checkbox"
-                      checked={ttsSettings.autoGenerate}
-                      onChange={(e) => updateTtsSettings({ autoGenerate: e.target.checked })}
-                      className="accent-indigo-600"
-                    />
-                    <span>T&#7921; t&#7841;o audio c&#242;n thi&#7871;u sau khi l&#432;u</span>
-                  </label>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -1865,25 +1850,6 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePreviewTtsVoice}
-                    disabled={isPreviewingTts || !ttsSettings.voice.trim()}
-                    className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2"
-                  >
-                    <Volume2 size={14} />
-                    <span>{isPreviewingTts ? 'Dang tao...' : 'Nghe thu voice id'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCheckAudioStatusSmart}
-                    className="py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-black text-xs border border-slate-200 flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw size={14} />
-                    <span>Ki&#7875;m tra audio</span>
-                  </button>
-                </div>
               </div>
             </div>
 

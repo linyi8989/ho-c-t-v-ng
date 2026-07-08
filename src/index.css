@@ -375,6 +375,10 @@ body,
   display: none !important;
 }
 
+#check-audio-status-btn {
+  display: none !important;
+}
+
 body::before {
   background: #ffffff !important;
   background-image: none !important;
