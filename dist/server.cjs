@@ -25,6 +25,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var import_express = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
+var import_fs3 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
 var import_genai = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -1246,7 +1247,11 @@ async function getStorageDiagnostics() {
 import_dotenv.default.config();
 var app2 = (0, import_express.default)();
 var PORT = Number(process.env.PORT) || 3e3;
+var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
+var AUDIO_PUBLIC_PREFIX = "/audio";
 app2.use(import_express.default.json());
+import_fs3.default.mkdirSync(AUDIO_DIR, { recursive: true });
+app2.use(AUDIO_PUBLIC_PREFIX, import_express.default.static(AUDIO_DIR));
 async function logAuditAction(userId, userName, userEmail, action, details) {
   try {
     const logId = `log-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
@@ -1336,6 +1341,227 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
   const createdOrCompleted = data.createdAt || data.completedAt || data.endedAt;
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
+}
+var DEFAULT_TTS_PROVIDER = "ai33";
+var DEFAULT_TTS_LANG = "en-US";
+var DEFAULT_TTS_SPEED = 1;
+var DEFAULT_TTS_VOICE_BY_LANG = {
+  "en-US": "edge_en-US-AriaNeural",
+  "en-GB": "edge_en-GB-SoniaNeural"
+};
+var ttsQueue = [];
+var isProcessingTtsQueue = false;
+function normalizeTtsText(text) {
+  return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+function normalizeTtsSettings(settings = {}) {
+  const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
+  const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  return {
+    autoGenerate: Boolean(settings.autoGenerate),
+    provider: settings.provider || DEFAULT_TTS_PROVIDER,
+    voice: settings.voice || DEFAULT_TTS_VOICE_BY_LANG[lang] || DEFAULT_TTS_VOICE_BY_LANG[DEFAULT_TTS_LANG],
+    lang,
+    speed
+  };
+}
+function createAudioHash(text, settings) {
+  const normalizedText = normalizeTtsText(text);
+  return import_crypto.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${settings.speed}|${normalizedText}`).digest("hex");
+}
+function audioFileName(audioHash) {
+  return `${audioHash}.mp3`;
+}
+function audioFilePath(audioHash) {
+  return import_path3.default.join(AUDIO_DIR, audioFileName(audioHash));
+}
+function audioPublicUrl(audioHash) {
+  return `${AUDIO_PUBLIC_PREFIX}/${audioFileName(audioHash)}`;
+}
+function getAi33ApiKey() {
+  return process.env.AI33_API_KEY || process.env.TTS_API_KEY || "";
+}
+function getAi33TaskUrl(taskId) {
+  const template = process.env.AI33_TASK_STATUS_URL_TEMPLATE || "https://api.ai33.pro/v1/task/{taskId}";
+  return template.replace("{taskId}", encodeURIComponent(taskId));
+}
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function requestAi33TtsTask(text, settings, fileName) {
+  const apiKey = getAi33ApiKey();
+  if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
+  const form = new FormData();
+  form.set("text", text);
+  form.set("voice_id", settings.voice);
+  form.set("speed", String(settings.speed));
+  form.set("with_transcript", "false");
+  form.set("file_name", fileName);
+  const res = await fetch("https://api.ai33.pro/v3/text-to-speech", {
+    method: "POST",
+    headers: { "xi-api-key": apiKey },
+    body: form
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success || !data.task_id) {
+    throw new Error(data.error || data.message || `TTS request failed with HTTP ${res.status}`);
+  }
+  return data.task_id;
+}
+async function pollAi33AudioUrl(taskId) {
+  const apiKey = getAi33ApiKey();
+  if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
+  const maxAttempts = Number(process.env.AI33_TTS_POLL_ATTEMPTS || 24);
+  const intervalMs = Number(process.env.AI33_TTS_POLL_INTERVAL_MS || 2500);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await delay(intervalMs);
+    const res = await fetch(getAi33TaskUrl(taskId), {
+      headers: { "xi-api-key": apiKey }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || `TTS status failed with HTTP ${res.status}`);
+    const status = String(data.status || "").toLowerCase();
+    if (status === "failed" || status === "error") {
+      throw new Error(data.error_message || data.error || "TTS task failed.");
+    }
+    const audioUrl = data.metadata?.audio_url || data.metadata?.output_uri || data.output_uri || data.audio_url;
+    if ((status === "done" || status === "completed" || status === "success") && audioUrl) {
+      return audioUrl;
+    }
+  }
+  throw new Error("TTS task timed out before audio was ready.");
+}
+async function downloadAudioToCache(sourceUrl, targetPath) {
+  const res = await fetch(sourceUrl);
+  if (!res.ok) throw new Error(`Audio download failed with HTTP ${res.status}`);
+  const arrayBuffer = await res.arrayBuffer();
+  import_fs3.default.mkdirSync(import_path3.default.dirname(targetPath), { recursive: true });
+  import_fs3.default.writeFileSync(targetPath, Buffer.from(arrayBuffer));
+}
+async function generateCachedTtsAudio(text, settings) {
+  const audioHash = createAudioHash(text, settings);
+  const targetPath = audioFilePath(audioHash);
+  const targetUrl = audioPublicUrl(audioHash);
+  if (import_fs3.default.existsSync(targetPath)) {
+    return { audioHash, audioPath: targetPath, audioUrl: targetUrl, cached: true };
+  }
+  const taskId = await requestAi33TtsTask(text, settings, audioFileName(audioHash));
+  const providerAudioUrl = await pollAi33AudioUrl(taskId);
+  await downloadAudioToCache(providerAudioUrl, targetPath);
+  return { audioHash, audioPath: targetPath, audioUrl: targetUrl, cached: false };
+}
+function mergeItemAudioState(item, patch) {
+  return {
+    ...item,
+    ...patch,
+    audioUpdatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function saveVocabSetItems(vocabSetId, items) {
+  const docRef = adminDb.collection("vocab_sets").doc(vocabSetId);
+  const latestDoc = await docRef.get();
+  if (!latestDoc.exists) return;
+  const latest = latestDoc.data();
+  await docRef.set(normalizeVocabSetForSave({ ...latest, items }, latest));
+}
+function enqueueVocabSetAudio(vocabSetId, settings, itemIds, force = false) {
+  ttsQueue.push({
+    vocabSetId,
+    settings: normalizeTtsSettings(settings),
+    itemIds,
+    force
+  });
+  processTtsQueue().catch((err) => console.error("TTS queue failed:", err));
+}
+async function processTtsQueue() {
+  if (isProcessingTtsQueue) return;
+  isProcessingTtsQueue = true;
+  try {
+    while (ttsQueue.length > 0) {
+      const job = ttsQueue.shift();
+      if (!job) continue;
+      await processVocabSetAudioJob(job);
+    }
+  } finally {
+    isProcessingTtsQueue = false;
+  }
+}
+async function processVocabSetAudioJob(job) {
+  const docRef = adminDb.collection("vocab_sets").doc(job.vocabSetId);
+  const doc = await docRef.get();
+  if (!doc.exists) return;
+  let set = doc.data();
+  let items = Array.isArray(set.items) ? [...set.items] : [];
+  const selected = new Set(job.itemIds || items.map((item) => item.id));
+  for (const item of items) {
+    if (!selected.has(item.id)) continue;
+    const text = String(item.term || "").trim();
+    if (!text) continue;
+    const audioHash = createAudioHash(text, job.settings);
+    const targetPath = audioFilePath(audioHash);
+    const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs3.default.existsSync(targetPath);
+    if (existingReady) continue;
+    if (!job.force && import_fs3.default.existsSync(targetPath)) {
+      items = items.map(
+        (current) => current.id === item.id ? mergeItemAudioState(current, {
+          audioUrl: audioPublicUrl(audioHash),
+          audioPath: targetPath,
+          audioHash,
+          audioStatus: "ready",
+          audioError: "",
+          ttsProvider: job.settings.provider,
+          ttsVoice: job.settings.voice,
+          ttsLang: job.settings.lang,
+          ttsSpeed: job.settings.speed,
+          audioGeneratedAt: current.audioGeneratedAt || (/* @__PURE__ */ new Date()).toISOString()
+        }) : current
+      );
+      await saveVocabSetItems(job.vocabSetId, items);
+      continue;
+    }
+    items = items.map(
+      (current) => current.id === item.id ? mergeItemAudioState(current, {
+        audioHash,
+        audioStatus: "generating",
+        audioError: "",
+        ttsProvider: job.settings.provider,
+        ttsVoice: job.settings.voice,
+        ttsLang: job.settings.lang,
+        ttsSpeed: job.settings.speed
+      }) : current
+    );
+    await saveVocabSetItems(job.vocabSetId, items);
+    try {
+      const result = await generateCachedTtsAudio(text, job.settings);
+      items = items.map(
+        (current) => current.id === item.id ? mergeItemAudioState(current, {
+          audioUrl: result.audioUrl,
+          audioPath: result.audioPath,
+          audioHash: result.audioHash,
+          audioStatus: "ready",
+          audioError: "",
+          ttsProvider: job.settings.provider,
+          ttsVoice: job.settings.voice,
+          ttsLang: job.settings.lang,
+          ttsSpeed: job.settings.speed,
+          audioGeneratedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }) : current
+      );
+    } catch (err) {
+      items = items.map(
+        (current) => current.id === item.id ? mergeItemAudioState(current, {
+          audioHash,
+          audioStatus: "failed",
+          audioError: err.message || "TTS generation failed.",
+          ttsProvider: job.settings.provider,
+          ttsVoice: job.settings.voice,
+          ttsLang: job.settings.lang,
+          ttsSpeed: job.settings.speed
+        }) : current
+      );
+    }
+    await saveVocabSetItems(job.vocabSetId, items);
+  }
 }
 var preSeedDb = async () => {
   try {
@@ -2083,6 +2309,9 @@ app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_ad
       creatorName: req.user.name
     });
     await adminDb.collection("vocab_sets").doc(id).set(newSet);
+    if (newSet.ttsSettings?.autoGenerate) {
+      enqueueVocabSetAudio(id, newSet.ttsSettings);
+    }
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -2107,6 +2336,9 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
     }
     const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
     await docRef.set(updatedSet);
+    if (updatedSet.ttsSettings?.autoGenerate) {
+      enqueueVocabSetAudio(id, updatedSet.ttsSettings);
+    }
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -2115,6 +2347,80 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
       `\u0110\xE3 ch\u1EC9nh s\u1EEDa b\u1ED9 t\u1EEB v\u1EF1ng: "${updatedSet.title}"`
     );
     res.json(updatedSet);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
+    const text = String(req.body?.text || "apple").trim();
+    if (!text) return res.status(400).json({ error: "Missing preview text." });
+    const result = await generateCachedTtsAudio(text.slice(0, 120), settings);
+    res.json({
+      audioUrl: result.audioUrl,
+      audioHash: result.audioHash,
+      cached: result.cached
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app2.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const apiKey = getAi33ApiKey();
+    if (!apiKey) return res.status(500).json({ error: "AI33_API_KEY/TTS_API_KEY is not configured." });
+    const params = new URLSearchParams();
+    params.set("provider", String(req.query.provider || "edge"));
+    if (req.query.language) params.set("language", String(req.query.language));
+    if (req.query.gender) params.set("gender", String(req.query.gender));
+    if (req.query.search || req.query.q) params.set("q", String(req.query.search || req.query.q));
+    params.set("page_size", String(req.query.page_size || req.query.limit || 50));
+    const upstream = await fetch(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
+      headers: { "xi-api-key": apiKey }
+    });
+    const data = await upstream.json().catch(() => ({}));
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app2.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const set = doc.data();
+    const items = Array.isArray(set.items) ? set.items : [];
+    res.json({
+      id: set.id,
+      items: items.map((item) => ({
+        id: item.id,
+        term: item.term,
+        audioUrl: item.audioUrl,
+        audioHash: item.audioHash,
+        audioStatus: item.audioStatus || (item.audioUrl ? "ready" : "missing"),
+        audioError: item.audioError || "",
+        ttsProvider: item.ttsProvider,
+        ttsVoice: item.ttsVoice,
+        ttsLang: item.ttsLang,
+        ttsSpeed: item.ttsSpeed,
+        audioGeneratedAt: item.audioGeneratedAt,
+        audioUpdatedAt: item.audioUpdatedAt
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app2.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const settings = normalizeTtsSettings(req.body?.settings || doc.data().ttsSettings || {});
+    const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(String) : void 0;
+    const force = Boolean(req.body?.force);
+    enqueueVocabSetAudio(req.params.id, settings, itemIds, force);
+    res.json({ queued: true, itemIds: itemIds || null, force });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

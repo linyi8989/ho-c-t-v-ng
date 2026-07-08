@@ -769,6 +769,44 @@ SQLite notes:
 - `vocab_sets` are saved with nested `items`, and items are also upserted into `vocab_items`.
 - `game_sessions` include `guestId` through JSON/data fields and are used for leaderboard identity.
 
+### Data Loss Incident Note - 2026-07-08
+
+Incident:
+
+- After deploying the recent activity/detail-history changes, production appeared to lose all data: vocabulary sets, users, classes, leaderboard/game results, and logs.
+- The visible failure was caused by production startup and storage configuration, not by `git push` itself.
+
+Root causes found:
+
+- Automatic cleanup for recent activity was implemented as a physical delete against `game_sessions` and was called during server startup and result reads. This made old game session data disappear instead of only hiding it from the "recent activity" view.
+- Production could fall back to local JSON storage when Firebase Admin diagnostics failed. The old fallback path was `process.cwd()/db.json`, which is inside the deploy directory and is not a safe persistent database location.
+- The production host had an existing SQLite database at `/home/qzmivzbj/app-data/vhomework/app.sqlite`; the app had to be configured with `STORAGE_MODE=sqlite` and `SQLITE_DB_PATH=/home/qzmivzbj/app-data/vhomework/app.sqlite`.
+- SQLite migration for the new `expires_at` field created indexes on `expires_at` before adding that column to old databases, causing startup crash: `no such column: expires_at`.
+- `.env.production` with real secrets existed locally. Secrets must not be committed or exposed, and any exposed service account key must be rotated.
+
+Fixes applied:
+
+- Removed automatic physical cleanup calls from server startup and results endpoints. Recent activity now filters old records for display instead of deleting database rows automatically.
+- Moved local JSON fallback to a persistent path: `LOCAL_DB_PATH` or `/home/qzmivzbj/app-data/vhomework/db.json`.
+- Fixed SQLite migration order so legacy databases add `expires_at` before creating indexes that reference it.
+- Production should use these environment variables when SQLite is the data source:
+  - `STORAGE_MODE=sqlite`
+  - `SQLITE_DB_PATH=/home/qzmivzbj/app-data/vhomework/app.sqlite`
+  - `LOCAL_DB_PATH=/home/qzmivzbj/app-data/vhomework/db.json`
+  - `DIAGNOSTIC_SECRET=<host-only secret>`
+
+Mandatory rules to prevent repeat incidents:
+
+- Never add automatic physical deletes on production data during app startup, login, page load, or read endpoints.
+- "Recent" UI requirements must be implemented with query/filter limits first. Physical cleanup must be a separate, explicit maintenance task with backup and confirmation.
+- Never point production fallback storage at the deploy directory. Runtime data must live under a persistent data directory such as `/home/qzmivzbj/app-data/vhomework`.
+- Before changing storage schema, test migrations against an existing production-shaped database, not only a new empty database.
+- When adding a SQLite column used by indexes or inserts, migration order must be: create base tables, `ALTER TABLE` old tables if missing columns, then create indexes, then write new data.
+- Before deploys that touch storage, auth, migration, cleanup, or result/session persistence, take a backup of the active DB file.
+- Do not rely on cPanel Git deploy as a database migration/backup mechanism. Git deploy should only move code/build artifacts.
+- Do not commit or expose `.env`, `.env.production`, service account private keys, API secrets, or host-only diagnostic secrets. Rotate any key that may have been exposed.
+- If production shows empty data after deploy, first check `/api/diagnostics/storage?secret=...` and verify the active storage mode/path before creating, deleting, or reseeding anything.
+
 ### Auth And Student Identity
 
 - Firebase Auth remains the login layer for teachers/admins.
@@ -907,7 +945,64 @@ Browser speech is fast and free but inconsistent:
 - It cannot be cached centrally.
 - It cannot guarantee teacher-approved voice quality.
 
-## 21. Recommended TTS Audio Architecture
+## 21. TTS Audio Architecture
+
+Current implementation:
+
+- Backend-only provider calls through AI33 v3 Text To Speech.
+- Frontend never sends the provider API key and never calls AI33 directly.
+- Audio files are cached under the persistent host path:
+
+```text
+/home/qzmivzbj/app-data/vhomework/audio/
+```
+
+- Express serves cached files through:
+
+```text
+/audio/{audioHash}.mp3
+```
+
+- `audioHash` is deterministic:
+
+```text
+provider + lang + voice + speed + normalizedText
+```
+
+- Cached audio is reused when the hash/file already exists.
+- Vocab item metadata stores only lightweight references:
+  - `audioUrl`
+  - `audioPath`
+  - `audioHash`
+  - `audioStatus`
+  - `audioError`
+  - `ttsProvider`
+  - `ttsVoice`
+  - `ttsLang`
+  - `ttsSpeed`
+  - `audioGeneratedAt`
+- Audio binary/base64 must never be stored in Firestore/SQLite JSON.
+- TTS generation is queued in the backend after a vocab set is saved. Saving the vocab set must not wait for all audio generation.
+- TTS failure marks the item as `audioStatus: "failed"` and preserves the vocab set.
+
+Current backend endpoints:
+
+- `GET /api/tts/voices`: backend proxy for AI33 Voice Library.
+- `POST /api/tts/preview`: generates/plays a cached short preview.
+- `GET /api/vocab-sets/:id/audio/status`: returns per-item audio metadata.
+- `POST /api/vocab-sets/:id/audio/generate-missing`: queues missing/retry audio generation.
+
+Required production env vars for TTS:
+
+```text
+AI33_API_KEY=<host-only key>
+TTS_AUDIO_DIR=/home/qzmivzbj/app-data/vhomework/audio
+AI33_TASK_STATUS_URL_TEMPLATE=https://api.ai33.pro/v1/task/{taskId}
+```
+
+Keep Web Speech as the final fallback only when cached audio is missing or browser playback fails.
+
+### Earlier Recommended TTS Audio Architecture
 
 Goal: replace browser-only pronunciation with generated TTS files while keeping Web Speech as the last fallback.
 

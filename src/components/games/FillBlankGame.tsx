@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, ArrowRight, HelpCircle, Info } from 'lucide-react';
 import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface FillBlankGameProps {
@@ -107,7 +107,7 @@ export default function FillBlankGame({
 
   const handlePlaySound = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    speakEnglish(targetWord);
+    playVocabAudio(currentItem, targetWord);
   };
 
   const handleCheckAnswer = (e: React.FormEvent) => {
@@ -136,7 +136,7 @@ export default function FillBlankGame({
     if (matched) {
       setCorrectCount(prev => prev + 1);
       if (isSoundOn) {
-        speakEnglish(targetWord);
+        playVocabAudio(currentItem, targetWord);
       }
     } else {
       setIncorrectCount(prev => prev + 1);

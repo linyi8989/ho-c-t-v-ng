@@ -25,3 +25,21 @@ export function speakEnglish(text: string) {
   utterance.rate = 0.9; // Slightly slower for better learning clarity
   window.speechSynthesis.speak(utterance);
 }
+
+export function playAudioUrl(audioUrl: string, fallbackText?: string) {
+  if (typeof window === 'undefined') return;
+  const audio = new Audio(audioUrl);
+  audio.volume = 0.85;
+  audio.play().catch(() => {
+    if (fallbackText) speakEnglish(fallbackText);
+  });
+}
+
+export function playVocabAudio(item: { term?: string; audioUrl?: string } | undefined, fallbackText?: string) {
+  const text = fallbackText || item?.term || '';
+  if (item?.audioUrl) {
+    playAudioUrl(item.audioUrl, text);
+    return;
+  }
+  if (text.trim()) speakEnglish(text);
+}

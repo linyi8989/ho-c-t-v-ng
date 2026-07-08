@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Volume2, HelpCircle, CheckCircle } from 'lucide-react';
 import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface FlashcardGameProps {
@@ -56,7 +56,7 @@ export default function FlashcardGame({
   // Auto-pronounce on word change
   useEffect(() => {
     if (currentItem && isSoundOn) {
-      speakEnglish(currentItem.term);
+      playVocabAudio(currentItem);
     }
   }, [currentIndex, currentItem, isSoundOn]);
 
@@ -134,7 +134,7 @@ export default function FlashcardGame({
   const handlePlaySound = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (currentItem) {
-      speakEnglish(currentItem.term);
+      playVocabAudio(currentItem);
     }
   };
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, AlertCircle, Sparkles } from 'lucide-react';
 import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface QuizGameProps {
@@ -67,7 +67,7 @@ export default function QuizGame({
 
     // Speak automatically if audio mode is active or autoPlay is enabled
     if (config.questionType === 'sound' || (config.autoPlaySound && isSoundOn)) {
-      speakEnglish(currentItem.term);
+      playVocabAudio(currentItem);
     }
 
     const correctVal = config.answerType === 'term' ? currentItem.term : currentItem.meaning;
@@ -105,7 +105,7 @@ export default function QuizGame({
   const handlePlaySound = (e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (currentItem) {
-      speakEnglish(currentItem.term);
+    playVocabAudio(currentItem);
     }
   };
 
@@ -134,7 +134,7 @@ export default function QuizGame({
       setCorrectCount(prev => prev + 1);
       // Play a high pitched audio cue or speak the term
       if (isSoundOn) {
-        speakEnglish(currentItem.term);
+        playVocabAudio(currentItem);
       }
     } else {
       setIncorrectCount(prev => prev + 1);

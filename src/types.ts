@@ -30,8 +30,25 @@ export interface VocabItem {
   exampleMeaning: string;
   imageUrl?: string;
   audioUrl?: string;
+  audioPath?: string;
+  audioHash?: string;
+  audioStatus?: 'missing' | 'queued' | 'generating' | 'ready' | 'failed';
+  audioError?: string;
+  audioGeneratedAt?: string;
+  ttsProvider?: string;
+  ttsVoice?: string;
+  ttsLang?: 'en-US' | 'en-GB' | string;
+  ttsSpeed?: number;
   notes?: string;
   displayOrder: number;
+}
+
+export interface TtsSettings {
+  autoGenerate: boolean;
+  provider: string;
+  voice: string;
+  lang: 'en-US' | 'en-GB' | string;
+  speed: number;
 }
 
 export interface VocabSet {
@@ -48,6 +65,7 @@ export interface VocabSet {
   visibility?: 'public' | 'assignment' | 'draft';
   shareToken?: string;
   assignmentSlug?: string;
+  ttsSettings?: TtsSettings;
   items: VocabItem[];
 }
 

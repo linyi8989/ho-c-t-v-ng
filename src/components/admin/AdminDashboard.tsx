@@ -4,7 +4,7 @@ import {
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
   Shield, FileText, Lock, Unlock, Star, X
 } from 'lucide-react';
-import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession } from '../../types';
+import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
@@ -30,6 +30,21 @@ const getAssignmentLink = (set: VocabSet) => {
   const token = set.shareToken || set.assignmentSlug;
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
+
+const DEFAULT_TTS_SETTINGS: TtsSettings = {
+  autoGenerate: true,
+  provider: 'ai33',
+  voice: 'edge_en-US-AriaNeural',
+  lang: 'en-US',
+  speed: 1
+};
+
+const TTS_VOICE_OPTIONS = [
+  { value: 'edge_en-US-AriaNeural', label: 'Edge Aria - en-US' },
+  { value: 'edge_en-US-JennyNeural', label: 'Edge Jenny - en-US' },
+  { value: 'edge_en-GB-SoniaNeural', label: 'Edge Sonia - en-GB' },
+  { value: 'edge_en-GB-RyanNeural', label: 'Edge Ryan - en-GB' }
+];
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
@@ -90,6 +105,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [editorStatus, setEditorStatus] = useState<VocabVisibility>('public');
   const [editorTags, setEditorTags] = useState<string[]>([]);
   const [editorItems, setEditorItems] = useState<VocabItem[]>([]);
+  const [ttsSettings, setTtsSettings] = useState<TtsSettings>(DEFAULT_TTS_SETTINGS);
+  const [isPreviewingTts, setIsPreviewingTts] = useState(false);
+  const [ttsQueuedSetId, setTtsQueuedSetId] = useState<string | null>(null);
 
   // Quick Batch Add States
   const [batchTerms, setBatchTerms] = useState('');
@@ -215,6 +233,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditorStatus('public');
     setEditorTags(['basic']);
     setEditorItems([]);
+    setTtsSettings(DEFAULT_TTS_SETTINGS);
+    setTtsQueuedSetId(null);
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
@@ -233,6 +253,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditorStatus(getSetVisibility(set));
     setEditorTags(set.tags);
     setEditorItems([...set.items]);
+    setTtsSettings({ ...DEFAULT_TTS_SETTINGS, ...(set.ttsSettings || {}) });
+    setTtsQueuedSetId(null);
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
@@ -263,6 +285,80 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       }
       return item;
     }));
+  };
+
+  const updateTtsSettings = (patch: Partial<TtsSettings>) => {
+    setTtsSettings(prev => ({ ...prev, ...patch }));
+  };
+
+  const refreshEditorAudioStatus = async (setId: string) => {
+    try {
+      const res = await authFetch(`/api/vocab-sets/${setId}/audio/status`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.items)) return;
+      const byId = new Map<string, Partial<VocabItem>>(data.items.map((item: VocabItem) => [item.id, item]));
+      setEditorItems(prev => prev.map(item => ({ ...item, ...(byId.get(item.id) ?? {}) })));
+    } catch (err) {
+      console.error("Error refreshing audio status:", err);
+    }
+  };
+
+  const handlePreviewTtsVoice = async () => {
+    setIsPreviewingTts(true);
+    try {
+      const res = await authFetch('/api/tts/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'apple',
+          settings: ttsSettings
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.audioUrl) {
+        showNotification(data.error || 'KhÃ´ng thá»ƒ táº¡o audio nghe thá»­.', 'error');
+        return;
+      }
+      new Audio(data.audioUrl).play().catch(() => showNotification('TrÃ¬nh duyá»‡t cháº·n phÃ¡t audio nghe thá»­.', 'error'));
+    } catch (err: any) {
+      showNotification(err.message || 'KhÃ´ng thá»ƒ nghe thá»­ giá»ng.', 'error');
+    } finally {
+      setIsPreviewingTts(false);
+    }
+  };
+
+  const handlePlayItemAudio = (item: VocabItem) => {
+    if (item.audioUrl) {
+      new Audio(item.audioUrl).play().catch(() => speakEnglish(item.term));
+      return;
+    }
+    if (item.term.trim()) speakEnglish(item.term);
+  };
+
+  const handleGenerateItemAudio = async (itemId: string, force = false) => {
+    if (!editingSetId) {
+      showNotification('HÃ£y lÆ°u bá»™ tá»« trÆ°á»›c khi táº¡o audio riÃªng cho tá»« nÃ y.', 'error');
+      return;
+    }
+    setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '' } : item));
+    try {
+      const res = await authFetch(`/api/vocab-sets/${editingSetId}/audio/generate-missing`, {
+        method: 'POST',
+        body: JSON.stringify({
+          settings: ttsSettings,
+          itemIds: [itemId],
+          force
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(data.error || 'KhÃ´ng thá»ƒ xáº¿p hÃ ng táº¡o audio.', 'error');
+        return;
+      }
+      showNotification('ÄÃ£ xáº¿p hÃ ng táº¡o audio cho tá»« nÃ y.');
+      setTimeout(() => refreshEditorAudioStatus(editingSetId), 2500);
+    } catch (err: any) {
+      showNotification(err.message || 'KhÃ´ng thá»ƒ táº¡o audio.', 'error');
+    }
   };
 
   const handleDeleteItemRow = (id: string) => {
@@ -483,6 +579,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       tags: editorTags,
       createdBy: user?.id || "teacher-1",
       creatorName: user?.name || "Cô Thảo English",
+      ttsSettings,
       items: editorItems.map((item, idx) => ({ ...item, displayOrder: idx + 1 }))
     };
 
@@ -503,6 +600,11 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         setShareLinkNotice({ title: data.title, url: assignmentUrl });
       } else {
         setShareLinkNotice(null);
+      }
+      if (ttsSettings.autoGenerate && data.id) {
+        setTtsQueuedSetId(data.id);
+        showNotification("LÆ°u bá»™ tá»« thÃ nh cÃ´ng. Audio phÃ¡t Ã¢m Ä‘ang Ä‘Æ°á»£c táº¡o ná»n.");
+        setTimeout(() => refreshEditorAudioStatus(data.id), 3000);
       }
       refreshData();
       setActiveTab('vocab-sets');
@@ -1428,6 +1530,100 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               </div>
             </div>
 
+            <div className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm" id="tts-settings-card">
+              <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+                <div className="space-y-1 min-w-[220px]">
+                  <div className="flex items-center gap-2">
+                    <Volume2 size={18} className="text-indigo-600" />
+                    <h3 className="font-extrabold text-gray-800 text-sm">CÃ i Ä‘áº·t phÃ¡t Ã¢m TTS</h3>
+                  </div>
+                  <p className="text-xs text-gray-400 font-medium">
+                    Táº¡o audio ná»n sau khi lÆ°u. Há»c sinh sáº½ phÃ¡t file Ä‘Ã£ cache, khÃ´ng gá»i TTS má»—i láº§n nghe.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 font-bold text-xs">
+                  <input
+                    type="checkbox"
+                    checked={ttsSettings.autoGenerate}
+                    onChange={(e) => updateTtsSettings({ autoGenerate: e.target.checked })}
+                    className="accent-indigo-600"
+                  />
+                  <span>Tá»± táº¡o audio khi lÆ°u</span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 flex-1">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Provider</label>
+                    <select
+                      value={ttsSettings.provider}
+                      onChange={(e) => updateTtsSettings({ provider: e.target.value })}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      <option value="ai33">AI33 v3</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Giá»ng Ä‘á»c</label>
+                    <select
+                      value={ttsSettings.voice}
+                      onChange={(e) => updateTtsSettings({ voice: e.target.value })}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      {TTS_VOICE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">NgÃ´n ngá»¯</label>
+                    <select
+                      value={ttsSettings.lang}
+                      onChange={(e) => {
+                        const lang = e.target.value as TtsSettings['lang'];
+                        updateTtsSettings({
+                          lang,
+                          voice: lang === 'en-GB' ? 'edge_en-GB-SoniaNeural' : 'edge_en-US-AriaNeural'
+                        });
+                      }}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      <option value="en-US">en-US</option>
+                      <option value="en-GB">en-GB</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Tá»‘c Ä‘á»™</label>
+                    <select
+                      value={String(ttsSettings.speed)}
+                      onChange={(e) => updateTtsSettings({ speed: Number(e.target.value) })}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      {[0.8, 0.9, 1, 1.1, 1.2].map(speed => (
+                        <option key={speed} value={speed}>{speed.toFixed(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-400">Nghe thá»­</label>
+                    <button
+                      type="button"
+                      onClick={handlePreviewTtsVoice}
+                      disabled={isPreviewingTts}
+                      className="w-full p-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2"
+                    >
+                      <Volume2 size={14} />
+                      <span>{isPreviewingTts ? 'Äang táº¡o...' : 'Nghe thá»­'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Quick Batch Paste Board */}
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-5" id="batch-paste-panel">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 border-b border-gray-50 pb-4">
@@ -1555,13 +1751,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <th className="p-4 w-36">Phát âm IPA</th>
                       <th className="p-4 w-28">Loại từ</th>
                       <th className="p-4 min-w-[200px]">Ví dụ minh họa</th>
+                      <th className="p-4 w-40">Audio TTS</th>
                       <th className="p-4 text-center w-12">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {editorItems.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-12 text-center text-gray-400 text-sm font-medium">
+                        <td colSpan={8} className="p-12 text-center text-gray-400 text-sm font-medium">
                           Danh sách từ vựng trống. Hãy thêm dòng hoặc sử dụng các công cụ sinh nhanh ở trên!
                         </td>
                       </tr>
@@ -1642,6 +1839,54 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               placeholder="Dịch nghĩa tiếng Việt..."
                               className="w-full p-2 bg-gray-50 border border-gray-100 focus:bg-white rounded-xl outline-none text-xs text-gray-500"
                             />
+                          </td>
+                          <td className="p-3">
+                            <div className="flex flex-col gap-2">
+                              <span className={`inline-flex items-center justify-center px-2 py-1 rounded-lg border text-[10px] font-black ${
+                                item.audioStatus === 'ready' || item.audioUrl
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : item.audioStatus === 'failed'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : item.audioStatus === 'generating' || item.audioStatus === 'queued'
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                      : 'bg-gray-50 text-gray-500 border-gray-200'
+                              }`}>
+                                {item.audioStatus === 'ready' || item.audioUrl
+                                  ? 'Đã có'
+                                  : item.audioStatus === 'failed'
+                                    ? 'Lỗi'
+                                    : item.audioStatus === 'generating'
+                                      ? 'Đang tạo'
+                                      : item.audioStatus === 'queued'
+                                        ? 'Đang chờ'
+                                        : 'Chưa tạo'}
+                              </span>
+                              {item.audioError && (
+                                <span className="text-[10px] text-rose-500 font-semibold line-clamp-2" title={item.audioError}>
+                                  {item.audioError}
+                                </span>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlayItemAudio(item)}
+                                  disabled={!item.term.trim()}
+                                  className="p-2 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                                  title="Nghe thử audio"
+                                >
+                                  <Volume2 size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateItemAudio(item.id, Boolean(item.audioUrl || item.audioStatus === 'failed'))}
+                                  disabled={!item.term.trim() || !editingSetId}
+                                  className="p-2 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
+                                  title={editingSetId ? 'Retry hoặc tạo lại audio' : 'Lưu bộ từ trước khi tạo audio'}
+                                >
+                                  <RefreshCw size={13} />
+                                </button>
+                              </div>
+                            </div>
                           </td>
                           <td className="p-3 text-center">
                             <button
