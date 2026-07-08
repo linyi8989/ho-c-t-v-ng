@@ -32,7 +32,7 @@ const getAssignmentLink = (set: VocabSet) => {
 };
 
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
-  autoGenerate: true,
+  autoGenerate: false,
   provider: 'ai33',
   voice: 'edge_en-US-AriaNeural',
   lang: 'en-US',
@@ -316,12 +316,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       });
       const data = await res.json();
       if (!res.ok || !data.audioUrl) {
-        showNotification(data.error || 'KhÃ´ng thá»ƒ táº¡o audio nghe thá»­.', 'error');
+        showNotification(data.error || 'Khong the tao audio nghe thu.', 'error');
         return;
       }
-      new Audio(data.audioUrl).play().catch(() => showNotification('TrÃ¬nh duyá»‡t cháº·n phÃ¡t audio nghe thá»­.', 'error'));
+      new Audio(data.audioUrl).play().catch(() => showNotification('Trinh duyet chan phat audio nghe thu.', 'error'));
     } catch (err: any) {
-      showNotification(err.message || 'KhÃ´ng thá»ƒ nghe thá»­ giá»ng.', 'error');
+      showNotification(err.message || 'Khong the nghe thu voice id.', 'error');
     } finally {
       setIsPreviewingTts(false);
     }
@@ -406,6 +406,118 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     }
     await refreshEditorAudioStatus(editingSetId);
     showNotification('Đã kiểm tra lại trạng thái audio từ backend.');
+  };
+
+  const handleGenerateItemAudioBeforeSave = async (itemId: string, force = false) => {
+    const targetItem = editorItems.find(item => item.id === itemId);
+    if (!targetItem?.term.trim()) {
+      showNotification('Hay nhap tu tieng Anh truoc khi tao audio.', 'error');
+      return;
+    }
+
+    setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '' } : item));
+    try {
+      const res = await authFetch('/api/tts/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          text: targetItem.term,
+          settings: ttsSettings,
+          force
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.audioUrl) {
+        setEditorItems(prev => prev.map(item => item.id === itemId ? {
+          ...item,
+          audioStatus: 'failed',
+          audioError: data.error || 'Khong the tao audio.'
+        } : item));
+        showNotification(data.error || 'Khong the tao audio.', 'error');
+        return;
+      }
+
+      setEditorItems(prev => prev.map(item => item.id === itemId ? {
+        ...item,
+        audioUrl: data.audioUrl,
+        audioHash: data.audioHash,
+        audioStatus: 'ready',
+        audioError: '',
+        ttsProvider: ttsSettings.provider,
+        ttsVoice: ttsSettings.voice,
+        ttsLang: ttsSettings.lang,
+        ttsSpeed: ttsSettings.speed,
+        audioGeneratedAt: new Date().toISOString()
+      } : item));
+      showNotification('Da tao audio cho tu nay. Bam luu bo tu de luu metadata audio.');
+    } catch (err: any) {
+      setEditorItems(prev => prev.map(item => item.id === itemId ? {
+        ...item,
+        audioStatus: 'failed',
+        audioError: err.message || 'Khong the tao audio.'
+      } : item));
+      showNotification(err.message || 'Khong the tao audio.', 'error');
+    }
+  };
+
+  const handleGenerateAllAudioBeforeSave = async () => {
+    const targetItems = editorItems.filter(item => item.term.trim());
+    if (targetItems.length === 0) {
+      showNotification('Chua co tu tieng Anh de tao audio.', 'error');
+      return;
+    }
+
+    setIsBatchGeneratingAudio(true);
+    setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '' } : item));
+    try {
+      let successCount = 0;
+      let failedCount = 0;
+      for (const item of targetItems) {
+        const res = await authFetch('/api/tts/preview', {
+          method: 'POST',
+          body: JSON.stringify({
+            text: item.term,
+            settings: ttsSettings
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.audioUrl) {
+          successCount++;
+          setEditorItems(prev => prev.map(current => current.id === item.id ? {
+            ...current,
+            audioUrl: data.audioUrl,
+            audioHash: data.audioHash,
+            audioStatus: 'ready',
+            audioError: '',
+            ttsProvider: ttsSettings.provider,
+            ttsVoice: ttsSettings.voice,
+            ttsLang: ttsSettings.lang,
+            ttsSpeed: ttsSettings.speed,
+            audioGeneratedAt: new Date().toISOString()
+          } : current));
+        } else {
+          failedCount++;
+          setEditorItems(prev => prev.map(current => current.id === item.id ? {
+            ...current,
+            audioStatus: 'failed',
+            audioError: data.error || 'Khong the tao audio.'
+          } : current));
+        }
+      }
+      showNotification(`Da tao audio: ${successCount} tu${failedCount ? `, loi ${failedCount} tu` : ''}. Bam luu bo tu de luu metadata audio.`, failedCount ? 'error' : 'success');
+    } catch (err: any) {
+      showNotification(err.message || 'Khong the tao audio hang loat.', 'error');
+    } finally {
+      setIsBatchGeneratingAudio(false);
+    }
+  };
+
+  const handleCheckAudioStatusSmart = async () => {
+    if (!editingSetId) {
+      showNotification('Bo tu moi chua luu vao database. Cac dong da tao audio se hien trang thai ngay trong bang.');
+      return;
+    }
+    await refreshEditorAudioStatus(editingSetId);
+    showNotification('Da kiem tra lai trang thai audio tu backend.');
   };
 
   const handleDeleteItemRow = (id: string) => {
@@ -650,7 +762,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       }
       if (ttsSettings.autoGenerate && data.id) {
         setTtsQueuedSetId(data.id);
-        showNotification("LÆ°u bá»™ tá»« thÃ nh cÃ´ng. Audio phÃ¡t Ã¢m Ä‘ang Ä‘Æ°á»£c táº¡o ná»n.");
+        showNotification("Luu bo tu thanh cong. Audio con thieu dang duoc tao nen.");
         setTimeout(() => refreshEditorAudioStatus(data.id), 3000);
       }
       refreshData();
@@ -1577,7 +1689,108 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm" id="tts-settings-card">
+            <div className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm" id="tts-settings-card-v2">
+              <div className="space-y-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Volume2 size={18} className="text-indigo-600" />
+                      <h3 className="font-extrabold text-gray-800 text-sm">C&#224;i &#273;&#7863;t ph&#225;t &#226;m TTS</h3>
+                    </div>
+                    <p className="text-xs text-gray-500 font-medium">
+                      T&#7841;o audio tr&#432;&#7899;c khi l&#432;u. Khi b&#7845;m L&#432;u b&#7897; t&#7915;, metadata audio s&#7869; &#273;&#432;&#7907;c l&#432;u c&#249;ng t&#7915; v&#7921;ng.
+                    </p>
+                  </div>
+
+                  <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-700 font-bold text-xs w-fit">
+                    <input
+                      type="checkbox"
+                      checked={ttsSettings.autoGenerate}
+                      onChange={(e) => updateTtsSettings({ autoGenerate: e.target.checked })}
+                      className="accent-indigo-600"
+                    />
+                    <span>T&#7921; t&#7841;o audio c&#242;n thi&#7871;u sau khi l&#432;u</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-500">Provider</label>
+                    <select
+                      value={ttsSettings.provider}
+                      onChange={(e) => updateTtsSettings({ provider: e.target.value })}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      <option value="ai33">AI33 v3</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1 xl:col-span-2">
+                    <label className="text-[10px] font-bold uppercase text-gray-500">Voice ID</label>
+                    <input
+                      type="text"
+                      value={ttsSettings.voice}
+                      onChange={(e) => updateTtsSettings({ voice: e.target.value.trim() })}
+                      placeholder="edge_en-US-AriaNeural"
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-gray-700 text-xs focus:bg-white focus:border-indigo-400"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-500">Ng&#244;n ng&#7919;</label>
+                    <select
+                      value={ttsSettings.lang}
+                      onChange={(e) => {
+                        const lang = e.target.value as TtsSettings['lang'];
+                        updateTtsSettings({
+                          lang,
+                          voice: lang === 'en-GB' ? 'edge_en-GB-SoniaNeural' : 'edge_en-US-AriaNeural'
+                        });
+                      }}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      <option value="en-US">en-US</option>
+                      <option value="en-GB">en-GB</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-gray-500">T&#7889;c &#273;&#7897;</label>
+                    <select
+                      value={String(ttsSettings.speed)}
+                      onChange={(e) => updateTtsSettings({ speed: Number(e.target.value) })}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                    >
+                      {[0.8, 0.9, 1, 1.1, 1.2].map(speed => (
+                        <option key={speed} value={speed}>{speed.toFixed(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePreviewTtsVoice}
+                    disabled={isPreviewingTts || !ttsSettings.voice.trim()}
+                    className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-500 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2"
+                  >
+                    <Volume2 size={14} />
+                    <span>{isPreviewingTts ? 'Dang tao...' : 'Nghe thu voice id'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCheckAudioStatusSmart}
+                    className="py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-black text-xs border border-slate-200 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Ki&#7875;m tra audio</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden" id="tts-settings-card">
               <div className="space-y-4">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                   <div className="space-y-1">
@@ -1681,7 +1894,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </button>
                   <button
                     type="button"
-                    onClick={handleCheckAudioStatus}
+                    onClick={handleCheckAudioStatusSmart}
                     disabled={!editingSetId}
                     className="py-2.5 px-4 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 rounded-xl font-black text-xs border border-slate-200 flex items-center justify-center gap-2"
                   >
@@ -1892,18 +2105,18 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   </button>
 
                   <button
-                    onClick={handleGenerateAllAudio}
-                    disabled={!editingSetId || isBatchGeneratingAudio}
+                    onClick={handleGenerateAllAudioBeforeSave}
+                    disabled={isBatchGeneratingAudio}
                     className="py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 disabled:bg-gray-50 disabled:text-gray-300 text-emerald-700 font-bold rounded-xl text-xs transition-all flex items-center space-x-1 border border-emerald-100 cursor-pointer"
                     id="batch-generate-audio-btn"
-                    title={editingSetId ? 'Tạo audio cho các từ còn thiếu' : 'Hãy lưu bộ từ trước khi tạo audio hàng loạt'}
+                    title="Tạo audio cho các dòng hiện tại trước khi lưu bộ từ"
                   >
                     <Volume2 size={14} />
                     <span>{isBatchGeneratingAudio ? 'Đang gửi...' : 'Tạo audio hàng loạt'}</span>
                   </button>
 
                   <button
-                    onClick={handleCheckAudioStatus}
+                    onClick={handleCheckAudioStatusSmart}
                     disabled={!editingSetId}
                     className="py-2.5 px-4 bg-slate-50 hover:bg-slate-100 disabled:bg-gray-50 disabled:text-gray-300 text-slate-700 font-bold rounded-xl text-xs transition-all flex items-center space-x-1 border border-slate-100 cursor-pointer"
                     id="check-audio-status-btn"
@@ -2062,10 +2275,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleGenerateItemAudio(item.id, Boolean(item.audioUrl || item.audioStatus === 'failed'))}
-                                  disabled={!item.term.trim() || !editingSetId}
+                                  onClick={() => handleGenerateItemAudioBeforeSave(item.id, Boolean(item.audioUrl || item.audioStatus === 'failed'))}
+                                  disabled={!item.term.trim()}
                                   className="p-2 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
-                                  title={editingSetId ? 'Retry hoặc tạo lại audio' : 'Lưu bộ từ trước khi tạo audio'}
+                                  title="Tạo hoặc tạo lại audio cho dòng này"
                                 >
                                   <RefreshCw size={13} />
                                 </button>

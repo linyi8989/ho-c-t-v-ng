@@ -982,7 +982,8 @@ provider + lang + voice + speed + normalizedText
   - `ttsSpeed`
   - `audioGeneratedAt`
 - Audio binary/base64 must never be stored in Firestore/SQLite JSON.
-- TTS generation is queued in the backend after a vocab set is saved. Saving the vocab set must not wait for all audio generation.
+- Teachers can generate TTS audio before saving a vocab set. The editor stores returned `audioUrl`/`audioHash` metadata on each row, then saves that metadata with the vocab set.
+- Optional post-save generation still exists for missing audio when `ttsSettings.autoGenerate` is enabled, but the preferred workflow is generate/check audio first, then save the set.
 - TTS failure marks the item as `audioStatus: "failed"` and preserves the vocab set.
 
 Current backend endpoints:
