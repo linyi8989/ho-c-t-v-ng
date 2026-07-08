@@ -1346,8 +1346,8 @@ var DEFAULT_TTS_PROVIDER = "ai33";
 var DEFAULT_TTS_LANG = "en-US";
 var DEFAULT_TTS_SPEED = 1;
 var DEFAULT_TTS_VOICE_BY_LANG = {
-  "en-US": "edge_en-US-AriaNeural",
-  "en-GB": "edge_en-GB-SoniaNeural"
+  "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
+  "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
 };
 var ttsQueue = [];
 var isProcessingTtsQueue = false;

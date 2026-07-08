@@ -39,12 +39,13 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
   autoGenerate: false,
   provider: 'ai33',
-  voice: 'edge_en-US-AriaNeural',
+  voice: 'elevenlabs_wMBr6SfqQVuOqplK01NE',
   lang: 'en-US',
   speed: 1
 };
 
 const TTS_VOICE_OPTIONS = [
+  { value: 'elevenlabs_wMBr6SfqQVuOqplK01NE', label: 'ElevenLabs default - en-US' },
   { value: 'edge_en-US-AriaNeural', label: 'Edge Aria - en-US' },
   { value: 'edge_en-US-JennyNeural', label: 'Edge Jenny - en-US' },
   { value: 'edge_en-GB-SoniaNeural', label: 'Edge Sonia - en-GB' },
@@ -1818,7 +1819,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       type="text"
                       value={ttsSettings.voice}
                       onChange={(e) => updateTtsSettings({ voice: e.target.value.trim() })}
-                      placeholder="edge_en-US-AriaNeural"
+                      placeholder="elevenlabs_wMBr6SfqQVuOqplK01NE"
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-gray-700 text-xs focus:bg-white focus:border-indigo-400"
                     />
                   </div>
@@ -1829,10 +1830,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       value={ttsSettings.lang}
                       onChange={(e) => {
                         const lang = e.target.value as TtsSettings['lang'];
-                        updateTtsSettings({
-                          lang,
-                          voice: lang === 'en-GB' ? 'edge_en-GB-SoniaNeural' : 'edge_en-US-AriaNeural'
-                        });
+                        updateTtsSettings({ lang });
                       }}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
@@ -1913,7 +1911,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       type="text"
                       value={ttsSettings.voice}
                       onChange={(e) => updateTtsSettings({ voice: e.target.value.trim() })}
-                      placeholder="Ví dụ: edge_en-US-AriaNeural"
+                      placeholder="Ví dụ: elevenlabs_wMBr6SfqQVuOqplK01NE"
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-gray-700 text-xs focus:bg-white focus:border-indigo-400"
                     />
                   </div>
@@ -1924,10 +1922,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       value={ttsSettings.lang}
                       onChange={(e) => {
                         const lang = e.target.value as TtsSettings['lang'];
-                        updateTtsSettings({
-                          lang,
-                          voice: lang === 'en-GB' ? 'edge_en-GB-SoniaNeural' : 'edge_en-US-AriaNeural'
-                        });
+                        updateTtsSettings({ lang });
                       }}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
@@ -2029,10 +2024,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       value={ttsSettings.lang}
                       onChange={(e) => {
                         const lang = e.target.value as TtsSettings['lang'];
-                        updateTtsSettings({
-                          lang,
-                          voice: lang === 'en-GB' ? 'edge_en-GB-SoniaNeural' : 'edge_en-US-AriaNeural'
-                        });
+                        updateTtsSettings({ lang });
                       }}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >

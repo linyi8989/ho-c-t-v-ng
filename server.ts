@@ -176,8 +176,8 @@ const DEFAULT_TTS_PROVIDER = "ai33";
 const DEFAULT_TTS_LANG = "en-US";
 const DEFAULT_TTS_SPEED = 1;
 const DEFAULT_TTS_VOICE_BY_LANG: Record<string, string> = {
-  "en-US": "edge_en-US-AriaNeural",
-  "en-GB": "edge_en-GB-SoniaNeural"
+  "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
+  "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
 };
 const ttsQueue: TtsQueueJob[] = [];
 let isProcessingTtsQueue = false;
