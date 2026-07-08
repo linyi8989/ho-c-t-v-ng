@@ -68,11 +68,13 @@ function sessionCompletedAt(session: GameSession) {
 }
 
 function getSessionClassId(session: GameSession, assignments: Assignment[]) {
+  if (session.classId) return session.classId;
   if (!session.assignmentId) return '';
   return assignments.find(assign => assign.id === session.assignmentId)?.classId || '';
 }
 
 function getSessionClassName(session: GameSession, assignments: Assignment[]) {
+  if (session.className) return session.className;
   if (!session.assignmentId) return '';
   return assignments.find(assign => assign.id === session.assignmentId)?.className || '';
 }

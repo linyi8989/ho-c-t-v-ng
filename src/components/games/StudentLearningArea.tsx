@@ -77,6 +77,15 @@ function addDaysIso(baseIso: string, days: number) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function compactClassName(className?: string) {
+  return String(className || "").split(" - ")[0].trim();
+}
+
+function formatLeaderboardStudentName(entry: LeaderboardEntry) {
+  const className = compactClassName(entry.className);
+  return className ? `${entry.studentName} - ${className}` : entry.studentName;
+}
+
 export default function StudentLearningArea({ 
   vocabSet, 
   studentName: propStudentName, 
@@ -96,6 +105,7 @@ export default function StudentLearningArea({
   const [isMuted, setIsMuted] = useState(false);
   const [gameResult, setGameResult] = useState<{ score: number; correct: number; incorrect: number } | null>(null);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
+  const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardSessions, setLeaderboardSessions] = useState<GameSession[]>([]);
 
   // Load initial game if requested
@@ -380,9 +390,28 @@ export default function StudentLearningArea({
 
   const learningLeaderboard = useMemo<LeaderboardEntry[]>(() => {
     return buildLeaderboard(leaderboardSessions, [], {
-      period: leaderboardPeriod
+      period: leaderboardPeriod,
+      classId: leaderboardClassId || undefined
     }).gold.slice(0, 8);
-  }, [leaderboardSessions, leaderboardPeriod]);
+  }, [leaderboardSessions, leaderboardPeriod, leaderboardClassId]);
+
+  const leaderboardClassOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    leaderboardSessions.forEach(session => {
+      if (!session.classId || !session.className) return;
+      byId.set(session.classId, compactClassName(session.className));
+    });
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [leaderboardSessions]);
+
+  useEffect(() => {
+    if (!leaderboardClassId) return;
+    if (!leaderboardClassOptions.some(option => option.id === leaderboardClassId)) {
+      setLeaderboardClassId('');
+    }
+  }, [leaderboardClassId, leaderboardClassOptions]);
 
   // Render game in focus
   const renderActiveGame = () => {
@@ -671,6 +700,7 @@ export default function StudentLearningArea({
                     </div>
                   </div>
 
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                   <select
                     value={leaderboardPeriod}
                     onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
@@ -680,6 +710,18 @@ export default function StudentLearningArea({
                     <option value="week">Tuần này</option>
                     <option value="month">Tháng này</option>
                   </select>
+                  <select
+                    value={leaderboardClassId}
+                    onChange={(e) => setLeaderboardClassId(e.target.value)}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
+                    id="learning-golden-class-filter"
+                  >
+                    <option value="">T&#7845;t c&#7843; l&#7899;p</option>
+                    {leaderboardClassOptions.map(option => (
+                      <option key={option.id} value={option.id}>{option.name}</option>
+                    ))}
+                  </select>
+                  </div>
                 </div>
 
                 {learningLeaderboard.length === 0 ? (
@@ -712,7 +754,7 @@ export default function StudentLearningArea({
                           <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white border border-current/25 text-sm font-black">
                             {index + 1}
                           </div>
-                          <p className="mt-2 truncate text-sm font-black text-gray-900">{entry.studentName}</p>
+                          <p className="mt-2 truncate text-sm font-black text-gray-900">{formatLeaderboardStudentName(entry)}</p>
                           <p className="text-xs font-black text-amber-700">{entry.honorScore} điểm</p>
                           <p className="mt-1 text-[11px] font-semibold text-gray-500">
                             {entry.averageAccuracy}% đúng
@@ -732,7 +774,7 @@ export default function StudentLearningArea({
                               {index + 1}
                             </span>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-extrabold text-gray-900">{entry.studentName}</p>
+                              <p className="truncate text-sm font-extrabold text-gray-900">{formatLeaderboardStudentName(entry)}</p>
                               <p className="text-[11px] font-semibold text-gray-500">
                                 {entry.completedLessons} game • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày
                               </p>

@@ -90,6 +90,8 @@ export interface GameSession {
   userId?: string;
   studentId?: string;
   assignmentId?: string;
+  classId?: string;
+  className?: string;
   vocabSetId: string;
   vocabSetTitle: string;
   gameId: string;

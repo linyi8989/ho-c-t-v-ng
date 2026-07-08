@@ -2290,6 +2290,9 @@ app2.get("/api/public/vocab-sets", async (req, res) => {
 app2.get("/api/public/results", async (req, res) => {
   try {
     const snapshot = await adminDb.collection("game_sessions").get();
+    const assignmentsSnapshot = await adminDb.collection("assignments").get();
+    const assignmentsById = /* @__PURE__ */ new Map();
+    assignmentsSnapshot.forEach((doc) => assignmentsById.set(doc.id, doc.data()));
     const list = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
@@ -2297,9 +2300,12 @@ app2.get("/api/public/results", async (req, res) => {
       if (!data.completedAt) return;
       if (isExpiredActivity(data)) return;
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
+      const assignment = data.assignmentId ? assignmentsById.get(data.assignmentId) : null;
       list.push({
         id: data.id || doc.id,
         assignmentId: data.assignmentId,
+        classId: data.classId || assignment?.classId || "",
+        className: data.className || assignment?.className || "",
         vocabSetId: data.vocabSetId,
         vocabSetTitle: data.vocabSetTitle,
         gameId: data.gameId,
@@ -2722,9 +2728,16 @@ app2.post("/api/game-sessions", async (req, res) => {
     const payload = req.body;
     const id = `session-${Date.now()}`;
     const now = (/* @__PURE__ */ new Date()).toISOString();
+    let assignment = null;
+    if (payload.assignmentId) {
+      const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
+      assignment = assignmentDoc.exists ? assignmentDoc.data() : null;
+    }
     const newSession = {
       ...payload,
       id,
+      classId: payload.classId || assignment?.classId || "",
+      className: payload.className || assignment?.className || "",
       startedAt: now,
       createdAt: now,
       status: "started",

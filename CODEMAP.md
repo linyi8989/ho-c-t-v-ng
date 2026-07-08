@@ -877,6 +877,10 @@ Registry:
   - study days
   - improvement bonus
 - Student home and Admin results tab both use leaderboard-derived rows.
+- `StudentLearningArea.tsx` also uses the total leaderboard, not per-vocab-set ranking.
+- The in-game leaderboard supports a class filter beside the week/month filter.
+- Student names in the in-game leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
+- `/api/public/results` returns `classId`/`className`; old sessions are backfilled at read time from `assignmentId`, and new sessions store class metadata when created.
 
 ### UI Theme
 
