@@ -73,6 +73,16 @@ function getSessionEndTime(session: GameSession) {
   return session.endedAt || session.completedAt;
 }
 
+function normalizeActivitySearchText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 type ParsedBulkVocabularyRow = Pick<VocabItem, 'term' | 'meaning' | 'ipa' | 'pos' | 'example' | 'exampleMeaning'>;
 
 function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow[]; errors: string[] } {
@@ -133,6 +143,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardVocabSetId, setLeaderboardVocabSetId] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<GameSession | null>(null);
+  const [activitySearch, setActivitySearch] = useState('');
 
   // Class Roster dynamic input states
   const [newMemberNames, setNewMemberNames] = useState<Record<string, string>>({});
@@ -1039,12 +1050,24 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     );
   }, [results, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
 
-  const recentResults = React.useMemo(() => {
+  const completedActivityResults = React.useMemo(() => {
     return [...results]
       .filter(res => getSessionEndTime(res))
-      .sort((a, b) => new Date(getSessionEndTime(b) || 0).getTime() - new Date(getSessionEndTime(a) || 0).getTime())
-      .slice(0, 10);
+      .sort((a, b) => new Date(getSessionEndTime(b) || 0).getTime() - new Date(getSessionEndTime(a) || 0).getTime());
   }, [results]);
+
+  const recentResults = React.useMemo(() => {
+    return completedActivityResults.slice(0, 30);
+  }, [completedActivityResults]);
+
+  const filteredActivityResults = React.useMemo(() => {
+    const keyword = normalizeActivitySearchText(activitySearch);
+    if (!keyword) return completedActivityResults;
+
+    return completedActivityResults.filter(res =>
+      normalizeActivitySearchText(res.studentName || '').includes(keyword)
+    );
+  }, [completedActivityResults, activitySearch]);
 
   const dashboardGoldRows = React.useMemo(() => {
     return getLeaderboardByCategory(results, assignments, { period: 'week' }, 'gold').slice(0, 5);
@@ -2750,6 +2773,67 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <option value="">Tất cả bộ từ</option>
                   {vocabSets.map(set => <option key={set.id} value={set.id}>{set.title}</option>)}
                 </select>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4" id="activity-results-sheet">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-gray-100">
+                <div>
+                  <h3 className="font-extrabold text-gray-950 text-base">Hoạt động luyện tập trong 7 ngày</h3>
+                  <p className="text-xs font-semibold text-gray-500">
+                    Hiển thị {filteredActivityResults.length}/{completedActivityResults.length} lượt hoàn thành, mới nhất ở trên cùng.
+                  </p>
+                </div>
+                <div className="relative w-full lg:max-w-sm">
+                  <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={activitySearch}
+                    onChange={(e) => setActivitySearch(e.target.value)}
+                    placeholder="Tìm theo tên học sinh..."
+                    className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-3 pl-11 pr-4 text-sm font-bold text-gray-800 placeholder:text-gray-400 outline-none transition-all focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2">
+                {filteredActivityResults.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400 text-sm font-semibold">
+                    Không có lượt luyện tập nào khớp với tìm kiếm.
+                  </div>
+                ) : (
+                  filteredActivityResults.map((res) => (
+                    <button
+                      key={res.id}
+                      onClick={() => setSelectedActivity(res)}
+                      className="w-full p-4 bg-gray-50/60 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-left transition-all"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <strong className="text-sm font-black text-gray-900">{res.studentName}</strong>
+                        <p className="text-xs font-semibold text-gray-600">
+                          {res.gameName || GAMES_LIST.find(g => g.gameId === res.gameId)?.title || res.gameId}
+                        </p>
+                        <p className="text-[10px] text-gray-400 font-mono truncate">{res.vocabSetTitle}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-1 text-[10px] font-semibold text-gray-500">
+                          <span>Bắt đầu: {formatVietnamDateTime(res.startedAt)}</span>
+                          <span>Kết thúc: {formatVietnamDateTime(getSessionEndTime(res))}</span>
+                          <span>Thời lượng: {formatDuration(res.durationSeconds || Math.round((res.durationMs || 0) / 1000))}</span>
+                          <span>Trạng thái: Hoàn thành</span>
+                        </div>
+                      </div>
+                      <div className="sm:text-right shrink-0">
+                        <span className={`inline-flex px-3 py-1 text-xs font-black rounded-full ${
+                          res.score >= 80 ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'
+                        }`}>
+                          {res.score} điểm
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-bold block mt-1">
+                          Đúng: {res.correctAnswers}/{res.totalQuestions}
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
 
