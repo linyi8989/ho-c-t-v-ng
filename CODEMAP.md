@@ -969,13 +969,18 @@ Current implementation:
 provider + lang + voice + speed + normalizedText
 ```
 
-- Cached audio is reused when the hash/file already exists.
+- `normalizedText` preserves case and is produced from sanitized TTS text, not raw row text.
+- TTS input cleanup uses the first non-empty line, removes trailing notes/IPA, removes text after a separator like `word - meaning`, collapses whitespace, and caps text at 120 chars. The returned metadata includes `ttsText` plus `audioWarnings` so teachers can see what was actually sent to TTS.
+- Cached audio is reused when the hash/file already exists. A forced regenerate bypasses the existing cache file and returns a cache-busted `/audio/{hash}.mp3?v=...` URL.
+- Changing the English term in the editor clears stale audio metadata for that row so old files are not reused for new text.
 - Vocab item metadata stores only lightweight references:
   - `audioUrl`
   - `audioPath`
   - `audioHash`
   - `audioStatus`
   - `audioError`
+  - `audioWarnings`
+  - `ttsText`
   - `ttsProvider`
   - `ttsVoice`
   - `ttsLang`

@@ -366,6 +366,10 @@ body,
   color: #111827 !important;
 }
 
+#learning-golden-board .learning-podium-card > p:nth-of-type(2) {
+  color: currentColor !important;
+}
+
 body::before {
   background: #ffffff !important;
   background-image: none !important;

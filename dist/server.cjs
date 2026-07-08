@@ -1352,7 +1352,34 @@ var DEFAULT_TTS_VOICE_BY_LANG = {
 var ttsQueue = [];
 var isProcessingTtsQueue = false;
 function normalizeTtsText(text) {
-  return text.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+  return text.normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+function sanitizeTtsInput(input) {
+  const warnings = [];
+  let text = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text) return { text: "", warnings };
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    warnings.push("Only the first non-empty line was used for TTS.");
+    text = lines[0];
+  }
+  const dashSplit = text.split(/\s+[–—-]\s+/);
+  if (dashSplit.length > 1) {
+    warnings.push("Text after the separator was removed before TTS.");
+    text = dashSplit[0];
+  }
+  const beforeNotes = text;
+  text = text.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text;
+  text = text.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text = normalizeTtsText(text).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text.length > 120) {
+    warnings.push("TTS text was shortened to 120 characters.");
+    text = text.slice(0, 120).trim();
+  }
+  return { text, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
@@ -1434,21 +1461,45 @@ async function pollAi33AudioUrl(taskId) {
 async function downloadAudioToCache(sourceUrl, targetPath) {
   const res = await fetch(sourceUrl);
   if (!res.ok) throw new Error(`Audio download failed with HTTP ${res.status}`);
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType && !contentType.includes("audio") && !contentType.includes("octet-stream")) {
+    throw new Error(`Downloaded TTS file is not audio (${contentType}).`);
+  }
   const arrayBuffer = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (buffer.byteLength < 1024) {
+    throw new Error("Downloaded TTS file is too small to be valid audio.");
+  }
   import_fs3.default.mkdirSync(import_path3.default.dirname(targetPath), { recursive: true });
-  import_fs3.default.writeFileSync(targetPath, Buffer.from(arrayBuffer));
+  import_fs3.default.writeFileSync(targetPath, buffer);
 }
-async function generateCachedTtsAudio(text, settings) {
-  const audioHash = createAudioHash(text, settings);
+async function generateCachedTtsAudio(inputText, settings, force = false) {
+  const sanitized = sanitizeTtsInput(inputText);
+  if (!sanitized.text) throw new Error("Missing TTS text after cleanup.");
+  const audioHash = createAudioHash(sanitized.text, settings);
   const targetPath = audioFilePath(audioHash);
   const targetUrl = audioPublicUrl(audioHash);
-  if (import_fs3.default.existsSync(targetPath)) {
-    return { audioHash, audioPath: targetPath, audioUrl: targetUrl, cached: true };
+  if (!force && import_fs3.default.existsSync(targetPath)) {
+    return {
+      audioHash,
+      audioPath: targetPath,
+      audioUrl: targetUrl,
+      cached: true,
+      ttsText: sanitized.text,
+      warnings: sanitized.warnings
+    };
   }
-  const taskId = await requestAi33TtsTask(text, settings, audioFileName(audioHash));
+  const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
   const providerAudioUrl = await pollAi33AudioUrl(taskId);
   await downloadAudioToCache(providerAudioUrl, targetPath);
-  return { audioHash, audioPath: targetPath, audioUrl: targetUrl, cached: false };
+  return {
+    audioHash,
+    audioPath: targetPath,
+    audioUrl: `${targetUrl}?v=${Date.now()}`,
+    cached: false,
+    ttsText: sanitized.text,
+    warnings: sanitized.warnings
+  };
 }
 function mergeItemAudioState(item, patch) {
   return {
@@ -1495,9 +1546,9 @@ async function processVocabSetAudioJob(job) {
   const selected = new Set(job.itemIds || items.map((item) => item.id));
   for (const item of items) {
     if (!selected.has(item.id)) continue;
-    const text = String(item.term || "").trim();
-    if (!text) continue;
-    const audioHash = createAudioHash(text, job.settings);
+    const sanitized = sanitizeTtsInput(String(item.term || ""));
+    if (!sanitized.text) continue;
+    const audioHash = createAudioHash(sanitized.text, job.settings);
     const targetPath = audioFilePath(audioHash);
     const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs3.default.existsSync(targetPath);
     if (existingReady) continue;
@@ -1509,6 +1560,8 @@ async function processVocabSetAudioJob(job) {
           audioHash,
           audioStatus: "ready",
           audioError: "",
+          ttsText: sanitized.text,
+          audioWarnings: sanitized.warnings,
           ttsProvider: job.settings.provider,
           ttsVoice: job.settings.voice,
           ttsLang: job.settings.lang,
@@ -1524,6 +1577,8 @@ async function processVocabSetAudioJob(job) {
         audioHash,
         audioStatus: "generating",
         audioError: "",
+        ttsText: sanitized.text,
+        audioWarnings: sanitized.warnings,
         ttsProvider: job.settings.provider,
         ttsVoice: job.settings.voice,
         ttsLang: job.settings.lang,
@@ -1532,7 +1587,7 @@ async function processVocabSetAudioJob(job) {
     );
     await saveVocabSetItems(job.vocabSetId, items);
     try {
-      const result = await generateCachedTtsAudio(text, job.settings);
+      const result = await generateCachedTtsAudio(sanitized.text, job.settings, job.force);
       items = items.map(
         (current) => current.id === item.id ? mergeItemAudioState(current, {
           audioUrl: result.audioUrl,
@@ -1540,6 +1595,8 @@ async function processVocabSetAudioJob(job) {
           audioHash: result.audioHash,
           audioStatus: "ready",
           audioError: "",
+          ttsText: result.ttsText,
+          audioWarnings: result.warnings,
           ttsProvider: job.settings.provider,
           ttsVoice: job.settings.voice,
           ttsLang: job.settings.lang,
@@ -1553,6 +1610,8 @@ async function processVocabSetAudioJob(job) {
           audioHash,
           audioStatus: "failed",
           audioError: err.message || "TTS generation failed.",
+          ttsText: sanitized.text,
+          audioWarnings: sanitized.warnings,
           ttsProvider: job.settings.provider,
           ttsVoice: job.settings.voice,
           ttsLang: job.settings.lang,
@@ -2355,12 +2414,15 @@ app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_a
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
     const text = String(req.body?.text || "apple").trim();
+    const force = Boolean(req.body?.force);
     if (!text) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text.slice(0, 120), settings);
+    const result = await generateCachedTtsAudio(text, settings, force);
     res.json({
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
-      cached: result.cached
+      cached: result.cached,
+      ttsText: result.ttsText,
+      warnings: result.warnings
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2404,6 +2466,8 @@ app2.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["tea
         ttsVoice: item.ttsVoice,
         ttsLang: item.ttsLang,
         ttsSpeed: item.ttsSpeed,
+        ttsText: item.ttsText,
+        audioWarnings: item.audioWarnings || [],
         audioGeneratedAt: item.audioGeneratedAt,
         audioUpdatedAt: item.audioUpdatedAt
       }))

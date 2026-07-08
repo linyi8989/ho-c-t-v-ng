@@ -380,10 +380,9 @@ export default function StudentLearningArea({
 
   const learningLeaderboard = useMemo<LeaderboardEntry[]>(() => {
     return buildLeaderboard(leaderboardSessions, [], {
-      period: leaderboardPeriod,
-      vocabSetId: vocabSet.id
+      period: leaderboardPeriod
     }).gold.slice(0, 8);
-  }, [leaderboardSessions, leaderboardPeriod, vocabSet.id]);
+  }, [leaderboardSessions, leaderboardPeriod]);
 
   // Render game in focus
   const renderActiveGame = () => {
@@ -664,6 +663,9 @@ export default function StudentLearningArea({
                     <div>
                       <h3 className="font-black text-gray-900 text-lg">Bảng vàng học sinh</h3>
                       <p className="text-xs text-gray-500 font-semibold">
+                        X&#7871;p h&#7841;ng theo t&#7893;ng k&#7871;t qu&#7843; luy&#7879;n t&#7853;p.
+                      </p>
+                      <p className="hidden">
                         Xếp hạng theo kết quả tốt nhất trong bộ từ này.
                       </p>
                     </div>
@@ -684,6 +686,9 @@ export default function StudentLearningArea({
                   <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-8 text-center">
                     <Award className="mx-auto text-amber-500" size={30} />
                     <p className="mt-3 text-sm font-bold text-gray-700">
+                      Ch&#432;a c&#243; k&#7871;t qu&#7843; luy&#7879;n t&#7853;p n&#224;o.
+                    </p>
+                    <p className="hidden">
                       Chưa có kết quả nào cho bộ từ này.
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
@@ -696,15 +701,15 @@ export default function StudentLearningArea({
                       {learningLeaderboard.slice(0, 3).map((entry, index) => (
                         <div
                           key={`podium-${entry.studentKey || entry.studentName}-${index}`}
-                          className={`rounded-2xl border p-4 text-center shadow-sm ${
+                          className={`learning-podium-card rounded-2xl border p-4 text-center shadow-sm ${
                             index === 0
-                              ? 'bg-amber-50 border-amber-300'
+                              ? 'bg-amber-50 border-amber-300 text-amber-800'
                               : index === 1
-                                ? 'bg-slate-50 border-slate-200'
-                                : 'bg-orange-50 border-orange-200'
+                                ? 'bg-blue-50 border-blue-300 text-blue-800'
+                                : 'bg-orange-50 border-orange-300 text-orange-800'
                           }`}
                         >
-                          <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white border border-current/20 text-sm font-black text-gray-900">
+                          <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white border border-current/25 text-sm font-black">
                             {index + 1}
                           </div>
                           <p className="mt-2 truncate text-sm font-black text-gray-900">{entry.studentName}</p>

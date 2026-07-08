@@ -282,6 +282,21 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const handleUpdateItemValue = (id: string, field: keyof VocabItem, value: any) => {
     setEditorItems(prev => prev.map(item => {
       if (item.id === id) {
+        if (field === 'term' && String(value).trim() !== item.term.trim()) {
+          return {
+            ...item,
+            [field]: value,
+            audioUrl: '',
+            audioPath: '',
+            audioHash: '',
+            audioStatus: 'missing',
+            audioError: '',
+            audioWarnings: [],
+            ttsText: '',
+            audioGeneratedAt: '',
+            audioUpdatedAt: ''
+          };
+        }
         return { ...item, [field]: value };
       }
       return item;
@@ -415,7 +430,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       return;
     }
 
-    setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '' } : item));
+    setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '', audioWarnings: [] } : item));
     try {
       const res = await authFetch('/api/tts/preview', {
         method: 'POST',
@@ -442,10 +457,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         audioHash: data.audioHash,
         audioStatus: 'ready',
         audioError: '',
+        audioWarnings: Array.isArray(data.warnings) ? data.warnings : [],
+        ttsText: data.ttsText || targetItem.term.trim(),
         ttsProvider: ttsSettings.provider,
         ttsVoice: ttsSettings.voice,
         ttsLang: ttsSettings.lang,
         ttsSpeed: ttsSettings.speed,
+        audioUpdatedAt: new Date().toISOString(),
         audioGeneratedAt: new Date().toISOString()
       } : item));
       showNotification('Da tao audio cho tu nay. Bam luu bo tu de luu metadata audio.');
@@ -467,7 +485,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     }
 
     setIsBatchGeneratingAudio(true);
-    setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '' } : item));
+    setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '', audioWarnings: [] } : item));
     try {
       let successCount = 0;
       let failedCount = 0;
@@ -488,10 +506,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
             audioHash: data.audioHash,
             audioStatus: 'ready',
             audioError: '',
+            audioWarnings: Array.isArray(data.warnings) ? data.warnings : [],
+            ttsText: data.ttsText || item.term.trim(),
             ttsProvider: ttsSettings.provider,
             ttsVoice: ttsSettings.voice,
             ttsLang: ttsSettings.lang,
             ttsSpeed: ttsSettings.speed,
+            audioUpdatedAt: new Date().toISOString(),
             audioGeneratedAt: new Date().toISOString()
           } : current));
         } else {
@@ -2261,6 +2282,16 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                               {item.audioError && (
                                 <span className="text-[10px] text-rose-500 font-semibold line-clamp-2" title={item.audioError}>
                                   {item.audioError}
+                                </span>
+                              )}
+                              {item.ttsText && item.ttsText !== item.term.trim() && (
+                                <span className="text-[10px] text-slate-500 font-semibold line-clamp-2" title={`TTS text: ${item.ttsText}`}>
+                                  TTS: {item.ttsText}
+                                </span>
+                              )}
+                              {Array.isArray(item.audioWarnings) && item.audioWarnings.length > 0 && (
+                                <span className="text-[10px] text-amber-700 font-semibold line-clamp-2" title={item.audioWarnings.join(' ')}>
+                                  {item.audioWarnings[0]}
                                 </span>
                               )}
                               <div className="flex items-center gap-1">

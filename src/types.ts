@@ -34,11 +34,14 @@ export interface VocabItem {
   audioHash?: string;
   audioStatus?: 'missing' | 'queued' | 'generating' | 'ready' | 'failed';
   audioError?: string;
+  audioWarnings?: string[];
   audioGeneratedAt?: string;
+  audioUpdatedAt?: string;
   ttsProvider?: string;
   ttsVoice?: string;
   ttsLang?: 'en-US' | 'en-GB' | string;
   ttsSpeed?: number;
+  ttsText?: string;
   notes?: string;
   displayOrder: number;
 }
