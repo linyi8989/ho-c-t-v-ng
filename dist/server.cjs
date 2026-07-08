@@ -2332,8 +2332,33 @@ app2.get("/api/public/results", async (req, res) => {
   try {
     const snapshot = await adminDb.collection("game_sessions").get();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
+    const classesSnapshot = await adminDb.collection("classes").get();
+    const membersSnapshot = await adminDb.collection("class_members").get();
     const assignmentsById = /* @__PURE__ */ new Map();
-    assignmentsSnapshot.forEach((doc) => assignmentsById.set(doc.id, doc.data()));
+    const classesById = /* @__PURE__ */ new Map();
+    const uniqueAssignmentClassByVocabSet = /* @__PURE__ */ new Map();
+    const uniqueMemberClassByName = /* @__PURE__ */ new Map();
+    classesSnapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      classesById.set(data.id, data);
+    });
+    assignmentsSnapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      assignmentsById.set(doc.id, data);
+      if (data.id) assignmentsById.set(data.id, data);
+      setUniqueClass(uniqueAssignmentClassByVocabSet, data.vocabSetId, {
+        classId: data.classId,
+        className: data.className || classesById.get(data.classId)?.name || ""
+      });
+    });
+    membersSnapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      const className = data.className || classesById.get(data.classId)?.name || "";
+      setUniqueClass(uniqueMemberClassByName, normalizePersonName(data.studentName), {
+        classId: data.classId,
+        className
+      });
+    });
     const list = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
@@ -2342,11 +2367,21 @@ app2.get("/api/public/results", async (req, res) => {
       if (isExpiredActivity(data)) return;
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       const assignment = data.assignmentId ? assignmentsById.get(data.assignmentId) : null;
+      const assignmentClass = assignment ? {
+        classId: assignment.classId,
+        className: assignment.className || classesById.get(assignment.classId)?.name || ""
+      } : null;
+      const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
+      const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
+      const resolvedClass = data.classId ? {
+        classId: data.classId,
+        className: data.className || classesById.get(data.classId)?.name || ""
+      } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
       list.push({
         id: data.id || doc.id,
         assignmentId: data.assignmentId,
-        classId: data.classId || assignment?.classId || "",
-        className: data.className || assignment?.className || "",
+        classId: resolvedClass.classId,
+        className: resolvedClass.className,
         vocabSetId: data.vocabSetId,
         vocabSetTitle: data.vocabSetTitle,
         gameId: data.gameId,
@@ -2776,12 +2811,34 @@ app2.post("/api/game-sessions", async (req, res) => {
     if (payload.assignmentId) {
       const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
       assignment = assignmentDoc.exists ? assignmentDoc.data() : null;
+      if (!assignment) {
+        const assignmentsSnapshot = await adminDb.collection("assignments").get();
+        assignmentsSnapshot.forEach((doc) => {
+          const data = { id: doc.id, ...doc.data() };
+          if (!assignment && data.id === String(payload.assignmentId)) {
+            assignment = data;
+          }
+        });
+      }
+    }
+    let inferredClass = null;
+    if (!payload.classId && !assignment && payload.vocabSetId) {
+      const assignmentsSnapshot = await adminDb.collection("assignments").get();
+      const uniqueBySet = /* @__PURE__ */ new Map();
+      assignmentsSnapshot.forEach((doc) => {
+        const data = { id: doc.id, ...doc.data() };
+        setUniqueClass(uniqueBySet, data.vocabSetId, {
+          classId: data.classId,
+          className: data.className || ""
+        });
+      });
+      inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
     }
     const newSession = {
       ...payload,
       id,
-      classId: payload.classId || assignment?.classId || "",
-      className: payload.className || assignment?.className || "",
+      classId: payload.classId || assignment?.classId || inferredClass?.classId || "",
+      className: payload.className || assignment?.className || inferredClass?.className || "",
       startedAt: now,
       createdAt: now,
       status: "started",
@@ -3007,6 +3064,20 @@ function toLegacyStatus(visibility) {
 }
 function createShareToken() {
   return import_crypto.default.randomBytes(16).toString("hex");
+}
+function normalizePersonName(value) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ");
+}
+function setUniqueClass(map, key, classInfo) {
+  if (!key || !classInfo?.classId) return;
+  const existing = map.get(key);
+  if (!existing) {
+    if (!map.has(key)) map.set(key, classInfo);
+    return;
+  }
+  if (existing.classId !== classInfo.classId) {
+    map.set(key, null);
+  }
 }
 function normalizeVocabSetForSave(payload, existing = {}) {
   const merged = {

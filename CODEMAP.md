@@ -884,6 +884,7 @@ Registry:
 - Assignment links must use assignment-level tokens (`assignments.shareToken` / `assignmentSlug` / id), not only vocab-set share links. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
 - `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; the session keeps the class at the time of the assigned work. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
 - Legacy sessions without `assignmentId` and without `classId`/`className` cannot be reliably class-filtered. Do not infer class only from `studentName`, because names can duplicate and students can move classes.
+- `/api/public/results` enriches class data safely for old sessions: direct session class first, then assignment class, then unique assignment class by vocab set, then unique class member by normalized student name. Ambiguous matches stay blank. The client Firestore fallback mirrors this rule.
 
 ### UI Theme
 
