@@ -170,6 +170,7 @@ export default function FillBlankGame({
   };
 
   const progressPercent = Math.round((currentIndex / items.length) * 100);
+  const hasAnswer = userInput.trim().length > 0;
 
   return (
     <div className="w-full max-w-lg mx-auto" id="fillblank-game-root">
@@ -296,8 +297,12 @@ export default function FillBlankGame({
         {!isSubmitted ? (
           <button
             type="submit"
-            disabled={!userInput.trim()}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 border border-blue-700 disabled:bg-blue-100 disabled:text-blue-700 disabled:border-blue-200 text-white font-black text-lg rounded-2xl transition-all shadow-lg shadow-indigo-100 active:scale-98 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            disabled={!hasAnswer}
+            className={`w-full py-4 border font-black text-lg rounded-2xl transition-all shadow-lg active:scale-98 flex items-center justify-center space-x-2 ${
+              hasAnswer
+                ? 'button-active cursor-pointer shadow-indigo-100'
+                : 'button-disabled shadow-none cursor-not-allowed'
+            }`}
             id="submit-answer-btn"
           >
             <span>KIỂM TRA ĐÁP ÁN</span>

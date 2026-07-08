@@ -1806,6 +1806,45 @@ textarea::placeholder {
   color: var(--accent-blue-hover) !important;
 }
 
+#submit-answer-btn:not(:disabled),
+#fillblank-game-root #submit-answer-btn:not(:disabled) {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22) !important;
+}
+
+#submit-answer-btn:not(:disabled) *,
+#submit-answer-btn:not(:disabled) svg,
+#fillblank-game-root #submit-answer-btn:not(:disabled) *,
+#fillblank-game-root #submit-answer-btn:not(:disabled) svg {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#submit-answer-btn:not(:disabled):hover,
+#fillblank-game-root #submit-answer-btn:not(:disabled):hover {
+  background: var(--accent-blue-hover) !important;
+  border-color: var(--accent-blue-hover) !important;
+}
+
+#submit-answer-btn:disabled,
+#fillblank-game-root #submit-answer-btn:disabled {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
+#submit-answer-btn:disabled *,
+#submit-answer-btn:disabled svg,
+#fillblank-game-root #submit-answer-btn:disabled *,
+#fillblank-game-root #submit-answer-btn:disabled svg {
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
 #matching-grid-container button {
   opacity: 1 !important;
 }
