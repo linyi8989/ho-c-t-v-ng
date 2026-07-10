@@ -1913,6 +1913,331 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
   }
 });
 
+// 19. GRAMMAR SETS: List grammar lessons
+app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
+  try {
+    const snapshot = await adminDb.collection("grammar_sets").get();
+    const list: any[] = [];
+    snapshot.forEach(doc => {
+      const set = { id: doc.id, ...doc.data() };
+      if (req.user?.role === "student" && getGrammarVisibility(set) !== "public") return;
+      list.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
+    });
+    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    res.json(list);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
+  try {
+    const set = await getGrammarSetOr404(req.params.id);
+    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (req.user?.role === "student" && getGrammarVisibility(set) !== "public") {
+      return res.status(403).json({ error: "Bạn không có quyền mở bài ngữ pháp này." });
+    }
+    res.json(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const id = makeId("grammar-set");
+    const set = normalizeGrammarSetForSave({ ...req.body, id }, {}, req.user);
+    await adminDb.collection("grammar_sets").doc(id).set(set);
+
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      "CREATE_GRAMMAR_SET",
+      `Đã tạo bài ngữ pháp: "${set.title}" (${set.questions.length} câu)`
+    );
+
+    res.status(201).json(set);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message, details: err.details });
+  }
+});
+
+app.put("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const existing = await getGrammarSetOr404(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "Bạn không có quyền sửa bài này." });
+
+    const set = normalizeGrammarSetForSave({ ...req.body, id: req.params.id }, existing, req.user);
+    await adminDb.collection("grammar_sets").doc(req.params.id).set(set);
+
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      "UPDATE_GRAMMAR_SET",
+      `Đã cập nhật bài ngữ pháp: "${set.title}"`
+    );
+
+    res.json(set);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message, details: err.details });
+  }
+});
+
+app.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const existing = await getGrammarSetOr404(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "Bạn không có quyền xóa bài này." });
+
+    await adminDb.collection("grammar_sets").doc(req.params.id).delete();
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      "DELETE_GRAMMAR_SET",
+      `Đã xóa bài ngữ pháp: "${existing.title}"`
+    );
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const existing = await getGrammarSetOr404(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    const cloneId = makeId("grammar-set");
+    const clone = normalizeGrammarSetForSave({
+      ...existing,
+      id: cloneId,
+      title: `${existing.title} (Bản sao)`,
+      visibility: "draft",
+      questions: existing.questions
+    }, {}, req.user);
+    await adminDb.collection("grammar_sets").doc(cloneId).set(clone);
+    res.status(201).json(clone);
+  } catch (err: any) {
+    res.status(err.status || 500).json({ error: err.message, details: err.details });
+  }
+});
+
+app.post("/api/grammar-sets/:id/attempts", authenticateUser, async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const set = await getGrammarSetOr404(req.params.id);
+    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (req.user.role === "student" && getGrammarVisibility(set) !== "public") {
+      return res.status(403).json({ error: "Bạn không có quyền làm bài này." });
+    }
+
+    const attemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+    let completedAttempts = 0;
+    attemptsSnapshot.forEach(doc => {
+      const attempt = doc.data();
+      if (attempt.grammarSetId === set.id && attempt.userId === req.user?.id && attempt.status === "completed") {
+        completedAttempts++;
+      }
+    });
+    if (completedAttempts >= Number(set.maxAttempts || 1)) {
+      return res.status(403).json({ error: "Bạn đã hết số lần làm bài được phép." });
+    }
+
+    const now = new Date().toISOString();
+    const questions = set.shuffleQuestions ? fisherYates(set.questions || []) : [...(set.questions || [])];
+    const attemptQuestions = questions.map((question: any, index: number) => {
+      const options = set.shuffleOptions ? fisherYates(question.options || []) : [...(question.options || [])];
+      return {
+        id: makeId(`grammar-attempt-question-${index + 1}`),
+        questionId: question.id,
+        displayPosition: index + 1,
+        optionOrder: options.map((option: any) => option.id),
+        questionSnapshot: question.questionText,
+        explanationSnapshot: question.explanation,
+        scoreSnapshot: question.score,
+        optionsSnapshot: options,
+        correctOptionId: question.correctOptionId
+      };
+    });
+
+    const attemptId = makeId("grammar-attempt");
+    const attempt = {
+      id: attemptId,
+      grammarSetId: set.id,
+      grammarSetTitle: set.title,
+      assignmentId: req.body?.assignmentId || "",
+      userId: req.user.id,
+      studentName: req.user.name,
+      status: "in_progress",
+      score: 0,
+      maxScore: attemptQuestions.reduce((sum: number, question: any) => sum + Number(question.scoreSnapshot || 1), 0),
+      correctCount: 0,
+      wrongCount: 0,
+      unansweredCount: attemptQuestions.length,
+      startedAt: now,
+      createdAt: now,
+      questions: attemptQuestions,
+      answers: []
+    };
+
+    await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
+    res.status(201).json(sanitizeAttemptForStudent(attempt, false));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/grammar-attempts/:attemptId/answers", authenticateUser, async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
+    if (attempt.userId !== req.user.id && req.user.role === "student") return res.status(403).json({ error: "Bạn không có quyền sửa lượt làm bài này." });
+    if (attempt.status === "completed") return res.status(400).json({ error: "Bài đã nộp, không thể thay đổi đáp án." });
+
+    const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === req.body?.attemptQuestionId);
+    if (!attemptQuestion) return res.status(400).json({ error: "Câu hỏi không hợp lệ." });
+    const selectedOptionId = String(req.body?.selectedOptionId || "");
+    const selectedOption = attemptQuestion.optionsSnapshot.find((option: any) => option.id === selectedOptionId);
+    if (!selectedOption) return res.status(400).json({ error: "Phương án đã chọn không hợp lệ." });
+
+    const isCorrect = selectedOptionId === attemptQuestion.correctOptionId;
+    const answer = {
+      id: makeId("grammar-answer"),
+      attemptQuestionId: attemptQuestion.id,
+      questionId: attemptQuestion.questionId,
+      selectedOptionId,
+      correctOptionId: attemptQuestion.correctOptionId,
+      isCorrect,
+      scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
+      answeredAt: new Date().toISOString()
+    };
+    const answers = (attempt.answers || []).filter((item: any) => item.attemptQuestionId !== attemptQuestion.id);
+    answers.push(answer);
+    const updatedAttempt = { ...attempt, answers };
+    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+
+    const set = await getGrammarSetOr404(attempt.grammarSetId);
+    const feedback = set?.showExplanationImmediately
+      ? {
+          isCorrect,
+          correctOptionId: attemptQuestion.correctOptionId,
+          explanation: attemptQuestion.explanationSnapshot,
+          scoreAwarded: answer.scoreAwarded
+        }
+      : null;
+    res.json({ answer, feedback });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/grammar-attempts/:attemptId/submit", authenticateUser, async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
+    if (attempt.userId !== req.user.id && req.user.role === "student") return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
+    if (attempt.status === "completed") return res.status(400).json({ error: "Bài này đã được nộp." });
+
+    const answerMap = new Map((attempt.answers || []).map((answer: any) => [answer.attemptQuestionId, answer]));
+    let score = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+    let unansweredCount = 0;
+    for (const question of attempt.questions || []) {
+      const answer: any = answerMap.get(question.id);
+      if (!answer) {
+        unansweredCount++;
+      } else if (answer.isCorrect) {
+        correctCount++;
+        score += Number(question.scoreSnapshot || 1);
+      } else {
+        wrongCount++;
+      }
+    }
+
+    const completedAt = new Date().toISOString();
+    const startedAt = attempt.startedAt || completedAt;
+    const durationSeconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+    const updatedAttempt = {
+      ...attempt,
+      status: "completed",
+      score,
+      correctCount,
+      wrongCount,
+      unansweredCount,
+      completedAt,
+      durationSeconds
+    };
+    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+    res.json(sanitizeAttemptForStudent(updatedAttempt, true));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/grammar-attempts/:attemptId/review", authenticateUser, async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
+    const set = await getGrammarSetOr404(attempt.grammarSetId);
+    const canReview = attempt.userId === req.user.id || req.user.role === "super_admin" || (set && canManageGrammarSet(req.user, set));
+    if (!canReview) return res.status(403).json({ error: "Bạn không có quyền xem lượt làm bài này." });
+    if (attempt.status !== "completed" && req.user.role === "student") return res.status(403).json({ error: "Chỉ được xem lại sau khi nộp bài." });
+    res.json(sanitizeAttemptForStudent(attempt, true));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/grammar-sets/:id/my-attempts", authenticateUser, async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const list: any[] = [];
+    snapshot.forEach(doc => {
+      const attempt = { id: doc.id, ...doc.data() };
+      if (attempt.grammarSetId === req.params.id && attempt.userId === req.user?.id) {
+        list.push(sanitizeAttemptForStudent(attempt, attempt.status === "completed"));
+      }
+    });
+    list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    res.json(list);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const set = await getGrammarSetOr404(req.params.id);
+    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (!canManageGrammarSet(req.user, set)) return res.status(403).json({ error: "Bạn không có quyền xem kết quả bài này." });
+
+    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const attempts: any[] = [];
+    snapshot.forEach(doc => {
+      const attempt = { id: doc.id, ...doc.data() };
+      if (attempt.grammarSetId === set.id) attempts.push(attempt);
+    });
+    attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
+    res.json({ set, attempts });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 19. GAME SESSIONS: Start a session
 app.post("/api/game-sessions", async (req, res) => {
   try {
@@ -2286,6 +2611,184 @@ function normalizeVocabSetForSave(payload: any, existing: any = {}) {
   }
 
   return normalized;
+}
+
+type GrammarVisibility = "public" | "assignment" | "draft";
+
+function getGrammarVisibility(set: any): GrammarVisibility {
+  if (set?.visibility === "assignment" || set?.visibility === "public" || set?.visibility === "draft") {
+    return set.visibility;
+  }
+  if (set?.status === "private") return "assignment";
+  if (set?.status === "public") return "public";
+  return "draft";
+}
+
+function safeText(value: any, max = 2000) {
+  return String(value || "").normalize("NFKC").trim().slice(0, max);
+}
+
+function makeId(prefix: string) {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function fisherYates<T>(input: T[]) {
+  const items = [...input];
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function normalizeGrammarQuestion(question: any, index: number) {
+  const questionId = question.id || makeId(`grammar-question-${index + 1}`);
+  const rawOptions = Array.isArray(question.options) ? question.options : [];
+  const options = rawOptions.slice(0, 4).map((option: any, optionIndex: number) => ({
+    id: option.id || `${questionId}-option-${optionIndex + 1}`,
+    text: safeText(option.text, 1000),
+    originalPosition: Number.isFinite(Number(option.originalPosition))
+      ? Number(option.originalPosition)
+      : optionIndex + 1
+  }));
+
+  return {
+    id: questionId,
+    questionText: safeText(question.questionText || question.question, 4000),
+    options,
+    correctOptionId: String(question.correctOptionId || ""),
+    explanation: safeText(question.explanation, 6000),
+    score: Math.max(1, Number(question.score || 1)),
+    position: Number.isFinite(Number(question.position)) ? Number(question.position) : index + 1
+  };
+}
+
+function validateGrammarQuestion(question: any, index: number) {
+  const errors: string[] = [];
+  if (!question.questionText) errors.push(`Câu ${index + 1}: thiếu nội dung câu hỏi.`);
+  if (!question.explanation) errors.push(`Câu ${index + 1}: thiếu lời giải thích.`);
+  if (!Array.isArray(question.options) || question.options.length !== 4) {
+    errors.push(`Câu ${index + 1}: cần đúng 4 phương án.`);
+  }
+  question.options?.forEach((option: any, optionIndex: number) => {
+    if (!option.text) errors.push(`Câu ${index + 1}: phương án ${optionIndex + 1} đang trống.`);
+  });
+  if (!question.correctOptionId || !question.options?.some((option: any) => option.id === question.correctOptionId)) {
+    errors.push(`Câu ${index + 1}: đáp án đúng không hợp lệ.`);
+  }
+
+  const normalizedOptions = (question.options || []).map((option: any) => normalizePersonName(option.text));
+  if (new Set(normalizedOptions).size !== normalizedOptions.length) {
+    errors.push(`Câu ${index + 1}: có phương án bị trùng nội dung.`);
+  }
+  return errors;
+}
+
+function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any) {
+  const now = new Date().toISOString();
+  const questions = (Array.isArray(payload.questions) ? payload.questions : [])
+    .map(normalizeGrammarQuestion)
+    .sort((a: any, b: any) => a.position - b.position)
+    .map((question: any, index: number) => ({ ...question, position: index + 1 }));
+
+  const errors = questions.flatMap(validateGrammarQuestion);
+  const duplicateQuestions = new Map<string, number>();
+  questions.forEach((question: any, index: number) => {
+    const key = normalizePersonName(question.questionText);
+    if (!key) return;
+    if (duplicateQuestions.has(key)) {
+      errors.push(`Câu ${index + 1}: nội dung câu hỏi trùng với câu ${duplicateQuestions.get(key)}.`);
+    } else {
+      duplicateQuestions.set(key, index + 1);
+    }
+  });
+
+  if (questions.length === 0) errors.push("Bài ngữ pháp cần ít nhất một câu hỏi hợp lệ.");
+  if (errors.length > 0) {
+    const err: any = new Error(errors.join(" "));
+    err.status = 400;
+    err.details = errors;
+    throw err;
+  }
+
+  return {
+    ...existing,
+    ...payload,
+    id: payload.id || existing.id,
+    title: safeText(payload.title || existing.title, 240),
+    description: safeText(payload.description || existing.description, 2000),
+    gradeLevel: safeText(payload.gradeLevel || existing.gradeLevel || "Lớp 3", 80),
+    subject: safeText(payload.subject || existing.subject || "English Grammar", 120),
+    topic: safeText(payload.topic || existing.topic || "", 160),
+    tags: Array.isArray(payload.tags) ? payload.tags.map((tag: any) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
+    visibility: getGrammarVisibility(payload),
+    timeLimitMinutes: Math.max(0, Number(payload.timeLimitMinutes || 0)),
+    maxAttempts: Math.max(1, Number(payload.maxAttempts || 1)),
+    shuffleQuestions: payload.shuffleQuestions !== false,
+    shuffleOptions: payload.shuffleOptions !== false,
+    showExplanationImmediately: Boolean(payload.showExplanationImmediately),
+    showReviewAfterSubmit: payload.showReviewAfterSubmit !== false,
+    createdBy: existing.createdBy || user.id,
+    creatorName: existing.creatorName || user.name,
+    createdAt: existing.createdAt || now,
+    updatedAt: now,
+    questions
+  };
+}
+
+function canManageGrammarSet(user: any, set: any) {
+  return user?.role === "super_admin" || set.createdBy === user?.id;
+}
+
+function sanitizeGrammarSetForStudent(set: any) {
+  return {
+    ...set,
+    questions: (set.questions || []).map((question: any) => ({
+      id: question.id,
+      questionText: question.questionText,
+      options: question.options.map((option: any) => ({
+        id: option.id,
+        text: option.text,
+        originalPosition: option.originalPosition
+      })),
+      score: question.score,
+      position: question.position
+    }))
+  };
+}
+
+function sanitizeAttemptForStudent(attempt: any, includeReview = false) {
+  const base = {
+    ...attempt,
+    questions: (attempt.questions || []).map((question: any) => ({
+      id: question.id,
+      questionId: question.questionId,
+      displayPosition: question.displayPosition,
+      questionSnapshot: question.questionSnapshot,
+      scoreSnapshot: question.scoreSnapshot,
+      optionsSnapshot: question.optionsSnapshot.map((option: any) => ({
+        id: option.id,
+        text: option.text,
+        originalPosition: option.originalPosition
+      }))
+    })),
+    answers: attempt.answers || []
+  };
+
+  if (includeReview) return attempt;
+  return base;
+}
+
+async function getGrammarSetOr404(id: string) {
+  const doc = await adminDb.collection("grammar_sets").doc(id).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
+}
+
+async function getGrammarAttemptOr404(id: string) {
+  const doc = await adminDb.collection("grammar_attempts").doc(id).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
 }
 
 start().catch((err) => {

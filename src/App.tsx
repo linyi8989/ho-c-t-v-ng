@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Users, Award, Play, ShieldAlert, Sparkles, UserCheck, 
-  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield
+  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield, FileText
 } from 'lucide-react';
-import { VocabSet, Class, Assignment, GameSession } from './types';
+import { VocabSet, Class, Assignment, GameSession, GrammarSet } from './types';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentLearningArea from './components/games/StudentLearningArea';
+import GrammarLearningArea from './components/grammar/GrammarLearningArea';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -73,6 +74,7 @@ export default function App() {
   }, []);
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
+  const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [results, setResults] = useState<GameSession[]>([]);
@@ -87,6 +89,7 @@ export default function App() {
 
   // Active student playing state
   const [selectedSet, setSelectedSet] = useState<VocabSet | null>(null);
+  const [selectedGrammarSet, setSelectedGrammarSet] = useState<GrammarSet | null>(null);
   const [studentName, setStudentName] = useState('');
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | undefined>(undefined);
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
@@ -109,6 +112,7 @@ export default function App() {
     if (!token) {
       setClasses([]);
       setAssignments([]);
+      setGrammarSets([]);
 
       try {
         const res = await fetch('/api/public/vocab-sets');
@@ -131,6 +135,19 @@ export default function App() {
       }
 
       return;
+    }
+
+    // Load Grammar Sets
+    try {
+      const res = await fetch('/api/grammar-sets', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Grammar API response error");
+      const data = await res.json();
+      setGrammarSets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/grammar-sets API unreachable:", err);
+      setGrammarSets([]);
     }
 
     // Load Vocabulary Sets
@@ -329,6 +346,21 @@ export default function App() {
     return visibility === 'public' && matchSearch && matchGrade;
   });
 
+  const filteredGrammarSets = grammarSets.filter(set => {
+    const searchTerms = expandSearchTerms(homeSearch);
+    const searchableText = normalizeSearchText([
+      set.title,
+      set.description,
+      set.subject,
+      set.topic,
+      set.gradeLevel,
+      ...(set.tags || [])
+    ].filter(Boolean).join(' '));
+    const matchSearch = searchTerms.length === 0 || searchTerms.some(term => searchableText.includes(term));
+    const matchGrade = homeGrade ? set.gradeLevel === homeGrade : true;
+    return set.visibility === 'public' && matchSearch && matchGrade;
+  });
+
   // --- SCREEN RENDERS ---
 
   // 1. Loading Screen
@@ -439,6 +471,15 @@ export default function App() {
           setActiveGameId(undefined);
           setActiveAssignmentId(undefined);
         }}
+      />
+    );
+  }
+
+  if (selectedGrammarSet) {
+    return (
+      <GrammarLearningArea
+        grammarSet={selectedGrammarSet}
+        onBack={() => setSelectedGrammarSet(null)}
       />
     );
   }
@@ -664,6 +705,50 @@ export default function App() {
               ))}
             </div>
           )}
+
+          <div className="pt-8 space-y-4 border-t border-gray-200" id="home-grammar-directory">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                  <FileText className="text-emerald-600" size={22} />
+                  <span>Luyện ngữ pháp</span>
+                </h2>
+                <p className="text-gray-400 text-xs font-medium">Chọn bài ngữ pháp để luyện trắc nghiệm và xem lại lời giải sau khi nộp.</p>
+              </div>
+              <span className="text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-3 py-1">
+                {filteredGrammarSets.length} bài
+              </span>
+            </div>
+
+            {filteredGrammarSets.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">
+                Chưa có bài ngữ pháp công khai phù hợp.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredGrammarSets.map((set) => (
+                  <div key={set.id} className="bg-white rounded-3xl p-6 border border-emerald-100 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                        {set.gradeLevel}
+                      </span>
+                      <span className="text-xs text-gray-400 font-semibold">{set.questions.length} câu</span>
+                    </div>
+                    <h3 className="mt-3 font-extrabold text-gray-800 text-base leading-tight">{set.title}</h3>
+                    <p className="text-xs text-gray-400 font-medium">Chủ đề: {set.topic || set.subject}</p>
+                    <p className="mt-2 text-xs text-gray-500 line-clamp-2 leading-relaxed">{set.description}</p>
+                    <button
+                      onClick={() => setSelectedGrammarSet(set)}
+                      className="mt-5 w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1 cursor-pointer text-xs"
+                    >
+                      <span>Bắt đầu luyện ngữ pháp</span>
+                      <ArrowRight size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
         </section>
 

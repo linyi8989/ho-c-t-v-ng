@@ -92,6 +92,89 @@ export interface Assignment {
   title: string;
 }
 
+export type GrammarVisibility = 'public' | 'assignment' | 'draft';
+
+export interface GrammarOption {
+  id: string;
+  text: string;
+  originalPosition: number;
+}
+
+export interface GrammarQuestion {
+  id: string;
+  questionText: string;
+  options: GrammarOption[];
+  correctOptionId: string;
+  explanation: string;
+  score: number;
+  position: number;
+}
+
+export interface GrammarSet {
+  id: string;
+  title: string;
+  description: string;
+  gradeLevel: string;
+  subject: string;
+  topic: string;
+  tags: string[];
+  visibility: GrammarVisibility;
+  timeLimitMinutes: number;
+  maxAttempts: number;
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+  showExplanationImmediately: boolean;
+  showReviewAfterSubmit: boolean;
+  createdBy: string;
+  creatorName?: string;
+  createdAt: string;
+  updatedAt: string;
+  questions: GrammarQuestion[];
+}
+
+export interface GrammarAttemptQuestion {
+  id: string;
+  questionId: string;
+  displayPosition: number;
+  optionOrder: string[];
+  questionSnapshot: string;
+  explanationSnapshot: string;
+  scoreSnapshot: number;
+  optionsSnapshot: GrammarOption[];
+  correctOptionId: string;
+}
+
+export interface GrammarAttemptAnswer {
+  id: string;
+  attemptQuestionId: string;
+  questionId: string;
+  selectedOptionId: string;
+  correctOptionId: string;
+  isCorrect: boolean;
+  scoreAwarded: number;
+  answeredAt: string;
+}
+
+export interface GrammarAttempt {
+  id: string;
+  grammarSetId: string;
+  assignmentId?: string;
+  userId: string;
+  studentName: string;
+  status: 'in_progress' | 'completed';
+  score: number;
+  maxScore: number;
+  correctCount: number;
+  wrongCount: number;
+  unansweredCount: number;
+  startedAt: string;
+  completedAt?: string;
+  durationSeconds?: number;
+  createdAt: string;
+  questions: GrammarAttemptQuestion[];
+  answers: GrammarAttemptAnswer[];
+}
+
 export interface GameSession {
   id: string;
   userId?: string;

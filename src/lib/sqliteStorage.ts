@@ -34,6 +34,20 @@ const collectionTableMap: Record<string, string> = {
   gameresults: 'game_results',
   pronunciation_attempts: 'game_results',
   pronunciationattempts: 'game_results',
+  grammar_sets: 'grammar_sets',
+  grammarsets: 'grammar_sets',
+  grammar_questions: 'grammar_questions',
+  grammarquestions: 'grammar_questions',
+  grammar_options: 'grammar_options',
+  grammaroptions: 'grammar_options',
+  grammar_assignments: 'grammar_assignments',
+  grammarassignments: 'grammar_assignments',
+  grammar_attempts: 'grammar_attempts',
+  grammarattempts: 'grammar_attempts',
+  grammar_attempt_questions: 'grammar_attempt_questions',
+  grammarattemptquestions: 'grammar_attempt_questions',
+  grammar_attempt_answers: 'grammar_attempt_answers',
+  grammarattemptanswers: 'grammar_attempt_answers',
   audit_logs: 'audit_logs',
   auditlogs: 'audit_logs',
   settings: 'settings',
@@ -392,6 +406,18 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table.startsWith('grammar_')) {
+    run(
+      `INSERT INTO ${table} (id, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [id, createdAt, updatedAt, dataJson]
+    );
+    return;
+  }
+
   if (table === 'settings') {
     run(
       `INSERT INTO settings (key, value_json, updated_at)
@@ -538,6 +564,55 @@ function runSchemaMigration() {
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS grammar_sets (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_questions (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_options (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_assignments (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_attempts (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_attempt_questions (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grammar_attempt_answers (
+      id TEXT PRIMARY KEY,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
     CREATE INDEX IF NOT EXISTS idx_vocab_items_vocab_set_id ON vocab_items(vocab_set_id);
@@ -551,6 +626,8 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_grammar_sets_created_at ON grammar_sets(created_at);
+    CREATE INDEX IF NOT EXISTS idx_grammar_attempts_created_at ON grammar_attempts(created_at);
   `);
   persistDb();
 }
@@ -895,6 +972,8 @@ export async function getSQLiteDiagnostics() {
       assignments: await tableCount('assignments'),
       results: await tableCount('results'),
       game_results: await tableCount('game_results'),
+      grammar_sets: await tableCount('grammar_sets'),
+      grammar_attempts: await tableCount('grammar_attempts'),
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,

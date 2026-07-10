@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-05
+Last updated: 2026-07-10
 
 ## 1. Project Overview
 
@@ -64,6 +64,7 @@ Primary stack:
 - `src/components/games/StudentLearningArea.tsx`: student game shell/session manager.
 - `src/components/games/*Game.tsx`: individual game implementations.
 - `src/components/games/GameControlPanel.tsx`: shared control panel for games.
+- `src/components/grammar/GrammarLearningArea.tsx`: student grammar practice and review screen.
 
 ## 3. Runtime Architecture
 
@@ -194,6 +195,8 @@ Canonical runtime collections:
 - `class_members`
 - `assignments`
 - `game_sessions`
+- `grammar_sets`
+- `grammar_attempts`
 - `audit_logs`
 
 ### User Profile
@@ -329,6 +332,21 @@ Teacher or super admin:
 - `DELETE /api/classes/:classId/members/:memberId`: delete class member.
 - `POST /api/assignments`: create assignment.
 - `DELETE /api/assignments/:id`: delete assignment.
+- `POST /api/admin/grammar-sets`: create grammar set.
+- `PUT /api/admin/grammar-sets/:id`: update grammar set.
+- `DELETE /api/admin/grammar-sets/:id`: delete grammar set.
+- `POST /api/admin/grammar-sets/:id/clone`: clone grammar set.
+- `GET /api/admin/grammar-sets/:id/results`: teacher/admin grammar results for one set.
+
+Grammar:
+
+- `GET /api/grammar-sets`: list grammar sets; students only receive public sets.
+- `GET /api/grammar-sets/:id`: read one grammar set with student-safe shape.
+- `POST /api/grammar-sets/:id/attempts`: create a grammar attempt and persist shuffled question/option order.
+- `POST /api/grammar-attempts/:attemptId/answers`: save one selected option; server grades by option ID.
+- `POST /api/grammar-attempts/:attemptId/submit`: finalize and score attempt.
+- `GET /api/grammar-attempts/:attemptId/review`: review own attempt or teacher/admin-authorized attempt.
+- `GET /api/grammar-sets/:id/my-attempts`: current user's attempt history for one grammar set.
 
 Super admin only:
 
@@ -412,13 +430,15 @@ Teacher/super admin:
 - Class member add/delete.
 - Assignment creation/deletion.
 - Results table.
+- Recent activity view.
+- Grammar set directory/editor/results view.
 - Super admin user management.
 - Super admin audit logs.
 
 Key state groups:
 
 - Data lists: `vocabSets`, `classes`, `classMembers`, `assignments`, `results`, `usersList`, `auditLogs`.
-- Filters: vocab search/grade/status; user search/role/status.
+- Filters: vocab search/grade/status; user search/role/status; recent activity student-name search; leaderboard period/category/class/vocab-set filters.
 - Editor state: title, description, subject, grade, status, tags, items.
 - Batch import: terms, meanings, IPAs.
 - AI generation: topic, grade, count, loading.
@@ -435,8 +455,31 @@ When extending admin features, consider extracting smaller modules before large 
 - Classes panel.
 - Assignments panel.
 - Results panel.
+- Grammar sets panel.
+- Grammar editor panel.
 - Users panel.
 - Audit logs panel.
+
+Grammar module notes:
+
+- Grammar data is stored separately from vocabulary data.
+- Runtime collections/tables include `grammar_sets` and `grammar_attempts`; SQLite migration also creates separate grammar tables for questions/options/attempt details.
+- Admin UI adds `grammar-sets` and `grammar-editor` tabs in `AdminDashboard.tsx`.
+- `parseBulkGrammarText()` accepts blocks with `QUESTION`, `A`, `B`, `C`, `D`, `ANSWER`, and `EXPLANATION`; explanation may span multiple lines.
+- Correct answers are stored and checked by stable option IDs, not by A/B/C/D labels after shuffle.
+- Student attempts persist question order and option order snapshots, so reload/review does not reshuffle completed work.
+- Server APIs grade answers and reject updates after submit; students may only review their own attempts.
+- Before deploying storage/schema changes to production SQLite, backup `/home/qzmivzbj/app-data/vhomework/app.sqlite`. The grammar migration must remain additive/idempotent and must not delete or rewrite existing vocabulary/game/user tables.
+
+Recent activity behavior:
+
+- Source data is `results`, loaded from `/api/results`.
+- `/api/results` is expected to return completed game sessions within the display window, currently 7 days.
+- Dashboard overview shows the 30 newest completed sessions only.
+- The "Xem tất cả" path opens the results tab, where `activity-results-sheet` shows all returned sessions from the 7-day window, sorted newest first.
+- `activity-results-sheet` filters by student name on the client, using accent-insensitive search.
+- Clicking an activity opens the existing `selectedActivity` detail modal with summary and answer details.
+- Do not implement recent activity by deleting records from `game_sessions`; old records should be hidden by API/query/display filtering unless an explicit, backed-up maintenance cleanup is approved.
 
 ## 10. Game Engine Map
 

@@ -4,7 +4,7 @@ import {
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
   Shield, FileText, Lock, Unlock, Star, X
 } from 'lucide-react';
-import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings } from '../../types';
+import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
@@ -14,7 +14,7 @@ interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
 }
 
-type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
+type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
 type VocabVisibility = 'public' | 'assignment' | 'draft';
 
 const getSetVisibility = (set: VocabSet): VocabVisibility => {
@@ -118,10 +118,90 @@ function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow
   return { rows, errors };
 }
 
+function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; errors: string[]; warnings: string[] } {
+  const questions: GrammarQuestion[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const blocks = input
+    .split(/\n\s*\n+/)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  blocks.forEach((block, blockIndex) => {
+    const lines = block.split(/\r?\n/);
+    const data: Record<string, string> = {};
+    let currentKey = '';
+
+    lines.forEach(rawLine => {
+      const line = rawLine.trim();
+      if (!line) return;
+      const match = line.match(/^(question|a|b|c|d|answer|explanation)\s*:\s*(.*)$/i);
+      if (match) {
+        currentKey = match[1].toUpperCase();
+        data[currentKey] = match[2].trim();
+      } else if (currentKey === 'EXPLANATION') {
+        data.EXPLANATION = `${data.EXPLANATION || ''}\n${line}`.trim();
+      }
+    });
+
+    const missing = ['QUESTION', 'A', 'B', 'C', 'D', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
+    if (missing.length > 0) {
+      errors.push(`Câu số ${blockIndex + 1} không được nhập vì thiếu ${missing.join(', ')}.`);
+      return;
+    }
+
+    const answerKey = data.ANSWER.toUpperCase();
+    if (!['A', 'B', 'C', 'D'].includes(answerKey)) {
+      errors.push(`Câu số ${blockIndex + 1} có ANSWER là ${data.ANSWER}, chỉ chấp nhận A, B, C hoặc D.`);
+      return;
+    }
+
+    const optionValues = ['A', 'B', 'C', 'D'].map(key => data[key].trim());
+    if (optionValues.some(value => !value)) {
+      errors.push(`Câu số ${blockIndex + 1} có phương án trống.`);
+      return;
+    }
+    if (new Set(optionValues.map(value => value.toLowerCase())).size !== optionValues.length) {
+      warnings.push(`Câu số ${blockIndex + 1} có phương án trùng nhau.`);
+    }
+
+    const questionId = `grammar-question-${Date.now()}-${blockIndex}`;
+    const options = optionValues.map((text, index) => ({
+      id: `${questionId}-option-${index + 1}`,
+      text,
+      originalPosition: index + 1
+    }));
+    const correctIndex = answerKey.charCodeAt(0) - 65;
+
+    questions.push({
+      id: questionId,
+      questionText: data.QUESTION.trim(),
+      options,
+      correctOptionId: options[correctIndex].id,
+      explanation: data.EXPLANATION.trim(),
+      score: 1,
+      position: questions.length + 1
+    });
+  });
+
+  const seenQuestions = new Map<string, number>();
+  questions.forEach((question, index) => {
+    const key = question.questionText.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seenQuestions.has(key)) {
+      warnings.push(`Câu số ${index + 1} bị trùng nội dung với câu ${seenQuestions.get(key)}.`);
+    } else {
+      seenQuestions.set(key, index + 1);
+    }
+  });
+
+  return { questions, errors, warnings };
+}
+
 export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
+  const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -170,6 +250,26 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [batchExamples, setBatchExamples] = useState('');
   const [batchExampleMeanings, setBatchExampleMeanings] = useState('');
   const [batchVocabularyText, setBatchVocabularyText] = useState('');
+
+  // Grammar editor state
+  const [editingGrammarSetId, setEditingGrammarSetId] = useState<string | null>(null);
+  const [grammarTitle, setGrammarTitle] = useState('');
+  const [grammarDescription, setGrammarDescription] = useState('');
+  const [grammarGrade, setGrammarGrade] = useState('Lá»›p 3');
+  const [grammarSubject, setGrammarSubject] = useState('English Grammar');
+  const [grammarTopic, setGrammarTopic] = useState('');
+  const [grammarVisibility, setGrammarVisibility] = useState<'public' | 'assignment' | 'draft'>('public');
+  const [grammarTags, setGrammarTags] = useState('grammar');
+  const [grammarTimeLimitMinutes, setGrammarTimeLimitMinutes] = useState(0);
+  const [grammarMaxAttempts, setGrammarMaxAttempts] = useState(1);
+  const [grammarShuffleQuestions, setGrammarShuffleQuestions] = useState(false);
+  const [grammarShuffleOptions, setGrammarShuffleOptions] = useState(true);
+  const [grammarShowExplanationImmediately, setGrammarShowExplanationImmediately] = useState(false);
+  const [grammarShowReviewAfterSubmit, setGrammarShowReviewAfterSubmit] = useState(true);
+  const [grammarBulkText, setGrammarBulkText] = useState('');
+  const [grammarQuestions, setGrammarQuestions] = useState<GrammarQuestion[]>([]);
+  const [grammarResultsSet, setGrammarResultsSet] = useState<GrammarSet | null>(null);
+  const [grammarResults, setGrammarResults] = useState<any[]>([]);
 
   // AI Generation States
   const [aiTopic, setAiTopic] = useState('');
@@ -228,6 +328,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
       .then(res => res.json())
       .then(data => setVocabSets(data))
       .catch(err => console.error("Error loading vocab sets:", err));
+
+    // Grammar Sets
+    authFetch('/api/grammar-sets')
+      .then(res => res.json())
+      .then(data => setGrammarSets(Array.isArray(data) ? data : []))
+      .catch(err => console.error("Error loading grammar sets:", err));
 
     // Classes
     authFetch('/api/classes')
@@ -296,6 +402,191 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setBatchExamples('');
     setBatchExampleMeanings('');
     setActiveTab('editor');
+  };
+
+  const handleOpenNewGrammarEditor = () => {
+    setEditingGrammarSetId(null);
+    setGrammarTitle('');
+    setGrammarDescription('');
+    setGrammarGrade('Lá»›p 3');
+    setGrammarSubject('English Grammar');
+    setGrammarTopic('');
+    setGrammarVisibility('public');
+    setGrammarTags('grammar');
+    setGrammarTimeLimitMinutes(0);
+    setGrammarMaxAttempts(1);
+    setGrammarShuffleQuestions(false);
+    setGrammarShuffleOptions(true);
+    setGrammarShowExplanationImmediately(false);
+    setGrammarShowReviewAfterSubmit(true);
+    setGrammarBulkText('');
+    setGrammarQuestions([]);
+    setActiveTab('grammar-editor');
+  };
+
+  const handleEditGrammarSet = (set: GrammarSet) => {
+    setEditingGrammarSetId(set.id);
+    setGrammarTitle(set.title);
+    setGrammarDescription(set.description);
+    setGrammarGrade(set.gradeLevel);
+    setGrammarSubject(set.subject);
+    setGrammarTopic(set.topic || '');
+    setGrammarVisibility(set.visibility);
+    setGrammarTags((set.tags || []).join(', '));
+    setGrammarTimeLimitMinutes(set.timeLimitMinutes || 0);
+    setGrammarMaxAttempts(set.maxAttempts || 1);
+    setGrammarShuffleQuestions(Boolean(set.shuffleQuestions));
+    setGrammarShuffleOptions(Boolean(set.shuffleOptions));
+    setGrammarShowExplanationImmediately(Boolean(set.showExplanationImmediately));
+    setGrammarShowReviewAfterSubmit(set.showReviewAfterSubmit !== false);
+    setGrammarQuestions(set.questions || []);
+    setGrammarBulkText('');
+    setActiveTab('grammar-editor');
+  };
+
+  const handleParseGrammarBulk = () => {
+    const parsed = parseBulkGrammarText(grammarBulkText);
+    if (parsed.questions.length > 0) {
+      setGrammarQuestions(prev => [
+        ...prev,
+        ...parsed.questions.map((question, index) => ({
+          ...question,
+          position: prev.length + index + 1
+        }))
+      ]);
+    }
+    const message = [
+      `Đã nhập thành công ${parsed.questions.length}/${parsed.questions.length + parsed.errors.length} câu.`,
+      ...parsed.errors,
+      ...parsed.warnings
+    ].join(' ');
+    showNotification(message, parsed.errors.length ? 'error' : 'success');
+  };
+
+  const updateGrammarQuestion = (questionId: string, patch: Partial<GrammarQuestion>) => {
+    setGrammarQuestions(prev => prev.map(question => question.id === questionId ? { ...question, ...patch } : question));
+  };
+
+  const updateGrammarOption = (questionId: string, optionId: string, text: string) => {
+    setGrammarQuestions(prev => prev.map(question => {
+      if (question.id !== questionId) return question;
+      return {
+        ...question,
+        options: question.options.map(option => option.id === optionId ? { ...option, text } : option)
+      };
+    }));
+  };
+
+  const handleAddGrammarQuestion = () => {
+    const questionId = `grammar-question-${Date.now()}`;
+    const options = [1, 2, 3, 4].map(index => ({
+      id: `${questionId}-option-${index}`,
+      text: '',
+      originalPosition: index
+    }));
+    setGrammarQuestions(prev => [
+      ...prev,
+      {
+        id: questionId,
+        questionText: '',
+        options,
+        correctOptionId: options[0].id,
+        explanation: '',
+        score: 1,
+        position: prev.length + 1
+      }
+    ]);
+  };
+
+  const handleDuplicateGrammarQuestion = (question: GrammarQuestion) => {
+    const questionId = `grammar-question-${Date.now()}`;
+    const options = question.options.map((option, index) => ({
+      ...option,
+      id: `${questionId}-option-${index + 1}`,
+      originalPosition: index + 1
+    }));
+    const originalCorrectIndex = question.options.findIndex(option => option.id === question.correctOptionId);
+    setGrammarQuestions(prev => [
+      ...prev,
+      {
+        ...question,
+        id: questionId,
+        options,
+        correctOptionId: options[Math.max(0, originalCorrectIndex)]?.id || options[0].id,
+        position: prev.length + 1
+      }
+    ]);
+  };
+
+  const handleSaveGrammarSet = () => {
+    if (!grammarTitle.trim()) return showNotification('Vui lòng nhập tên bài ngữ pháp.', 'error');
+    if (grammarQuestions.length === 0) return showNotification('Bài ngữ pháp cần ít nhất một câu hỏi.', 'error');
+
+    const payload = {
+      title: grammarTitle,
+      description: grammarDescription,
+      gradeLevel: grammarGrade,
+      subject: grammarSubject,
+      topic: grammarTopic,
+      visibility: grammarVisibility,
+      tags: grammarTags.split(',').map(tag => tag.trim()).filter(Boolean),
+      timeLimitMinutes: grammarTimeLimitMinutes,
+      maxAttempts: grammarMaxAttempts,
+      shuffleQuestions: grammarShuffleQuestions,
+      shuffleOptions: grammarShuffleOptions,
+      showExplanationImmediately: grammarShowExplanationImmediately,
+      showReviewAfterSubmit: grammarShowReviewAfterSubmit,
+      questions: grammarQuestions.map((question, index) => ({ ...question, position: index + 1 }))
+    };
+
+    const url = editingGrammarSetId ? `/api/admin/grammar-sets/${editingGrammarSetId}` : '/api/admin/grammar-sets';
+    const method = editingGrammarSetId ? 'PUT' : 'POST';
+    authFetch(url, {
+      method,
+      body: JSON.stringify(payload)
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.details?.join(' ') || data.error || 'Không lưu được bài ngữ pháp.');
+        showNotification(editingGrammarSetId ? 'Đã cập nhật bài ngữ pháp.' : 'Đã tạo bài ngữ pháp mới.');
+        refreshData();
+        setActiveTab('grammar-sets');
+      })
+      .catch(err => showNotification(err.message, 'error'));
+  };
+
+  const handleCloneGrammarSet = (set: GrammarSet) => {
+    authFetch(`/api/admin/grammar-sets/${set.id}/clone`, { method: 'POST' })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Không sao chép được bài.');
+        showNotification('Đã sao chép bài ngữ pháp.');
+        refreshData();
+      })
+      .catch(err => showNotification(err.message, 'error'));
+  };
+
+  const handleDeleteGrammarSet = (set: GrammarSet) => {
+    if (!window.confirm(`Xóa bài ngữ pháp "${set.title}"?`)) return;
+    authFetch(`/api/admin/grammar-sets/${set.id}`, { method: 'DELETE' })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Không xóa được bài.');
+        showNotification('Đã xóa bài ngữ pháp.');
+        refreshData();
+      })
+      .catch(err => showNotification(err.message, 'error'));
+  };
+
+  const handleLoadGrammarResults = (set: GrammarSet) => {
+    setGrammarResultsSet(set);
+    authFetch(`/api/admin/grammar-sets/${set.id}/results`)
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Không tải được kết quả.');
+        setGrammarResults(Array.isArray(data.attempts) ? data.attempts : []);
+      })
+      .catch(err => showNotification(err.message, 'error'));
   };
 
   const handleOpenEditEditor = (set: VocabSet) => {
@@ -1336,6 +1627,28 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
           </button>
 
           <button
+            onClick={() => setActiveTab('grammar-sets')}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'grammar-sets' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-grammar-sets"
+          >
+            <FileText size={18} />
+            <span>Kho bài ngữ pháp</span>
+          </button>
+
+          <button
+            onClick={handleOpenNewGrammarEditor}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'grammar-editor' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-grammar-editor"
+          >
+            <Plus size={18} />
+            <span>Soạn bài ngữ pháp</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('classes')}
             className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
               activeTab === 'classes' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
@@ -1697,6 +2010,227 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                 );})}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB 2B: GRAMMAR SETS DIRECTORY */}
+        {/* ==================================================================== */}
+        {activeTab === 'grammar-sets' && (
+          <div className="space-y-6 animate-fade-in" id="grammar-sets-tab-content">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900">Kho bài ngữ pháp</h2>
+                <p className="text-gray-500 text-sm">Quản lý bài luyện ngữ pháp trắc nghiệm, kết quả và lịch sử làm bài.</p>
+              </div>
+              <button
+                onClick={handleOpenNewGrammarEditor}
+                className="py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
+              >
+                <Plus size={18} />
+                <span>Soạn bài ngữ pháp</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {grammarSets.length === 0 ? (
+                <div className="md:col-span-2 lg:col-span-3 bg-white rounded-3xl p-12 border border-gray-100 text-center text-gray-400 font-semibold">
+                  Chưa có bài ngữ pháp nào.
+                </div>
+              ) : (
+                grammarSets.map(set => (
+                  <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+                        {set.gradeLevel}
+                      </span>
+                      <span className="text-xs font-bold text-gray-400">{set.questions?.length || 0} câu</span>
+                    </div>
+                    <div>
+                      <h3 className="font-black text-gray-900">{set.title}</h3>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{set.description}</p>
+                      <p className="text-[10px] text-gray-400 font-bold mt-2">Trạng thái: {set.visibility}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => handleEditGrammarSet(set)} className="py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-black">Sửa</button>
+                      <button onClick={() => handleCloneGrammarSet(set)} className="py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black">Sao chép</button>
+                      <button onClick={() => handleLoadGrammarResults(set)} className="py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-black">Kết quả</button>
+                      <button onClick={() => handleDeleteGrammarSet(set)} className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-black">Xóa</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {grammarResultsSet && (
+              <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4" id="grammar-results-panel">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                  <div>
+                    <h3 className="font-black text-gray-900">Kết quả: {grammarResultsSet.title}</h3>
+                    <p className="text-xs text-gray-500">{grammarResults.length} lượt làm</p>
+                  </div>
+                  <button onClick={() => { setGrammarResultsSet(null); setGrammarResults([]); }} className="p-2 rounded-xl border border-gray-200 text-gray-600">
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-2xl border border-gray-200">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
+                      <tr>
+                        <th className="p-3">STT</th>
+                        <th className="p-3">Học sinh</th>
+                        <th className="p-3">Điểm</th>
+                        <th className="p-3">Đúng/Sai/Bỏ trống</th>
+                        <th className="p-3">Thời gian</th>
+                        <th className="p-3">Ngày hoàn thành</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {grammarResults.length === 0 ? (
+                        <tr><td colSpan={6} className="p-8 text-center text-gray-400">Chưa có học sinh hoàn thành bài này.</td></tr>
+                      ) : grammarResults.map((attempt, index) => (
+                        <tr key={attempt.id}>
+                          <td className="p-3 font-bold text-gray-500">{index + 1}</td>
+                          <td className="p-3 font-black text-gray-900">{attempt.studentName}</td>
+                          <td className="p-3 font-black text-blue-700">{attempt.score}/{attempt.maxScore}</td>
+                          <td className="p-3 text-xs font-bold text-gray-600">{attempt.correctCount}/{attempt.wrongCount}/{attempt.unansweredCount}</td>
+                          <td className="p-3 text-xs font-bold text-gray-600">{formatDuration(attempt.durationSeconds)}</td>
+                          <td className="p-3 text-xs font-bold text-gray-600">{formatVietnamDateTime(attempt.completedAt || attempt.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB 2C: GRAMMAR EDITOR */}
+        {/* ==================================================================== */}
+        {activeTab === 'grammar-editor' && (
+          <div className="space-y-6 animate-fade-in" id="grammar-editor-tab-content">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900">{editingGrammarSetId ? 'Chỉnh sửa bài ngữ pháp' : 'Soạn bài ngữ pháp mới'}</h2>
+                <p className="text-gray-500 text-sm">Tạo bài trắc nghiệm ngữ pháp với đáp án đúng theo optionId ổn định.</p>
+              </div>
+              <button onClick={handleSaveGrammarSet} className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-md">
+                Lưu bài ngữ pháp
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <label className="lg:col-span-2 text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Tên bài ngữ pháp</span>
+                <input value={grammarTitle} onChange={e => setGrammarTitle(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" placeholder="Ví dụ: Present Simple - Unit 1" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Lớp</span>
+                <select value={grammarGrade} onChange={e => setGrammarGrade(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900">
+                  {gradeOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Môn/chủ đề</span>
+                <input value={grammarSubject} onChange={e => setGrammarSubject(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Topic</span>
+                <input value={grammarTopic} onChange={e => setGrammarTopic(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Trạng thái</span>
+                <select value={grammarVisibility} onChange={e => setGrammarVisibility(e.target.value as any)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900">
+                  <option value="public">Công khai</option>
+                  <option value="assignment">Riêng tư</option>
+                  <option value="draft">Ẩn</option>
+                </select>
+              </label>
+              <label className="lg:col-span-2 text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Mô tả chi tiết</span>
+                <textarea value={grammarDescription} onChange={e => setGrammarDescription(e.target.value)} className="w-full min-h-24 p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Tags</span>
+                <input value={grammarTags} onChange={e => setGrammarTags(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Thời gian làm bài (phút)</span>
+                <input type="number" min={0} value={grammarTimeLimitMinutes} onChange={e => setGrammarTimeLimitMinutes(Number(e.target.value))} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <label className="text-xs font-black uppercase text-gray-500 space-y-2">
+                <span>Số lần được làm</span>
+                <input type="number" min={1} value={grammarMaxAttempts} onChange={e => setGrammarMaxAttempts(Number(e.target.value))} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" />
+              </label>
+              <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-3">
+                {[
+                  ['Trộn câu hỏi', grammarShuffleQuestions, setGrammarShuffleQuestions],
+                  ['Trộn đáp án', grammarShuffleOptions, setGrammarShuffleOptions],
+                  ['Giải thích sau từng câu', grammarShowExplanationImmediately, setGrammarShowExplanationImmediately],
+                  ['Xem giải thích sau khi nộp', grammarShowReviewAfterSubmit, setGrammarShowReviewAfterSubmit]
+                ].map(([label, checked, setter]: any) => (
+                  <label key={label} className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs font-black text-gray-700">
+                    <input type="checkbox" checked={checked} onChange={e => setter(e.target.checked)} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
+              <div>
+                <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
+                <p className="text-xs text-gray-500">Mỗi câu gồm QUESTION, A, B, C, D, ANSWER, EXPLANATION và cách nhau bằng dòng trống.</p>
+              </div>
+              <textarea
+                value={grammarBulkText}
+                onChange={e => setGrammarBulkText(e.target.value)}
+                className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"
+                placeholder={`QUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nD: played\nANSWER: B\nEXPLANATION: Chủ ngữ They là số nhiều nên dùng động từ nguyên mẫu play.`}
+              />
+              <button onClick={handleParseGrammarBulk} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
+                Ghép dữ liệu vào bảng câu hỏi
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-gray-900">Bảng câu hỏi ({grammarQuestions.length})</h3>
+                <button onClick={handleAddGrammarQuestion} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">Thêm câu</button>
+              </div>
+              <div className="space-y-4">
+                {grammarQuestions.map((question, qIndex) => (
+                  <div key={question.id} className="rounded-2xl border border-gray-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black text-gray-500">Câu {qIndex + 1}</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleDuplicateGrammarQuestion(question)} className="px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-black">Nhân bản</button>
+                        <button onClick={() => setGrammarQuestions(prev => prev.filter(item => item.id !== question.id).map((item, index) => ({ ...item, position: index + 1 })))} className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 text-xs font-black">Xóa</button>
+                      </div>
+                    </div>
+                    <textarea value={question.questionText} onChange={e => updateGrammarQuestion(question.id, { questionText: e.target.value })} className="w-full p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder="Câu hỏi" />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {question.options.map((option, index) => (
+                        <div key={option.id} className="flex gap-2">
+                          <select value={question.correctOptionId === option.id ? option.id : ''} onChange={() => updateGrammarQuestion(question.id, { correctOptionId: option.id })} className="w-12 rounded-xl border border-gray-200 text-xs font-black text-gray-700">
+                            <option value="">{String.fromCharCode(65 + index)}</option>
+                            <option value={option.id}>Đúng</option>
+                          </select>
+                          <input value={option.text} onChange={e => updateGrammarOption(question.id, option.id, e.target.value)} className="flex-1 p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder={`Đáp án ${index + 1}`} />
+                        </div>
+                      ))}
+                    </div>
+                    <textarea value={question.explanation} onChange={e => updateGrammarQuestion(question.id, { explanation: e.target.value })} className="w-full p-3 rounded-xl border border-gray-200 text-sm text-gray-800" placeholder="Lời giải thích bắt buộc" />
+                    <label className="flex items-center gap-2 text-xs font-black text-gray-500">
+                      Điểm
+                      <input type="number" min={1} value={question.score} onChange={e => updateGrammarQuestion(question.id, { score: Number(e.target.value) })} className="w-24 p-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" />
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
