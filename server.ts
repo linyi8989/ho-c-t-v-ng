@@ -158,6 +158,7 @@ function isExpiredActivity(data: any, nowMs = Date.now()) {
 }
 
 function grammarAttemptToActivity(attempt: any, set: any = {}) {
+  const gradeClass = getLessonGradeClass(set);
   const totalQuestions = Math.max(
     1,
     Number(attempt.correctCount || 0) + Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0)
@@ -181,8 +182,8 @@ function grammarAttemptToActivity(attempt: any, set: any = {}) {
     studentName: attempt.studentName || "Học sinh",
     guestId: attempt.userId || normalizePersonName(attempt.studentName || ""),
     assignmentId: attempt.assignmentId || "",
-    classId: attempt.classId || set.classId || "",
-    className: attempt.className || set.className || "",
+    classId: attempt.classId || set.classId || gradeClass.classId || "",
+    className: attempt.className || set.className || gradeClass.className || "",
     vocabSetId: `grammar:${attempt.grammarSetId}`,
     vocabSetTitle: attempt.grammarSetTitle || set.title || "Bài ngữ pháp",
     gameId: "grammar-practice",
@@ -227,6 +228,25 @@ async function getGrammarSetMap() {
     setsById.set(data.id, data);
   });
   return setsById;
+}
+
+async function getVocabSetMap() {
+  const snapshot = await adminDb.collection("vocab_sets").get();
+  const setsById = new Map<string, any>();
+  snapshot.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    setsById.set(data.id, data);
+  });
+  return setsById;
+}
+
+function getLessonGradeClass(set: any = {}) {
+  const gradeLevel = String(set.gradeLevel || "").trim();
+  if (!gradeLevel) return { classId: "", className: "" };
+  return {
+    classId: `grade:${normalizePersonName(gradeLevel)}`,
+    className: gradeLevel
+  };
 }
 
 type TtsSettings = {
@@ -1408,6 +1428,7 @@ app.get("/api/public/results", async (req, res) => {
     const snapshot = await adminDb.collection("game_sessions").get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
     const grammarSetsById = await getGrammarSetMap();
+    const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const classesSnapshot = await adminDb.collection("classes").get();
     const membersSnapshot = await adminDb.collection("class_members").get();
@@ -1454,6 +1475,7 @@ app.get("/api/public/results", async (req, res) => {
         className: assignment.className || classesById.get(assignment.classId)?.name || ""
       } : null;
       const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
+      const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
       const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
       const resolvedClass = data.classId
         ? {
@@ -1462,11 +1484,13 @@ app.get("/api/public/results", async (req, res) => {
           }
         : assignmentClass?.classId
           ? assignmentClass
-          : vocabSetClass?.classId
-            ? vocabSetClass
-            : memberClass?.classId
-              ? memberClass
-              : { classId: "", className: "" };
+            : vocabSetClass?.classId
+              ? vocabSetClass
+              : gradeClass.classId
+                ? gradeClass
+                : memberClass?.classId
+                  ? memberClass
+                  : { classId: "", className: "" };
 
       list.push({
         id: data.id || doc.id,
@@ -2497,12 +2521,19 @@ app.get("/api/results", authenticateUser, async (req, res) => {
     const snapshot = await adminDb.collection("game_sessions").get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
     const grammarSetsById = await getGrammarSetMap();
+    const vocabSetsById = await getVocabSetMap();
     const list: any[] = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach(doc => {
       const data = doc.data();
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
-        list.push({ ...data, id: data.id || doc.id });
+        const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
+        list.push({
+          ...data,
+          id: data.id || doc.id,
+          classId: data.classId || gradeClass.classId || "",
+          className: data.className || gradeClass.className || ""
+        });
       }
     });
     grammarAttemptsSnapshot.forEach(doc => {

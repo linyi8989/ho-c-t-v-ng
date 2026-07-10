@@ -120,6 +120,10 @@ function formatLeaderboardStudentName(entry: LeaderboardEntry) {
   return className ? `${entry.studentName} - ${className}` : entry.studentName;
 }
 
+function getLessonGradeClassId(vocabSet: VocabSet) {
+  return vocabSet.gradeLevel ? `grade:${normalizePersonName(vocabSet.gradeLevel)}` : undefined;
+}
+
 export default function StudentLearningArea({ 
   vocabSet, 
   studentName: propStudentName, 
@@ -224,6 +228,9 @@ export default function StudentLearningArea({
                 className: assignment.className || classesById.get(assignment.classId)?.name || ''
               } : null;
               const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
+              const currentLessonClass = data.vocabSetId === vocabSet.id && vocabSet.gradeLevel
+                ? { classId: getLessonGradeClassId(vocabSet) || '', className: vocabSet.gradeLevel }
+                : null;
               const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
               const resolvedClass = data.classId
                 ? {
@@ -234,9 +241,11 @@ export default function StudentLearningArea({
                   ? assignmentClass
                   : vocabSetClass?.classId
                     ? vocabSetClass
-                    : memberClass?.classId
-                      ? memberClass
-                      : { classId: '', className: '' };
+                    : currentLessonClass?.classId
+                      ? currentLessonClass
+                      : memberClass?.classId
+                        ? memberClass
+                        : { classId: '', className: '' };
 
               list.push({
                 id: docSnap.id,
@@ -298,8 +307,8 @@ export default function StudentLearningArea({
         studentName: studentName,
         studentId: guestId,
         guestId,
-        classId: assignmentClassId || vocabSet.classId || undefined,
-        className: assignmentClassName || vocabSet.className || undefined
+        classId: assignmentClassId || vocabSet.classId || getLessonGradeClassId(vocabSet),
+        className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel || undefined
       })
     })
     .then(res => {
@@ -327,8 +336,8 @@ export default function StudentLearningArea({
           studentName: studentName,
           studentId: guestId,
           guestId,
-          classId: assignmentClassId || vocabSet.classId || '',
-          className: assignmentClassName || vocabSet.className || '',
+          classId: assignmentClassId || vocabSet.classId || getLessonGradeClassId(vocabSet) || '',
+          className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel || '',
           score: 0,
           totalQuestions: 0,
           correctAnswers: 0,

@@ -1421,6 +1421,7 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 function grammarAttemptToActivity(attempt, set = {}) {
+  const gradeClass = getLessonGradeClass(set);
   const totalQuestions = Math.max(
     1,
     Number(attempt.correctCount || 0) + Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0) || Number((attempt.questions || []).length) || Number(attempt.maxScore || 0) || 1
@@ -1440,8 +1441,8 @@ function grammarAttemptToActivity(attempt, set = {}) {
     studentName: attempt.studentName || "H\u1ECDc sinh",
     guestId: attempt.userId || normalizePersonName(attempt.studentName || ""),
     assignmentId: attempt.assignmentId || "",
-    classId: attempt.classId || set.classId || "",
-    className: attempt.className || set.className || "",
+    classId: attempt.classId || set.classId || gradeClass.classId || "",
+    className: attempt.className || set.className || gradeClass.className || "",
     vocabSetId: `grammar:${attempt.grammarSetId}`,
     vocabSetTitle: attempt.grammarSetTitle || set.title || "B\xE0i ng\u1EEF ph\xE1p",
     gameId: "grammar-practice",
@@ -1485,6 +1486,23 @@ async function getGrammarSetMap() {
     setsById.set(data.id, data);
   });
   return setsById;
+}
+async function getVocabSetMap() {
+  const snapshot = await adminDb.collection("vocab_sets").get();
+  const setsById = /* @__PURE__ */ new Map();
+  snapshot.forEach((doc) => {
+    const data = { id: doc.id, ...doc.data() };
+    setsById.set(data.id, data);
+  });
+  return setsById;
+}
+function getLessonGradeClass(set = {}) {
+  const gradeLevel = String(set.gradeLevel || "").trim();
+  if (!gradeLevel) return { classId: "", className: "" };
+  return {
+    classId: `grade:${normalizePersonName(gradeLevel)}`,
+    className: gradeLevel
+  };
 }
 var DEFAULT_TTS_PROVIDER = "ai33";
 var DEFAULT_TTS_LANG = "en-US";
@@ -2477,6 +2495,7 @@ app2.get("/api/public/results", async (req, res) => {
     const snapshot = await adminDb.collection("game_sessions").get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
     const grammarSetsById = await getGrammarSetMap();
+    const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const classesSnapshot = await adminDb.collection("classes").get();
     const membersSnapshot = await adminDb.collection("class_members").get();
@@ -2518,11 +2537,12 @@ app2.get("/api/public/results", async (req, res) => {
         className: assignment.className || classesById.get(assignment.classId)?.name || ""
       } : null;
       const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
+      const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
       const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
       const resolvedClass = data.classId ? {
         classId: data.classId,
         className: data.className || classesById.get(data.classId)?.name || ""
-      } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
+      } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : gradeClass.classId ? gradeClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
       list.push({
         id: data.id || doc.id,
         assignmentId: data.assignmentId,
@@ -3405,12 +3425,19 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
     const snapshot = await adminDb.collection("game_sessions").get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
     const grammarSetsById = await getGrammarSetMap();
+    const vocabSetsById = await getVocabSetMap();
     const list = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
       const data = doc.data();
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
-        list.push({ ...data, id: data.id || doc.id });
+        const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
+        list.push({
+          ...data,
+          id: data.id || doc.id,
+          classId: data.classId || gradeClass.classId || "",
+          className: data.className || gradeClass.className || ""
+        });
       }
     });
     grammarAttemptsSnapshot.forEach((doc) => {

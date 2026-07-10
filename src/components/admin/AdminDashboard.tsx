@@ -66,6 +66,11 @@ function formatGradeLabel(value?: string) {
     .replace(/LÃ¡Â»â€ºp/g, 'Lớp');
 }
 
+function formatLeaderboardDisplayName(entry: { studentName: string; className?: string }) {
+  const className = formatGradeLabel(entry.className).trim();
+  return className ? `${entry.studentName} - ${className}` : entry.studentName;
+}
+
 function formatVietnamDateTime(value?: string) {
   if (!value) return '--';
   const date = new Date(value);
@@ -1436,6 +1441,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     );
   }, [completedActivityResults, activitySearch]);
 
+  const selectedActivityAnswerDetails = React.useMemo(() => {
+    if (!selectedActivity || !Array.isArray(selectedActivity.answerDetails)) return [];
+    return selectedActivity.answerDetails.filter(Boolean);
+  }, [selectedActivity]);
+
   const dashboardGoldRows = React.useMemo(() => {
     return getLeaderboardByCategory(results, assignments, { period: 'week' }, 'gold').slice(0, 5);
   }, [results, assignments]);
@@ -1600,10 +1610,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               <div className="rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="flex items-center justify-between gap-3 bg-gray-50 px-4 py-3 border-b border-gray-200">
                   <h4 className="text-sm font-black text-gray-900">Danh sách câu trả lời</h4>
-                  <span className="text-xs font-bold text-gray-500">{selectedActivity.answerDetails?.length || 0} dòng</span>
+                  <span className="text-xs font-bold text-gray-500">{selectedActivityAnswerDetails.length} dòng</span>
                 </div>
 
-                {!selectedActivity.answerDetails || selectedActivity.answerDetails.length === 0 ? (
+                {selectedActivityAnswerDetails.length === 0 ? (
                   <div className="p-8 text-center text-sm text-gray-400">
                     Lượt chơi này chưa có dữ liệu chi tiết từng câu.
                   </div>
@@ -1620,7 +1630,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedActivity.answerDetails.filter(Boolean).map((detail, index) => (
+                        {selectedActivityAnswerDetails.map((detail, index) => (
                           <tr key={`${selectedActivity.id}-detail-${index}`} className="border-t border-gray-100">
                             <td className="p-3 text-xs font-bold text-gray-500">{Number.isFinite(Number(detail.questionIndex)) ? Number(detail.questionIndex) + 1 : index + 1}</td>
                             <td className="p-3">
@@ -1914,7 +1924,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     dashboardGoldRows.map((entry, index) => (
                       <div key={`${entry.studentName}-${index}`} className="p-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl flex justify-between items-center">
                         <div className="space-y-0.5">
-                          <strong className="text-sm font-bold text-gray-800">{index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : ''}{entry.studentName}</strong>
+                          <strong className="text-sm font-bold text-gray-800">{index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : ''}{formatLeaderboardDisplayName(entry)}</strong>
                           <p className="text-xs text-indigo-600 font-semibold">{entry.completedLessons} bài hoàn thành • {entry.averageAccuracy}% đúng</p>
                           <p className="text-[10px] text-gray-400 font-mono">{entry.badges[0]}</p>
                         </div>
@@ -2151,18 +2161,18 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-5 gap-1.5">
                       <button
                         onClick={() => onViewGrammarAsStudent?.(set)}
-                        className="py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-xl text-xs font-black flex items-center justify-center gap-1"
+                        className="px-1 py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 leading-tight"
                       >
                         <Play size={13} />
                         <span>Play</span>
                       </button>
-                      <button onClick={() => handleEditGrammarSet(set)} className="py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-xl text-xs font-black">Sửa</button>
-                      <button onClick={() => handleCloneGrammarSet(set)} className="py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-xl text-xs font-black">Sao chép</button>
-                      <button onClick={() => handleLoadGrammarResults(set)} className="py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-xl text-xs font-black">Kết quả</button>
-                      <button onClick={() => handleDeleteGrammarSet(set)} className="py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-xl text-xs font-black">Xóa</button>
+                      <button onClick={() => handleEditGrammarSet(set)} className="px-1 py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-lg text-[10px] font-black leading-tight">Sửa</button>
+                      <button onClick={() => handleCloneGrammarSet(set)} className="px-1 py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-lg text-[10px] font-black leading-tight">Sao chép</button>
+                      <button onClick={() => handleLoadGrammarResults(set)} className="px-1 py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-lg text-[10px] font-black leading-tight">Kết quả</button>
+                      <button onClick={() => handleDeleteGrammarSet(set)} className="px-1 py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-lg text-[10px] font-black leading-tight">Xóa</button>
                     </div>
                   </div>
                   );
@@ -3498,7 +3508,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <span className="text-4xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</span>
                     <span className="text-xs font-black bg-white border border-gray-200 px-3 py-1 rounded-full text-blue-700">{entry.honorScore} điểm</span>
                   </div>
-                  <h3 className="mt-4 text-lg font-black text-gray-950 truncate">{entry.studentName}</h3>
+                  <h3 className="mt-4 text-lg font-black text-gray-950 truncate">{formatLeaderboardDisplayName(entry)}</h3>
                   <p className="text-xs font-bold text-gray-600 mt-1">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày học</p>
                   <p className="mt-3 text-[11px] font-black text-blue-700 bg-white border border-blue-100 rounded-xl px-3 py-2 inline-block">{entry.badges[0]}</p>
                 </div>
@@ -3543,8 +3553,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                                 {entry.studentName.charAt(0).toUpperCase()}
                               </span>
                               <div>
-                                <strong className="text-gray-950 font-bold">{entry.studentName}</strong>
-                                {entry.className && <p className="text-[10px] text-gray-500">{entry.className}</p>}
+                                <strong className="text-gray-950 font-bold">{formatLeaderboardDisplayName(entry)}</strong>
                               </div>
                             </div>
                           </td>

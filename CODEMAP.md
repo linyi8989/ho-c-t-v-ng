@@ -941,12 +941,13 @@ Registry:
 - Student home and Admin results tab both use leaderboard-derived rows.
 - `StudentLearningArea.tsx` also uses the total leaderboard, not per-vocab-set ranking.
 - The in-game leaderboard supports a class filter beside the week/month filter.
-- Student names in the in-game leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
-- `/api/public/results` returns `classId`/`className`; old sessions are backfilled at read time from `assignmentId`, and new sessions store class metadata when created.
+- Student names in the in-game leaderboard and admin leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
+- `/api/public/results` and `/api/results` return `classId`/`className`; old sessions are backfilled at read time from `assignmentId` or lesson `gradeLevel`, and new sessions store class metadata when created.
 - Assignment links must use assignment-level tokens (`assignments.shareToken` / `assignmentSlug` / id), not only vocab-set share links. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
-- `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; the session keeps the class at the time of the assigned work. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
+- `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; when no assignment class exists, it falls back to the vocab set `gradeLevel` as a grade-level class bucket. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
 - Legacy sessions without `assignmentId` and without `classId`/`className` cannot be reliably class-filtered. Do not infer class only from `studentName`, because names can duplicate and students can move classes.
-- `/api/public/results` enriches class data safely for old sessions: direct session class first, then assignment class, then unique assignment class by vocab set, then unique class member by normalized student name. Ambiguous matches stay blank. The client Firestore fallback mirrors this rule.
+- `/api/public/results` enriches class data safely for old sessions: direct session class first, then assignment class, then unique assignment class by vocab set, then lesson `gradeLevel`, then unique class member by normalized student name. Ambiguous matches stay blank. The client Firestore fallback mirrors this rule where local data is available.
+- Activity detail modals must treat `answerDetails` defensively: old/grammar rows may omit details or return a non-array shape, so the UI should show an empty detail state instead of throwing a blank page.
 
 ### UI Theme
 
