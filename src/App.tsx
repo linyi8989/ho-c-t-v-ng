@@ -14,6 +14,12 @@ import { buildLeaderboard, LeaderboardPeriod } from './lib/leaderboard';
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
+function formatGradeLabel(value?: string) {
+  return (value || '')
+    .replace(/Lá»›p/g, 'Lớp')
+    .replace(/LÃ¡Â»â€ºp/g, 'Lớp');
+}
+
 const WEEKLY_LEARNING_QUOTES = [
   { text: 'Education is the most powerful weapon which you can use to change the world.', author: 'Nelson Mandela' },
   { text: 'The beautiful thing about learning is nobody can take it away from you.', author: 'B.B. King' },
@@ -675,7 +681,7 @@ export default function App() {
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
-                        {set.gradeLevel}
+                        {formatGradeLabel(set.gradeLevel)}
                       </span>
                       <span className="text-xs text-gray-400 font-semibold">{set.items.length} từ</span>
                     </div>
@@ -695,7 +701,7 @@ export default function App() {
                         setSelectedSet(set);
                         setStudentName(user?.name || '');
                       }}
-                      className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl transition-all shadow-sm hover:shadow flex items-center space-x-1 cursor-pointer text-xs"
+                      className="py-2 px-4 !bg-indigo-600 hover:!bg-indigo-700 !text-white !border !border-indigo-700 font-extrabold rounded-xl transition-all shadow-sm hover:shadow flex items-center space-x-1 cursor-pointer text-xs"
                     >
                       <span>Vào học ngay</span>
                       <ArrowRight size={12} />
@@ -730,7 +736,7 @@ export default function App() {
                   <div key={set.id} className="bg-white rounded-3xl p-6 border border-emerald-100 shadow-sm hover:shadow-md transition-all">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-                        {set.gradeLevel}
+                        {formatGradeLabel(set.gradeLevel)}
                       </span>
                       <span className="text-xs text-gray-400 font-semibold">{set.questions.length} câu</span>
                     </div>
@@ -739,7 +745,7 @@ export default function App() {
                     <p className="mt-2 text-xs text-gray-500 line-clamp-2 leading-relaxed">{set.description}</p>
                     <button
                       onClick={() => setSelectedGrammarSet(set)}
-                      className="mt-5 w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1 cursor-pointer text-xs"
+                      className="mt-5 w-full py-3 !bg-emerald-600 hover:!bg-emerald-700 !text-white !border !border-emerald-700 font-extrabold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1 cursor-pointer text-xs"
                     >
                       <span>Bắt đầu luyện ngữ pháp</span>
                       <ArrowRight size={12} />

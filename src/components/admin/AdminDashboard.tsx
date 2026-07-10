@@ -54,6 +54,12 @@ const TTS_VOICE_OPTIONS = [
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 
+function formatGradeLabel(value?: string) {
+  return (value || '')
+    .replace(/Lá»›p/g, 'Lớp')
+    .replace(/LÃ¡Â»â€ºp/g, 'Lớp');
+}
+
 function formatVietnamDateTime(value?: string) {
   if (!value) return '--';
   const date = new Date(value);
@@ -255,7 +261,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
   const [editingGrammarSetId, setEditingGrammarSetId] = useState<string | null>(null);
   const [grammarTitle, setGrammarTitle] = useState('');
   const [grammarDescription, setGrammarDescription] = useState('');
-  const [grammarGrade, setGrammarGrade] = useState('Lá»›p 3');
+  const [grammarGrade, setGrammarGrade] = useState('Lớp 3');
   const [grammarSubject, setGrammarSubject] = useState('English Grammar');
   const [grammarTopic, setGrammarTopic] = useState('');
   const [grammarVisibility, setGrammarVisibility] = useState<'public' | 'assignment' | 'draft'>('public');
@@ -408,7 +414,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
     setEditingGrammarSetId(null);
     setGrammarTitle('');
     setGrammarDescription('');
-    setGrammarGrade('Lá»›p 3');
+    setGrammarGrade('Lớp 3');
     setGrammarSubject('English Grammar');
     setGrammarTopic('');
     setGrammarVisibility('public');
@@ -2025,7 +2031,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
               </div>
               <button
                 onClick={handleOpenNewGrammarEditor}
-                className="py-3 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
+                className="py-3 px-6 !bg-emerald-600 hover:!bg-emerald-700 !text-white !border !border-emerald-700 font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
               >
                 <Plus size={18} />
                 <span>Soạn bài ngữ pháp</span>
@@ -2042,7 +2048,7 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                        {set.gradeLevel}
+                        {formatGradeLabel(set.gradeLevel)}
                       </span>
                       <span className="text-xs font-bold text-gray-400">{set.questions?.length || 0} câu</span>
                     </div>
@@ -2052,10 +2058,10 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <p className="text-[10px] text-gray-400 font-bold mt-2">Trạng thái: {set.visibility}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => handleEditGrammarSet(set)} className="py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-black">Sửa</button>
-                      <button onClick={() => handleCloneGrammarSet(set)} className="py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black">Sao chép</button>
-                      <button onClick={() => handleLoadGrammarResults(set)} className="py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-black">Kết quả</button>
-                      <button onClick={() => handleDeleteGrammarSet(set)} className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-black">Xóa</button>
+                      <button onClick={() => handleEditGrammarSet(set)} className="py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-xl text-xs font-black">Sửa</button>
+                      <button onClick={() => handleCloneGrammarSet(set)} className="py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-xl text-xs font-black">Sao chép</button>
+                      <button onClick={() => handleLoadGrammarResults(set)} className="py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-xl text-xs font-black">Kết quả</button>
+                      <button onClick={() => handleDeleteGrammarSet(set)} className="py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-xl text-xs font-black">Xóa</button>
                     </div>
                   </div>
                 ))

@@ -23,6 +23,10 @@ function formatVietnamDateTime(value?: string) {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+function formatGradeLabel(value?: string) {
+  return (value || '').replace(/Lá»›p/g, 'Lớp');
+}
+
 export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearningAreaProps) {
   const { token, user } = useAuth();
   const [attempts, setAttempts] = useState<GrammarAttempt[]>([]);
@@ -141,7 +145,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="sticky top-0 z-20 bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <button onClick={onBack} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-sm font-bold flex items-center gap-2">
+          <button onClick={onBack} className="px-4 py-2 rounded-xl !border !border-blue-700 !bg-blue-600 hover:!bg-blue-700 !text-white text-sm font-bold flex items-center gap-2 shadow-sm">
             <ArrowLeft size={16} />
             Thoát ra
           </button>
@@ -170,7 +174,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold">Lớp: {grammarSet.gradeLevel}</div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold">Lớp: {formatGradeLabel(grammarSet.gradeLevel)}</div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold">Chủ đề: {grammarSet.topic || grammarSet.subject}</div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold flex items-center gap-2">
                 <Clock size={16} /> {grammarSet.timeLimitMinutes ? `${grammarSet.timeLimitMinutes} phút` : 'Không giới hạn'}
@@ -179,9 +183,9 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
             <button
               onClick={startAttempt}
               disabled={loading}
-              className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-black shadow-md transition-all"
+              className="w-full py-4 rounded-2xl !bg-blue-600 hover:!bg-blue-700 disabled:!bg-blue-300 !text-white !border !border-blue-700 disabled:!border-blue-300 font-black shadow-md transition-all"
             >
-              {loading ? 'Đang tạo lượt làm...' : 'Bắt đầu luyện'}
+              {loading ? 'Đang tạo lượt làm...' : 'Bắt đầu làm bài'}
             </button>
           </div>
         )}
@@ -206,11 +210,13 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
                     onClick={() => answerQuestion(currentQuestion.id, option.id)}
                     className={`w-full rounded-2xl border p-4 text-left font-bold transition-all ${
                       selected
-                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-sm'
-                        : 'bg-white border-gray-200 hover:bg-blue-50 hover:border-blue-300 text-gray-800'
+                        ? '!bg-blue-600 !border-blue-700 !text-white shadow-sm'
+                        : '!bg-white !border-blue-300 hover:!bg-blue-50 hover:!border-blue-500 !text-gray-900'
                     }`}
                   >
-                    <span className="mr-3 inline-flex w-8 h-8 items-center justify-center rounded-xl bg-gray-50 border border-gray-200 text-blue-700 font-black">
+                    <span className={`mr-3 inline-flex w-8 h-8 items-center justify-center rounded-xl border font-black ${
+                      selected ? '!bg-white !border-white !text-blue-700' : '!bg-blue-50 !border-blue-200 !text-blue-700'
+                    }`}>
                       {String.fromCharCode(65 + index)}
                     </span>
                     {option.text}
@@ -222,16 +228,16 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
               <button
                 onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                 disabled={currentIndex === 0}
-                className="px-5 py-3 rounded-2xl border border-gray-200 bg-white disabled:opacity-60 font-bold"
+                className="px-5 py-3 rounded-2xl !border !border-gray-300 !bg-white !text-gray-800 disabled:!bg-gray-100 disabled:!text-gray-500 disabled:opacity-100 font-bold"
               >
                 Câu trước
               </button>
               {currentIndex < attempt.questions.length - 1 ? (
-                <button onClick={() => setCurrentIndex(currentIndex + 1)} className="px-5 py-3 rounded-2xl bg-blue-600 text-white font-black">
+                <button onClick={() => setCurrentIndex(currentIndex + 1)} className="px-5 py-3 rounded-2xl !bg-blue-600 hover:!bg-blue-700 !text-white !border !border-blue-700 font-black shadow-sm">
                   Câu tiếp theo
                 </button>
               ) : (
-                <button onClick={submitAttempt} disabled={loading} className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-black">
+                <button onClick={submitAttempt} disabled={loading} className="px-5 py-3 rounded-2xl !bg-emerald-600 hover:!bg-emerald-700 disabled:!bg-emerald-300 !text-white !border !border-emerald-700 font-black shadow-sm">
                   Nộp bài
                 </button>
               )}
@@ -248,7 +254,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
               </div>
               <div className="text-right">
                 <p className="text-3xl font-black text-blue-700">{review.score}/{review.maxScore}</p>
-                <p className="text-xs font-bold text-gray-500">Đúng {review.correctCount} • Sai {review.wrongCount} • Bỏ trống {review.unansweredCount}</p>
+                <p className="text-xs font-bold text-gray-500">Đúng {review.correctCount} - Sai {review.wrongCount} - Bỏ trống {review.unansweredCount}</p>
               </div>
             </div>
             <div className="space-y-4">
@@ -285,7 +291,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
                 );
               })}
             </div>
-            <button onClick={() => setReview(null)} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-black">
+            <button onClick={() => setReview(null)} className="w-full py-3 rounded-2xl !bg-gray-900 !text-white font-black">
               Quay lại danh sách
             </button>
           </div>
@@ -299,9 +305,9 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
                 <button
                   key={item.id}
                   onClick={() => item.status === 'completed' && openReview(item.id)}
-                  className="w-full rounded-2xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 p-4 text-left flex items-center justify-between gap-3"
+                  className="w-full rounded-2xl !border !border-blue-200 !bg-blue-50 hover:!bg-blue-100 hover:!border-blue-400 p-4 text-left flex items-center justify-between gap-3"
                 >
-                  <span className="font-bold text-gray-800">Lần {attempts.length - index} - {item.score}/{item.maxScore} điểm - {formatVietnamDateTime(item.completedAt || item.createdAt)}</span>
+                  <span className="font-bold text-gray-900">Lần {attempts.length - index} - {item.score}/{item.maxScore} điểm - {formatVietnamDateTime(item.completedAt || item.createdAt)}</span>
                   <span className="text-xs font-black text-blue-700">{item.status === 'completed' ? 'Xem lại' : 'Đang làm'}</span>
                 </button>
               ))}
