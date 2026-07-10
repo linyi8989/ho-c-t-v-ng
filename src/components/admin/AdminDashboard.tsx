@@ -36,6 +36,11 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
 
+const getGrammarPrivateLink = (set: GrammarSet) => {
+  const token = set.shareToken || set.assignmentSlug;
+  return token ? `${window.location.origin}/grammar/private/${token}` : '';
+};
+
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
   autoGenerate: false,
   provider: 'ai33',
@@ -73,6 +78,64 @@ function formatDuration(totalSeconds?: number) {
   const mins = Math.floor(secs / 60);
   const remainingSecs = secs % 60;
   return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+}
+
+function grammarAttemptToActivity(attempt: any, set?: GrammarSet | null): GameSession {
+  const totalQuestions = Math.max(
+    1,
+    Number(attempt.correctCount || 0) + Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0)
+      || Number(attempt.questions?.length || 0)
+      || 1
+  );
+  const correctAnswers = Number(attempt.correctCount || 0);
+  const incorrectAnswers = Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0);
+  const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+  const answersByQuestion = new Map<string, any>();
+  (attempt.answers || []).forEach((answer: any) => answersByQuestion.set(answer.attemptQuestionId, answer));
+
+  return {
+    id: `grammar-${attempt.id}`,
+    sourceType: 'grammar',
+    userId: attempt.userId,
+    studentId: attempt.userId,
+    studentName: attempt.studentName || 'Học sinh',
+    assignmentId: attempt.assignmentId || '',
+    classId: attempt.classId || '',
+    className: attempt.className || '',
+    vocabSetId: `grammar:${attempt.grammarSetId || set?.id || ''}`,
+    vocabSetTitle: attempt.grammarSetTitle || set?.title || 'Bài ngữ pháp',
+    gameId: 'grammar-practice',
+    gameName: 'Luyện ngữ pháp',
+    gameType: 'grammar',
+    startedAt: attempt.startedAt || attempt.createdAt || attempt.completedAt,
+    endedAt: attempt.completedAt,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt || attempt.startedAt || attempt.completedAt,
+    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1000,
+    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
+    score: accuracy,
+    rawScore: Number(attempt.score || 0),
+    maxScore: Number(attempt.maxScore || totalQuestions),
+    totalQuestions,
+    correctAnswers,
+    incorrectAnswers,
+    accuracy,
+    answerDetails: (attempt.questions || []).map((question: any, index: number) => {
+      const answer = answersByQuestion.get(question.id);
+      const selectedOption = (question.optionsSnapshot || []).find((option: any) => option.id === answer?.selectedOptionId);
+      const correctOption = (question.optionsSnapshot || []).find((option: any) => option.id === question.correctOptionId || option.id === answer?.correctOptionId);
+      return {
+        questionIndex: index,
+        wordId: question.questionId,
+        questionText: question.questionSnapshot,
+        selectedAnswer: selectedOption?.text || '',
+        userAnswer: selectedOption?.text || '',
+        correctAnswer: correctOption?.text || '',
+        isCorrect: Boolean(answer?.isCorrect),
+        options: (question.optionsSnapshot || []).map((option: any) => option.text).filter(Boolean)
+      };
+    })
+  };
 }
 
 function getSessionEndTime(session: GameSession) {
@@ -555,6 +618,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
         const data = await res.json();
         if (!res.ok) throw new Error(data.details?.join(' ') || data.error || 'Không lưu được bài ngữ pháp.');
         showNotification(editingGrammarSetId ? 'Đã cập nhật bài ngữ pháp.' : 'Đã tạo bài ngữ pháp mới.');
+        const grammarLink = getGrammarPrivateLink(data);
+        if (data.visibility === 'assignment' && grammarLink) {
+          setShareLinkNotice({ title: data.title, url: grammarLink });
+        } else {
+          setShareLinkNotice(null);
+        }
         refreshData();
         setActiveTab('grammar-sets');
       })
@@ -2044,7 +2113,9 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                   Chưa có bài ngữ pháp nào.
                 </div>
               ) : (
-                grammarSets.map(set => (
+                grammarSets.map(set => {
+                  const grammarLink = getGrammarPrivateLink(set);
+                  return (
                   <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
@@ -2057,6 +2128,28 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <p className="text-xs text-gray-500 mt-1 line-clamp-2">{set.description}</p>
                       <p className="text-[10px] text-gray-400 font-bold mt-2">Trạng thái: {set.visibility}</p>
                     </div>
+                    {set.visibility === 'assignment' && grammarLink && (
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
+                        <p className="text-[10px] font-black uppercase text-indigo-500">Link grammar riêng</p>
+                        <div className="flex gap-2">
+                          <input
+                            value={grammarLink}
+                            readOnly
+                            className="min-w-0 flex-1 bg-white border border-indigo-100 rounded-xl px-3 py-2 text-[11px] font-semibold text-gray-600"
+                          />
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(grammarLink);
+                              showNotification("Đã copy link grammar riêng.");
+                            }}
+                            className="p-2 !bg-indigo-600 hover:!bg-indigo-700 !text-white rounded-xl transition-all cursor-pointer"
+                            title="Copy link grammar riêng"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <button onClick={() => handleEditGrammarSet(set)} className="py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-xl text-xs font-black">Sửa</button>
                       <button onClick={() => handleCloneGrammarSet(set)} className="py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-xl text-xs font-black">Sao chép</button>
@@ -2064,7 +2157,8 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       <button onClick={() => handleDeleteGrammarSet(set)} className="py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-xl text-xs font-black">Xóa</button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -2089,11 +2183,12 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                         <th className="p-3">Đúng/Sai/Bỏ trống</th>
                         <th className="p-3">Thời gian</th>
                         <th className="p-3">Ngày hoàn thành</th>
+                        <th className="p-3">Chi tiet</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {grammarResults.length === 0 ? (
-                        <tr><td colSpan={6} className="p-8 text-center text-gray-400">Chưa có học sinh hoàn thành bài này.</td></tr>
+                        <tr><td colSpan={7} className="p-8 text-center text-gray-400">Chưa có học sinh hoàn thành bài này.</td></tr>
                       ) : grammarResults.map((attempt, index) => (
                         <tr key={attempt.id}>
                           <td className="p-3 font-bold text-gray-500">{index + 1}</td>
@@ -2102,6 +2197,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                           <td className="p-3 text-xs font-bold text-gray-600">{attempt.correctCount}/{attempt.wrongCount}/{attempt.unansweredCount}</td>
                           <td className="p-3 text-xs font-bold text-gray-600">{formatDuration(attempt.durationSeconds)}</td>
                           <td className="p-3 text-xs font-bold text-gray-600">{formatVietnamDateTime(attempt.completedAt || attempt.createdAt)}</td>
+                          <td className="p-3">
+                            <button
+                              onClick={() => setSelectedActivity(grammarAttemptToActivity(attempt, grammarResultsSet))}
+                              className="px-3 py-1.5 rounded-xl !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 text-xs font-black"
+                            >
+                              Xem
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

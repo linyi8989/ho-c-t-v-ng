@@ -157,6 +157,78 @@ function isExpiredActivity(data: any, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 
+function grammarAttemptToActivity(attempt: any, set: any = {}) {
+  const totalQuestions = Math.max(
+    1,
+    Number(attempt.correctCount || 0) + Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0)
+      || Number((attempt.questions || []).length)
+      || Number(attempt.maxScore || 0)
+      || 1
+  );
+  const correctAnswers = Number(attempt.correctCount || 0);
+  const incorrectAnswers = Number(attempt.wrongCount || 0) + Number(attempt.unansweredCount || 0);
+  const accuracy = Math.round((correctAnswers / totalQuestions) * 100);
+  const answersByQuestion = new Map<string, any>();
+  (attempt.answers || []).forEach((answer: any) => {
+    answersByQuestion.set(answer.attemptQuestionId, answer);
+  });
+
+  return {
+    id: `grammar-${attempt.id}`,
+    sourceType: "grammar",
+    userId: attempt.userId,
+    studentId: attempt.userId,
+    studentName: attempt.studentName || "Học sinh",
+    guestId: attempt.userId || normalizePersonName(attempt.studentName || ""),
+    assignmentId: attempt.assignmentId || "",
+    classId: attempt.classId || set.classId || "",
+    className: attempt.className || set.className || "",
+    vocabSetId: `grammar:${attempt.grammarSetId}`,
+    vocabSetTitle: attempt.grammarSetTitle || set.title || "Bài ngữ pháp",
+    gameId: "grammar-practice",
+    gameName: "Luyện ngữ pháp",
+    gameType: "grammar",
+    startedAt: attempt.startedAt || attempt.createdAt || attempt.completedAt,
+    endedAt: attempt.completedAt,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt || attempt.startedAt || attempt.completedAt,
+    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1000,
+    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
+    score: accuracy,
+    rawScore: Number(attempt.score || 0),
+    maxScore: Number(attempt.maxScore || totalQuestions),
+    totalQuestions,
+    correctAnswers,
+    incorrectAnswers,
+    accuracy,
+    answerDetails: (attempt.questions || []).map((question: any, index: number) => {
+      const answer = answersByQuestion.get(question.id);
+      const selectedOption = (question.optionsSnapshot || []).find((option: any) => option.id === answer?.selectedOptionId);
+      const correctOption = (question.optionsSnapshot || []).find((option: any) => option.id === question.correctOptionId || option.id === answer?.correctOptionId);
+      return {
+        questionIndex: index,
+        wordId: question.questionId,
+        questionText: question.questionSnapshot,
+        selectedAnswer: selectedOption?.text || "",
+        userAnswer: selectedOption?.text || "",
+        correctAnswer: correctOption?.text || "",
+        isCorrect: Boolean(answer?.isCorrect),
+        options: (question.optionsSnapshot || []).map((option: any) => option.text).filter(Boolean)
+      };
+    })
+  };
+}
+
+async function getGrammarSetMap() {
+  const snapshot = await adminDb.collection("grammar_sets").get();
+  const setsById = new Map<string, any>();
+  snapshot.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    setsById.set(data.id, data);
+  });
+  return setsById;
+}
+
 type TtsSettings = {
   autoGenerate?: boolean;
   provider?: string;
@@ -1334,6 +1406,8 @@ app.get("/api/public/vocab-sets", async (req, res) => {
 app.get("/api/public/results", async (req, res) => {
   try {
     const snapshot = await adminDb.collection("game_sessions").get();
+    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+    const grammarSetsById = await getGrammarSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const classesSnapshot = await adminDb.collection("classes").get();
     const membersSnapshot = await adminDb.collection("class_members").get();
@@ -1417,6 +1491,16 @@ app.get("/api/public/results", async (req, res) => {
         createdAt: data.createdAt,
         expiresAt: data.expiresAt
       });
+    });
+
+    grammarAttemptsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      if (data.status !== "completed" || !data.completedAt) return;
+      if (isExpiredActivity(data)) return;
+      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
+      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
+      delete activity.answerDetails;
+      list.push(activity);
     });
 
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
@@ -1930,6 +2014,33 @@ app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
   }
 });
 
+app.get("/api/grammar-sets/share/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) {
+      return res.status(404).json({ error: "Không tìm thấy bài ngữ pháp hoặc link không hợp lệ." });
+    }
+
+    const snapshot = await adminDb.collection("grammar_sets").get();
+    let found: any = null;
+    snapshot.forEach(doc => {
+      const set = { id: doc.id, ...doc.data() };
+      const setToken = set.shareToken || set.assignmentSlug;
+      if (!found && setToken === token && getGrammarVisibility(set) === "assignment") {
+        found = set;
+      }
+    });
+
+    if (!found) {
+      return res.status(404).json({ error: "Không tìm thấy bài ngữ pháp hoặc link không hợp lệ." });
+    }
+
+    res.json(sanitizeGrammarSetForStudent(found));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
   try {
     const set = await getGrammarSetOr404(req.params.id);
@@ -2383,6 +2494,8 @@ app.post("/api/pronunciation-attempts", async (req, res) => {
 app.get("/api/results", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("game_sessions").get();
+    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+    const grammarSetsById = await getGrammarSetMap();
     const list: any[] = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach(doc => {
@@ -2390,6 +2503,13 @@ app.get("/api/results", authenticateUser, async (req, res) => {
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
         list.push({ ...data, id: data.id || doc.id });
       }
+    });
+    grammarAttemptsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      if (data.status !== "completed" || !data.completedAt) return;
+      if (isExpiredActivity(data)) return;
+      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
+      list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
@@ -2711,7 +2831,8 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     throw err;
   }
 
-  return {
+  const visibility = getGrammarVisibility(payload);
+  const normalized: any = {
     ...existing,
     ...payload,
     id: payload.id || existing.id,
@@ -2721,7 +2842,8 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     subject: safeText(payload.subject || existing.subject || "English Grammar", 120),
     topic: safeText(payload.topic || existing.topic || "", 160),
     tags: Array.isArray(payload.tags) ? payload.tags.map((tag: any) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
-    visibility: getGrammarVisibility(payload),
+    visibility,
+    status: visibility === "assignment" ? "private" : visibility,
     timeLimitMinutes: Math.max(0, Number(payload.timeLimitMinutes || 0)),
     maxAttempts: Math.max(1, Number(payload.maxAttempts || 1)),
     shuffleQuestions: payload.shuffleQuestions !== false,
@@ -2734,6 +2856,16 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     updatedAt: now,
     questions
   };
+
+  if (visibility === "assignment") {
+    normalized.shareToken = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || `grammar-${createShareToken()}`;
+    normalized.assignmentSlug = normalized.shareToken;
+  } else {
+    delete normalized.shareToken;
+    delete normalized.assignmentSlug;
+  }
+
+  return normalized;
 }
 
 function canManageGrammarSet(user: any, set: any) {

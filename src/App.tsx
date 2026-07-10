@@ -72,6 +72,10 @@ export default function App() {
     const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
   }, []);
+  const privateGrammarToken = React.useMemo(() => {
+    const match = window.location.pathname.match(/^\/grammar\/private\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }, []);
   const authRoute = React.useMemo(() => {
     const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
     if (pathname === '/reg' || pathname === '/register') return 'register';
@@ -87,6 +91,9 @@ export default function App() {
   const [privateAssignmentSet, setPrivateAssignmentSet] = useState<VocabSet | null>(null);
   const [privateAssignmentLoading, setPrivateAssignmentLoading] = useState(!!privateAssignmentToken);
   const [privateAssignmentError, setPrivateAssignmentError] = useState('');
+  const [privateGrammarSet, setPrivateGrammarSet] = useState<GrammarSet | null>(null);
+  const [privateGrammarLoading, setPrivateGrammarLoading] = useState(!!privateGrammarToken);
+  const [privateGrammarError, setPrivateGrammarError] = useState('');
 
   // Search/Filter for homepage
   const [homeSearch, setHomeSearch] = useState('');
@@ -277,6 +284,26 @@ export default function App() {
       .finally(() => setPrivateAssignmentLoading(false));
   }, [privateAssignmentToken]);
 
+  useEffect(() => {
+    if (!privateGrammarToken) return;
+
+    setPrivateGrammarLoading(true);
+    setPrivateGrammarError('');
+    fetch(`/api/grammar-sets/share/${encodeURIComponent(privateGrammarToken)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'Không tìm thấy bài ngữ pháp hoặc link không hợp lệ');
+        }
+        setPrivateGrammarSet(data);
+      })
+      .catch((err) => {
+        setPrivateGrammarSet(null);
+        setPrivateGrammarError(err.message || 'Không tìm thấy bài ngữ pháp hoặc link không hợp lệ');
+      })
+      .finally(() => setPrivateGrammarLoading(false));
+  }, [privateGrammarToken]);
+
   const handleViewAsStudent = (set: VocabSet, gameId?: string, assignmentId?: string) => {
     setSelectedSet(set);
     setActiveGameId(gameId);
@@ -393,6 +420,42 @@ export default function App() {
       <Login
         onNavigateToRegister={() => { window.location.href = '/reg'; }}
         onNavigateToHome={() => { window.location.href = '/'; }}
+      />
+    );
+  }
+
+  if (privateGrammarToken) {
+    if (privateGrammarLoading) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
+          <p className="text-gray-500 font-bold text-sm">Đang mở bài ngữ pháp...</p>
+        </div>
+      );
+    }
+
+    if (privateGrammarError || !privateGrammarSet) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
+          <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-gray-100 shadow-xl space-y-5 text-center">
+            <ShieldAlert size={40} className="text-rose-600 mx-auto" />
+            <h1 className="text-xl font-black text-gray-900">Không tìm thấy bài ngữ pháp hoặc link không hợp lệ</h1>
+            <p className="text-sm text-gray-500">Vui lòng kiểm tra lại đường link giáo viên đã gửi.</p>
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="w-full py-3 !bg-emerald-600 hover:!bg-emerald-700 !text-white font-bold text-sm rounded-2xl transition-all"
+            >
+              Về trang chủ
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <GrammarLearningArea
+        grammarSet={privateGrammarSet}
+        onBack={() => { window.location.href = '/'; }}
       />
     );
   }

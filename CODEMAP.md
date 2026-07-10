@@ -341,12 +341,15 @@ Teacher or super admin:
 Grammar:
 
 - `GET /api/grammar-sets`: list grammar sets; students only receive public sets.
+- `GET /api/grammar-sets/share/:token`: open a private grammar lesson by generated share token.
 - `GET /api/grammar-sets/:id`: read one grammar set with student-safe shape.
 - `POST /api/grammar-sets/:id/attempts`: create a grammar attempt and persist shuffled question/option order.
 - `POST /api/grammar-attempts/:attemptId/answers`: save one selected option; server grades by option ID.
 - `POST /api/grammar-attempts/:attemptId/submit`: finalize and score attempt.
 - `GET /api/grammar-attempts/:attemptId/review`: review own attempt or teacher/admin-authorized attempt.
 - `GET /api/grammar-sets/:id/my-attempts`: current user's attempt history for one grammar set.
+- Completed `grammar_attempts` are normalized into activity-like rows in `/api/results` and `/api/public/results` with `sourceType: "grammar"`, `gameId: "grammar-practice"`, and `vocabSetId: "grammar:<grammarSetId>"`.
+- `/api/results` includes grammar answer details for authenticated admin/review UI; `/api/public/results` omits answer details.
 
 Super admin only:
 
@@ -875,6 +878,21 @@ Fields in use:
 - `assignmentSlug?`
 
 Student public lists should only show `visibility === 'public'` or legacy public status after compatibility handling.
+
+Grammar set visibility mirrors vocabulary visibility:
+
+- `public`: appears in the student grammar directory.
+- `assignment`: hidden from public grammar lists, accessible by generated private grammar link.
+- `draft`: admin-only editing state.
+
+Private grammar links use `shareToken` / `assignmentSlug` and route through `/grammar/private/<token>`. New grammar private tokens are prefixed with `grammar-`; the backend route `/api/grammar-sets/share/:token` only resolves records whose normalized visibility is `assignment`.
+
+Grammar leaderboard/activity behavior:
+
+- Grammar attempts stay in `grammar_attempts`; do not delete them as part of recent-activity cleanup.
+- Recent activity shows completed grammar attempts alongside vocabulary game sessions for the 7-day activity window.
+- Leaderboard scoring treats each completed grammar attempt as a normalized 0-100 activity score based on accuracy.
+- Existing leaderboard de-duplication uses `student + class + vocabSetId + gameId`; because grammar uses `vocabSetId = grammar:<grammarSetId>` and `gameId = grammar-practice`, only the best attempt per student per grammar lesson counts toward the leaderboard period.
 
 ### Games
 

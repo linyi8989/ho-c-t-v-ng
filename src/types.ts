@@ -119,6 +119,9 @@ export interface GrammarSet {
   topic: string;
   tags: string[];
   visibility: GrammarVisibility;
+  status?: 'draft' | 'public' | 'private';
+  shareToken?: string;
+  assignmentSlug?: string;
   timeLimitMinutes: number;
   maxAttempts: number;
   shuffleQuestions: boolean;
@@ -177,6 +180,7 @@ export interface GrammarAttempt {
 
 export interface GameSession {
   id: string;
+  sourceType?: 'vocabulary' | 'grammar';
   userId?: string;
   studentId?: string;
   assignmentId?: string;
@@ -198,6 +202,8 @@ export interface GameSession {
   durationSeconds?: number;
   accuracy?: number;
   score: number;
+  rawScore?: number;
+  maxScore?: number;
   totalQuestions: number;
   correctAnswers: number;
   incorrectAnswers: number;
