@@ -284,7 +284,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
                         );
                       })}
                       <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-sm text-blue-900">
-                        <strong>Lời giải:</strong> {question.explanationSnapshot}
+                        <strong>Giải Thích:</strong> {question.explanationSnapshot}
                       </div>
                     </div>
                   </div>

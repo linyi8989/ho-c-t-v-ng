@@ -885,12 +885,13 @@ Grammar set visibility mirrors vocabulary visibility:
 - `assignment`: hidden from public grammar lists, accessible by generated private grammar link.
 - `draft`: admin-only editing state.
 
-Private grammar links use `shareToken` / `assignmentSlug` and route through `/grammar/private/<token>`. New grammar private tokens are prefixed with `grammar-`; the backend route `/api/grammar-sets/share/:token` only resolves records whose normalized visibility is `assignment`.
+Private grammar links use `shareToken` / `assignmentSlug` and route through `/grammar/private/<token>`. Tokens are stored/displayed without a `grammar-` prefix because the route already carries the grammar namespace. The backend route `/api/grammar-sets/share/:token` still accepts legacy stored tokens that include `grammar-`, and only resolves records whose normalized visibility is `assignment`.
 
 Grammar leaderboard/activity behavior:
 
 - Grammar attempts stay in `grammar_attempts`; do not delete them as part of recent-activity cleanup.
 - Recent activity shows completed grammar attempts alongside vocabulary game sessions for the 7-day activity window.
+- Recent activity detail modal must tolerate older/malformed `answerDetails` rows (null rows, missing `questionIndex`, or non-array `options`) so opening the full 7-day list does not crash the admin UI.
 - Leaderboard scoring treats each completed grammar attempt as a normalized 0-100 activity score based on accuracy.
 - Existing leaderboard de-duplication uses `student + class + vocabSetId + gameId`; because grammar uses `vocabSetId = grammar:<grammarSetId>` and `gameId = grammar-practice`, only the best attempt per student per grammar lesson counts toward the leaderboard period.
 

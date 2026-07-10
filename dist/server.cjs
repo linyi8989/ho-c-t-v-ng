@@ -2983,7 +2983,8 @@ app2.get("/api/grammar-sets/share/:token", async (req, res) => {
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
       const setToken = set.shareToken || set.assignmentSlug;
-      if (!found && setToken === token && getGrammarVisibility(set) === "assignment") {
+      const legacyGrammarToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
+      if (!found && (setToken === token || legacyGrammarToken === token) && getGrammarVisibility(set) === "assignment") {
         found = set;
       }
     });
@@ -3685,7 +3686,8 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     questions
   };
   if (visibility === "assignment") {
-    normalized.shareToken = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || `grammar-${createShareToken()}`;
+    const token = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || createShareToken();
+    normalized.shareToken = String(token).replace(/^grammar-/, "");
     normalized.assignmentSlug = normalized.shareToken;
   } else {
     delete normalized.shareToken;

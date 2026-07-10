@@ -312,6 +312,11 @@ export default function App() {
     setAdminMode(true); // Switch to student view representation
   };
 
+  const handleViewGrammarAsStudent = (set: GrammarSet) => {
+    setSelectedGrammarSet(set);
+    setAdminMode(true);
+  };
+
   const normalizeSearchText = (value: string) => {
     return value
       .toLowerCase()
@@ -580,7 +585,7 @@ export default function App() {
             </button>
           </div>
         </div>
-        <AdminDashboard onViewAsStudent={handleViewAsStudent} />
+        <AdminDashboard onViewAsStudent={handleViewAsStudent} onViewGrammarAsStudent={handleViewGrammarAsStudent} />
       </div>
     );
   }

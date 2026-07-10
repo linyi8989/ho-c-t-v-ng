@@ -12,6 +12,7 @@ import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
+  onViewGrammarAsStudent?: (set: GrammarSet) => void;
 }
 
 type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
@@ -37,7 +38,7 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
 };
 
 const getGrammarPrivateLink = (set: GrammarSet) => {
-  const token = set.shareToken || set.assignmentSlug;
+  const token = (set.shareToken || set.assignmentSlug || '').replace(/^grammar-/, '');
   return token ? `${window.location.origin}/grammar/private/${token}` : '';
 };
 
@@ -266,7 +267,7 @@ function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; er
   return { questions, errors, warnings };
 }
 
-export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps) {
+export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
@@ -1619,14 +1620,14 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedActivity.answerDetails.map((detail, index) => (
+                        {selectedActivity.answerDetails.filter(Boolean).map((detail, index) => (
                           <tr key={`${selectedActivity.id}-detail-${index}`} className="border-t border-gray-100">
-                            <td className="p-3 text-xs font-bold text-gray-500">{detail.questionIndex + 1 || index + 1}</td>
+                            <td className="p-3 text-xs font-bold text-gray-500">{Number.isFinite(Number(detail.questionIndex)) ? Number(detail.questionIndex) + 1 : index + 1}</td>
                             <td className="p-3">
                               <p className="text-sm font-bold text-gray-900">{detail.questionText || detail.word || '--'}</p>
                               {detail.wordId && <p className="text-[10px] font-mono text-gray-400">{detail.wordId}</p>}
-                              {detail.options && detail.options.length > 0 && (
-                                <p className="mt-1 text-[10px] text-gray-500">Lựa chọn: {detail.options.join(' | ')}</p>
+                              {Array.isArray(detail.options) && detail.options.length > 0 && (
+                                <p className="mt-1 text-[10px] text-gray-500">Lựa chọn: {detail.options.filter(Boolean).join(' | ')}</p>
                               )}
                             </td>
                             <td className="p-3 text-sm font-semibold text-gray-700">{detail.userAnswer || detail.selectedAnswer || '--'}</td>
@@ -2151,6 +2152,13 @@ export default function AdminDashboard({ onViewAsStudent }: AdminDashboardProps)
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => onViewGrammarAsStudent?.(set)}
+                        className="py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-xl text-xs font-black flex items-center justify-center gap-1"
+                      >
+                        <Play size={13} />
+                        <span>Play</span>
+                      </button>
                       <button onClick={() => handleEditGrammarSet(set)} className="py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-xl text-xs font-black">Sửa</button>
                       <button onClick={() => handleCloneGrammarSet(set)} className="py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-xl text-xs font-black">Sao chép</button>
                       <button onClick={() => handleLoadGrammarResults(set)} className="py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-xl text-xs font-black">Kết quả</button>
