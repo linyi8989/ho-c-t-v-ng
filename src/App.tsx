@@ -620,8 +620,7 @@ export default function App() {
               <BookOpen size={20} />
             </span>
             <div>
-              <span className="font-black text-gray-900 tracking-tight text-lg leading-none block">Cô Diệu Tiếng Anh</span>
-              <span className="text-[10px] text-indigo-600 font-bold tracking-widest uppercase">ENGLISH VOCABULARY</span>
+              <span className="font-black text-gray-900 tracking-tight text-lg leading-none block">Tiếng Anh Cô Diệu</span>
             </div>
           </div>
 
@@ -891,7 +890,7 @@ export default function App() {
           <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-3xl p-6 shadow-md space-y-3" id="system-info-card">
             <div className="flex items-center space-x-1.5 text-indigo-300 font-bold text-xs">
               <Star size={14} className="fill-indigo-400 text-indigo-400" />
-              <span>Cô Diệu Tiếng Anh Engine v1.0</span>
+              <span>Tiếng Anh Cô Diệu</span>
             </div>
             <h4 className="font-extrabold text-sm">Nền tảng Học tập Toàn diện</h4>
             <p className="text-[11px] text-white/70 leading-relaxed">
@@ -909,7 +908,7 @@ export default function App() {
             “{weeklyLearningQuote.text}”
             <span className="ml-1 text-indigo-600 font-black">— {weeklyLearningQuote.author}</span>
           </blockquote>
-          <span className="font-semibold text-gray-400 shrink-0">© 2026 Cô Diệu Tiếng Anh</span>
+          <span className="font-semibold text-gray-400 shrink-0">© 2026 Tiếng Anh Cô Diệu</span>
         </div>
       </footer>
 

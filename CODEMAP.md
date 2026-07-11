@@ -479,8 +479,8 @@ Recent activity behavior:
 - Source data is `results`, loaded from `/api/results`.
 - `/api/results` is expected to return completed game sessions within the display window, currently 7 days.
 - Dashboard overview shows the 30 newest completed sessions only.
-- The "Xem tất cả" path opens the results tab, where `activity-results-sheet` shows all returned sessions from the 7-day window, sorted newest first.
-- `activity-results-sheet` filters by student name on the client, using accent-insensitive search.
+- The dashboard "Xem tất cả" button expands `dashboard-activity-expanded` inline under the overview cards instead of navigating to the results tab. It shows all returned sessions from the 7-day window, sorted newest first.
+- `dashboard-activity-expanded` and `activity-results-sheet` filter by student name on the client, using accent-insensitive search.
 - Clicking an activity opens the existing `selectedActivity` detail modal with summary and answer details.
 - Do not implement recent activity by deleting records from `game_sessions`; old records should be hidden by API/query/display filtering unless an explicit, backed-up maintenance cleanup is approved.
 
@@ -938,7 +938,9 @@ Registry:
   - average accuracy
   - study days
   - improvement bonus
-- Student home and Admin results tab both use leaderboard-derived rows.
+- Student home, Admin dashboard inline expansion, and Admin results tab all use leaderboard-derived rows.
+- Admin dashboard "Xem bảng vàng" expands `dashboard-leaderboard-expanded` inline under the overview cards instead of navigating away from Tổng quan.
+- Dashboard leaderboard expansion reuses the same period/category/class/set filters as the full results tab.
 - `StudentLearningArea.tsx` also uses the total leaderboard, not per-vocab-set ranking.
 - The in-game leaderboard supports a class filter beside the week/month filter.
 - Student names in the in-game leaderboard and admin leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
