@@ -317,6 +317,7 @@ const DEFAULT_TTS_VOICE_BY_LANG: Record<string, string> = {
   "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
   "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
 };
+const TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENCY || 5)));
 const ttsQueue: TtsQueueJob[] = [];
 let isProcessingTtsQueue = false;
 
@@ -405,6 +406,25 @@ function getAi33TaskUrl(taskId: string) {
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }));
+
+  return results;
 }
 
 async function requestAi33TtsTask(text: string, settings: Required<TtsSettings>, fileName: string) {
@@ -563,6 +583,14 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
   let items = Array.isArray(set.items) ? [...set.items] : [];
   const selected = new Set(job.itemIds || items.map((item: any) => item.id));
 
+  const tasks: Array<{
+    itemId: string;
+    sanitized: { text: string; warnings: string[] };
+    audioHash: string;
+    targetPath: string;
+  }> = [];
+
+  let hasInitialUpdates = false;
   for (const item of items) {
     if (!selected.has(item.id)) continue;
     const sanitized = sanitizeTtsInput(String(item.term || ""));
@@ -575,6 +603,7 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
     if (existingReady) continue;
 
     if (!job.force && fs.existsSync(targetPath)) {
+      hasInitialUpdates = true;
       items = items.map((current: any) => current.id === item.id
         ? mergeItemAudioState(current, {
             audioUrl: audioPublicUrl(audioHash),
@@ -592,10 +621,11 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
           })
         : current
       );
-      await saveVocabSetItems(job.vocabSetId, items);
       continue;
     }
 
+    hasInitialUpdates = true;
+    tasks.push({ itemId: item.id, sanitized, audioHash, targetPath });
     items = items.map((current: any) => current.id === item.id
       ? mergeItemAudioState(current, {
           audioHash,
@@ -610,46 +640,65 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
         })
       : current
     );
-    await saveVocabSetItems(job.vocabSetId, items);
+  }
 
-    try {
-      const result = await generateCachedTtsAudio(sanitized.text, job.settings, job.force);
-      items = items.map((current: any) => current.id === item.id
-        ? mergeItemAudioState(current, {
-            audioUrl: result.audioUrl,
-            audioPath: result.audioPath,
-            audioHash: result.audioHash,
-            audioStatus: "ready",
-            audioError: "",
-            ttsText: result.ttsText,
-            audioWarnings: result.warnings,
-            ttsProvider: job.settings.provider,
-            ttsVoice: job.settings.voice,
-            ttsLang: job.settings.lang,
-            ttsSpeed: job.settings.speed,
-            audioGeneratedAt: new Date().toISOString()
-          })
-        : current
-      );
-    } catch (err: any) {
-      items = items.map((current: any) => current.id === item.id
-        ? mergeItemAudioState(current, {
-            audioHash,
-            audioStatus: "failed",
-            audioError: err.message || "TTS generation failed.",
-            ttsText: sanitized.text,
-            audioWarnings: sanitized.warnings,
-            ttsProvider: job.settings.provider,
-            ttsVoice: job.settings.voice,
-            ttsLang: job.settings.lang,
-            ttsSpeed: job.settings.speed
-          })
-        : current
-      );
-    }
-
+  if (hasInitialUpdates) {
     await saveVocabSetItems(job.vocabSetId, items);
   }
+  if (tasks.length === 0) return;
+
+  const taskGroups = new Map<string, typeof tasks>();
+  for (const task of tasks) {
+    const group = taskGroups.get(task.audioHash) || [];
+    group.push(task);
+    taskGroups.set(task.audioHash, group);
+  }
+
+  const generated = await runWithConcurrency([...taskGroups.entries()], TTS_CONCURRENCY, async ([audioHash, group]) => {
+    try {
+      const result = await generateCachedTtsAudio(group[0].sanitized.text, job.settings, job.force);
+      return { audioHash, result, error: null as any };
+    } catch (err: any) {
+      return { audioHash, result: null as any, error: err };
+    }
+  });
+
+  const generatedByHash = new Map(generated.map(result => [result.audioHash, result]));
+  items = items.map((current: any) => {
+    const task = tasks.find(entry => entry.itemId === current.id);
+    if (!task) return current;
+    const generatedResult = generatedByHash.get(task.audioHash);
+    if (!generatedResult || generatedResult.error) {
+      return mergeItemAudioState(current, {
+        audioHash: task.audioHash,
+        audioStatus: "failed",
+        audioError: generatedResult?.error?.message || "TTS generation failed.",
+        ttsText: task.sanitized.text,
+        audioWarnings: task.sanitized.warnings,
+        ttsProvider: job.settings.provider,
+        ttsVoice: job.settings.voice,
+        ttsLang: job.settings.lang,
+        ttsSpeed: job.settings.speed
+      });
+    }
+
+    return mergeItemAudioState(current, {
+      audioUrl: generatedResult.result.audioUrl,
+      audioPath: generatedResult.result.audioPath,
+      audioHash: generatedResult.result.audioHash,
+      audioStatus: "ready",
+      audioError: "",
+      ttsText: generatedResult.result.ttsText,
+      audioWarnings: generatedResult.result.warnings,
+      ttsProvider: job.settings.provider,
+      ttsVoice: job.settings.voice,
+      ttsLang: job.settings.lang,
+      ttsSpeed: job.settings.speed,
+      audioGeneratedAt: new Date().toISOString()
+    });
+  });
+
+  await saveVocabSetItems(job.vocabSetId, items);
 }
 
 // ============================================================================
@@ -1713,6 +1762,96 @@ app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_ad
       ttsText: result.ttsText,
       warnings: result.warnings
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const settings = normalizeTtsSettings(req.body?.settings || {});
+    const force = Boolean(req.body?.force);
+    const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
+    if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
+
+    const prepared = rawItems.map((item: any, index: number) => {
+      const text = String(item?.text || item?.term || "").trim();
+      const sanitized = sanitizeTtsInput(text);
+      const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
+      return {
+        id: String(item?.id || `item-${index + 1}`),
+        text,
+        sanitized,
+        audioHash
+      };
+    });
+
+    const grouped = new Map<string, typeof prepared>();
+    const invalidResults = new Map<string, any>();
+    for (const item of prepared) {
+      if (!item.sanitized.text) {
+        invalidResults.set(item.id, {
+          id: item.id,
+          audioStatus: "failed",
+          audioError: "Missing TTS text after cleanup.",
+          ttsText: "",
+          warnings: item.sanitized.warnings
+        });
+        continue;
+      }
+      const group = grouped.get(item.audioHash) || [];
+      group.push(item);
+      grouped.set(item.audioHash, group);
+    }
+
+    const generated = await runWithConcurrency([...grouped.entries()], TTS_CONCURRENCY, async ([audioHash, group]) => {
+      try {
+        const result = await generateCachedTtsAudio(group[0].sanitized.text, settings, force);
+        return { audioHash, result, error: null as any };
+      } catch (err: any) {
+        return { audioHash, result: null as any, error: err };
+      }
+    });
+
+    const generatedByHash = new Map(generated.map(item => [item.audioHash, item]));
+    const items = prepared.map(item => {
+      const invalid = invalidResults.get(item.id);
+      if (invalid) return invalid;
+
+      const generatedResult = generatedByHash.get(item.audioHash);
+      if (!generatedResult || generatedResult.error) {
+        return {
+          id: item.id,
+          audioHash: item.audioHash,
+          audioStatus: "failed",
+          audioError: generatedResult?.error?.message || "TTS generation failed.",
+          ttsText: item.sanitized.text,
+          warnings: item.sanitized.warnings,
+          ttsProvider: settings.provider,
+          ttsVoice: settings.voice,
+          ttsLang: settings.lang,
+          ttsSpeed: settings.speed
+        };
+      }
+
+      return {
+        id: item.id,
+        audioUrl: generatedResult.result.audioUrl,
+        audioPath: generatedResult.result.audioPath,
+        audioHash: generatedResult.result.audioHash,
+        audioStatus: "ready",
+        audioError: "",
+        cached: generatedResult.result.cached,
+        ttsText: generatedResult.result.ttsText,
+        warnings: generatedResult.result.warnings,
+        ttsProvider: settings.provider,
+        ttsVoice: settings.voice,
+        ttsLang: settings.lang,
+        ttsSpeed: settings.speed
+      };
+    });
+
+    res.json({ items, concurrency: TTS_CONCURRENCY });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

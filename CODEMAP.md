@@ -1072,8 +1072,9 @@ Current backend endpoints:
 
 - `GET /api/tts/voices`: backend proxy for AI33 Voice Library.
 - `POST /api/tts/preview`: generates/plays a cached short preview.
+- `POST /api/tts/batch-preview`: generates editor batch audio before save. Backend dedupes by `audioHash` and runs up to 5 concurrent TTS jobs by default (`TTS_CONCURRENCY`, clamped 1-10).
 - `GET /api/vocab-sets/:id/audio/status`: returns per-item audio metadata.
-- `POST /api/vocab-sets/:id/audio/generate-missing`: queues missing/retry audio generation.
+- `POST /api/vocab-sets/:id/audio/generate-missing`: queues missing/retry audio generation. Queue processing groups duplicate hashes and runs up to 5 concurrent TTS jobs while keeping DB writes batched to status phases.
 
 Required production env vars for TTS:
 
@@ -1081,6 +1082,7 @@ Required production env vars for TTS:
 AI33_API_KEY=<host-only key>
 TTS_AUDIO_DIR=/home/qzmivzbj/app-data/vhomework/audio
 AI33_TASK_STATUS_URL_TEMPLATE=https://api.ai33.pro/v1/task/{taskId}
+TTS_CONCURRENCY=5
 ```
 
 Keep Web Speech as the final fallback only when cached audio is missing or browser playback fails.

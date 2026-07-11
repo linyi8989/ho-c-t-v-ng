@@ -926,43 +926,59 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setIsBatchGeneratingAudio(true);
     setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '', audioWarnings: [] } : item));
     try {
+      const res = await authFetch('/api/tts/batch-preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: targetItems.map(item => ({ id: item.id, text: item.term })),
+          settings: ttsSettings,
+          force: false
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.items)) {
+        showNotification(data.error || 'Khong the tao audio hang loat.', 'error');
+        setEditorItems(prev => prev.map(item => item.term.trim() ? {
+          ...item,
+          audioStatus: 'failed',
+          audioError: data.error || 'Khong the tao audio hang loat.'
+        } : item));
+        return;
+      }
+
       let successCount = 0;
       let failedCount = 0;
-      for (const item of targetItems) {
-        const res = await authFetch('/api/tts/preview', {
-          method: 'POST',
-          body: JSON.stringify({
-            text: item.term,
-            settings: ttsSettings
-          })
-        });
-        const data = await res.json();
-        if (res.ok && data.audioUrl) {
+      const resultById = new Map<string, any>(data.items.map((item: any) => [String(item.id), item]));
+      setEditorItems(prev => prev.map(item => {
+        const result = resultById.get(item.id);
+        if (!result) return item;
+        if (result.audioUrl) {
           successCount++;
-          setEditorItems(prev => prev.map(current => current.id === item.id ? {
-            ...current,
-            audioUrl: data.audioUrl,
-            audioHash: data.audioHash,
+          return {
+            ...item,
+            audioUrl: result.audioUrl,
+            audioPath: result.audioPath || item.audioPath,
+            audioHash: result.audioHash,
             audioStatus: 'ready',
             audioError: '',
-            audioWarnings: Array.isArray(data.warnings) ? data.warnings : [],
-            ttsText: data.ttsText || item.term.trim(),
-            ttsProvider: ttsSettings.provider,
-            ttsVoice: ttsSettings.voice,
-            ttsLang: ttsSettings.lang,
-            ttsSpeed: ttsSettings.speed,
+            audioWarnings: Array.isArray(result.warnings) ? result.warnings : [],
+            ttsText: result.ttsText || item.term.trim(),
+            ttsProvider: result.ttsProvider || ttsSettings.provider,
+            ttsVoice: result.ttsVoice || ttsSettings.voice,
+            ttsLang: result.ttsLang || ttsSettings.lang,
+            ttsSpeed: result.ttsSpeed || ttsSettings.speed,
             audioUpdatedAt: new Date().toISOString(),
             audioGeneratedAt: new Date().toISOString()
-          } : current));
-        } else {
-          failedCount++;
-          setEditorItems(prev => prev.map(current => current.id === item.id ? {
-            ...current,
-            audioStatus: 'failed',
-            audioError: data.error || 'Khong the tao audio.'
-          } : current));
+          };
         }
-      }
+        failedCount++;
+        return {
+          ...item,
+          audioHash: result.audioHash || item.audioHash,
+          audioStatus: 'failed',
+          audioError: result.audioError || 'Khong the tao audio.',
+          audioWarnings: Array.isArray(result.warnings) ? result.warnings : []
+        };
+      }));
       showNotification(`Da tao audio: ${successCount} tu${failedCount ? `, loi ${failedCount} tu` : ''}. Bam luu bo tu de luu metadata audio.`, failedCount ? 'error' : 'success');
     } catch (err: any) {
       showNotification(err.message || 'Khong the tao audio hang loat.', 'error');
