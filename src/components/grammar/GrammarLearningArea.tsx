@@ -79,8 +79,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const grammarFetch = (url: string, options: RequestInit = {}) => {
     const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Guest-Id': guestId,
-      'X-Student-Name': studentName.trim()
+      'X-Guest-Id': guestId
     };
 
     if (token) baseHeaders.Authorization = `Bearer ${token}`;
@@ -93,6 +92,14 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         ...(options.headers as Record<string, string> | undefined)
       }
     });
+  };
+
+  const grammarUrlWithGuestQuery = (url: string) => {
+    const params = new URLSearchParams();
+    params.set('guestId', guestId);
+    params.set('studentName', studentName.trim());
+    if (accessToken) params.set('shareToken', accessToken);
+    return `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
   };
 
   const persistStudentName = (value: string) => {
@@ -117,7 +124,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const loadAttempts = async () => {
     if (!nameSubmitted || !studentName.trim()) return;
     try {
-      const res = await grammarFetch(`/api/grammar-sets/${grammarSet.id}/my-attempts`);
+      const res = await grammarFetch(grammarUrlWithGuestQuery(`/api/grammar-sets/${grammarSet.id}/my-attempts`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không tải được lịch sử làm bài.');
       setAttempts(Array.isArray(data) ? data : []);
@@ -217,7 +224,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setLoading(true);
     setError('');
     try {
-      const res = await grammarFetch(`/api/grammar-attempts/${attemptId}/review`);
+      const res = await grammarFetch(grammarUrlWithGuestQuery(`/api/grammar-attempts/${attemptId}/review`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không mở được bài làm.');
       setReview(data);

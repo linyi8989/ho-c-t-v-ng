@@ -344,7 +344,7 @@ Grammar:
 - `GET /api/grammar-sets`: list grammar sets; students only receive public sets.
 - `GET /api/grammar-sets/share/:token`: open a private grammar lesson by generated share token.
 - `GET /api/grammar-sets/:id`: read one grammar set with student-safe shape.
-- `POST /api/grammar-sets/:id/attempts`: create a grammar attempt and persist shuffled question/option order. Accepts authenticated users or guest headers/body (`guestId`, `studentName`); private grammar links must include the share token.
+- `POST /api/grammar-sets/:id/attempts`: create a grammar attempt and persist shuffled question/option order. Accepts authenticated users or guest body/query identity (`guestId`, `studentName`); private grammar links must include the share token.
 - `POST /api/grammar-attempts/:attemptId/answers`: save one selected option; server grades by option ID. Accepts the same authenticated/guest identity as attempt creation.
 - `POST /api/grammar-attempts/:attemptId/submit`: finalize and score attempt. Accepts the same authenticated/guest identity as attempt creation.
 - `GET /api/grammar-attempts/:attemptId/review`: review own attempt or teacher/admin-authorized attempt. Guests can review their own attempt using the same `msdieu_guest_id`.
@@ -863,6 +863,7 @@ Mandatory rules to prevent repeat incidents:
 - `GameSession` has optional `guestId`.
 - Grammar learning uses the same guest keys. New grammar students enter a name in `GrammarLearningArea`; students who already entered a vocabulary name can start grammar immediately.
 - Guest grammar attempts store `userId/studentId` as the guest id plus `guestId`, `studentName`, and best-available `classId/className`.
+- Do not send `studentName` in HTTP headers. Browser `fetch` rejects Unicode header values, so grammar GET requests pass guest identity through encoded query params and POST requests pass it through JSON body.
 - This prevents leaderboard grouping by `studentName` alone.
 - Registration is intended for teachers/admins at `/reg`, not required for students to learn.
 

@@ -3690,7 +3690,7 @@ function getRequestShareToken(req) {
 }
 function getGuestIdentity(req) {
   const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
-  const studentName = safeText(req.body?.studentName || req.query?.studentName || req.headers["x-student-name"], 120);
+  const studentName = safeText(req.body?.studentName || req.query?.studentName, 120);
   if (!guestId || !studentName) return null;
   return {
     id: guestId,
