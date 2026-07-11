@@ -138,6 +138,16 @@ export default function App() {
       }
 
       try {
+        const res = await fetch('/api/public/grammar-sets');
+        if (!res.ok) throw new Error("Public grammar API response error");
+        const data = await res.json();
+        setGrammarSets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Backend /api/public/grammar-sets API unreachable:", err);
+        setGrammarSets([]);
+      }
+
+      try {
         const res = await fetch('/api/public/results');
         if (!res.ok) throw new Error("Public results API response error");
         const data = await res.json();
@@ -460,6 +470,7 @@ export default function App() {
     return (
       <GrammarLearningArea
         grammarSet={privateGrammarSet}
+        accessToken={privateGrammarToken || undefined}
         onBack={() => { window.location.href = '/'; }}
       />
     );

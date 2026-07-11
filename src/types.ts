@@ -115,6 +115,8 @@ export interface GrammarSet {
   title: string;
   description: string;
   gradeLevel: string;
+  classId?: string;
+  className?: string;
   subject: string;
   topic: string;
   tags: string[];
@@ -163,7 +165,11 @@ export interface GrammarAttempt {
   grammarSetId: string;
   assignmentId?: string;
   userId: string;
+  studentId?: string;
+  guestId?: string;
   studentName: string;
+  classId?: string;
+  className?: string;
   status: 'in_progress' | 'completed';
   score: number;
   maxScore: number;

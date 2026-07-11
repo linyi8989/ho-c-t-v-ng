@@ -140,6 +140,52 @@ const requireRole = (allowedRoles: ('super_admin' | 'teacher' | 'student')[]) =>
   };
 };
 
+const authenticateOptionalUser = async (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return next();
+  }
+
+  const token = authHeader.split("Bearer ")[1];
+  try {
+    const decodedToken = await adminAuth.verifyIdToken(token);
+    const uid = decodedToken.uid;
+    const email = decodedToken.email || "";
+    const phone = decodedToken.phone_number || "";
+    const userRef = adminDb.collection("users").doc(uid);
+    const doc = await userRef.get();
+    let userProfile: any;
+
+    if (!doc.exists) {
+      let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
+      if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
+        defaultRole = "super_admin";
+      }
+      userProfile = {
+        id: uid,
+        name: decodedToken.name || email.split("@")[0] || "Học sinh mới",
+        email,
+        phone: phone || undefined,
+        role: defaultRole,
+        status: "active",
+        createdAt: new Date().toISOString()
+      };
+      await userRef.set(userProfile);
+    } else {
+      userProfile = doc.data();
+    }
+
+    if (userProfile.status === "blocked") {
+      (req as any).authBlocked = true;
+    } else {
+      req.user = userProfile;
+    }
+  } catch {
+    // Public student grammar flow may use guest identity without Firebase auth.
+  }
+  next();
+};
+
 const ACTIVITY_TTL_DAYS = 7;
 const ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -2022,6 +2068,22 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
 });
 
 // 19. GRAMMAR SETS: List grammar lessons
+app.get("/api/public/grammar-sets", async (req, res) => {
+  try {
+    const snapshot = await adminDb.collection("grammar_sets").get();
+    const list: any[] = [];
+    snapshot.forEach(doc => {
+      const set = { id: doc.id, ...doc.data() };
+      if (getGrammarVisibility(set) !== "public") return;
+      list.push(sanitizeGrammarSetForStudent(set));
+    });
+    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    res.json(list);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("grammar_sets").get();
@@ -2166,12 +2228,13 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
   }
 });
 
-app.post("/api/grammar-sets/:id/attempts", authenticateUser, async (req, res) => {
+app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const actor = getGrammarActor(req);
+    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const set = await getGrammarSetOr404(req.params.id);
     if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (req.user.role === "student" && getGrammarVisibility(set) !== "public") {
+    if (!canOpenGrammarSetForLearning(set, actor, req)) {
       return res.status(403).json({ error: "Bạn không có quyền làm bài này." });
     }
 
@@ -2179,7 +2242,7 @@ app.post("/api/grammar-sets/:id/attempts", authenticateUser, async (req, res) =>
     let completedAttempts = 0;
     attemptsSnapshot.forEach(doc => {
       const attempt = doc.data();
-      if (attempt.grammarSetId === set.id && attempt.userId === req.user?.id && attempt.status === "completed") {
+      if (attempt.grammarSetId === set.id && (attempt.userId === actor.id || attempt.guestId === actor.id) && attempt.status === "completed") {
         completedAttempts++;
       }
     });
@@ -2210,8 +2273,12 @@ app.post("/api/grammar-sets/:id/attempts", authenticateUser, async (req, res) =>
       grammarSetId: set.id,
       grammarSetTitle: set.title,
       assignmentId: req.body?.assignmentId || "",
-      userId: req.user.id,
-      studentName: req.user.name,
+      userId: actor.id,
+      studentId: actor.id,
+      guestId: actor.isGuest ? actor.id : "",
+      studentName: actor.name,
+      classId: req.body?.classId || set.classId || getLessonGradeClass(set).classId || "",
+      className: req.body?.className || set.className || getLessonGradeClass(set).className || "",
       status: "in_progress",
       score: 0,
       maxScore: attemptQuestions.reduce((sum: number, question: any) => sum + Number(question.scoreSnapshot || 1), 0),
@@ -2231,12 +2298,14 @@ app.post("/api/grammar-sets/:id/attempts", authenticateUser, async (req, res) =>
   }
 });
 
-app.post("/api/grammar-attempts/:attemptId/answers", authenticateUser, async (req, res) => {
+app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const actor = getGrammarActor(req);
+    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
-    if (attempt.userId !== req.user.id && req.user.role === "student") return res.status(403).json({ error: "Bạn không có quyền sửa lượt làm bài này." });
+    const set = await getGrammarSetOr404(attempt.grammarSetId);
+    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền sửa lượt làm bài này." });
     if (attempt.status === "completed") return res.status(400).json({ error: "Bài đã nộp, không thể thay đổi đáp án." });
 
     const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === req.body?.attemptQuestionId);
@@ -2261,7 +2330,6 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateUser, async (re
     const updatedAttempt = { ...attempt, answers };
     await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
 
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
     const feedback = set?.showExplanationImmediately
       ? {
           isCorrect,
@@ -2276,12 +2344,14 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateUser, async (re
   }
 });
 
-app.post("/api/grammar-attempts/:attemptId/submit", authenticateUser, async (req, res) => {
+app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const actor = getGrammarActor(req);
+    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
-    if (attempt.userId !== req.user.id && req.user.role === "student") return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
+    const set = await getGrammarSetOr404(attempt.grammarSetId);
+    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
     if (attempt.status === "completed") return res.status(400).json({ error: "Bài này đã được nộp." });
 
     const answerMap = new Map((attempt.answers || []).map((answer: any) => [answer.attemptQuestionId, answer]));
@@ -2321,29 +2391,31 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateUser, async (req
   }
 });
 
-app.get("/api/grammar-attempts/:attemptId/review", authenticateUser, async (req, res) => {
+app.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const actor = getGrammarActor(req);
+    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
     const set = await getGrammarSetOr404(attempt.grammarSetId);
-    const canReview = attempt.userId === req.user.id || req.user.role === "super_admin" || (set && canManageGrammarSet(req.user, set));
+    const canReview = canAccessGrammarAttempt(attempt, actor, set, req, true);
     if (!canReview) return res.status(403).json({ error: "Bạn không có quyền xem lượt làm bài này." });
-    if (attempt.status !== "completed" && req.user.role === "student") return res.status(403).json({ error: "Chỉ được xem lại sau khi nộp bài." });
+    if (attempt.status !== "completed" && actor.role === "student") return res.status(403).json({ error: "Chỉ được xem lại sau khi nộp bài." });
     res.json(sanitizeAttemptForStudent(attempt, true));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/grammar-sets/:id/my-attempts", authenticateUser, async (req, res) => {
+app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const actor = getGrammarActor(req);
+    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để xem lịch sử làm bài." });
     const snapshot = await adminDb.collection("grammar_attempts").get();
     const list: any[] = [];
     snapshot.forEach(doc => {
       const attempt = { id: doc.id, ...doc.data() };
-      if (attempt.grammarSetId === req.params.id && attempt.userId === req.user?.id) {
+      if (attempt.grammarSetId === req.params.id && (attempt.userId === actor.id || attempt.guestId === actor.id)) {
         list.push(sanitizeAttemptForStudent(attempt, attempt.status === "completed"));
       }
     });
@@ -2774,6 +2846,55 @@ function getGrammarVisibility(set: any): GrammarVisibility {
   if (set?.status === "private") return "assignment";
   if (set?.status === "public") return "public";
   return "draft";
+}
+
+function getGrammarShareToken(set: any) {
+  return String(set?.shareToken || set?.assignmentSlug || "").replace(/^grammar-/, "").trim();
+}
+
+function getRequestShareToken(req: express.Request) {
+  const raw = req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.headers["x-grammar-share-token"];
+  return String(raw || "").replace(/^grammar-/, "").trim();
+}
+
+function getGuestIdentity(req: express.Request) {
+  const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const studentName = safeText(req.body?.studentName || req.query?.studentName || req.headers["x-student-name"], 120);
+  if (!guestId || !studentName) return null;
+  return {
+    id: guestId,
+    name: studentName,
+    email: "",
+    role: "student" as const,
+    status: "active" as const,
+    createdAt: new Date().toISOString(),
+    isGuest: true
+  };
+}
+
+function getGrammarActor(req: express.Request) {
+  if ((req as any).authBlocked) return null;
+  if (req.user) return { ...req.user, name: req.user.name || "Học sinh", isGuest: false };
+  return getGuestIdentity(req);
+}
+
+function canOpenGrammarSetForLearning(set: any, actor: any, req: express.Request) {
+  if (!set || !actor) return false;
+  if (!actor.isGuest && (actor.role === "teacher" || actor.role === "super_admin")) return true;
+  const visibility = getGrammarVisibility(set);
+  if (visibility === "public") return true;
+  if (visibility !== "assignment") return false;
+  const expectedToken = getGrammarShareToken(set);
+  const requestToken = getRequestShareToken(req);
+  return Boolean(expectedToken && requestToken && expectedToken === requestToken);
+}
+
+function canAccessGrammarAttempt(attempt: any, actor: any, set: any, req: express.Request, allowStaffReview = false) {
+  if (!attempt || !actor) return false;
+  if (!actor.isGuest && allowStaffReview && (actor.role === "super_admin" || canManageGrammarSet(actor, set))) return true;
+  if (attempt.userId === actor.id) return true;
+  if (attempt.guestId && attempt.guestId === actor.id) return true;
+  return canOpenGrammarSetForLearning(set, actor, req) && attempt.userId === actor.id;
 }
 
 function safeText(value: any, max = 2000) {

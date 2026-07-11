@@ -1,11 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 
 interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
+  accessToken?: string;
   onBack: () => void;
+}
+
+const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
+const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
+
+function createGuestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getStoredGuestId() {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    const existing = window.localStorage.getItem(GUEST_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const newGuestId = createGuestId();
+    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, newGuestId);
+    return newGuestId;
+  } catch {
+    return createGuestId();
+  }
+}
+
+function getStoredStudentName() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
 }
 
 function formatDuration(totalSeconds?: number) {
@@ -27,7 +63,7 @@ function formatGradeLabel(value?: string) {
   return (value || '').replace(/Lá»›p/g, 'Lớp');
 }
 
-export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearningAreaProps) {
+export default function GrammarLearningArea({ grammarSet, accessToken, onBack }: GrammarLearningAreaProps) {
   const { token, user } = useAuth();
   const [attempts, setAttempts] = useState<GrammarAttempt[]>([]);
   const [attempt, setAttempt] = useState<GrammarAttempt | null>(null);
@@ -36,20 +72,52 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [guestId] = useState(() => getStoredGuestId());
+  const [studentName, setStudentName] = useState(() => user?.name || getStoredStudentName());
+  const [nameSubmitted, setNameSubmitted] = useState(() => !!(user?.name || getStoredStudentName()));
 
-  const authFetch = (url: string, options: RequestInit = {}) => fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
+  const grammarFetch = (url: string, options: RequestInit = {}) => {
+    const baseHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Guest-Id': guestId,
+      'X-Student-Name': studentName.trim()
+    };
+
+    if (token) baseHeaders.Authorization = `Bearer ${token}`;
+    if (accessToken) baseHeaders['X-Grammar-Share-Token'] = accessToken;
+
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...baseHeaders,
+        ...(options.headers as Record<string, string> | undefined)
+      }
+    });
+  };
+
+  const persistStudentName = (value: string) => {
+    const normalizedName = value.trim().replace(/\s+/g, ' ');
+    if (!normalizedName) {
+      setError('Vui lòng nhập tên học sinh để luyện ngữ pháp.');
+      return;
     }
-  });
+
+    try {
+      window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, normalizedName);
+      window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId);
+    } catch {
+      // localStorage may be unavailable in private browsing; guest headers still work for this session.
+    }
+
+    setStudentName(normalizedName);
+    setNameSubmitted(true);
+    setError('');
+  };
 
   const loadAttempts = async () => {
-    if (!token) return;
+    if (!nameSubmitted || !studentName.trim()) return;
     try {
-      const res = await authFetch(`/api/grammar-sets/${grammarSet.id}/my-attempts`);
+      const res = await grammarFetch(`/api/grammar-sets/${grammarSet.id}/my-attempts`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không tải được lịch sử làm bài.');
       setAttempts(Array.isArray(data) ? data : []);
@@ -60,11 +128,22 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
 
   useEffect(() => {
     loadAttempts();
-  }, [token, grammarSet.id]);
+  }, [token, grammarSet.id, nameSubmitted, studentName, guestId, accessToken]);
+
+  useEffect(() => {
+    if (!user?.name) return;
+    try {
+      window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, user.name);
+    } catch {
+      // Ignore localStorage errors; authenticated user identity is still available.
+    }
+    setStudentName(user.name);
+    setNameSubmitted(true);
+  }, [user?.name]);
 
   const startAttempt = async () => {
-    if (!token || !user) {
-      setError('Vui lòng đăng nhập để luyện ngữ pháp.');
+    if (!nameSubmitted || !studentName.trim()) {
+      setError('Vui lòng nhập tên học sinh để luyện ngữ pháp.');
       return;
     }
 
@@ -72,7 +151,16 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
     setError('');
     setReview(null);
     try {
-      const res = await authFetch(`/api/grammar-sets/${grammarSet.id}/attempts`, { method: 'POST', body: JSON.stringify({}) });
+      const res = await grammarFetch(`/api/grammar-sets/${grammarSet.id}/attempts`, {
+        method: 'POST',
+        body: JSON.stringify({
+          guestId,
+          studentName: studentName.trim(),
+          shareToken: accessToken,
+          classId: grammarSet.classId,
+          className: grammarSet.className || grammarSet.gradeLevel
+        })
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không bắt đầu được bài luyện.');
       setAttempt(data);
@@ -89,9 +177,9 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
     if (!attempt) return;
     setSelectedOptions(prev => ({ ...prev, [attemptQuestionId]: selectedOptionId }));
     try {
-      const res = await authFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
+      const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
         method: 'POST',
-        body: JSON.stringify({ attemptQuestionId, selectedOptionId })
+        body: JSON.stringify({ attemptQuestionId, selectedOptionId, guestId, studentName: studentName.trim(), shareToken: accessToken })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không lưu được đáp án.');
@@ -109,7 +197,10 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
     setLoading(true);
     setError('');
     try {
-      const res = await authFetch(`/api/grammar-attempts/${attempt.id}/submit`, { method: 'POST', body: JSON.stringify({}) });
+      const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ guestId, studentName: studentName.trim(), shareToken: accessToken })
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không nộp được bài.');
       setAttempt(null);
@@ -126,7 +217,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
     setLoading(true);
     setError('');
     try {
-      const res = await authFetch(`/api/grammar-attempts/${attemptId}/review`);
+      const res = await grammarFetch(`/api/grammar-attempts/${attemptId}/review`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không mở được bài làm.');
       setReview(data);
@@ -153,7 +244,7 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
             <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest">Luyện ngữ pháp</p>
             <h1 className="font-black text-gray-900 truncate">{grammarSet.title}</h1>
           </div>
-          <div className="text-xs font-bold text-gray-500">{user?.name || 'Học sinh'}</div>
+          <div className="text-xs font-bold text-gray-500">{user?.name || studentName || 'Học sinh'}</div>
         </div>
       </header>
 
@@ -162,7 +253,43 @@ export default function GrammarLearningArea({ grammarSet, onBack }: GrammarLearn
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{error}</div>
         )}
 
-        {!attempt && !review && (
+        {!nameSubmitted && !attempt && !review && (
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center space-y-6" id="grammar-name-prompt-container">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+              <BookOpen size={32} />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-gray-800">Bắt đầu luyện ngữ pháp!</h2>
+              <p className="text-gray-500 text-sm max-w-sm mx-auto">
+                Hãy nhập tên của em để lưu điểm, xem lại bài làm và theo dõi kết quả học tập.
+              </p>
+            </div>
+
+            <div className="max-w-sm mx-auto flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="Nhập họ và tên của em..."
+                value={studentName}
+                onChange={(event) => setStudentName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') persistStudentName(studentName);
+                }}
+                className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-center text-lg"
+                id="grammar-student-name-input"
+              />
+              <button
+                onClick={() => persistStudentName(studentName)}
+                disabled={!studentName.trim()}
+                className="py-4 px-8 !bg-blue-600 hover:!bg-blue-700 disabled:!bg-gray-200 disabled:!text-gray-500 !text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
+                id="grammar-submit-name-btn"
+              >
+                Bắt đầu học
+              </button>
+            </div>
+          </div>
+        )}
+
+        {nameSubmitted && !attempt && !review && (
           <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
             <div className="flex items-start justify-between gap-4">
               <div>
