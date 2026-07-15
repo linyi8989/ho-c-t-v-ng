@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface MillionaireGameProps {
@@ -117,7 +117,9 @@ export default function MillionaireGame({
   const [showPhoneticHint, setShowPhoneticHint] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const completionRef = useRef(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const answerResolveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextStepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const maxQuestions = Math.min(config.maxQuestions || 15, PRIZE_LADDER.length);
@@ -155,9 +157,27 @@ export default function MillionaireGame({
   const learningAudioUrl = currentQuestion ? getLearningAudioUrl(currentQuestion.item) : undefined;
   const imageUrl = currentQuestion ? getImageUrl(currentQuestion.item) : undefined;
 
+  const clearMillionaireTimers = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (answerResolveTimerRef.current) {
+      clearTimeout(answerResolveTimerRef.current);
+      answerResolveTimerRef.current = null;
+    }
+    if (nextStepTimerRef.current) {
+      clearTimeout(nextStepTimerRef.current);
+      nextStepTimerRef.current = null;
+    }
+  };
+
   useEffect(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     if (!currentQuestion || gameFinished) {
-      if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
@@ -166,9 +186,16 @@ export default function MillionaireGame({
     }, 1000);
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [currentQuestion, gameFinished]);
+
+  useEffect(() => () => {
+    clearMillionaireTimers();
+  }, []);
 
   const playEffect = (name: string) => {
     if (isMuted || typeof Audio === 'undefined') return;
@@ -193,16 +220,7 @@ export default function MillionaireGame({
       return;
     }
 
-    try {
-      const audio = new Audio(learningAudioUrl);
-      audio.volume = 0.8;
-      const playPromise = audio.play();
-      if (playPromise) {
-        playPromise.catch(() => {});
-      }
-    } catch {
-      // Optional learning audio can be missing or blocked by the browser.
-    }
+    playAudioUrl(learningAudioUrl, currentQuestion.item.term);
   };
 
   const finishGame = (score: number, correct: number, incorrect: number) => {
@@ -245,14 +263,23 @@ export default function MillionaireGame({
       }
     ];
 
-    window.setTimeout(() => {
+    if (answerResolveTimerRef.current) {
+      clearTimeout(answerResolveTimerRef.current);
+    }
+    if (nextStepTimerRef.current) {
+      clearTimeout(nextStepTimerRef.current);
+    }
+
+    answerResolveTimerRef.current = window.setTimeout(() => {
+      answerResolveTimerRef.current = null;
       if (isCorrect) {
         const nextCorrectCount = correctCount + 1;
         const nextScore = PRIZE_LADDER[nextCorrectCount - 1] || currentPrize;
         playEffect(nextCorrectCount >= questions.length ? 'win' : 'correct');
         setCorrectCount(nextCorrectCount);
 
-        window.setTimeout(() => {
+        nextStepTimerRef.current = window.setTimeout(() => {
+          nextStepTimerRef.current = null;
           if (currentIndex >= questions.length - 1 || nextCorrectCount >= maxQuestions) {
             finishGame(nextScore, nextCorrectCount, incorrectCount);
           } else {
@@ -266,7 +293,8 @@ export default function MillionaireGame({
         setIncorrectCount(nextIncorrectCount);
         playEffect('wrong');
 
-        window.setTimeout(() => {
+        nextStepTimerRef.current = window.setTimeout(() => {
+          nextStepTimerRef.current = null;
           finishGame(bankedPrize, correctCount, nextIncorrectCount);
         }, 1200);
       }
@@ -294,6 +322,7 @@ export default function MillionaireGame({
   };
 
   const handleRestart = () => {
+    clearMillionaireTimers();
     completionRef.current = false;
     setCurrentIndex(0);
     setCorrectCount(0);

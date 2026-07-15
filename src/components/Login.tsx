@@ -11,7 +11,7 @@ interface LoginProps {
 }
 
 export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginProps) {
-  const { loginWithEmail, loginWithGoogle } = useAuth();
+  const { loginWithEmail, loginWithPhonePassword, loginWithGoogle } = useAuth();
   
   // Tab/Mode
   const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('email');
@@ -72,6 +72,10 @@ export default function Login({ onNavigateToRegister, onNavigateToHome }: LoginP
     setError('');
     setIsSubmitting(true);
     try {
+      await loginWithPhonePassword(phoneNumber, phonePassword);
+      onNavigateToHome();
+      return;
+
       // 1. Get email linked to this phone number
       const response = await fetch('/api/auth/email-by-phone', {
         method: 'POST',

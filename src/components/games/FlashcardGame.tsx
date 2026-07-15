@@ -87,19 +87,35 @@ export default function FlashcardGame({
     setIsFlipped(!isFlipped);
   };
 
+  const completeWithStatus = (statusByItemId: Record<string, 'known' | 'unknown'>) => {
+    if (isCompleted) return;
+    const total = items.length;
+    const details = items.map((item, index) => {
+      const status = statusByItemId[item.id] || 'unknown';
+      return {
+        questionIndex: index,
+        wordId: item.id,
+        word: item.term,
+        questionText: config.front === 'meaning' ? item.meaning : item.term,
+        correctAnswer: config.back === 'meaning' ? item.meaning : item.term,
+        userAnswer: status === 'known' ? 'Da thuoc' : 'Chua thuoc',
+        isCorrect: status === 'known'
+      };
+    });
+    const correctCount = details.filter(detail => detail.isCorrect).length;
+    answerDetailsRef.current = details;
+    onComplete(Math.round((correctCount / total) * 100), correctCount, total - correctCount, {
+      answerDetails: details
+    });
+    setIsCompleted(true);
+  };
+
   const handleNext = () => {
     if (currentIndex < items.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setIsFlipped(false);
     } else {
-      // Calculate final score
-      const correct = Object.values(learnedCount).filter(v => v === 'known').length;
-      const total = items.length;
-      const correctCount = correct > 0 ? correct : total; // Fallback to all correct if slide-through only
-      onComplete(Math.round((correctCount / total) * 100), correctCount, total - correctCount, {
-        answerDetails: answerDetailsRef.current
-      });
-      setIsCompleted(true);
+      completeWithStatus(learnedCount);
     }
   };
 
@@ -112,6 +128,10 @@ export default function FlashcardGame({
 
   const markLearned = (status: 'known' | 'unknown') => {
     if (!currentItem) return;
+    const nextLearned = {
+      ...learnedCount,
+      [currentItem.id]: status
+    };
     answerDetailsRef.current = [
       ...answerDetailsRef.current.filter(detail => detail.wordId !== currentItem.id),
       {
@@ -124,11 +144,14 @@ export default function FlashcardGame({
         isCorrect: status === 'known'
       }
     ];
-    setLearnedCount(prev => ({
-      ...prev,
-      [currentItem.id]: status
-    }));
-    handleNext();
+    setLearnedCount(nextLearned);
+
+    if (currentIndex < items.length - 1) {
+      setCurrentIndex(prev => prev + 1);
+      setIsFlipped(false);
+    } else {
+      completeWithStatus(nextLearned);
+    }
   };
 
   const handlePlaySound = (e?: React.MouseEvent) => {

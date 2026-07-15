@@ -10,7 +10,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 declare global {
@@ -37,6 +37,7 @@ interface SpeakingAIGameProps {
   studentName?: string;
   vocabularySetId?: string;
   gameSessionId?: string;
+  sessionToken?: string;
   authToken?: string | null;
 }
 
@@ -108,6 +109,7 @@ export default function SpeakingAIGame({
   studentName,
   vocabularySetId,
   gameSessionId,
+  sessionToken,
   authToken,
 }: SpeakingAIGameProps) {
   const playableItems = useMemo(
@@ -167,9 +169,10 @@ export default function SpeakingAIGame({
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(sessionToken ? { 'x-session-token': sessionToken } : {}),
         },
         body: JSON.stringify({
-          studentId: studentId || 'guest',
+          guestId: studentId || '',
           studentName,
           vocabularySetId: vocabularySetId || '',
           wordId: result.wordId,
@@ -180,6 +183,7 @@ export default function SpeakingAIGame({
           totalWords: result.totalWords,
           attemptCount: result.attemptCount,
           gameSessionId,
+          sessionToken,
         }),
       });
     } catch (err) {
@@ -192,8 +196,7 @@ export default function SpeakingAIGame({
 
     const audioUrl = getLearningAudioUrl(currentItem);
     if (audioUrl && targetText.trim() === currentItem.term.trim()) {
-      const audio = new Audio(audioUrl);
-      audio.play().catch(() => speakEnglish(targetText));
+      playAudioUrl(audioUrl, targetText);
       return;
     }
 

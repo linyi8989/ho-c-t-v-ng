@@ -1,14 +1,27 @@
 /**
  * Web Speech API wrapper for pronouncing English words.
  */
+let activeAudio: HTMLAudioElement | null = null;
+
+export function stopManagedAudio() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+    activeAudio = null;
+  }
+
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 export function speakEnglish(text: string) {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
     console.warn('Speech synthesis not supported in this browser.');
     return;
   }
 
-  // Cancel any ongoing speeches
-  window.speechSynthesis.cancel();
+  stopManagedAudio();
 
   // Clean the text from symbols/IPA slash patterns
   const cleanText = text.replace(/[\/\\#]/g, '').trim();
@@ -28,9 +41,15 @@ export function speakEnglish(text: string) {
 
 export function playAudioUrl(audioUrl: string, fallbackText?: string) {
   if (typeof window === 'undefined') return;
+  stopManagedAudio();
   const audio = new Audio(audioUrl);
+  activeAudio = audio;
   audio.volume = 0.85;
+  audio.addEventListener('ended', () => {
+    if (activeAudio === audio) activeAudio = null;
+  }, { once: true });
   audio.play().catch(() => {
+    if (activeAudio === audio) activeAudio = null;
     if (fallbackText) speakEnglish(fallbackText);
   });
 }

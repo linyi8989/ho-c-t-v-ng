@@ -5,7 +5,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics } from "./src/lib/firebaseAdmin.js";
+import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
 
 // Load environment variables
 dotenv.config();
@@ -18,6 +18,11 @@ const AUDIO_PUBLIC_PREFIX = "/audio";
 app.use(express.json());
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use(AUDIO_PUBLIC_PREFIX, express.static(AUDIO_DIR));
+
+function sendApiError(res: express.Response, err: any) {
+  const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
+  res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
+}
 
 // ============================================================================
 // SYSTEM AUDIT LOGGING HELPER
@@ -53,12 +58,108 @@ declare global {
         name: string;
         email: string;
         phone?: string;
+        phoneVerified?: boolean;
         role: 'super_admin' | 'teacher' | 'student';
         status: 'active' | 'pending' | 'blocked' | 'deleted';
         createdAt: string;
       };
     }
   }
+}
+
+type AppRole = 'super_admin' | 'teacher' | 'student';
+type AppStatus = 'active' | 'pending' | 'blocked' | 'deleted';
+
+const SUPER_ADMIN_EMAILS = new Set(["linyi8901@gmail.com", "admin@vocabulary.edu.vn"]);
+const VALID_ROLES = new Set<AppRole>(["super_admin", "teacher", "student"]);
+const VALID_STATUSES = new Set<AppStatus>(["active", "pending", "blocked", "deleted"]);
+
+function normalizeEmail(value: any) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizePhoneE164(value: any) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  let compact = raw.replace(/[^\d+]/g, "");
+  if (compact.startsWith("00")) compact = `+${compact.slice(2)}`;
+
+  if (compact.startsWith("+")) {
+    const digits = compact.slice(1).replace(/\D/g, "");
+    if (digits.length < 8 || digits.length > 15) return "";
+    return `+${digits}`;
+  }
+
+  const digits = compact.replace(/\D/g, "");
+  if (!digits) return "";
+
+  let normalized = digits;
+  if (digits.startsWith("0")) {
+    normalized = `84${digits.slice(1)}`;
+  } else if (!digits.startsWith("84")) {
+    normalized = `84${digits}`;
+  }
+
+  if (normalized.length < 10 || normalized.length > 15) return "";
+  return `+${normalized}`;
+}
+
+function createHttpError(status: number, message: string, details?: any) {
+  const err: any = new Error(message);
+  err.status = status;
+  if (details) err.details = details;
+  return err;
+}
+
+function getDefaultRoleForEmail(email: string): AppRole {
+  return SUPER_ADMIN_EMAILS.has(normalizeEmail(email)) ? "super_admin" : "student";
+}
+
+function resolveTrustedRole(decodedToken: any, storedProfile: any = {}): AppRole {
+  const email = normalizeEmail(decodedToken.email || storedProfile.email);
+  const claimRole = String(decodedToken.role || "").trim() as AppRole;
+  if (VALID_ROLES.has(claimRole)) return claimRole;
+  if (SUPER_ADMIN_EMAILS.has(email)) return "super_admin";
+
+  const storedRole = String(storedProfile.role || "").trim() as AppRole;
+  if (storedRole === "teacher") return "teacher";
+  if (storedRole === "student") return "student";
+
+  // Do not trust a document-only super_admin role unless it is backed by
+  // a custom claim or a known bootstrap admin email.
+  return "student";
+}
+
+function resolveTrustedStatus(storedProfile: any = {}): AppStatus {
+  const status = String(storedProfile.status || "active").trim() as AppStatus;
+  return VALID_STATUSES.has(status) ? status : "active";
+}
+
+function buildUserProfileFromToken(decodedToken: any, storedProfile: any = {}) {
+  const email = String(decodedToken.email || storedProfile.email || "");
+  const tokenPhone = normalizePhoneE164(decodedToken.phone_number);
+  const storedPhone = normalizePhoneE164(storedProfile.phone);
+  const phone = tokenPhone || storedPhone;
+  const phoneVerified = Boolean(tokenPhone) || Boolean(storedProfile.phoneVerified && storedPhone);
+  return {
+    id: decodedToken.uid,
+    name: safeText(storedProfile.name || decodedToken.name || email.split("@")[0] || "Hoc sinh moi", 120),
+    email,
+    phone: phone || undefined,
+    phoneVerified,
+    role: resolveTrustedRole(decodedToken, storedProfile),
+    status: resolveTrustedStatus(storedProfile),
+    createdAt: storedProfile.createdAt || new Date().toISOString()
+  };
+}
+
+function assertActiveUser(userProfile: any, res: express.Response) {
+  if (userProfile.status !== "active") {
+    res.status(403).json({ error: "Tai khoan cua ban chua duoc kich hoat hoac da bi khoa." });
+    return false;
+  }
+  return true;
 }
 
 // Authenticates bearer token from firebase and attaches custom profile state
@@ -73,8 +174,6 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
     const decodedToken = await adminAuth.verifyIdToken(token);
     const uid = decodedToken.uid;
     const email = decodedToken.email || "";
-    const phone = decodedToken.phone_number || "";
-
     // Load or create profile in Firestore
     const userRef = adminDb.collection("users").doc(uid);
     const doc = await userRef.get();
@@ -83,20 +182,12 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
 
     if (!doc.exists) {
       // Determine default role (linyi8901@gmail.com is super_admin, other is student)
-      let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
-      if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
-        defaultRole = "super_admin";
-      }
+      const defaultRole = getDefaultRoleForEmail(email);
 
-      userProfile = {
-        id: uid,
-        name: decodedToken.name || email.split("@")[0] || "Học sinh mới",
-        email: email,
-        phone: phone || undefined,
+      userProfile = buildUserProfileFromToken(decodedToken, {
         role: defaultRole,
-        status: "active",
-        createdAt: new Date().toISOString()
-      };
+        status: "active"
+      });
 
       await userRef.set(userProfile);
       
@@ -106,14 +197,14 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
         userProfile.name,
         userProfile.email,
         "REGISTER",
-        `Đăng ký tài khoản mới với vai trò mặc định: ${defaultRole}`
+        `Created profile with default role: ${userProfile.role}`
       );
     } else {
-      userProfile = doc.data();
+      userProfile = buildUserProfileFromToken(decodedToken, doc.data());
     }
 
     // Check account status
-    if (userProfile.status === "blocked") {
+    if (userProfile.status !== "active") {
       return res.status(403).json({ error: "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên." });
     }
 
@@ -121,6 +212,9 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
     next();
   } catch (error: any) {
     console.error("Token verification failed:", error);
+    if (isStorageUnavailableError(error)) {
+      return sendApiError(res, error);
+    }
     return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
   }
 };
@@ -151,31 +245,22 @@ const authenticateOptionalUser = async (req: express.Request, _res: express.Resp
     const decodedToken = await adminAuth.verifyIdToken(token);
     const uid = decodedToken.uid;
     const email = decodedToken.email || "";
-    const phone = decodedToken.phone_number || "";
     const userRef = adminDb.collection("users").doc(uid);
     const doc = await userRef.get();
     let userProfile: any;
 
     if (!doc.exists) {
-      let defaultRole: 'super_admin' | 'teacher' | 'student' = 'student';
-      if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
-        defaultRole = "super_admin";
-      }
-      userProfile = {
-        id: uid,
-        name: decodedToken.name || email.split("@")[0] || "Học sinh mới",
-        email,
-        phone: phone || undefined,
+      const defaultRole = getDefaultRoleForEmail(email);
+      userProfile = buildUserProfileFromToken(decodedToken, {
         role: defaultRole,
-        status: "active",
-        createdAt: new Date().toISOString()
-      };
+        status: "active"
+      });
       await userRef.set(userProfile);
     } else {
-      userProfile = doc.data();
+      userProfile = buildUserProfileFromToken(decodedToken, doc.data());
     }
 
-    if (userProfile.status === "blocked") {
+    if (userProfile.status !== "active") {
       (req as any).authBlocked = true;
     } else {
       req.user = userProfile;
@@ -188,6 +273,8 @@ const authenticateOptionalUser = async (req: express.Request, _res: express.Resp
 
 const ACTIVITY_TTL_DAYS = 7;
 const ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1000;
+const LEADERBOARD_RETENTION_DAYS = 62;
+const LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 function addDaysIso(baseIso: string, days: number) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -201,6 +288,198 @@ function isExpiredActivity(data: any, nowMs = Date.now()) {
   if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
   const createdOrCompleted = data.createdAt || data.completedAt || data.endedAt;
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
+}
+
+function createSessionToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function hashSessionToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function getRequestSessionToken(req: express.Request) {
+  return safeText(req.body?.sessionToken || req.headers["x-session-token"], 160);
+}
+
+function omitSensitiveSessionFields(session: any) {
+  const { sessionTokenHash, ...safeSession } = session;
+  return safeSession;
+}
+
+function getGameSessionActor(req: express.Request, payload: any = {}) {
+  if ((req as any).authBlocked) return null;
+  if (req.user) {
+    return {
+      ownerType: "user",
+      ownerKey: `user:${req.user.id}`,
+      userId: req.user.id,
+      studentId: req.user.id,
+      guestId: safeText(payload.guestId || "", 120),
+      studentName: req.user.name || safeText(payload.studentName || "Hoc sinh", 120)
+    };
+  }
+
+  const guestId = safeText(payload.guestId, 120);
+  const studentName = safeText(payload.studentName, 120);
+  if (!guestId || !studentName) return null;
+  return {
+    ownerType: "guest",
+    ownerKey: `guest:${guestId}`,
+    userId: "",
+    studentId: guestId,
+    guestId,
+    studentName
+  };
+}
+
+function canUpdateGameSession(req: express.Request, existing: any, payload: any) {
+  if ((req as any).authBlocked) return false;
+  if (req.user && (existing.ownerKey === `user:${req.user.id}` || existing.userId === req.user.id)) {
+    return true;
+  }
+
+  const sessionToken = getRequestSessionToken(req);
+  if (sessionToken && existing.sessionTokenHash && hashSessionToken(sessionToken) === existing.sessionTokenHash) {
+    return true;
+  }
+
+  // Legacy compatibility for sessions started before session tokens existed.
+  if (!existing.sessionTokenHash && existing.guestId && safeText(payload.guestId, 120) === existing.guestId) {
+    return true;
+  }
+
+  return false;
+}
+
+function isSuperAdmin(user: any) {
+  return user?.role === "super_admin";
+}
+
+function isTeacher(user: any) {
+  return user?.role === "teacher";
+}
+
+function canManageVocabSet(user: any, set: any) {
+  if (isSuperAdmin(user)) return true;
+  return isTeacher(user) && Boolean(set?.createdBy) && set.createdBy === user.id;
+}
+
+function canViewVocabSet(user: any, set: any) {
+  if (!user) return getVocabVisibility(set) === "public";
+  if (isSuperAdmin(user)) return true;
+  if (isTeacher(user)) return canManageVocabSet(user, set) || getVocabVisibility(set) === "public";
+  return getVocabVisibility(set) === "public";
+}
+
+function canManageClass(user: any, classData: any) {
+  if (isSuperAdmin(user)) return true;
+  return isTeacher(user) && Boolean(classData?.teacherId) && classData.teacherId === user.id;
+}
+
+function canViewClass(user: any, classData: any) {
+  if (isSuperAdmin(user)) return true;
+  return canManageClass(user, classData);
+}
+
+function canManageAssignment(user: any, assignment: any, classData?: any) {
+  if (isSuperAdmin(user)) return true;
+  if (!isTeacher(user)) return false;
+  if (assignment?.createdBy === user.id) return true;
+  return Boolean(classData) && canManageClass(user, classData);
+}
+
+function getAssignmentShareToken(assignment: any) {
+  return String(assignment?.shareToken || assignment?.assignmentSlug || "").trim();
+}
+
+async function ensureAssignmentShareToken(assignment: any, docRef?: any) {
+  const existingToken = getAssignmentShareToken(assignment);
+  if (existingToken) {
+    return {
+      ...assignment,
+      shareToken: existingToken,
+      assignmentSlug: existingToken
+    };
+  }
+
+  const shareToken = createShareToken();
+  const updatedAssignment = {
+    ...assignment,
+    shareToken,
+    assignmentSlug: shareToken
+  };
+
+  if (docRef) {
+    await docRef.set(updatedAssignment);
+  }
+
+  return updatedAssignment;
+}
+
+function isAssignmentOpenForLearning(assignment: any, set: any) {
+  if (!assignment || !set) return false;
+  const assignmentStatus = String(assignment.status || "active").toLowerCase();
+  if (["draft", "deleted", "inactive", "archived"].includes(assignmentStatus)) return false;
+  const visibility = getVocabVisibility(set);
+  return visibility === "public" || visibility === "assignment";
+}
+
+function canViewResultSession(
+  user: any,
+  session: any,
+  vocabSetsById: Map<string, any>,
+  assignmentsById: Map<string, any>,
+  classesById: Map<string, any>
+) {
+  if (isSuperAdmin(user)) return true;
+  if (!user) return false;
+
+  if (user.role === "student") {
+    return session.userId === user.id || session.studentId === user.id || session.ownerKey === `user:${user.id}`;
+  }
+
+  if (!isTeacher(user)) return false;
+  const vocabSet = vocabSetsById.get(session.vocabSetId);
+  if (vocabSet && canManageVocabSet(user, vocabSet)) return true;
+
+  const assignment = session.assignmentId ? assignmentsById.get(session.assignmentId) : null;
+  if (assignment) {
+    const classData = assignment.classId ? classesById.get(assignment.classId) : null;
+    if (canManageAssignment(user, assignment, classData)) return true;
+  }
+
+  const classData = session.classId ? classesById.get(session.classId) : null;
+  return Boolean(classData && canManageClass(user, classData));
+}
+
+function canViewGrammarActivity(user: any, attempt: any, set: any) {
+  if (isSuperAdmin(user)) return true;
+  if (!user) return false;
+  if (user.role === "student") return attempt.userId === user.id || attempt.studentId === user.id;
+  return isTeacher(user) && canManageGrammarSet(user, set);
+}
+
+function getRequestGrammarAttemptToken(req: express.Request) {
+  return safeText(req.body?.attemptToken || req.query?.attemptToken || req.headers["x-grammar-attempt-token"], 160);
+}
+
+function sanitizeGrammarAnswerForStudent(answer: any, includeReview = false) {
+  const safeAnswer: any = {
+    id: answer.id,
+    attemptQuestionId: answer.attemptQuestionId,
+    questionId: answer.questionId,
+    selectedOptionId: answer.selectedOptionId,
+    answeredAt: answer.answeredAt
+  };
+
+  if (includeReview) {
+    safeAnswer.correctOptionId = answer.correctOptionId;
+    safeAnswer.isCorrect = Boolean(answer.isCorrect);
+    safeAnswer.scoreAwarded = Number(answer.scoreAwarded || 0);
+  }
+
+  return safeAnswer;
 }
 
 function grammarAttemptToActivity(attempt: any, set: any = {}) {
@@ -266,6 +545,151 @@ function grammarAttemptToActivity(attempt: any, set: any = {}) {
   };
 }
 
+function leaderboardEventId(sourceType: string, sourceId: string) {
+  const hash = crypto.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
+  return `leaderboard-${hash}`;
+}
+
+function getLeaderboardEventTime(data: any) {
+  return data.completedAt || data.endedAt || data.createdAt || data.startedAt || "";
+}
+
+function isOutsideLeaderboardRetention(data: any, nowMs = Date.now()) {
+  const eventTime = getLeaderboardEventTime(data);
+  return Boolean(eventTime && nowMs - new Date(eventTime).getTime() > LEADERBOARD_RETENTION_MS);
+}
+
+function isExpiredStoredLeaderboardEvent(data: any, nowMs = Date.now()) {
+  if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
+  return isOutsideLeaderboardRetention(data, nowMs);
+}
+
+function sanitizeLeaderboardEvent(event: any) {
+  const sourceType = safeText(event.sourceType || "vocabulary", 80);
+  const sourceId = safeText(event.sourceId || event.id || "", 180);
+  const completedAt = getLeaderboardEventTime(event);
+  return {
+    id: event.id || leaderboardEventId(sourceType, sourceId || crypto.randomUUID()),
+    sourceType,
+    sourceId,
+    assignmentId: safeText(event.assignmentId || "", 180),
+    classId: safeText(event.classId || "", 180),
+    className: safeText(event.className || "", 180),
+    vocabSetId: safeText(event.vocabSetId || "", 180),
+    vocabSetTitle: safeText(event.vocabSetTitle || "", 240),
+    grammarSetId: safeText(event.grammarSetId || "", 180),
+    gameId: safeText(event.gameId || "", 120),
+    gameName: safeText(event.gameName || "", 160),
+    gameType: safeText(event.gameType || "", 80),
+    ownerKey: safeText(event.ownerKey || "", 180),
+    ownerType: safeText(event.ownerType || "", 40),
+    userId: safeText(event.userId || "", 180),
+    studentId: safeText(event.studentId || "", 180),
+    guestId: safeText(event.guestId || "", 180),
+    studentName: safeText(event.studentName || "Hoc sinh", 160),
+    startedAt: event.startedAt || completedAt,
+    endedAt: event.endedAt || completedAt,
+    completedAt,
+    createdAt: event.createdAt || completedAt,
+    durationMs: Math.max(0, Number(event.durationMs || 0)),
+    durationSeconds: Math.max(0, Number(event.durationSeconds || 0)),
+    score: Math.max(0, Number(event.score || 0)),
+    rawScore: Math.max(0, Number(event.rawScore || 0)),
+    maxScore: Math.max(0, Number(event.maxScore || event.totalQuestions || 0)),
+    totalQuestions: Math.max(0, Number(event.totalQuestions || 0)),
+    correctAnswers: Math.max(0, Number(event.correctAnswers || 0)),
+    incorrectAnswers: Math.max(0, Number(event.incorrectAnswers || 0)),
+    accuracy: Math.max(0, Math.min(100, Number(event.accuracy || 0))),
+    status: "completed",
+    expiresAt: event.expiresAt || addDaysIso(completedAt || new Date().toISOString(), LEADERBOARD_RETENTION_DAYS)
+  };
+}
+
+function gameSessionToLeaderboardEvent(session: any) {
+  const sourceId = safeText(session.id || session.sourceId || "", 180);
+  return sanitizeLeaderboardEvent({
+    ...session,
+    id: leaderboardEventId("vocabulary", sourceId),
+    sourceType: "vocabulary",
+    sourceId,
+    completedAt: session.completedAt || session.endedAt,
+    expiresAt: addDaysIso(session.completedAt || session.endedAt || new Date().toISOString(), LEADERBOARD_RETENTION_DAYS)
+  });
+}
+
+function grammarAttemptToLeaderboardEvent(attempt: any, set: any = {}) {
+  const activity = grammarAttemptToActivity(attempt, set);
+  const sourceId = safeText(attempt.id || activity.id, 180);
+  return sanitizeLeaderboardEvent({
+    ...activity,
+    answerDetails: undefined,
+    id: leaderboardEventId("grammar", sourceId),
+    sourceType: "grammar",
+    sourceId,
+    grammarSetId: attempt.grammarSetId,
+    expiresAt: addDaysIso(activity.completedAt || new Date().toISOString(), LEADERBOARD_RETENTION_DAYS)
+  });
+}
+
+async function persistLeaderboardEvent(event: any) {
+  if (!event?.completedAt) return;
+  const safeEvent = sanitizeLeaderboardEvent(event);
+  await adminDb.collection("leaderboard_events").doc(safeEvent.id).set(safeEvent);
+}
+
+function mergeLeaderboardEvents(events: any[]) {
+  const bySource = new Map<string, any>();
+  for (const event of events) {
+    if (!event?.completedAt) continue;
+    const key = `${event.sourceType || "vocabulary"}:${event.sourceId || event.id}`;
+    if (!bySource.has(key)) {
+      bySource.set(key, event);
+      continue;
+    }
+    const existing = bySource.get(key);
+    if (new Date(getLeaderboardEventTime(event)).getTime() > new Date(getLeaderboardEventTime(existing)).getTime()) {
+      bySource.set(key, event);
+    }
+  }
+  return [...bySource.values()].sort((a, b) => new Date(getLeaderboardEventTime(b)).getTime() - new Date(getLeaderboardEventTime(a)).getTime());
+}
+
+async function loadLeaderboardEventsFromSources() {
+  const events: any[] = [];
+  const storedSnapshot = await adminDb.collection("leaderboard_events").get();
+  storedSnapshot.forEach(doc => {
+    const data = sanitizeLeaderboardEvent({ id: doc.id, ...doc.data() });
+    if (!isExpiredStoredLeaderboardEvent(data)) events.push(data);
+  });
+
+  const gameSnapshot = await adminDb.collection("game_sessions").get();
+  const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+  const grammarSetsById = await getGrammarSetMap();
+  const vocabSetsById = await getVocabSetMap();
+
+  gameSnapshot.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    if (data.status && data.status !== "completed") return;
+    if (!data.completedAt) return;
+    if (isOutsideLeaderboardRetention(data)) return;
+    const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
+    events.push(gameSessionToLeaderboardEvent({
+      ...data,
+      classId: data.classId || gradeClass.classId || "",
+      className: data.className || gradeClass.className || ""
+    }));
+  });
+
+  grammarAttemptsSnapshot.forEach(doc => {
+    const data = { id: doc.id, ...doc.data() };
+    if (data.status !== "completed" || !data.completedAt) return;
+    if (isOutsideLeaderboardRetention(data)) return;
+    events.push(grammarAttemptToLeaderboardEvent(data, grammarSetsById.get(data.grammarSetId)));
+  });
+
+  return mergeLeaderboardEvents(events);
+}
+
 async function getGrammarSetMap() {
   const snapshot = await adminDb.collection("grammar_sets").get();
   const setsById = new Map<string, any>();
@@ -313,12 +737,16 @@ type TtsQueueJob = {
 const DEFAULT_TTS_PROVIDER = "ai33";
 const DEFAULT_TTS_LANG = "en-US";
 const DEFAULT_TTS_SPEED = 1;
+const SUPPORTED_TTS_PROVIDERS = new Set(["ai33"]);
+const TTS_FETCH_TIMEOUT_MS = Math.max(5000, Number(process.env.TTS_FETCH_TIMEOUT_MS || 30000));
+const TTS_MAX_AUDIO_BYTES = Math.max(64 * 1024, Number(process.env.TTS_MAX_AUDIO_BYTES || 3 * 1024 * 1024));
 const DEFAULT_TTS_VOICE_BY_LANG: Record<string, string> = {
   "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
   "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
 };
 const TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENCY || 5)));
 const ttsQueue: TtsQueueJob[] = [];
+const ttsInFlight = new Map<string, Promise<any>>();
 let isProcessingTtsQueue = false;
 
 function normalizeTtsText(text: string) {
@@ -364,11 +792,15 @@ function sanitizeTtsInput(input: string) {
 }
 
 function normalizeTtsSettings(settings: TtsSettings = {}): Required<TtsSettings> {
+  const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
+  if (!SUPPORTED_TTS_PROVIDERS.has(provider)) {
+    throw createHttpError(400, `Unsupported TTS provider: ${provider}`);
+  }
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
   const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
   return {
     autoGenerate: Boolean(settings.autoGenerate),
-    provider: settings.provider || DEFAULT_TTS_PROVIDER,
+    provider,
     voice: settings.voice || DEFAULT_TTS_VOICE_BY_LANG[lang] || DEFAULT_TTS_VOICE_BY_LANG[DEFAULT_TTS_LANG],
     lang,
     speed
@@ -408,6 +840,74 @@ function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = TTS_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function responseBufferWithCap(res: Response, maxBytes: number) {
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (contentLength > maxBytes) {
+    throw new Error(`Downloaded TTS file is too large (${contentLength} bytes).`);
+  }
+
+  const body: any = res.body;
+  if (body?.getReader) {
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new Error(`Downloaded TTS file is too large (${total} bytes).`);
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks.map(chunk => Buffer.from(chunk)), total);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`Downloaded TTS file is too large (${buffer.byteLength} bytes).`);
+  }
+  return buffer;
+}
+
+function writeFileAtomic(targetPath: string, buffer: Buffer) {
+  const dir = path.dirname(targetPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tempPath = path.join(dir, `.${path.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    fs.writeFileSync(tempPath, buffer, { flag: "wx" });
+    fs.renameSync(tempPath, targetPath);
+  } finally {
+    if (fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        // Best effort cleanup for interrupted TTS writes.
+      }
+    }
+  }
+}
+
 async function runWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -438,7 +938,7 @@ async function requestAi33TtsTask(text: string, settings: Required<TtsSettings>,
   form.set("with_transcript", "false");
   form.set("file_name", fileName);
 
-  const res = await fetch("https://api.ai33.pro/v3/text-to-speech", {
+  const res = await fetchWithTimeout("https://api.ai33.pro/v3/text-to-speech", {
     method: "POST",
     headers: { "xi-api-key": apiKey },
     body: form
@@ -459,7 +959,7 @@ async function pollAi33AudioUrl(taskId: string) {
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) await delay(intervalMs);
-    const res = await fetch(getAi33TaskUrl(taskId), {
+    const res = await fetchWithTimeout(getAi33TaskUrl(taskId), {
       headers: { "xi-api-key": apiKey }
     });
     const data: any = await res.json().catch(() => ({}));
@@ -479,19 +979,17 @@ async function pollAi33AudioUrl(taskId: string) {
 }
 
 async function downloadAudioToCache(sourceUrl: string, targetPath: string) {
-  const res = await fetch(sourceUrl);
+  const res = await fetchWithTimeout(sourceUrl);
   if (!res.ok) throw new Error(`Audio download failed with HTTP ${res.status}`);
   const contentType = res.headers.get("content-type") || "";
   if (contentType && !contentType.includes("audio") && !contentType.includes("octet-stream")) {
     throw new Error(`Downloaded TTS file is not audio (${contentType}).`);
   }
-  const arrayBuffer = await res.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const buffer = await responseBufferWithCap(res, TTS_MAX_AUDIO_BYTES);
   if (buffer.byteLength < 1024) {
     throw new Error("Downloaded TTS file is too small to be valid audio.");
   }
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, buffer);
+  writeFileAtomic(targetPath, buffer);
 }
 
 async function generateCachedTtsAudio(inputText: string, settings: Required<TtsSettings>, force = false) {
@@ -505,7 +1003,6 @@ async function generateCachedTtsAudio(inputText: string, settings: Required<TtsS
   if (!force && fs.existsSync(targetPath)) {
     return {
       audioHash,
-      audioPath: targetPath,
       audioUrl: targetUrl,
       cached: true,
       ttsText: sanitized.text,
@@ -513,25 +1010,38 @@ async function generateCachedTtsAudio(inputText: string, settings: Required<TtsS
     };
   }
 
-  if (force && fs.existsSync(targetPath)) {
-    try {
-      fs.unlinkSync(targetPath);
-    } catch (err) {
-      console.warn("Could not remove old TTS cache before regeneration:", err);
+  const inFlight = ttsInFlight.get(audioHash);
+  if (inFlight) return inFlight;
+
+  const generation = (async () => {
+    if (force && fs.existsSync(targetPath)) {
+      try {
+        fs.unlinkSync(targetPath);
+      } catch (err) {
+        console.warn("Could not remove old TTS cache before regeneration:", err);
+      }
+    }
+
+    const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
+    const providerAudioUrl = await pollAi33AudioUrl(taskId);
+    await downloadAudioToCache(providerAudioUrl, targetPath);
+    return {
+      audioHash,
+      audioUrl: `${targetUrl}?v=${Date.now()}`,
+      cached: false,
+      ttsText: sanitized.text,
+      warnings: sanitized.warnings
+    };
+  })();
+
+  ttsInFlight.set(audioHash, generation);
+  try {
+    return await generation;
+  } finally {
+    if (ttsInFlight.get(audioHash) === generation) {
+      ttsInFlight.delete(audioHash);
     }
   }
-
-  const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
-  const providerAudioUrl = await pollAi33AudioUrl(taskId);
-  await downloadAudioToCache(providerAudioUrl, targetPath);
-  return {
-    audioHash,
-    audioPath: targetPath,
-    audioUrl: `${targetUrl}?v=${Date.now()}`,
-    cached: false,
-    ttsText: sanitized.text,
-    warnings: sanitized.warnings
-  };
 }
 
 function mergeItemAudioState(item: any, patch: any) {
@@ -607,7 +1117,6 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
       items = items.map((current: any) => current.id === item.id
         ? mergeItemAudioState(current, {
             audioUrl: audioPublicUrl(audioHash),
-            audioPath: targetPath,
             audioHash,
             audioStatus: "ready",
             audioError: "",
@@ -684,7 +1193,6 @@ async function processVocabSetAudioJob(job: TtsQueueJob) {
 
     return mergeItemAudioState(current, {
       audioUrl: generatedResult.result.audioUrl,
-      audioPath: generatedResult.result.audioPath,
       audioHash: generatedResult.result.audioHash,
       audioStatus: "ready",
       audioError: "",
@@ -1064,9 +1572,83 @@ app.get("/api/diagnostics/storage", async (req, res) => {
   res.json(await getStorageDiagnostics());
 });
 
+const PHONE_AUTH_WINDOW_MS = 10 * 60 * 1000;
+const PHONE_AUTH_MAX_ATTEMPTS = 5;
+const phoneAuthAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function getRequestIp(req: express.Request) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || req.socket.remoteAddress || "unknown";
+}
+
+function assertPhoneAuthRateLimit(req: express.Request, phone: string) {
+  const key = `${getRequestIp(req)}:${phone}`;
+  const now = Date.now();
+  const current = phoneAuthAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    phoneAuthAttempts.set(key, { count: 1, resetAt: now + PHONE_AUTH_WINDOW_MS });
+    return;
+  }
+
+  current.count += 1;
+  if (current.count > PHONE_AUTH_MAX_ATTEMPTS) {
+    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.");
+  }
+}
+
+async function findUserByPhone(normalizedPhone: string, rawPhone = "") {
+  const candidates = Array.from(new Set([
+    normalizedPhone,
+    rawPhone.trim(),
+    rawPhone.replace(/[^\d+]/g, "").trim()
+  ].filter(Boolean)));
+
+  for (const candidate of candidates) {
+    const snapshot = await adminDb.collection("users").where("phone", "==", candidate).limit(1).get();
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0];
+      return { id: doc.id, ...doc.data() };
+    }
+  }
+
+  return null;
+}
+
+function getFirebaseWebApiKey() {
+  return process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "";
+}
+
+async function verifyFirebasePassword(email: string, password: string) {
+  const apiKey = getFirebaseWebApiKey();
+  if (!apiKey) throw createHttpError(503, "Phone password login is not configured.");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+      signal: controller.signal
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok || !data.localId) {
+      throw createHttpError(401, "Phone number or password is incorrect.");
+    }
+    return data as { localId: string };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // 0. GET EMAIL BY PHONE (Unauthenticated - for Phone + Password login)
 app.post("/api/auth/email-by-phone", async (req, res) => {
   try {
+    const normalizedPhone = normalizePhoneE164(req.body?.phone);
+    if (!normalizedPhone) return res.status(400).json({ error: "Invalid phone number." });
+    assertPhoneAuthRateLimit(req, normalizedPhone);
+    return res.json({ ok: true, message: "Use /api/auth/login-by-phone to sign in without exposing account email." });
+
     const { phone } = req.body;
     if (!phone) {
       return res.status(400).json({ error: "Vui lòng cung cấp số điện thoại." });
@@ -1093,7 +1675,43 @@ app.post("/api/auth/email-by-phone", async (req, res) => {
     const userData = snapshot.docs[0].data();
     return res.json({ email: userData.email });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
+  }
+});
+
+app.post("/api/auth/login-by-phone", async (req, res) => {
+  try {
+    const rawPhone = String(req.body?.phone || "");
+    const password = String(req.body?.password || "");
+    const normalizedPhone = normalizePhoneE164(rawPhone);
+    if (!normalizedPhone || !password) {
+      return res.status(400).json({ error: "Phone number and password are required." });
+    }
+
+    assertPhoneAuthRateLimit(req, normalizedPhone);
+    const userRecord = await findUserByPhone(normalizedPhone, rawPhone);
+    const email = normalizeEmail((userRecord as any)?.email);
+    if (!userRecord || !email) {
+      throw createHttpError(401, "Phone number or password is incorrect.");
+    }
+
+    const verified = await verifyFirebasePassword(email, password);
+    if (verified.localId !== (userRecord as any).id) {
+      throw createHttpError(401, "Phone number or password is incorrect.");
+    }
+
+    if ((userRecord as any).phone !== normalizedPhone) {
+      await adminDb.collection("users").doc((userRecord as any).id).set({
+        ...userRecord,
+        phone: normalizedPhone,
+        phoneVerified: Boolean((userRecord as any).phoneVerified)
+      });
+    }
+
+    const customToken = await adminAuth.createCustomToken(verified.localId);
+    return res.json({ customToken });
+  } catch (err: any) {
+    sendApiError(res, err);
   }
 });
 
@@ -1109,16 +1727,29 @@ app.post("/api/register", authenticateUser, async (req, res) => {
     if (!req.user) return res.status(401).json({ error: "Chưa đăng nhập." });
 
     const userRef = adminDb.collection("users").doc(req.user.id);
+    const requestedPhone = phone ? normalizePhoneE164(phone) : "";
+    const existingPhone = normalizePhoneE164(req.user.phone);
+    if (phone && !requestedPhone) {
+      return res.status(400).json({ error: "Invalid phone number." });
+    }
+    if (requestedPhone && existingPhone && req.user.phoneVerified && requestedPhone !== existingPhone) {
+      return res.status(400).json({ error: "Verified phone number cannot be replaced without a new OTP verification." });
+    }
+    const normalizedPhone = requestedPhone || existingPhone;
     const updatedProfile = {
       ...req.user,
-      name: name || req.user.name,
-      phone: phone || req.user.phone || undefined
+      name: safeText(name || req.user.name, 120),
+      phone: normalizedPhone || undefined,
+      phoneVerified: Boolean(req.user.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
+      role: req.user.role,
+      status: req.user.status,
+      updatedAt: new Date().toISOString()
     };
 
     await userRef.set(updatedProfile);
     res.json(updatedProfile);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1432,14 +2063,14 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const assignments: any[] = [];
     let matchedAssignment: any = null;
-    assignmentsSnapshot.forEach(doc => {
-      const assignment = { id: doc.id, ...doc.data() };
+    for (const doc of assignmentsSnapshot.docs || []) {
+      const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
       assignments.push(assignment);
-      const assignmentToken = assignment.shareToken || assignment.assignmentSlug || assignment.id;
+      const assignmentToken = getAssignmentShareToken(assignment);
       if (!matchedAssignment && assignmentToken === token) {
         matchedAssignment = assignment;
       }
-    });
+    }
 
     const snapshot = await adminDb.collection("vocab_sets").get();
     let found: any = null;
@@ -1447,9 +2078,9 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
     if (matchedAssignment) {
       snapshot.forEach(doc => {
         const set = { id: doc.id, ...doc.data() };
-        if (!found && set.id === matchedAssignment.vocabSetId) {
+        if (!found && set.id === matchedAssignment.vocabSetId && isAssignmentOpenForLearning(matchedAssignment, set)) {
           found = {
-            ...normalizeVocabSetForSave(set, set),
+            ...normalizeVocabSetForRead(set),
             assignmentId: matchedAssignment.id,
             assignmentGameId: matchedAssignment.gameId,
             assignmentTitle: matchedAssignment.title,
@@ -1463,7 +2094,7 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
         const set = { id: doc.id, ...doc.data() };
         const setToken = set.shareToken || set.assignmentSlug;
         if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
-          found = normalizeVocabSetForSave(set, set);
+          found = normalizeVocabSetForRead(set);
         }
       });
 
@@ -1487,9 +2118,9 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
       return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
     }
 
-    res.json(found);
+    res.json(stripPrivateVocabSetFields(found));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1504,16 +2135,16 @@ app.get("/api/public/vocab-sets", async (req, res) => {
       const normalizedVisibility = getVocabVisibility(set);
       if (normalizedVisibility !== "public") return;
 
-      list.push({
+      list.push(stripPrivateVocabSetFields({
         ...set,
         visibility: normalizedVisibility,
         status: toLegacyStatus(normalizedVisibility)
-      });
+      }));
     });
 
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1625,7 +2256,16 @@ app.get("/api/public/results", async (req, res) => {
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
+  }
+});
+
+app.get("/api/public/leaderboard-results", async (req, res) => {
+  try {
+    const list = await loadLeaderboardEventsFromSources();
+    res.json(list);
+  } catch (err: any) {
+    sendApiError(res, err);
   }
 });
 
@@ -1638,11 +2278,11 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
     snapshot.forEach(doc => {
       const set = doc.data();
       const normalizedVisibility = getVocabVisibility(set);
-      list.push({
+      list.push(stripPrivateVocabSetFields({
         ...set,
         visibility: normalizedVisibility,
         status: toLegacyStatus(normalizedVisibility)
-      });
+      }));
     });
 
     // Filter list
@@ -1667,14 +2307,11 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
       list = list.filter(set => getVocabVisibility(set) === visibility);
     }
 
-    // Role check: students can only see 'public' sets! Teachers/admins see all.
-    if (req.user && req.user.role === "student") {
-      list = list.filter(set => getVocabVisibility(set) === "public");
-    }
+    list = list.filter(set => canViewVocabSet(req.user, set));
 
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1706,9 +2343,9 @@ app.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_adm
       `Đã tạo bộ từ vựng mới: "${newSet.title}" (${newSet.items.length} từ)`
     );
 
-    res.status(201).json(newSet);
+    res.status(201).json(stripPrivateVocabSetFields(newSet));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1723,6 +2360,10 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
     const existingDoc = await docRef.get();
     if (!existingDoc.exists) {
       return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
+    }
+
+    if (!canManageVocabSet(req.user, existingDoc.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
     }
 
     const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
@@ -1741,9 +2382,9 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
       `Đã chỉnh sửa bộ từ vựng: "${updatedSet.title}"`
     );
 
-    res.json(updatedSet);
+    res.json(stripPrivateVocabSetFields(updatedSet));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1763,7 +2404,7 @@ app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_ad
       warnings: result.warnings
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1837,7 +2478,6 @@ app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "su
       return {
         id: item.id,
         audioUrl: generatedResult.result.audioUrl,
-        audioPath: generatedResult.result.audioPath,
         audioHash: generatedResult.result.audioHash,
         audioStatus: "ready",
         audioError: "",
@@ -1853,7 +2493,7 @@ app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "su
 
     res.json({ items, concurrency: TTS_CONCURRENCY });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1869,13 +2509,13 @@ app.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admi
     if (req.query.search || req.query.q) params.set("q", String(req.query.search || req.query.q));
     params.set("page_size", String(req.query.page_size || req.query.limit || 50));
 
-    const upstream = await fetch(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
+    const upstream = await fetchWithTimeout(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
       headers: { "xi-api-key": apiKey }
     });
     const data = await upstream.json().catch(() => ({}));
     res.status(upstream.status).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1884,6 +2524,9 @@ app.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teac
     const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
     const set = doc.data();
+    if (!canManageVocabSet(req.user, set)) {
+      return res.status(403).json({ error: "Ban khong co quyen xem trang thai audio cua bo tu vung nay." });
+    }
     const items = Array.isArray(set.items) ? set.items : [];
     res.json({
       id: set.id,
@@ -1905,7 +2548,7 @@ app.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teac
       }))
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1913,6 +2556,9 @@ app.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, require
   try {
     const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    if (!canManageVocabSet(req.user, doc.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen tao audio cho bo tu vung nay." });
+    }
 
     const settings = normalizeTtsSettings(req.body?.settings || doc.data().ttsSettings || {});
     const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(String) : undefined;
@@ -1920,7 +2566,7 @@ app.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, require
     enqueueVocabSetAudio(req.params.id, settings, itemIds, force);
     res.json({ queued: true, itemIds: itemIds || null, force });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1936,13 +2582,34 @@ app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "sup
       return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
     }
 
+    if (!canManageVocabSet(req.user, existing.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen xoa bo tu vung nay." });
+    }
+
     const setDetails = existing.data();
+    const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
+    if (!isSuperAdmin(req.user)) {
+      const classesSnapshot = await adminDb.collection("classes").get();
+      const classesById = new Map<string, any>();
+      classesSnapshot.forEach(doc => {
+        const classData = { id: doc.id, ...doc.data() };
+        classesById.set(classData.id, classData);
+      });
+
+      for (const assignmentDoc of relatedAssignmentsForDelete.docs || []) {
+        const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+        const classData = assignment.classId ? classesById.get(assignment.classId) : null;
+        if (!canManageAssignment(req.user, assignment, classData)) {
+          return res.status(403).json({ error: "Bo tu vung nay dang duoc giao cho lop ban khong quan ly." });
+        }
+      }
+    }
+
     await docRef.delete();
 
     // Clean up related assignments
-    const assignSnapshot = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
     const batch = adminDb.batch();
-    assignSnapshot.forEach(doc => {
+    relatedAssignmentsForDelete.forEach(doc => {
       batch.delete(doc.ref);
     });
     await batch.commit();
@@ -1958,7 +2625,7 @@ app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "sup
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -1974,6 +2641,9 @@ app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", 
     }
 
     const original = existing.data() || {};
+    if (!canViewVocabSet(req.user, original)) {
+      return res.status(403).json({ error: "Ban khong co quyen nhan ban bo tu vung nay." });
+    }
     const cloneId = `set-${Date.now()}`;
     const clone = normalizeVocabSetForSave({
       ...original,
@@ -1997,9 +2667,9 @@ app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", 
       `Đã nhân bản bộ từ vựng: "${original.title}" thành "${clone.title}"`
     );
 
-    res.json(clone);
+    res.json(stripPrivateVocabSetFields(clone));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2008,10 +2678,13 @@ app.get("/api/classes", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("classes").get();
     const list: any[] = [];
-    snapshot.forEach(doc => list.push(doc.data()));
+    snapshot.forEach(doc => {
+      const classData = { id: doc.id, ...doc.data() };
+      if (canViewClass(req.user, classData)) list.push(classData);
+    });
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2043,7 +2716,7 @@ app.post("/api/classes", authenticateUser, requireRole(["teacher", "super_admin"
 
     res.status(201).json(newClass);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2057,6 +2730,10 @@ app.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_
     const existing = await classRef.get();
     if (!existing.exists) {
       return res.status(404).json({ error: "Lớp học không tồn tại." });
+    }
+
+    if (!canManageClass(req.user, existing.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen xoa lop hoc nay." });
     }
 
     const classDetails = existing.data();
@@ -2085,19 +2762,30 @@ app.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 13. CLASS MEMBERS: Get class members
 app.get("/api/class-members", authenticateUser, async (req, res) => {
   try {
+    const classesSnapshot = await adminDb.collection("classes").get();
+    const classesById = new Map<string, any>();
+    classesSnapshot.forEach(doc => {
+      const classData = { id: doc.id, ...doc.data() };
+      classesById.set(classData.id, classData);
+    });
+
     const snapshot = await adminDb.collection("class_members").get();
     const list: any[] = [];
-    snapshot.forEach(doc => list.push(doc.data()));
+    snapshot.forEach(doc => {
+      const member = { id: doc.id, ...doc.data() };
+      const classData = member.classId ? classesById.get(member.classId) : null;
+      if (classData && canViewClass(req.user, classData)) list.push(member);
+    });
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2106,6 +2794,11 @@ app.post("/api/classes/:classId/members", authenticateUser, requireRole(["teache
   try {
     const classId = req.params.classId;
     const { studentName } = req.body;
+    const classDoc = await adminDb.collection("classes").doc(classId).get();
+    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (!canManageClass(req.user, classDoc.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
+    }
     const id = `member-${Date.now()}`;
     const newMember = {
       id,
@@ -2116,30 +2809,51 @@ app.post("/api/classes/:classId/members", authenticateUser, requireRole(["teache
     await adminDb.collection("class_members").doc(id).set(newMember);
     res.status(201).json(newMember);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 15. CLASS MEMBERS: Delete member
 app.delete("/api/classes/:classId/members/:memberId", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
+    const classId = req.params.classId;
     const memberId = req.params.memberId;
+    const classDoc = await adminDb.collection("classes").doc(classId).get();
+    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (!canManageClass(req.user, classDoc.data())) {
+      return res.status(403).json({ error: "Ban khong co quyen xoa hoc sinh khoi lop nay." });
+    }
+    const memberDoc = await adminDb.collection("class_members").doc(memberId).get();
+    if (!memberDoc.exists || memberDoc.data()?.classId !== classId) {
+      return res.status(404).json({ error: "Class member not found." });
+    }
     await adminDb.collection("class_members").doc(memberId).delete();
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 16. ASSIGNMENTS: Get assignments
 app.get("/api/assignments", authenticateUser, async (req, res) => {
   try {
+    const classesSnapshot = await adminDb.collection("classes").get();
+    const classesById = new Map<string, any>();
+    classesSnapshot.forEach(doc => {
+      const classData = { id: doc.id, ...doc.data() };
+      classesById.set(classData.id, classData);
+    });
+
     const snapshot = await adminDb.collection("assignments").get();
     const list: any[] = [];
-    snapshot.forEach(doc => list.push(doc.data()));
+    for (const doc of snapshot.docs || []) {
+      const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
+      const classData = assignment.classId ? classesById.get(assignment.classId) : null;
+      if (canManageAssignment(req.user, assignment, classData)) list.push(assignment);
+    }
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2149,12 +2863,30 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const payload = req.body;
     const id = `assign-${Date.now()}`;
-    const shareToken = payload.shareToken || payload.assignmentSlug || createShareToken();
+    const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
+    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    const classData = { id: classDoc.id, ...classDoc.data() };
+    if (!canManageClass(req.user, classData)) {
+      return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
+    }
+
+    const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || "")).get();
+    if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
+    if (!canViewVocabSet(req.user, vocabSet) || getVocabVisibility(vocabSet) === "draft") {
+      return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
+    }
+
+    const shareToken = createShareToken();
     const newAssign = {
       ...payload,
       id,
       shareToken,
       assignmentSlug: shareToken,
+      classId: classData.id,
+      className: classData.name || payload.className || "",
+      vocabSetId: vocabSet.id,
+      vocabSetTitle: vocabSet.title || payload.vocabSetTitle || "",
       createdAt: new Date().toISOString(),
       createdBy: req.user.id
     };
@@ -2172,7 +2904,7 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
 
     res.status(201).json(newAssign);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2188,7 +2920,13 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
       return res.status(404).json({ error: "Bài tập không tồn tại." });
     }
 
-    const assignDetails = existing.data();
+    const assignDetails = { id: existing.id || id, ...existing.data() };
+    const classDoc = assignDetails.classId ? await adminDb.collection("classes").doc(assignDetails.classId).get() : null;
+    const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : null;
+    if (!canManageAssignment(req.user, assignDetails, classData)) {
+      return res.status(403).json({ error: "Ban khong co quyen xoa bai giao nay." });
+    }
+
     await docRef.delete();
 
     // Audit Log
@@ -2202,7 +2940,7 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2219,7 +2957,7 @@ app.get("/api/public/grammar-sets", async (req, res) => {
     list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2229,13 +2967,13 @@ app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
     const list: any[] = [];
     snapshot.forEach(doc => {
       const set = { id: doc.id, ...doc.data() };
-      if (req.user?.role === "student" && getGrammarVisibility(set) !== "public") return;
+      if (!canViewGrammarSet(req.user, set)) return;
       list.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
     });
     list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2263,7 +3001,7 @@ app.get("/api/grammar-sets/share/:token", async (req, res) => {
 
     res.json(sanitizeGrammarSetForStudent(found));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2271,12 +3009,12 @@ app.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
   try {
     const set = await getGrammarSetOr404(req.params.id);
     if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (req.user?.role === "student" && getGrammarVisibility(set) !== "public") {
+    if (!canViewGrammarSet(req.user, set)) {
       return res.status(403).json({ error: "Bạn không có quyền mở bài ngữ pháp này." });
     }
     res.json(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2297,7 +3035,7 @@ app.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "s
 
     res.status(201).json(set);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message, details: err.details });
+    sendApiError(res, err);
   }
 });
 
@@ -2321,7 +3059,7 @@ app.put("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher",
 
     res.json(set);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message, details: err.details });
+    sendApiError(res, err);
   }
 });
 
@@ -2343,7 +3081,7 @@ app.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teache
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2352,6 +3090,7 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const existing = await getGrammarSetOr404(req.params.id);
     if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    if (!canViewGrammarSet(req.user, existing)) return res.status(403).json({ error: "Ban khong co quyen nhan ban bai nay." });
     const cloneId = makeId("grammar-set");
     const clone = normalizeGrammarSetForSave({
       ...existing,
@@ -2363,7 +3102,7 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
     await adminDb.collection("grammar_sets").doc(cloneId).set(clone);
     res.status(201).json(clone);
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message, details: err.details });
+    sendApiError(res, err);
   }
 });
 
@@ -2407,6 +3146,7 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
     });
 
     const attemptId = makeId("grammar-attempt");
+    const attemptToken = actor.isGuest ? createSessionToken() : "";
     const attempt = {
       id: attemptId,
       grammarSetId: set.id,
@@ -2427,13 +3167,14 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
       startedAt: now,
       createdAt: now,
       questions: attemptQuestions,
-      answers: []
+      answers: [],
+      attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
     };
 
     await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
-    res.status(201).json(sanitizeAttemptForStudent(attempt, false));
+    res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2477,9 +3218,9 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
           scoreAwarded: answer.scoreAwarded
         }
       : null;
-    res.json({ answer, feedback });
+    res.json({ answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)), feedback });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2524,9 +3265,10 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
       durationSeconds
     };
     await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
-    res.json(sanitizeAttemptForStudent(updatedAttempt, true));
+    await persistLeaderboardEvent(grammarAttemptToLeaderboardEvent(updatedAttempt, set));
+    res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2540,9 +3282,10 @@ app.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, asy
     const canReview = canAccessGrammarAttempt(attempt, actor, set, req, true);
     if (!canReview) return res.status(403).json({ error: "Bạn không có quyền xem lượt làm bài này." });
     if (attempt.status !== "completed" && actor.role === "student") return res.status(403).json({ error: "Chỉ được xem lại sau khi nộp bài." });
-    res.json(sanitizeAttemptForStudent(attempt, true));
+    const staffReview = !actor.isGuest && (actor.role === "super_admin" || canManageGrammarSet(actor, set));
+    res.json(sanitizeAttemptForStudent(attempt, staffReview || Boolean(set?.showReviewAfterSubmit)));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2550,18 +3293,19 @@ app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (re
   try {
     const actor = getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để xem lịch sử làm bài." });
+    const set = await getGrammarSetOr404(req.params.id);
     const snapshot = await adminDb.collection("grammar_attempts").get();
     const list: any[] = [];
     snapshot.forEach(doc => {
       const attempt = { id: doc.id, ...doc.data() };
       if (attempt.grammarSetId === req.params.id && (attempt.userId === actor.id || attempt.guestId === actor.id)) {
-        list.push(sanitizeAttemptForStudent(attempt, attempt.status === "completed"));
+        list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
       }
     });
     list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2581,16 +3325,24 @@ app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["t
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
     res.json({ set, attempts });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 19. GAME SESSIONS: Start a session
-app.post("/api/game-sessions", async (req, res) => {
+app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
   try {
-    const payload = req.body;
-    const id = `session-${Date.now()}`;
+    const payload = req.body || {};
+    const actor = getGameSessionActor(req, payload);
+    if (!actor) return res.status(401).json({ error: "Student identity is required to start a game session." });
+    const id = `session-${crypto.randomUUID()}`;
+    const sessionToken = createSessionToken();
     const now = new Date().toISOString();
+    const vocabSetId = safeText(payload.vocabSetId, 160);
+    const gameId = safeText(payload.gameId, 120);
+    if (!vocabSetId || !gameId) {
+      return res.status(400).json({ error: "vocabSetId and gameId are required." });
+    }
     let assignment: any = null;
     if (payload.assignmentId) {
       const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
@@ -2604,6 +3356,19 @@ app.post("/api/game-sessions", async (req, res) => {
           }
         });
       }
+    }
+
+    const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+    if (!vocabDoc.exists) {
+      return res.status(404).json({ error: "Vocabulary set not found." });
+    }
+    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
+    if (assignment) {
+      if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
+        return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
+      }
+    } else if (!canViewVocabSet(req.user, vocabSet)) {
+      return res.status(403).json({ error: "You do not have permission to start this vocabulary game." });
     }
 
     let inferredClass: any = null;
@@ -2620,31 +3385,43 @@ app.post("/api/game-sessions", async (req, res) => {
       inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
     }
     const newSession = {
-      ...payload,
       id,
-      classId: payload.classId || assignment?.classId || inferredClass?.classId || "",
-      className: payload.className || assignment?.className || inferredClass?.className || "",
+      ownerKey: actor.ownerKey,
+      ownerType: actor.ownerType,
+      userId: actor.userId,
+      studentId: actor.studentId,
+      guestId: actor.guestId,
+      assignmentId: safeText(payload.assignmentId || "", 160),
+      vocabSetId,
+      vocabSetTitle: safeText(payload.vocabSetTitle, 240),
+      gameId,
+      gameName: safeText(payload.gameName, 160),
+      gameType: safeText(payload.gameType, 80),
+      studentName: actor.studentName,
+      classId: safeText(payload.classId || assignment?.classId || inferredClass?.classId || "", 160),
+      className: safeText(payload.className || assignment?.className || inferredClass?.className || "", 160),
       startedAt: now,
       createdAt: now,
       status: "started",
       score: 0,
       totalQuestions: 0,
       correctAnswers: 0,
-      incorrectAnswers: 0
+      incorrectAnswers: 0,
+      sessionTokenHash: hashSessionToken(sessionToken)
     };
 
     await adminDb.collection("game_sessions").doc(id).set(newSession);
-    res.status(201).json(newSession);
+    res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 20. GAME SESSIONS: Update/complete session results
-app.put("/api/game-sessions/:id", async (req, res) => {
+app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => {
   try {
     const id = req.params.id;
-    const payload = req.body;
+    const payload = req.body || {};
 
     const docRef = adminDb.collection("game_sessions").doc(id);
     const existing = await docRef.get();
@@ -2652,8 +3429,16 @@ app.put("/api/game-sessions/:id", async (req, res) => {
       return res.status(404).json({ error: "Session không tồn tại." });
     }
 
+    const existingData = existing.data();
+    if (!canUpdateGameSession(req, existingData, payload)) {
+      return res.status(403).json({ error: "You do not have permission to update this game session." });
+    }
+    if (existingData.status === "completed") {
+      return res.status(409).json({ error: "This game session has already been completed." });
+    }
+
     const endedAt = payload.endedAt || new Date().toISOString();
-    const startedAt = existing.data()?.startedAt || payload.startedAt || endedAt;
+    const startedAt = existingData.startedAt || endedAt;
     const durationMs = Math.max(0, Number(payload.durationMs ?? (new Date(endedAt).getTime() - new Date(startedAt).getTime())));
     const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
     const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
@@ -2673,9 +3458,9 @@ app.put("/api/game-sessions/:id", async (req, res) => {
       : [];
 
     const updatedSession = {
-      ...existing.data(),
-      ...payload,
+      ...existingData,
       answerDetails: sanitizedAnswerDetails,
+      score: Math.max(0, Number(payload.score || 0)),
       totalQuestions,
       correctAnswers,
       incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
@@ -2689,40 +3474,77 @@ app.put("/api/game-sessions/:id", async (req, res) => {
     };
 
     await docRef.set(updatedSession);
-    res.json(updatedSession);
+    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...updatedSession, id }));
+    res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
 // 21. PRONUNCIATION ATTEMPTS: Save one speaking practice attempt
-app.post("/api/pronunciation-attempts", async (req, res) => {
+app.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, res) => {
   try {
     const payload = req.body || {};
     const now = new Date().toISOString();
-    const id = payload.id || `pronunciation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const gameSessionId = safeText(payload.gameSessionId, 160);
+    let sessionData: any = null;
+
+    if (gameSessionId) {
+      const sessionDoc = await adminDb.collection("game_sessions").doc(gameSessionId).get();
+      if (!sessionDoc.exists) {
+        return res.status(404).json({ error: "Session không tồn tại." });
+      }
+      sessionData = sessionDoc.data();
+      if (!canUpdateGameSession(req, sessionData, payload)) {
+        return res.status(403).json({ error: "You do not have permission to save this pronunciation attempt." });
+      }
+      if (sessionData.status === "completed") {
+        return res.status(409).json({ error: "This game session has already been completed." });
+      }
+    } else if (!req.user) {
+      return res.status(401).json({ error: "Game session is required to save pronunciation attempts." });
+    }
+
+    const actor = sessionData ? {
+      ownerKey: sessionData.ownerKey || "",
+      ownerType: sessionData.ownerType || "",
+      userId: sessionData.userId || "",
+      studentId: sessionData.studentId || sessionData.guestId || "",
+      guestId: sessionData.guestId || "",
+      studentName: sessionData.studentName || ""
+    } : getGameSessionActor(req, payload);
+
+    if (!actor) {
+      return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
+    }
+
+    const id = `pronunciation-${crypto.randomUUID()}`;
     const attempt = {
       id,
-      studentId: payload.studentId || payload.guestId || "guest",
-      studentName: payload.studentName || "",
-      vocabularySetId: payload.vocabularySetId || payload.vocabSetId || "",
-      wordId: payload.wordId || "",
-      targetText: payload.targetText || "",
-      recognizedText: payload.recognizedText || "",
+      ownerKey: actor.ownerKey,
+      ownerType: actor.ownerType,
+      userId: actor.userId || "",
+      studentId: actor.studentId || actor.guestId || "",
+      guestId: actor.guestId || "",
+      studentName: actor.studentName || "",
+      vocabularySetId: sessionData?.vocabSetId || safeText(payload.vocabularySetId || payload.vocabSetId || "", 160),
+      wordId: safeText(payload.wordId, 160),
+      targetText: safeText(payload.targetText, 500),
+      recognizedText: safeText(payload.recognizedText, 500),
       score: Math.max(0, Math.min(100, Number(payload.score || 0))),
       correctWords: Math.max(0, Number(payload.correctWords || 0)),
       totalWords: Math.max(0, Number(payload.totalWords || 0)),
       attemptCount: Math.max(1, Number(payload.attemptCount || 1)),
-      gameSessionId: payload.gameSessionId || "",
+      gameSessionId,
       gameId: "speaking-ai",
-      playedAt: payload.playedAt || now,
+      playedAt: now,
       createdAt: now
     };
 
     await adminDb.collection("pronunciation_attempts").doc(id).set(attempt);
     res.status(201).json(attempt);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2733,11 +3555,25 @@ app.get("/api/results", authenticateUser, async (req, res) => {
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
+    const assignmentsSnapshot = await adminDb.collection("assignments").get();
+    const classesSnapshot = await adminDb.collection("classes").get();
+    const assignmentsById = new Map<string, any>();
+    const classesById = new Map<string, any>();
+    assignmentsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      assignmentsById.set(doc.id, data);
+      if (data.id) assignmentsById.set(data.id, data);
+    });
+    classesSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      classesById.set(data.id, data);
+    });
     const list: any[] = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach(doc => {
       const data = doc.data();
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
+        if (!canViewResultSession(req.user, data, vocabSetsById, assignmentsById, classesById)) return;
         const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
         list.push({
           ...data,
@@ -2752,12 +3588,46 @@ app.get("/api/results", authenticateUser, async (req, res) => {
       if (data.status !== "completed" || !data.completedAt) return;
       if (isExpiredActivity(data)) return;
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
+      if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
+  }
+});
+
+app.get("/api/leaderboard-results", authenticateUser, async (req, res) => {
+  try {
+    const events = await loadLeaderboardEventsFromSources();
+    const grammarSetsById = await getGrammarSetMap();
+    const vocabSetsById = await getVocabSetMap();
+    const assignmentsSnapshot = await adminDb.collection("assignments").get();
+    const classesSnapshot = await adminDb.collection("classes").get();
+    const assignmentsById = new Map<string, any>();
+    const classesById = new Map<string, any>();
+
+    assignmentsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      assignmentsById.set(doc.id, data);
+      if (data.id) assignmentsById.set(data.id, data);
+    });
+    classesSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      classesById.set(data.id, data);
+    });
+
+    const scoped = events.filter(event => {
+      if (event.sourceType === "grammar") {
+        return canViewGrammarActivity(req.user, event, grammarSetsById.get(event.grammarSetId));
+      }
+      return canViewResultSession(req.user, event, vocabSetsById, assignmentsById, classesById);
+    });
+
+    res.json(scoped);
+  } catch (err: any) {
+    sendApiError(res, err);
   }
 });
 
@@ -2773,7 +3643,7 @@ app.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), asyn
     snapshot.forEach(doc => users.push(doc.data()));
     res.json(users);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2819,7 +3689,7 @@ app.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_a
 
     res.json({ success: true, userId: targetUserId, role, customClaimWarning });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2854,7 +3724,7 @@ app.put("/api/admin/users/:userId/status", authenticateUser, requireRole(["super
 
     res.json({ success: true, userId: targetUserId, status });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2866,7 +3736,7 @@ app.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]),
     snapshot.forEach(doc => logs.push(doc.data()));
     res.json(logs);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err);
   }
 });
 
@@ -2953,20 +3823,128 @@ function setUniqueClass(
   }
 }
 
+function normalizeAudioUrlForClient(value: any) {
+  const audioUrl = safeText(value, 1000);
+  if (!audioUrl) return "";
+  if (audioUrl.startsWith(`${AUDIO_PUBLIC_PREFIX}/`)) return audioUrl;
+  if (/^https:\/\/[^\s]+$/i.test(audioUrl)) return audioUrl;
+  return "";
+}
+
+function stripPrivateVocabSetFields(set: any) {
+  const items = Array.isArray(set?.items)
+    ? set.items.map((item: any) => {
+        const { audioPath, ...publicItem } = item || {};
+        return publicItem;
+      })
+    : [];
+  return {
+    ...set,
+    items
+  };
+}
+
+function normalizeVocabSetForRead(set: any) {
+  const visibility = getVocabVisibility(set);
+  return {
+    ...set,
+    visibility,
+    status: toLegacyStatus(visibility)
+  };
+}
+
+function normalizeVocabItemForSave(item: any, index: number, errors: string[]) {
+  const id = safeText(item?.id, 160) || makeId(`item-${index + 1}`);
+  const term = safeText(item?.term, 160);
+  const meaning = safeText(item?.meaning, 500);
+  if (!term) errors.push(`Dong ${index + 1}: missing English word.`);
+  if (!meaning) errors.push(`Dong ${index + 1}: missing Vietnamese meaning.`);
+
+  const audioUrl = normalizeAudioUrlForClient(item?.audioUrl);
+  if (item?.audioUrl && !audioUrl) {
+    errors.push(`Dong ${index + 1}: invalid audio URL.`);
+  }
+
+  const ttsProvider = safeText(item?.ttsProvider, 40).toLowerCase();
+  if (ttsProvider && !SUPPORTED_TTS_PROVIDERS.has(ttsProvider)) {
+    errors.push(`Dong ${index + 1}: unsupported TTS provider.`);
+  }
+
+  const ttsLang = safeText(item?.ttsLang, 20);
+  if (ttsLang && ttsLang !== "en-US" && ttsLang !== "en-GB") {
+    errors.push(`Dong ${index + 1}: invalid TTS language.`);
+  }
+
+  const rawSpeed = Number(item?.ttsSpeed);
+  const ttsSpeed = Number.isFinite(rawSpeed) ? Math.min(1.5, Math.max(0.5, rawSpeed)) : undefined;
+  const audioHash = safeText(item?.audioHash, 128);
+  if (audioHash && !/^[a-f0-9]{64}$/i.test(audioHash)) {
+    errors.push(`Dong ${index + 1}: invalid audio hash.`);
+  }
+
+  const status = safeText(item?.audioStatus, 20);
+  const audioStatus = ["missing", "queued", "generating", "ready", "failed"].includes(status) ? status : undefined;
+  const normalized: any = {
+    id,
+    term,
+    meaning,
+    ipa: safeText(item?.ipa, 120),
+    pos: safeText(item?.pos, 120),
+    example: safeText(item?.example, 1000),
+    exampleMeaning: safeText(item?.exampleMeaning, 1000),
+    imageUrl: safeText(item?.imageUrl, 1000),
+    displayOrder: Number.isFinite(Number(item?.displayOrder)) ? Number(item.displayOrder) : index + 1
+  };
+
+  if (audioUrl) normalized.audioUrl = audioUrl;
+  if (audioHash) normalized.audioHash = audioHash;
+  if (audioStatus) normalized.audioStatus = audioStatus;
+  if (item?.audioError) normalized.audioError = safeText(item.audioError, 500);
+  if (Array.isArray(item?.audioWarnings)) normalized.audioWarnings = item.audioWarnings.map((warning: any) => safeText(warning, 200)).filter(Boolean).slice(0, 5);
+  if (item?.audioGeneratedAt) normalized.audioGeneratedAt = safeText(item.audioGeneratedAt, 80);
+  if (item?.audioUpdatedAt) normalized.audioUpdatedAt = safeText(item.audioUpdatedAt, 80);
+  if (ttsProvider) normalized.ttsProvider = ttsProvider;
+  if (item?.ttsVoice) normalized.ttsVoice = safeText(item.ttsVoice, 200);
+  if (ttsLang) normalized.ttsLang = ttsLang;
+  if (ttsSpeed !== undefined) normalized.ttsSpeed = ttsSpeed;
+  if (item?.ttsText) normalized.ttsText = safeText(item.ttsText, 160);
+  if (item?.notes) normalized.notes = safeText(item.notes, 1000);
+
+  return normalized;
+}
+
 function normalizeVocabSetForSave(payload: any, existing: any = {}) {
   const merged = {
     ...existing,
     ...payload
   };
+  const errors: string[] = [];
+  const items = (Array.isArray(merged.items) ? merged.items : [])
+    .slice(0, 500)
+    .map((item: any, index: number) => normalizeVocabItemForSave(item, index, errors))
+    .sort((a: any, b: any) => a.displayOrder - b.displayOrder)
+    .map((item: any, index: number) => ({ ...item, displayOrder: index + 1 }));
+
+  if (items.length === 0) errors.push("Vocabulary set needs at least one valid item.");
+  if (errors.length > 0) throw createHttpError(400, errors.join(" "), errors);
+
+  const ttsSettings = merged.ttsSettings ? normalizeTtsSettings(merged.ttsSettings) : undefined;
   const visibility = getVocabVisibility(merged);
   const normalized = {
     ...merged,
+    title: safeText(merged.title, 240),
+    description: safeText(merged.description, 2000),
+    subject: safeText(merged.subject || "General English", 120),
+    gradeLevel: safeText(merged.gradeLevel || "Lớp 3", 80),
+    tags: Array.isArray(merged.tags) ? merged.tags.map((tag: any) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
+    items,
+    ...(ttsSettings ? { ttsSettings } : {}),
     visibility,
     status: toLegacyStatus(visibility)
   };
 
   if (visibility === "assignment") {
-    normalized.shareToken = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || createShareToken();
+    normalized.shareToken = existing.shareToken || existing.assignmentSlug || createShareToken();
     normalized.assignmentSlug = normalized.shareToken;
   } else {
     delete normalized.shareToken;
@@ -3031,9 +4009,20 @@ function canOpenGrammarSetForLearning(set: any, actor: any, req: express.Request
 function canAccessGrammarAttempt(attempt: any, actor: any, set: any, req: express.Request, allowStaffReview = false) {
   if (!attempt || !actor) return false;
   if (!actor.isGuest && allowStaffReview && (actor.role === "super_admin" || canManageGrammarSet(actor, set))) return true;
-  if (attempt.userId === actor.id) return true;
-  if (attempt.guestId && attempt.guestId === actor.id) return true;
-  return canOpenGrammarSetForLearning(set, actor, req) && attempt.userId === actor.id;
+  if (!actor.isGuest) {
+    return attempt.userId === actor.id || attempt.studentId === actor.id;
+  }
+
+  const sameGuest = attempt.guestId === actor.id || attempt.userId === actor.id || attempt.studentId === actor.id;
+  if (!sameGuest) return false;
+
+  const attemptToken = getRequestGrammarAttemptToken(req);
+  if (attempt.attemptTokenHash) {
+    return Boolean(attemptToken && hashSessionToken(attemptToken) === attempt.attemptTokenHash);
+  }
+
+  // Legacy compatibility for attempts created before guest attempt tokens existed.
+  return true;
 }
 
 function safeText(value: any, max = 2000) {
@@ -3150,7 +4139,7 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
   };
 
   if (visibility === "assignment") {
-    const token = existing.shareToken || existing.assignmentSlug || payload.shareToken || payload.assignmentSlug || createShareToken();
+    const token = existing.shareToken || existing.assignmentSlug || createShareToken();
     normalized.shareToken = String(token).replace(/^grammar-/, "");
     normalized.assignmentSlug = normalized.shareToken;
   } else {
@@ -3162,7 +4151,14 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
 }
 
 function canManageGrammarSet(user: any, set: any) {
-  return user?.role === "super_admin" || set.createdBy === user?.id;
+  return user?.role === "super_admin" || (Boolean(set?.createdBy) && set.createdBy === user?.id);
+}
+
+function canViewGrammarSet(user: any, set: any) {
+  if (!user) return getGrammarVisibility(set) === "public";
+  if (user.role === "super_admin") return true;
+  if (user.role === "teacher") return canManageGrammarSet(user, set) || getGrammarVisibility(set) === "public";
+  return getGrammarVisibility(set) === "public";
 }
 
 function sanitizeGrammarSetForStudent(set: any) {
@@ -3182,26 +4178,38 @@ function sanitizeGrammarSetForStudent(set: any) {
   };
 }
 
-function sanitizeAttemptForStudent(attempt: any, includeReview = false) {
-  const base = {
-    ...attempt,
-    questions: (attempt.questions || []).map((question: any) => ({
-      id: question.id,
-      questionId: question.questionId,
-      displayPosition: question.displayPosition,
-      questionSnapshot: question.questionSnapshot,
-      scoreSnapshot: question.scoreSnapshot,
-      optionsSnapshot: question.optionsSnapshot.map((option: any) => ({
-        id: option.id,
-        text: option.text,
-        originalPosition: option.originalPosition
-      }))
-    })),
-    answers: attempt.answers || []
+function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptToken = "") {
+  const { attemptTokenHash, sessionTokenHash, ...safeAttempt } = attempt;
+  const sanitizedAttempt: any = {
+    ...safeAttempt,
+    questions: (attempt.questions || []).map((question: any) => {
+      const safeQuestion: any = {
+        id: question.id,
+        questionId: question.questionId,
+        displayPosition: question.displayPosition,
+        questionSnapshot: question.questionSnapshot,
+        scoreSnapshot: question.scoreSnapshot,
+        optionsSnapshot: Array.isArray(question.optionsSnapshot)
+          ? question.optionsSnapshot.map((option: any) => ({
+              id: option.id,
+              text: option.text,
+              originalPosition: option.originalPosition
+            }))
+          : []
+      };
+
+      if (includeReview) {
+        safeQuestion.explanationSnapshot = question.explanationSnapshot;
+        safeQuestion.correctOptionId = question.correctOptionId;
+      }
+
+      return safeQuestion;
+    }),
+    answers: (attempt.answers || []).map((answer: any) => sanitizeGrammarAnswerForStudent(answer, includeReview))
   };
 
-  if (includeReview) return attempt;
-  return base;
+  if (attemptToken) sanitizedAttempt.attemptToken = attemptToken;
+  return sanitizedAttempt;
 }
 
 async function getGrammarSetOr404(id: string) {
@@ -3219,7 +4227,3 @@ async function getGrammarAttemptOr404(id: string) {
 start().catch((err) => {
   console.error("Failed to start fullstack server", err);
 });
-
-
-
-

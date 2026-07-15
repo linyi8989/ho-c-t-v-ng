@@ -13,9 +13,11 @@ import {
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-const storageMode = process.env.STORAGE_MODE || "firebase-first";
-const isSQLiteStorageMode = storageMode === "sqlite";
 const hasServiceAccountCredentials = Boolean(projectId && clientEmail && privateKey);
+const requestedStorageMode = process.env.STORAGE_MODE || "firebase";
+const storageMode = requestedStorageMode === "firebase-first" ? "firebase" : requestedStorageMode;
+const isSQLiteStorageMode = storageMode === "sqlite";
+const isLocalJsonStorageMode = storageMode === "local-json" || storageMode === "json";
 const serviceAccount = hasServiceAccountCredentials
   ? {
       projectId: projectId as string,
@@ -41,6 +43,19 @@ console.log(`Firebase Admin initialized for project: ${projectId || '(not config
 
 if (isSQLiteStorageMode) {
   initializeSQLiteStorage();
+}
+
+export class StorageUnavailableError extends Error {
+  public statusCode = 503;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "StorageUnavailableError";
+  }
+}
+
+export function isStorageUnavailableError(err: any) {
+  return err?.name === "StorageUnavailableError" || err?.statusCode === 503;
 }
 
 // ============================================================================
@@ -75,6 +90,7 @@ class LocalDbEngine {
     if (lower === "class_members" || lower === "classmembers") return "classMembers";
     if (lower === "vocab_sets" || lower === "vocabsets") return "vocabSets";
     if (lower === "game_sessions" || lower === "gamesessions") return "gameSessions";
+    if (lower === "leaderboard_events" || lower === "leaderboardevents") return "leaderboardEvents";
     if (lower === "audit_logs" || lower === "auditlogs") return "auditLogs";
     return name;
   }
@@ -153,11 +169,30 @@ class LocalDbEngine {
   }
 }
 
-const localDb = new LocalDbEngine();
+let localDb: LocalDbEngine | null = null;
 
-// Global flag to track fallback status
-let useLocalFallback = false;
+function getLocalDb() {
+  if (!localDb) {
+    localDb = new LocalDbEngine();
+  }
+  return localDb;
+}
+
+// Local JSON is an explicit storage backend, not an automatic fallback.
+let useLocalFallback = isLocalJsonStorageMode;
+let storageUnavailableError: string | null = null;
 const FIREBASE_ADMIN_TIMEOUT_MS = 5000;
+
+function setStorageUnavailable(message: string) {
+  storageUnavailableError = message;
+  console.error(`[Storage] ${message}`);
+}
+
+function assertFirebaseStorageAvailable() {
+  if (storageUnavailableError) {
+    throw new StorageUnavailableError(storageUnavailableError);
+  }
+}
 
 function withAdminTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout>;
@@ -168,18 +203,26 @@ function withAdminTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
-// We run a quick check. If it fails, we fall back to local DB immediately.
+// We run a quick check and keep the configured storage backend fixed for this process.
 async function runDiagnostic() {
   if (isSQLiteStorageMode) {
     console.log("STORAGE_MODE=sqlite. Skipping Firestore storage diagnostic; SQLite will be used for app data.");
     await initializeSQLiteStorage();
     useLocalFallback = false;
+    storageUnavailableError = null;
+    return;
+  }
+
+  if (isLocalJsonStorageMode) {
+    console.warn("STORAGE_MODE=local-json. Using persistent local JSON storage by explicit configuration.");
+    useLocalFallback = true;
+    storageUnavailableError = null;
     return;
   }
 
   if (!hasServiceAccountCredentials) {
-    console.warn("Firebase Admin credentials are not configured. Activating Local DB fallback engine.");
-    useLocalFallback = true;
+    useLocalFallback = false;
+    setStorageUnavailable("Firebase Admin credentials are not configured and no explicit local storage mode is enabled.");
     return;
   }
 
@@ -191,11 +234,12 @@ async function runDiagnostic() {
     );
     await withAdminTimeout(testDoc.get(), "Firestore diagnostic get timed out.");
     await withAdminTimeout(testDoc.delete(), "Firestore diagnostic delete timed out.");
-    console.log("✅ Firestore connection diagnostics succeeded! Real Firestore DB will be used.");
+    console.log("Firestore connection diagnostics succeeded. Real Firestore DB will be used.");
     useLocalFallback = false;
+    storageUnavailableError = null;
   } catch (err: any) {
-    console.warn("⚠️ Firestore validation failed. Activating resilient Local DB Fallback engine.", err.message);
-    useLocalFallback = true;
+    useLocalFallback = false;
+    setStorageUnavailable(`Firestore validation failed: ${err.message}`);
   }
 }
 
@@ -250,58 +294,55 @@ class FallbackDoc {
 
   public async get(): Promise<FallbackDocSnapshot> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         const snap = await realDb.collection(this.collectionName).doc(this.id).get();
         return new FallbackDocSnapshot(snap.id, snap.exists, this, snap.data());
       } catch (err: any) {
-        console.warn(`FallbackDoc.get failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore read failed: ${err.message}`);
       }
     }
-    const data = localDb.getDocument(this.collectionName, this.id);
+    const data = getLocalDb().getDocument(this.collectionName, this.id);
     return new FallbackDocSnapshot(this.id, data !== undefined, this, data);
   }
 
   public async set(data: any): Promise<void> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         await realDb.collection(this.collectionName).doc(this.id).set(data);
-        localDb.setDocument(this.collectionName, this.id, data); // Keep local DB in sync
         return;
       } catch (err: any) {
-        console.warn(`FallbackDoc.set failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore write failed: ${err.message}`);
       }
     }
-    localDb.setDocument(this.collectionName, this.id, data);
+    getLocalDb().setDocument(this.collectionName, this.id, data);
   }
 
   public async update(data: any): Promise<void> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         await realDb.collection(this.collectionName).doc(this.id).update(data);
-        localDb.updateDocument(this.collectionName, this.id, data); // Keep local DB in sync
         return;
       } catch (err: any) {
-        console.warn(`FallbackDoc.update failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore update failed: ${err.message}`);
       }
     }
-    localDb.updateDocument(this.collectionName, this.id, data);
+    getLocalDb().updateDocument(this.collectionName, this.id, data);
   }
 
   public async delete(): Promise<void> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         await realDb.collection(this.collectionName).doc(this.id).delete();
-        localDb.deleteDocument(this.collectionName, this.id); // Keep local DB in sync
         return;
       } catch (err: any) {
-        console.warn(`FallbackDoc.delete failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore delete failed: ${err.message}`);
       }
     }
-    localDb.deleteDocument(this.collectionName, this.id);
+    getLocalDb().deleteDocument(this.collectionName, this.id);
   }
 }
 
@@ -334,6 +375,7 @@ class FallbackQuery {
 
   public async get(): Promise<FallbackQuerySnapshot> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         // Construct real query
         let query: any = realDb.collection(this.collectionName);
@@ -352,13 +394,12 @@ class FallbackQuery {
         });
         return new FallbackQuerySnapshot(docs);
       } catch (err: any) {
-        console.warn(`FallbackQuery.get failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore query failed: ${err.message}`);
       }
     }
 
     // Local filter and query logic
-    let results = [...localDb.getCollection(this.collectionName)];
+    let results = [...getLocalDb().getCollection(this.collectionName)];
 
     // Apply filters
     for (const f of this.filters) {
@@ -442,6 +483,7 @@ class FallbackBatch {
 
   public async commit(): Promise<void> {
     if (!useLocalFallback) {
+      assertFirebaseStorageAvailable();
       try {
         const batch = realDb.batch();
         for (const op of this.ops) {
@@ -451,27 +493,18 @@ class FallbackBatch {
           else if (op.type === "delete") batch.delete(realDocRef);
         }
         await batch.commit();
-        
-        // Sync to local DB
-        for (const op of this.ops) {
-          const doc = op.doc as any;
-          if (op.type === "set") localDb.setDocument(doc.collectionName, doc.id, op.data);
-          else if (op.type === "update") localDb.updateDocument(doc.collectionName, doc.id, op.data);
-          else if (op.type === "delete") localDb.deleteDocument(doc.collectionName, doc.id);
-        }
         return;
       } catch (err: any) {
-        console.warn(`FallbackBatch.commit failed on Firestore: ${err.message}. Falling back to local.`);
-        useLocalFallback = true;
+        throw new StorageUnavailableError(`Firestore batch write failed: ${err.message}`);
       }
     }
 
     // Execute locally
     for (const op of this.ops) {
       const doc = op.doc as any;
-      if (op.type === "set") localDb.setDocument(doc.collectionName, doc.id, op.data);
-      else if (op.type === "update") localDb.updateDocument(doc.collectionName, doc.id, op.data);
-      else if (op.type === "delete") localDb.deleteDocument(doc.collectionName, doc.id);
+      if (op.type === "set") getLocalDb().setDocument(doc.collectionName, doc.id, op.data);
+      else if (op.type === "update") getLocalDb().updateDocument(doc.collectionName, doc.id, op.data);
+      else if (op.type === "delete") getLocalDb().deleteDocument(doc.collectionName, doc.id);
     }
   }
 }
@@ -503,6 +536,6 @@ export async function getStorageDiagnostics() {
     sqliteReady: false,
     tableCounts: null,
     lastMigration: null,
-    lastError: useLocalFallback ? "Using local db.json fallback for app data." : null,
+    lastError: storageUnavailableError || (useLocalFallback ? "Using explicit local JSON storage for app data." : null),
   };
 }

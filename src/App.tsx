@@ -87,7 +87,8 @@ export default function App() {
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [results, setResults] = useState<GameSession[]>([]);
+  const [, setResults] = useState<GameSession[]>([]);
+  const [leaderboardResults, setLeaderboardResults] = useState<GameSession[]>([]);
   const [privateAssignmentSet, setPrivateAssignmentSet] = useState<VocabSet | null>(null);
   const [privateAssignmentLoading, setPrivateAssignmentLoading] = useState(!!privateAssignmentToken);
   const [privateAssignmentError, setPrivateAssignmentError] = useState('');
@@ -116,8 +117,8 @@ export default function App() {
   }, [classes, vocabSets]);
 
   const homeLeaderboard = React.useMemo(() => {
-    return buildLeaderboard(results, assignments, { period: leaderboardPeriod }).gold.slice(0, 5);
-  }, [results, assignments, leaderboardPeriod]);
+    return buildLeaderboard(leaderboardResults, assignments, { period: leaderboardPeriod }).gold.slice(0, 5);
+  }, [leaderboardResults, assignments, leaderboardPeriod]);
   const weeklyLearningQuote = React.useMemo(() => getWeeklyLearningQuote(), []);
 
   // Load data on mount or token change. Guests only receive public study data.
@@ -151,10 +152,22 @@ export default function App() {
         const res = await fetch('/api/public/results');
         if (!res.ok) throw new Error("Public results API response error");
         const data = await res.json();
-        setResults(Array.isArray(data) ? data : []);
+        const fallbackResults = Array.isArray(data) ? data : [];
+        setResults(fallbackResults);
+        setLeaderboardResults(fallbackResults);
       } catch (err) {
         console.warn("Backend /api/public/results API unreachable:", err);
         setResults([]);
+        setLeaderboardResults([]);
+      }
+
+      try {
+        const res = await fetch('/api/public/leaderboard-results');
+        if (!res.ok) throw new Error("Public leaderboard API response error");
+        const data = await res.json();
+        setLeaderboardResults(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Backend /api/public/leaderboard-results API unreachable, falling back to recent results:", err);
       }
 
       return;
@@ -252,7 +265,9 @@ export default function App() {
       });
       if (!res.ok) throw new Error("API response error");
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
+      const fallbackResults = Array.isArray(data) ? data : [];
+      setResults(fallbackResults);
+      setLeaderboardResults(fallbackResults);
     } catch (err) {
       console.warn("Backend /api/results API unreachable, falling back to direct Firestore Client-side query:", err);
       try {
@@ -264,9 +279,21 @@ export default function App() {
           list.push({ id: docSnap.id, ...docSnap.data() } as any);
         });
         setResults(list);
+        setLeaderboardResults(list);
       } catch (firestoreErr) {
         console.error("Direct Firestore game_sessions fetch failed:", firestoreErr);
       }
+    }
+
+    try {
+      const res = await fetch('/api/leaderboard-results', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Leaderboard API response error");
+      const data = await res.json();
+      setLeaderboardResults(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend /api/leaderboard-results API unreachable, falling back to recent results:", err);
     }
   };
 

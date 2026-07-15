@@ -50,6 +50,50 @@ export default function QuizGame({
     ? (config.answerType === 'term' ? currentItem.term : currentItem.meaning)
     : '';
 
+  const buildAnswerDetail = (
+    item: VocabItem,
+    index: number,
+    answer: string,
+    choices: string[],
+    answered: boolean
+  ): GameAnswerDetail => {
+    const expectedAnswer = config.answerType === 'term' ? item.term : item.meaning;
+    return {
+      questionIndex: index,
+      wordId: item.id,
+      word: item.term,
+      questionText: config.questionType === 'meaning' ? item.meaning : item.term,
+      correctAnswer: expectedAnswer,
+      selectedAnswer: answer,
+      userAnswer: answer,
+      isCorrect: answered && answer === expectedAnswer,
+      options: choices.slice(0, 6)
+    };
+  };
+
+  const syncCounters = (details: GameAnswerDetail[]) => {
+    const correct = details.filter(detail => detail.isCorrect).length;
+    setCorrectCount(correct);
+    setIncorrectCount(details.length - correct);
+  };
+
+  const upsertAnswerDetail = (detail: GameAnswerDetail) => {
+    const nextDetails = [
+      ...answerDetailsRef.current.filter(item => item.wordId !== detail.wordId),
+      detail
+    ].sort((a, b) => a.questionIndex - b.questionIndex);
+    answerDetailsRef.current = nextDetails;
+    syncCounters(nextDetails);
+  };
+
+  const getFinalAnswerDetails = () => {
+    const detailByWordId = new Map<string, GameAnswerDetail>();
+    answerDetailsRef.current.forEach(detail => {
+      if (detail.wordId) detailByWordId.set(detail.wordId, detail);
+    });
+    return items.map((item, index) => detailByWordId.get(item.id) || buildAnswerDetail(item, index, '', [], false));
+  };
+
   useEffect(() => {
     // Reset game parameters on item/config change
     setCurrentIndex(0);
@@ -110,46 +154,35 @@ export default function QuizGame({
   };
 
   const handleSelectAnswer = (option: string) => {
-    if (isAnswered) return;
+    if (isAnswered || quizFinished) return;
     
     setSelectedAnswer(option);
     setIsAnswered(true);
 
     const isCorrect = option === correctAnswer;
-    answerDetailsRef.current = [
-      ...answerDetailsRef.current,
-      {
-        questionIndex: currentIndex,
-        wordId: currentItem.id,
-        word: currentItem.term,
-        questionText: config.questionType === 'meaning' ? currentItem.meaning : currentItem.term,
-        correctAnswer,
-        selectedAnswer: option,
-        userAnswer: option,
-        isCorrect,
-        options: options.slice(0, 6)
-      }
-    ];
+    upsertAnswerDetail(buildAnswerDetail(currentItem, currentIndex, option, options, true));
     if (isCorrect) {
-      setCorrectCount(prev => prev + 1);
       // Play a high pitched audio cue or speak the term
       if (isSoundOn) {
         playVocabAudio(currentItem);
       }
-    } else {
-      setIncorrectCount(prev => prev + 1);
     }
   };
 
   const handleNext = () => {
+    if (quizFinished) return;
     if (currentIndex < items.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
       // Completed last question
-      const total = items.length;
-      const finalScore = Math.round((correctCount / total) * 100);
-      onComplete(finalScore, correctCount, incorrectCount, {
-        answerDetails: answerDetailsRef.current
+      const finalDetails = getFinalAnswerDetails();
+      const finalCorrect = finalDetails.filter(detail => detail.isCorrect).length;
+      const finalIncorrect = finalDetails.length - finalCorrect;
+      const finalScore = Math.round((finalCorrect / finalDetails.length) * 100);
+      setCorrectCount(finalCorrect);
+      setIncorrectCount(finalIncorrect);
+      onComplete(finalScore, finalCorrect, finalIncorrect, {
+        answerDetails: finalDetails
       });
       setQuizFinished(true);
     }

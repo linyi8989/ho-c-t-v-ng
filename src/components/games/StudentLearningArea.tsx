@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
@@ -144,9 +144,12 @@ export default function StudentLearningArea({
   const [session, setSession] = useState<GameSession | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [gameResult, setGameResult] = useState<{ score: number; correct: number; incorrect: number } | null>(null);
+  const [gameRunId, setGameRunId] = useState(0);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardSessions, setLeaderboardSessions] = useState<GameSession[]>([]);
+  const sessionGenerationRef = useRef(0);
+  const completedSessionIdsRef = useRef<Set<string>>(new Set());
 
   // Load initial game if requested
   useEffect(() => {
@@ -176,12 +179,12 @@ export default function StudentLearningArea({
 
     const loadLeaderboard = async () => {
       try {
-        const res = await fetch('/api/public/results');
-        if (!res.ok) throw new Error('Public results API failed');
+        const res = await fetch('/api/public/leaderboard-results');
+        if (!res.ok) throw new Error('Public leaderboard API failed');
         const data = await res.json();
         if (isMounted) setLeaderboardSessions(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.warn('Public results API unreachable, falling back to direct Firestore query:', err);
+        console.warn('Public leaderboard API unreachable, falling back to direct Firestore query:', err);
         try {
           const { collection, getDocs } = await import('firebase/firestore');
           const { db } = await import('../../lib/firebase');
@@ -288,11 +291,17 @@ export default function StudentLearningArea({
   useEffect(() => {
     if (!selectedGame || !nameSubmitted || !studentName) return;
 
+    const controller = new AbortController();
+    const generation = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = generation;
+    completedSessionIdsRef.current.clear();
     setGameResult(null);
+    setSession(null);
 
     // Create a new session on the server
     fetch('/api/game-sessions', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -316,44 +325,20 @@ export default function StudentLearningArea({
       return res.json();
     })
     .then(data => {
-      setSession(data);
+      if (!controller.signal.aborted && generation === sessionGenerationRef.current) {
+        setSession(data);
+      }
     })
-    .catch(async (err) => {
-      console.warn("Backend starting game session failed, falling back to direct Firestore Client-side creation:", err);
-      try {
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { db } = await import('../../lib/firebase');
-        const sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-        const startedAt = new Date().toISOString();
-        const sessionData = {
-          id: sessionId,
-          assignmentId: assignmentId || null,
-          vocabSetId: vocabSet.id,
-          vocabSetTitle: vocabSet.title,
-          gameId: selectedGame.gameId,
-          gameName: selectedGame.title,
-          gameType: selectedGame.category,
-          studentName: studentName,
-          studentId: guestId,
-          guestId,
-          classId: assignmentClassId || vocabSet.classId || getLessonGradeClassId(vocabSet) || '',
-          className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel || '',
-          score: 0,
-          totalQuestions: 0,
-          correctAnswers: 0,
-          incorrectAnswers: 0,
-          startedAt,
-          createdAt: startedAt,
-          status: 'started'
-        };
-        await setDoc(doc(db, 'game_sessions', sessionId), sessionData);
-        setSession(sessionData);
-        console.log("Game session created directly in Firestore via Client SDK:", sessionId);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore game session creation failed:", firestoreErr);
+    .catch((err) => {
+      if (err?.name === 'AbortError') return;
+      console.warn("Backend starting game session failed; score persistence is disabled for this attempt:", err);
+      if (generation === sessionGenerationRef.current) {
+        setSession(null);
       }
     });
-  }, [selectedGame, nameSubmitted, studentName, guestId, vocabSet, assignmentId, assignmentClassId, assignmentClassName, token]);
+
+    return () => controller.abort();
+  }, [selectedGame, gameRunId, nameSubmitted, studentName, guestId, vocabSet, assignmentId, assignmentClassId, assignmentClassName, token]);
 
   const handleShuffle = () => {
     if (isRandomized) {
@@ -393,8 +378,12 @@ export default function StudentLearningArea({
     setGameResult({ score, correct, incorrect });
 
     if (!session) return;
+    if (completedSessionIdsRef.current.has(session.id)) return;
+    completedSessionIdsRef.current.add(session.id);
 
     const endedAt = new Date().toISOString();
+    const completedSessionId = session.id;
+    const completedGeneration = sessionGenerationRef.current;
     const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
     const durationMs = Math.max(0, new Date(endedAt).getTime() - startedAtMs);
     const totalQuestions = correct + incorrect;
@@ -449,7 +438,9 @@ export default function StudentLearningArea({
         durationMs,
         durationSeconds: Math.round(durationMs / 1000),
         accuracy,
-        answerDetails
+        answerDetails,
+        guestId,
+        sessionToken: session.sessionToken
       })
     })
     .then(res => {
@@ -457,34 +448,12 @@ export default function StudentLearningArea({
       return res.json();
     })
     .then(data => {
-      setSession(data);
-    })
-    .catch(async (err) => {
-      console.warn("Backend updating game session failed, falling back to direct Firestore Client-side update:", err);
-      try {
-        const { doc, updateDoc } = await import('firebase/firestore');
-        const { db } = await import('../../lib/firebase');
-        const sessionRef = doc(db, 'game_sessions', session.id);
-        const updatedData = {
-          score,
-          totalQuestions,
-          correctAnswers: correct,
-          incorrectAnswers: incorrect,
-          completedAt: completedSession.completedAt,
-          endedAt,
-          expiresAt: completedSession.expiresAt,
-          durationMs,
-          durationSeconds: Math.round(durationMs / 1000),
-          accuracy,
-          answerDetails,
-          status: 'completed'
-        };
-        await updateDoc(sessionRef, updatedData);
-        setSession({ ...session, ...updatedData });
-        console.log("Game session updated directly in Firestore via Client SDK:", session.id);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore game session update failed:", firestoreErr);
+      if (sessionGenerationRef.current === completedGeneration && data?.id === completedSessionId) {
+        setSession(data);
       }
+    })
+    .catch((err) => {
+      console.warn("Backend updating game session failed; direct Firestore update is disabled:", err);
     });
   };
 
@@ -492,6 +461,21 @@ export default function StudentLearningArea({
     if (!isMuted) {
       speakEnglish(term);
     }
+  };
+
+  const restartCurrentGame = () => {
+    completedSessionIdsRef.current.clear();
+    setGameResult(null);
+    setSession(null);
+    setGameRunId(prev => prev + 1);
+  };
+
+  const switchToGame = (game: GameConfig) => {
+    completedSessionIdsRef.current.clear();
+    setGameResult(null);
+    setSession(null);
+    setSelectedGame(game);
+    setGameRunId(prev => prev + 1);
   };
 
   const learningLeaderboard = useMemo<LeaderboardEntry[]>(() => {
@@ -522,6 +506,7 @@ export default function StudentLearningArea({
   // Render game in focus
   const renderActiveGame = () => {
     if (!selectedGame) return null;
+    const gameKey = `${selectedGame.gameId}-${gameRunId}`;
 
     const gameProps = {
       items: activeItems,
@@ -538,49 +523,50 @@ export default function StudentLearningArea({
     switch (selectedGame.componentName) {
       case 'FlashcardGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <FlashcardGame {...gameProps} />
           </React.Fragment>
         );
       case 'QuizGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <QuizGame {...gameProps} />
           </React.Fragment>
         );
       case 'FillBlankGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <FillBlankGame {...gameProps} />
           </React.Fragment>
         );
       case 'MatchingGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <MatchingGame {...gameProps} />
           </React.Fragment>
         );
       case 'MemoryGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <MemoryGame {...gameProps} />
           </React.Fragment>
         );
       case 'MillionaireGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <MillionaireGame {...gameProps} />
           </React.Fragment>
         );
       case 'SpeakingAIGame':
         return (
-          <React.Fragment key={selectedGame.gameId}>
+          <React.Fragment key={gameKey}>
             <SpeakingAIGame
               {...gameProps}
               studentId={guestId}
               studentName={studentName}
               vocabularySetId={vocabSet.id}
               gameSessionId={session?.id}
+              sessionToken={session?.sessionToken}
               authToken={token}
             />
           </React.Fragment>
@@ -765,7 +751,7 @@ export default function StudentLearningArea({
 
                     <div className="flex space-x-3">
                       <button
-                        onClick={() => setGameResult(null)}
+                        onClick={restartCurrentGame}
                         className="py-3 px-6 bg-white hover:bg-emerald-50 text-slate-950 border border-emerald-300 font-bold rounded-xl transition-all cursor-pointer text-sm"
                         id="retry-overlay-btn"
                       >
@@ -774,7 +760,7 @@ export default function StudentLearningArea({
                       <button
                         onClick={() => {
                           const nextGameIdx = (VISIBLE_GAMES_LIST.findIndex(g => g.gameId === selectedGame?.gameId) + 1) % VISIBLE_GAMES_LIST.length;
-                          setSelectedGame(VISIBLE_GAMES_LIST[nextGameIdx]);
+                          switchToGame(VISIBLE_GAMES_LIST[nextGameIdx]);
                         }}
                         className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white border border-blue-700 font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
                         id="next-game-overlay-btn"
@@ -929,7 +915,7 @@ export default function StudentLearningArea({
                             key={game.gameId}
                             onClick={() => {
                               if (nameSubmitted) {
-                                setSelectedGame(game);
+                                switchToGame(game);
                               } else {
                                 // Direct to focus name prompt
                                 const element = document.getElementById('student-name-input');

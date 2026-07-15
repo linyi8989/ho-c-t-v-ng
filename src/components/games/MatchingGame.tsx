@@ -47,12 +47,25 @@ export default function MatchingGame({
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [gameFinished, setGameFinished] = useState(false);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const failedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
+
+  const clearPendingTimers = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (failedClearTimerRef.current) {
+      clearTimeout(failedClearTimerRef.current);
+      failedClearTimerRef.current = null;
+    }
+  };
 
   // Initialize and shuffle cards
   const initGame = () => {
     if (!items || items.length === 0) return;
+    clearPendingTimers();
 
     // Standardize to at most 8 items to keep game screen playable and high-performing on mobile
     const gameItems = items.slice(0, 8);
@@ -89,22 +102,27 @@ export default function MatchingGame({
   useEffect(() => {
     initGame();
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      clearPendingTimers();
     };
   }, [items, config]);
 
   // Handle timer countdown
   useEffect(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     if (isPlaying && !gameFinished) {
       timerRef.current = setInterval(() => {
         setTimeElapsed(prev => prev + 1);
       }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
     }
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [isPlaying, gameFinished]);
 
@@ -144,13 +162,14 @@ export default function MatchingGame({
       setSelectedCard(card);
     } else {
       // Second card selection - verify pair
-      setAttempts(prev => prev + 1);
+      const attemptNumber = attempts + 1;
+      setAttempts(attemptNumber);
 
       const isPair = selectedCard.itemId === card.itemId && selectedCard.type !== card.type;
       answerDetailsRef.current = [
         ...answerDetailsRef.current,
         {
-          questionIndex: attempts,
+          questionIndex: attemptNumber - 1,
           wordId: selectedCard.itemId === card.itemId ? card.itemId : selectedCard.itemId,
           questionText: selectedCard.text,
           correctAnswer: isPair ? card.text : 'Cặp đúng tương ứng',
@@ -176,8 +195,12 @@ export default function MatchingGame({
         setSelectedCard(null);
 
         // Flash error then clear selection after short delay
-        setTimeout(() => {
+        if (failedClearTimerRef.current) {
+          clearTimeout(failedClearTimerRef.current);
+        }
+        failedClearTimerRef.current = setTimeout(() => {
           setFailedCardIds(new Set());
+          failedClearTimerRef.current = null;
         }, 800);
       }
     }

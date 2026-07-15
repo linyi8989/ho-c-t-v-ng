@@ -32,6 +32,8 @@ const collectionTableMap: Record<string, string> = {
   gamesessions: 'game_results',
   game_results: 'game_results',
   gameresults: 'game_results',
+  leaderboard_events: 'leaderboard_events',
+  leaderboardevents: 'leaderboard_events',
   pronunciation_attempts: 'game_results',
   pronunciationattempts: 'game_results',
   grammar_sets: 'grammar_sets',
@@ -88,7 +90,29 @@ function getDb() {
 function persistDb() {
   if (!sqliteDb || !sqliteDbPath || transactionDepth > 0) return;
   const exported = sqliteDb.export();
-  fs.writeFileSync(sqliteDbPath, Buffer.from(exported));
+  ensureParentDir(sqliteDbPath);
+  const tempPath = path.join(
+    path.dirname(sqliteDbPath),
+    `.tmp-${path.basename(sqliteDbPath)}-${process.pid}-${Date.now()}`
+  );
+
+  try {
+    const fd = fs.openSync(tempPath, 'w');
+    try {
+      fs.writeFileSync(fd, Buffer.from(exported));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempPath, sqliteDbPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    } catch {
+      // Keep the original persistence error.
+    }
+    throw err;
+  }
 }
 
 function run(sql: string, params: any[] = [], shouldPersist = true) {
@@ -392,6 +416,36 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'leaderboard_events') {
+    run(
+      `INSERT INTO leaderboard_events (id, source_type, source_id, student_key, class_id, vocab_set_id, score, completed_at, expires_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        source_type = excluded.source_type,
+        source_id = excluded.source_id,
+        student_key = excluded.student_key,
+        class_id = excluded.class_id,
+        vocab_set_id = excluded.vocab_set_id,
+        score = excluded.score,
+        completed_at = excluded.completed_at,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.sourceType || data.source_type || null,
+        data.sourceId || data.source_id || null,
+        data.studentKey || data.student_key || data.ownerKey || data.guestId || data.userId || null,
+        data.classId || data.class_id || null,
+        data.vocabSetId || data.vocab_set_id || data.grammarSetId || null,
+        Number(data.score || 0),
+        data.completedAt || data.endedAt || data.createdAt || createdAt,
+        data.expiresAt || data.expires_at || null,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (table === 'audit_logs') {
     run(
       `INSERT INTO audit_logs (id, user_id, action, timestamp, data_json)
@@ -550,6 +604,19 @@ function runSchemaMigration() {
       data_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS leaderboard_events (
+      id TEXT PRIMARY KEY,
+      source_type TEXT,
+      source_id TEXT,
+      student_key TEXT,
+      class_id TEXT,
+      vocab_set_id TEXT,
+      score INTEGER,
+      completed_at TEXT,
+      expires_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -626,6 +693,9 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE INDEX IF NOT EXISTS idx_leaderboard_events_completed_at ON leaderboard_events(completed_at);
+    CREATE INDEX IF NOT EXISTS idx_leaderboard_events_class_id ON leaderboard_events(class_id);
+    CREATE INDEX IF NOT EXISTS idx_leaderboard_events_student_key ON leaderboard_events(student_key);
     CREATE INDEX IF NOT EXISTS idx_grammar_sets_created_at ON grammar_sets(created_at);
     CREATE INDEX IF NOT EXISTS idx_grammar_attempts_created_at ON grammar_attempts(created_at);
   `);
@@ -972,6 +1042,7 @@ export async function getSQLiteDiagnostics() {
       assignments: await tableCount('assignments'),
       results: await tableCount('results'),
       game_results: await tableCount('game_results'),
+      leaderboard_events: await tableCount('leaderboard_events'),
       grammar_sets: await tableCount('grammar_sets'),
       grammar_attempts: await tableCount('grammar_attempts'),
     },

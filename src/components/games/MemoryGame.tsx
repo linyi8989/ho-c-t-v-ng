@@ -42,19 +42,39 @@ export default function MemoryGame({
   const [cards, setCards] = useState<MemoryCard[]>([]);
   const [flippedIndices, setFlippedIndices] = useState<number[]>([]);
   const [moves, setMoves] = useState(0);
+  const [failedAttempts, setFailedAttempts] = useState(0);
   const [matchesCount, setMatchesCount] = useState(0);
   const [gameFinished, setGameFinished] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flipBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failedAttemptsRef = useRef(0);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   // Determine active item count (usually 6 items = 12 cards for small screen, 8 items = 16 cards max)
   const activeItemsCount = Math.min(items.length, 6);
 
+  const clearPendingTimers = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (matchTimerRef.current) {
+      clearTimeout(matchTimerRef.current);
+      matchTimerRef.current = null;
+    }
+    if (flipBackTimerRef.current) {
+      clearTimeout(flipBackTimerRef.current);
+      flipBackTimerRef.current = null;
+    }
+  };
+
   const initGame = () => {
     if (!items || items.length === 0) return;
+    clearPendingTimers();
 
     // Pick subset of items
     const gameItems = items.slice(0, activeItemsCount);
@@ -83,6 +103,8 @@ export default function MemoryGame({
     setCards(combined);
     setFlippedIndices([]);
     setMoves(0);
+    setFailedAttempts(0);
+    failedAttemptsRef.current = 0;
     setMatchesCount(0);
     setGameFinished(false);
     setIsLocked(false);
@@ -94,21 +116,26 @@ export default function MemoryGame({
   useEffect(() => {
     initGame();
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      clearPendingTimers();
     };
   }, [items, config]);
 
   useEffect(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
     if (isPlaying && !gameFinished) {
       timerRef.current = setInterval(() => {
         setTimeElapsed(prev => prev + 1);
       }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
     }
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [isPlaying, gameFinished]);
 
@@ -132,17 +159,18 @@ export default function MemoryGame({
     setFlippedIndices(nextFlipped);
 
     if (nextFlipped.length === 2) {
-      setMoves(prev => prev + 1);
+      const moveNumber = moves + 1;
+      setMoves(moveNumber);
       setIsLocked(true);
 
-      const firstCard = cards[nextFlipped[0]];
-      const secondCard = cards[nextFlipped[1]];
+      const firstCard = nextCards[nextFlipped[0]];
+      const secondCard = nextCards[nextFlipped[1]];
 
       const isMatch = firstCard.itemId === secondCard.itemId && firstCard.type !== secondCard.type;
       answerDetailsRef.current = [
         ...answerDetailsRef.current,
         {
-          questionIndex: moves,
+          questionIndex: moveNumber - 1,
           wordId: firstCard.itemId === secondCard.itemId ? firstCard.itemId : firstCard.itemId,
           questionText: firstCard.text,
           correctAnswer: isMatch ? secondCard.text : 'Thẻ ghép đúng tương ứng',
@@ -155,15 +183,13 @@ export default function MemoryGame({
 
       if (isMatch) {
         // Matched! Keep them open
-        setTimeout(() => {
-          const matchedCards = cards.map((c, i) => {
+        matchTimerRef.current = setTimeout(() => {
+          setCards(prevCards => prevCards.map((c, i) => {
             if (i === nextFlipped[0] || i === nextFlipped[1]) {
               return { ...c, isMatched: true };
             }
             return c;
-          });
-          
-          setCards(matchedCards);
+          }));
           setFlippedIndices([]);
           setMatchesCount(prev => {
             const nextVal = prev + 1;
@@ -173,9 +199,9 @@ export default function MemoryGame({
               setIsPlaying(false);
               // Max score 100, reduce score as moves exceed perfect moves (activeItemsCount)
               const perfectMoves = activeItemsCount;
-              const excessMoves = Math.max(0, moves + 1 - perfectMoves);
+              const excessMoves = Math.max(0, moveNumber - perfectMoves);
               const score = Math.max(50, 100 - excessMoves * 4);
-              onComplete(score, activeItemsCount, moves + 1, {
+              onComplete(score, activeItemsCount, failedAttemptsRef.current, {
                 answerDetails: answerDetailsRef.current
               });
             }
@@ -184,15 +210,17 @@ export default function MemoryGame({
           setIsLocked(false);
         }, 600);
       } else {
+        const nextFailedAttempts = failedAttemptsRef.current + 1;
+        failedAttemptsRef.current = nextFailedAttempts;
+        setFailedAttempts(nextFailedAttempts);
         // Not a match, flip back
-        setTimeout(() => {
-          const resetCards = cards.map((c, i) => {
+        flipBackTimerRef.current = setTimeout(() => {
+          setCards(prevCards => prevCards.map((c, i) => {
             if (i === nextFlipped[0] || i === nextFlipped[1]) {
               return { ...c, isFlipped: false };
             }
             return c;
-          });
-          setCards(resetCards);
+          }));
           setFlippedIndices([]);
           setIsLocked(false);
         }, 1200);
@@ -224,6 +252,7 @@ export default function MemoryGame({
             <strong className="font-mono text-gray-700">{formatTime(timeElapsed)}</strong>
           </span>
           <span>Lượt đi: <strong className="text-indigo-600 text-base">{moves}</strong></span>
+          <span>Lỗi: <strong className="text-rose-600 text-base">{failedAttempts}</strong></span>
           <span>Đã ghép: <strong className="text-emerald-600 text-base">{matchesCount} / {activeItemsCount}</strong></span>
         </div>
 

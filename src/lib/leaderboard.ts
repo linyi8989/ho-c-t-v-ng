@@ -23,6 +23,7 @@ export interface LeaderboardEntry {
   improvementPoints: number;
   badges: string[];
   className?: string;
+  isNewcomer?: boolean;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -32,7 +33,12 @@ function normalizeStudentName(name: string) {
 }
 
 function getStudentIdentity(session: GameSession) {
-  return session.guestId || normalizeStudentName(session.studentName);
+  const source = session as any;
+  if (source.userId) return `user:${source.userId}`;
+  if (source.ownerKey) return source.ownerKey;
+  if (source.guestId) return `guest:${source.guestId}`;
+  if (source.studentId) return `student:${source.studentId}`;
+  return `name:${normalizeStudentName(session.studentName)}`;
 }
 
 function startOfDay(date: Date) {
@@ -208,7 +214,8 @@ export function buildLeaderboard(
     const previousBaseScore = previous
       ? previous.completedLessons * 50 + previous.averageAccuracy * 3 + previous.studyDays * 20
       : 0;
-    entry.improvementPoints = Math.max(0, Math.round(baseScore - previousBaseScore));
+    entry.isNewcomer = !previous;
+    entry.improvementPoints = previous ? Math.max(0, Math.round(baseScore - previousBaseScore)) : 0;
     entry.honorScore = Math.round(baseScore + entry.improvementPoints);
     entry.badges = assignBadges(entry);
     return entry;

@@ -8,6 +8,7 @@ import {
   User as FirebaseUser,
   RecaptchaVerifier,
   signInWithPhoneNumber,
+  signInWithCustomToken,
   ConfirmationResult,
   updateProfile,
   linkWithCredential,
@@ -20,6 +21,7 @@ interface UserProfile {
   name: string;
   email: string;
   phone?: string;
+  phoneVerified?: boolean;
   role: 'super_admin' | 'teacher' | 'student';
   status: 'active' | 'pending' | 'blocked' | 'deleted';
   createdAt: string;
@@ -32,6 +34,7 @@ interface AuthContextType {
   token: string | null;
   registerWithEmail: (email: string, pass: string, name: string, phone?: string, otpCode?: string) => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
+  loginWithPhonePassword: (phone: string, pass: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   sendPhoneOtp: (phone: string, containerId: string) => Promise<void>;
   verifyPhoneOtp: (otp: string) => Promise<void>;
@@ -59,6 +62,17 @@ function getDefaultRole(email: string): UserProfile['role'] {
   return "student";
 }
 
+function normalizePhoneForFirebase(value: string) {
+  const raw = value.trim();
+  if (!raw) return "";
+  let compact = raw.replace(/[^\d+]/g, "");
+  if (compact.startsWith("00")) compact = `+${compact.slice(2)}`;
+  if (compact.startsWith("+")) return compact;
+  if (compact.startsWith("0")) return `+84${compact.slice(1)}`;
+  if (compact.startsWith("84")) return `+${compact}`;
+  return `+84${compact}`;
+}
+
 function createDefaultProfile(firebaseUserInstance: FirebaseUser, phone?: string): UserProfile {
   const email = firebaseUserInstance.email || "";
 
@@ -67,6 +81,7 @@ function createDefaultProfile(firebaseUserInstance: FirebaseUser, phone?: string
     name: firebaseUserInstance.displayName || email.split("@")[0] || "Hoc sinh moi",
     email,
     phone,
+    phoneVerified: Boolean(phone),
     role: getDefaultRole(email),
     status: "active",
     createdAt: new Date().toISOString()
@@ -82,63 +97,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const syncProfileFromStores = async (
     firebaseUserInstance: FirebaseUser,
-    idToken: string,
-    fallbackProfile: UserProfile
-  ) => {
-    let profile: UserProfile | null = null;
+    idToken: string
+  ): Promise<UserProfile> => {
+    const res = await withTimeout(
+      fetch('/api/me', {
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      }),
+      "Timed out while loading user profile from backend."
+    );
 
-    try {
-      const { doc, getDoc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-      const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-      const docSnap = await withTimeout(
-        getDoc(userDocRef),
-        "Timed out while loading user profile from Firestore."
-      );
-
-      if (docSnap.exists()) {
-        profile = docSnap.data() as UserProfile;
-        console.log("Profile fetched successfully via direct Client-Side Firestore SDK.");
-      }
-    } catch (clientErr) {
-      console.warn("Could not fetch profile via Client-Side SDK directly:", clientErr);
+    if (!res.ok) {
+      throw new Error(`Backend profile verification failed with HTTP ${res.status}.`);
     }
 
-    try {
-      const res = await withTimeout(
-        fetch('/api/me', {
-          headers: {
-            'Authorization': `Bearer ${idToken}`
-          }
-        }),
-        "Timed out while loading user profile from backend."
-      );
-
-      if (res.ok) {
-        profile = await res.json();
-        console.log("Profile verified and fetched via Backend API /api/me.");
-      }
-    } catch (apiErr) {
-      console.warn("Backend API /api/me unreachable or failed:", apiErr);
-    }
-
-    if (profile) {
-      setUser(profile);
-      return;
-    }
-
-    try {
-      const { doc, setDoc } = await import('firebase/firestore');
-      const { db } = await import('../lib/firebase');
-      const userDocRef = doc(db, 'users', firebaseUserInstance.uid);
-      await withTimeout(
-        setDoc(userDocRef, fallbackProfile),
-        "Timed out while creating user profile in Firestore."
-      );
-      console.log("Initialized default profile document directly in Firestore.");
-    } catch (createErr) {
-      console.warn("Could not create profile document. Keeping Firebase-authenticated local profile.", createErr);
-    }
+    const profile = await res.json();
+    console.log("Profile verified and fetched via Backend API /api/me.");
+    return profile;
   };
 
   const fetchProfile = async (
@@ -151,15 +127,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       firebaseUserInstance.getIdToken(forceRefreshToken),
       "Timed out while getting Firebase ID token."
     );
-    const fallbackProfile = createDefaultProfile(firebaseUserInstance, phone);
-
     setToken(idToken);
-    setUser(fallbackProfile);
-    const syncPromise = syncProfileFromStores(firebaseUserInstance, idToken, fallbackProfile);
+    const syncPromise = syncProfileFromStores(firebaseUserInstance, idToken);
     if (waitForProfileSync) {
-      await syncPromise;
+      setUser(await syncPromise);
     } else {
-      void syncPromise;
+      void syncPromise.then(setUser).catch((err) => {
+        console.error("Backend profile verification failed:", err);
+        setUser(null);
+      });
     }
   };
 
@@ -221,50 +197,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         credential.user.getIdToken(),
         "Timed out while getting Firebase ID token."
       );
-      const clientProfile: UserProfile = {
-        ...createDefaultProfile(credential.user, phone),
-        name,
-        email,
-        phone: phone || undefined
-      };
-
       setToken(idToken);
-      setUser(clientProfile);
       setFirebaseUser(credential.user);
 
-      try {
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
-        const userDocRef = doc(db, 'users', credential.user.uid);
-        await withTimeout(
-          setDoc(userDocRef, clientProfile),
-          "Timed out while saving registration profile to Firestore."
-        );
-        console.log("Registration profile saved directly to Firestore via Client SDK.");
-      } catch (clientCreateErr) {
-        console.warn("Direct Firestore write failed during registration, keeping local profile.", clientCreateErr);
+      const res = await withTimeout(
+        fetch('/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ name, phone })
+        }),
+        "Timed out while notifying backend registration endpoint."
+      );
+
+      if (!res.ok) {
+        throw new Error(`Backend /api/register failed with HTTP ${res.status}.`);
       }
 
-      try {
-        const res = await withTimeout(
-          fetch('/api/register', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`
-            },
-            body: JSON.stringify({ name, phone })
-          }),
-          "Timed out while notifying backend registration endpoint."
-        );
-
-        if (res.ok) {
-          const profile = await res.json();
-          setUser(profile);
-        }
-      } catch (err) {
-        console.warn("Backend /api/register notification failed, using client profile.", err);
-      }
+      const profile = await res.json();
+      setUser(profile);
     } catch (err) {
       console.error(err);
       throw err;
@@ -277,6 +230,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const credential = await signInWithEmailAndPassword(auth, email, pass);
+      setFirebaseUser(credential.user);
+      await fetchProfile(credential.user, undefined, true, true);
+    } catch (err) {
+      console.error(err);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginWithPhonePassword = async (phone: string, pass: string) => {
+    setLoading(true);
+    try {
+      const res = await withTimeout(
+        fetch('/api/auth/login-by-phone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, password: pass })
+        }),
+        "Timed out while verifying phone login."
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.customToken) {
+        throw new Error(data.error || 'So dien thoai hoac mat khau khong chinh xac.');
+      }
+
+      const credential = await signInWithCustomToken(auth, data.customToken);
       setFirebaseUser(credential.user);
       await fetchProfile(credential.user, undefined, true, true);
     } catch (err) {
@@ -303,11 +283,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const sendPhoneOtp = async (phone: string, containerId: string) => {
     try {
+      const normalizedPhone = normalizePhoneForFirebase(phone);
+      if (!normalizedPhone) throw new Error("Invalid phone number.");
       const verifier = new RecaptchaVerifier(auth, containerId, {
         size: 'invisible',
       });
 
-      const confirmation = await signInWithPhoneNumber(auth, phone, verifier);
+      const confirmation = await signInWithPhoneNumber(auth, normalizedPhone, verifier);
       setPhoneConfirmation(confirmation);
     } catch (err) {
       console.error("Error sending OTP:", err);
@@ -355,6 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       registerWithEmail,
       loginWithEmail,
+      loginWithPhonePassword,
       loginWithGoogle,
       sendPhoneOtp,
       verifyPhoneOtp,

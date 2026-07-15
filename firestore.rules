@@ -1,56 +1,71 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if user is authenticated
+
     function isAuth() {
       return request.auth != null;
     }
-    
-    // Helper function to check if the user is accessing their own data
+
     function isOwner(userId) {
       return isAuth() && request.auth.uid == userId;
     }
 
-    // Users Profiles
+    // User profiles are created and updated by the backend Admin SDK.
+    // Clients may read only their own profile and cannot write role/status.
     match /users/{userId} {
-      allow read: if isAuth();
-      allow write: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow write: if false;
     }
 
-    // Vocabulary Sets
+    // Runtime/admin-managed collections must be written through backend APIs.
+    // Backend Firebase Admin bypasses these rules.
     match /vocab_sets/{setId} {
       allow read: if isAuth();
-      allow write: if isAuth();
+      allow write: if false;
     }
 
-    // Classes
     match /classes/{classId} {
-      allow read: if isAuth();
-      allow write: if isAuth();
+      allow read: if false;
+      allow write: if false;
     }
 
-    // Class Members
     match /class_members/{memberId} {
-      allow read: if isAuth();
-      allow write: if isAuth();
+      allow read: if false;
+      allow write: if false;
     }
 
-    // Assignments
     match /assignments/{assignmentId} {
-      allow read: if isAuth();
-      allow write: if isAuth();
+      allow read: if false;
+      allow write: if false;
     }
 
-    // Game Sessions
     match /game_sessions/{sessionId} {
-      allow read: if isAuth();
-      allow write: if isAuth();
+      allow read: if false;
+      allow write: if false;
     }
 
-    // Audit Logs (Typically written server-side via Firebase Admin, which bypasses rules)
+    match /grammar_sets/{setId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    match /grammar_attempts/{attemptId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    match /pronunciation_attempts/{attemptId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
     match /audit_logs/{logId} {
-      allow read, write: if isAuth();
+      allow read: if false;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

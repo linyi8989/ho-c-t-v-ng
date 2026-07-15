@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'teacher' | 'student';
+export type Role = 'super_admin' | 'teacher' | 'student';
 
 export interface User {
   id: string;
@@ -143,10 +143,10 @@ export interface GrammarAttemptQuestion {
   displayPosition: number;
   optionOrder: string[];
   questionSnapshot: string;
-  explanationSnapshot: string;
+  explanationSnapshot?: string;
   scoreSnapshot: number;
   optionsSnapshot: GrammarOption[];
-  correctOptionId: string;
+  correctOptionId?: string;
 }
 
 export interface GrammarAttemptAnswer {
@@ -154,9 +154,9 @@ export interface GrammarAttemptAnswer {
   attemptQuestionId: string;
   questionId: string;
   selectedOptionId: string;
-  correctOptionId: string;
-  isCorrect: boolean;
-  scoreAwarded: number;
+  correctOptionId?: string;
+  isCorrect?: boolean;
+  scoreAwarded?: number;
   answeredAt: string;
 }
 
@@ -180,6 +180,7 @@ export interface GrammarAttempt {
   completedAt?: string;
   durationSeconds?: number;
   createdAt: string;
+  attemptToken?: string;
   questions: GrammarAttemptQuestion[];
   answers: GrammarAttemptAnswer[];
 }
@@ -214,6 +215,7 @@ export interface GameSession {
   correctAnswers: number;
   incorrectAnswers: number;
   answerDetails?: GameAnswerDetail[];
+  sessionToken?: string;
 }
 
 export interface GameAnswerDetail {

@@ -11,6 +11,7 @@ interface GrammarLearningAreaProps {
 
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
+const GRAMMAR_ATTEMPT_TOKEN_STORAGE_KEY = 'msdieu_grammar_attempt_tokens';
 
 function createGuestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -41,6 +42,31 @@ function getStoredStudentName() {
     return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
   } catch {
     return '';
+  }
+}
+
+function getStoredAttemptTokens(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(GRAMMAR_ATTEMPT_TOKEN_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getStoredAttemptToken(attemptId: string) {
+  return getStoredAttemptTokens()[attemptId] || '';
+}
+
+function storeAttemptToken(attemptId: string, attemptToken?: string) {
+  if (!attemptId || !attemptToken || typeof window === 'undefined') return;
+  try {
+    const tokens = getStoredAttemptTokens();
+    tokens[attemptId] = attemptToken;
+    window.localStorage.setItem(GRAMMAR_ATTEMPT_TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+  } catch {
+    // If localStorage is unavailable, the token still exists in React state for the current session.
   }
 }
 
@@ -94,11 +120,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     });
   };
 
-  const grammarUrlWithGuestQuery = (url: string) => {
+  const grammarUrlWithGuestQuery = (url: string, attemptToken = '') => {
     const params = new URLSearchParams();
     params.set('guestId', guestId);
     params.set('studentName', studentName.trim());
     if (accessToken) params.set('shareToken', accessToken);
+    if (attemptToken) params.set('attemptToken', attemptToken);
     return `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
   };
 
@@ -170,6 +197,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không bắt đầu được bài luyện.');
+      storeAttemptToken(data.id, data.attemptToken);
       setAttempt(data);
       setCurrentIndex(0);
       setSelectedOptions({});
@@ -186,7 +214,14 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     try {
       const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
         method: 'POST',
-        body: JSON.stringify({ attemptQuestionId, selectedOptionId, guestId, studentName: studentName.trim(), shareToken: accessToken })
+        body: JSON.stringify({
+          attemptQuestionId,
+          selectedOptionId,
+          guestId,
+          studentName: studentName.trim(),
+          shareToken: accessToken,
+          attemptToken: attempt.attemptToken || getStoredAttemptToken(attempt.id)
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không lưu được đáp án.');
@@ -206,7 +241,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     try {
       const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/submit`, {
         method: 'POST',
-        body: JSON.stringify({ guestId, studentName: studentName.trim(), shareToken: accessToken })
+        body: JSON.stringify({
+          guestId,
+          studentName: studentName.trim(),
+          shareToken: accessToken,
+          attemptToken: attempt.attemptToken || getStoredAttemptToken(attempt.id)
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không nộp được bài.');
@@ -224,7 +264,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setLoading(true);
     setError('');
     try {
-      const res = await grammarFetch(grammarUrlWithGuestQuery(`/api/grammar-attempts/${attemptId}/review`));
+      const res = await grammarFetch(grammarUrlWithGuestQuery(`/api/grammar-attempts/${attemptId}/review`, getStoredAttemptToken(attemptId)));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không mở được bài làm.');
       setReview(data);
@@ -394,6 +434,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
             <div className="space-y-4">
               {review.questions.map((question, index) => {
                 const answer = review.answers.find(item => item.attemptQuestionId === question.id);
+                const canShowCorrectAnswers = Boolean(question.correctOptionId);
                 return (
                   <div key={question.id} className="rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="bg-gray-50 p-4 border-b border-gray-200">
@@ -402,24 +443,28 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                     <div className="p-4 space-y-2">
                       {question.optionsSnapshot.map(option => {
                         const isSelected = answer?.selectedOptionId === option.id;
-                        const isCorrect = question.correctOptionId === option.id;
+                        const isCorrect = canShowCorrectAnswers && question.correctOptionId === option.id;
                         return (
                           <div key={option.id} className={`rounded-xl border px-3 py-2 text-sm font-bold flex items-center justify-between ${
                             isCorrect
                               ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                               : isSelected
-                                ? 'bg-rose-50 border-rose-300 text-rose-900'
+                                ? canShowCorrectAnswers
+                                  ? 'bg-rose-50 border-rose-300 text-rose-900'
+                                  : 'bg-blue-50 border-blue-300 text-blue-900'
                                 : 'bg-white border-gray-200 text-gray-700'
                           }`}>
                             <span>{option.text}</span>
                             {isCorrect && <CheckCircle2 size={16} />}
-                            {isSelected && !isCorrect && <XCircle size={16} />}
+                            {isSelected && !isCorrect && canShowCorrectAnswers && <XCircle size={16} />}
                           </div>
                         );
                       })}
+                      {question.explanationSnapshot && (
                       <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-sm text-blue-900">
                         <strong>Giải Thích:</strong> {question.explanationSnapshot}
                       </div>
+                      )}
                     </div>
                   </div>
                 );

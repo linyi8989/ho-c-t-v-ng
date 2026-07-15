@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-10
+Last updated: 2026-07-14
 
 ## 1. Project Overview
 
@@ -134,20 +134,28 @@ Supported auth flows:
 - Email/password login via Firebase Auth.
 - Google popup login via Firebase Auth.
 - Phone + password login implemented as:
-  - `Login.tsx` calls `/api/auth/email-by-phone`.
-  - Backend finds user profile by phone.
-  - Client logs in with returned email and password.
-- Phone OTP helper methods exist in `AuthContext`, but current `Register.tsx` uses email registration with optional phone, not full OTP registration UI.
+  - `Login.tsx` calls `AuthContext.loginWithPhonePassword`.
+  - Backend endpoint `/api/auth/login-by-phone` normalizes the phone number, rate-limits attempts, resolves the account server-side, verifies the password through Firebase Auth REST, then returns a Firebase custom token.
+  - The old `/api/auth/email-by-phone` endpoint is deprecated and intentionally does not return account email.
+- Phone numbers are normalized toward E.164-style format (`0...` -> `+84...`) and user profiles can carry `phoneVerified`.
+- Phone OTP helper methods exist in `AuthContext`; `sendPhoneOtp` normalizes the phone number before calling Firebase.
 
 Profile sync behavior:
 
 1. On auth state change, Firebase ID token is fetched.
-2. A fallback profile is created locally.
-3. Client attempts direct Firestore read from `users/{uid}`.
-4. Client attempts backend `/api/me`.
-5. If no profile exists, client attempts direct Firestore profile creation.
+2. Client verifies the profile through backend `/api/me`.
+3. Protected UI uses the backend-verified profile only.
+4. Registration calls backend `/api/register` and requires that backend profile sync succeeds.
 
-Important: frontend intentionally has direct Firestore fallback paths when backend API is unavailable.
+Important: direct client Firestore profile write fallback was removed in the Phase 1 security hardening pass. Backend Admin SDK is the profile write path.
+
+Phase 2 authorization hardening:
+
+- `/api/results` is role-scoped: super admin can view all completed activity, teachers only view activity tied to vocab/grammar/classes/assignments they manage, and students only view their own authenticated activity.
+- Teacher write actions now go through ownership helpers for vocab sets, classes, class members, assignments, grammar sets, and TTS actions.
+- Assignment private links must use random `shareToken`/`assignmentSlug`; the server no longer treats a predictable assignment id as a valid share token.
+- Legacy assignments missing share tokens are backfilled with random tokens when assignment lists/share links are read.
+- Starting a vocabulary game rejects draft or unavailable vocab sets unless a valid assignment context makes the lesson eligible.
 
 ### Backend Auth
 
@@ -159,7 +167,8 @@ Important: frontend intentionally has direct Firestore fallback paths when backe
 - Assigns `super_admin` role automatically for:
   - `linyi8901@gmail.com`
   - `admin@vocabulary.edu.vn`
-- Blocks API access if user status is `blocked`.
+- Accepts `super_admin` only from a Firebase custom claim or the bootstrap admin email list.
+- Blocks API access unless user status is `active`.
 - Adds `req.user`.
 
 `requireRole([...])` restricts teacher/super_admin/admin-only endpoints.
@@ -172,7 +181,7 @@ Current active roles in backend and auth context:
 - `teacher`
 - `super_admin`
 
-Note: `src/types.ts` still declares `Role = 'admin' | 'teacher' | 'student'`, which is stale/inconsistent with current app code that uses `super_admin`.
+Note: `src/types.ts` now uses `Role = 'super_admin' | 'teacher' | 'student'`.
 
 ### Statuses
 
@@ -452,6 +461,7 @@ Key state groups:
 API wrapper:
 
 - `authFetch(url, options)` injects `Authorization: Bearer ${token}` and JSON content type.
+- `authFetchJson<T>(url, options)` wraps `authFetch`, parses JSON, and throws on non-2xx responses so admin handlers do not silently ignore backend errors.
 
 When extending admin features, consider extracting smaller modules before large changes:
 
@@ -473,6 +483,7 @@ Grammar module notes:
 - Correct answers are stored and checked by stable option IDs, not by A/B/C/D labels after shuffle.
 - Student attempts persist question order and option order snapshots, so reload/review does not reshuffle completed work.
 - Server APIs grade answers and reject updates after submit; students may only review their own attempts.
+- Answer-save responses do not expose `correctOptionId` unless `showExplanationImmediately` is enabled. Submit/review responses only expose correct answers and explanations to students/guests when `showReviewAfterSubmit` is enabled; staff with manage permission can review full details.
 - Before deploying storage/schema changes to production SQLite, backup `/home/qzmivzbj/app-data/vhomework/app.sqlite`. The grammar migration must remain additive/idempotent and must not delete or rewrite existing vocabulary/game/user tables.
 
 Recent activity behavior:
@@ -532,7 +543,13 @@ Responsibilities:
 - Manages selected game, active item order, shuffle, fullscreen, mute, current session, result overlay.
 - Starts a game session when selected game and student name are ready.
 - Completes session when game calls `onComplete`.
-- Uses backend `/api/game-sessions`; falls back to direct Firestore write/update if backend fails.
+- Uses backend `/api/game-sessions`.
+- Direct Firestore write/update fallback was removed. If backend session persistence fails, the game can continue but that attempt is not written through a client-side bypass.
+- Backend session creation uses server-generated IDs, owner metadata, and a guest session token for completion.
+- Session creation is guarded by an AbortController plus a generation token. Stale create-session responses must not overwrite the current selected game/session.
+- Replay and switching games increment `gameRunId`, remount the child game, clear the result overlay, and create a fresh `/api/game-sessions` attempt.
+- Completion is de-duplicated per session id before sending `/api/game-sessions/:id`.
+- `SpeakingAIGame` receives the current session token and passes it to `/api/pronunciation-attempts`.
 
 ### Game Components
 
@@ -554,7 +571,7 @@ Shared props pattern:
 - Can mark known/unknown.
 - Auto-pronounces word on change when sound is on.
 - Auto-next mode flips then advances every 4 seconds.
-- Score: known count / total; if no known marks, assumes all correct.
+- Score: known count / total. Unmarked cards are treated as unknown; there is no all-correct fallback.
 
 `QuizGame.tsx`:
 
@@ -562,6 +579,8 @@ Shared props pattern:
 - Generates up to 3 distractors from other items.
 - Supports term, meaning, and sound question modes.
 - Score: correct / total.
+- Answer details are replaced by `wordId`; returning to a previous question cannot duplicate score rows.
+- Final result builds one row per item so unanswered questions are counted as incorrect.
 
 `FillBlankGame.tsx`:
 
@@ -569,6 +588,8 @@ Shared props pattern:
 - Modes: full word or missing letters.
 - Case-insensitive exact match.
 - Score: correct / total.
+- Answer details are replaced by `wordId`; returning to a previous question cannot duplicate score rows.
+- Final result builds one row per item so unanswered questions are counted as incorrect.
 
 `MatchingGame.tsx`:
 
@@ -576,12 +597,20 @@ Shared props pattern:
 - Cards are term/meaning pairs.
 - Timer counts elapsed seconds.
 - Score: `max(50, 100 - mistakes * 5)`.
+- Interval and short-lived failed-card timeout are stored in refs and cleared on restart/unmount.
 
 `MemoryGame.tsx`:
 
 - Board game with max 6 vocab items.
 - Cards are term/meaning pairs.
 - Score: `max(50, 100 - excessMoves * 4)`.
+- `incorrect` sent to `onComplete` is failed match attempts, not total moves.
+- Match/flip-back timeouts and elapsed-time interval are stored in refs and cleared on restart/unmount.
+
+`MillionaireGame.tsx`:
+
+- Answer resolution and next-step timeouts are stored in refs and cleared on restart/unmount.
+- Elapsed-time interval is cleared before a new interval starts.
 
 `GameControlPanel.tsx`:
 
@@ -649,16 +678,17 @@ Known frontend design risk:
 
 ## 13. Firestore Rules
 
-`firestore.rules` currently allows broad authenticated access:
+`firestore.rules` was tightened during the Phase 1 security hardening pass:
 
-- `users/{userId}`: any auth user can read all users, only owner can write own user doc.
-- `vocab_sets`, `classes`, `class_members`, `assignments`, `game_sessions`: any auth user can read/write.
-- `audit_logs`: any auth user can read/write.
+- `users/{userId}`: client can read only its own profile; client writes are denied.
+- `vocab_sets`: authenticated client reads are still allowed for legacy fallback/read-only use; client writes are denied.
+- `classes`, `class_members`, `assignments`, `game_sessions`, `grammar_sets`, `grammar_attempts`, `pronunciation_attempts`, and `audit_logs`: client read/write is denied.
+- Backend Firebase Admin SDK remains the write path and bypasses Firestore client rules.
 
-Important security concern:
+Remaining security concern:
 
-- Backend enforces role restrictions, but frontend direct Firestore fallback and rules allow authenticated users to write many collections.
-- If the hosted app is public, tighten Firestore rules before adding sensitive admin features.
+- Some frontend read fallbacks still exist and may fail under tightened rules when backend is unavailable. This is intentional for P0; remove or replace these read fallbacks in a later cleanup pass.
+- Full anti-cheat still requires server-side answer validation/scoring in a later phase.
 
 ## 14. Seed Data
 
@@ -685,15 +715,14 @@ Seed IDs are static except newly created app data uses timestamp-based IDs.
 
 ## 15. Known Inconsistencies And Risks
 
-- `src/types.ts` role union is stale: includes `admin`, not `super_admin`.
 - `firebase-blueprint.json` is partly stale compared with actual runtime schema. For example it uses fields like `topic`, `creatorId`, `gameType`, `studentId`, while runtime uses `subject`, `createdBy`, `gameId`, and name-based sessions.
-- Firestore rules are much more permissive than backend roles.
-- Client has direct Firestore fallback writes for profile and game sessions; this bypasses backend audit/role logic.
-- `/api/game-sessions` is protected by `authenticateUser`, but `StudentLearningArea` fetch does not send Authorization header. In normal logged-in app this route likely fails and then direct Firestore fallback creates sessions.
+- Firestore client writes are now much stricter than the old backend role model; backend APIs should remain the only write path for managed data.
+- Client direct Firestore write fallbacks for profile and game sessions were removed.
+- `/api/game-sessions` accepts authenticated users or guest identity, creates a server-random session ID, stores owner metadata, and requires owner/session token to complete. Client-submitted score is still trusted until the later server-side scoring phase.
 - `App.tsx` imports unused icons/states such as `classes`, `homeSearch`, etc. Some UI/filter state appears incomplete.
 - `AdminDashboard.tsx` is large and hard to maintain; high risk for merge conflicts and accidental UI regressions.
 - ID generation uses `Date.now()` plus random suffix in some places, not a central ID helper.
-- Game scoring in `QuizGame` and `FillBlankGame` may compute final score from state values before the latest async state update if completion happens immediately after answering. Review before building advanced analytics.
+- `QuizGame` and `FillBlankGame` now compute final score from normalized answer-detail rows instead of async counter state; each question contributes one row.
 - `src/index.css` broad overrides can cause unexpected design changes.
 - Production deploy copies `db.json`; if local fallback is active on host, server writes to the deployed JSON file. Persistence depends on host filesystem behavior.
 - Terminal output shows mojibake for Vietnamese strings; verify encoding/rendering before text changes.
@@ -805,9 +834,10 @@ This section records important changes made after the original 2026-07-02 codema
 
 The backend now supports multiple storage modes:
 
-- `firebase-first`: use Firebase/Firestore when diagnostics pass, with local resilience.
-- local JSON fallback through the compatibility layer in `src/lib/firebaseAdmin.ts`.
+- `firebase`: use Firebase/Firestore. This is the default when `STORAGE_MODE` is omitted.
+- `local-json`: use local JSON storage only when explicitly configured. It is not an automatic fallback.
 - SQLite mode through `src/lib/sqliteStorage.ts` when `STORAGE_MODE=sqlite`.
+- Legacy `firebase-first` is normalized to `firebase`; Firestore read/write failure returns a storage-unavailable API error instead of switching to local data.
 
 SQLite notes:
 
@@ -815,6 +845,8 @@ SQLite notes:
 - `vocab_items.audio_url` already exists and maps from `audioUrl`.
 - `vocab_sets` are saved with nested `items`, and items are also upserted into `vocab_items`.
 - `game_sessions` include `guestId` through JSON/data fields and are used for leaderboard identity.
+- `leaderboard_events` stores compact completed-attempt summaries for longer-lived leaderboard calculations.
+- sql.js persistence writes to a temporary DB file, fsyncs it, then renames it over the active SQLite file. This reduces corruption risk from interrupted writes but does not make sql.js a multi-worker database.
 
 ### Data Loss Incident Note - 2026-07-08
 
@@ -836,6 +868,7 @@ Fixes applied:
 - Removed automatic physical cleanup calls from server startup and results endpoints. Recent activity now filters old records for display instead of deleting database rows automatically.
 - Moved local JSON fallback to a persistent path: `LOCAL_DB_PATH` or `/home/qzmivzbj/app-data/vhomework/db.json`.
 - Fixed SQLite migration order so legacy databases add `expires_at` before creating indexes that reference it.
+- Phase 4 storage hardening removed automatic fallback from Firestore mode. If Firestore is configured and unavailable, backend APIs return 503 instead of writing to local JSON.
 - Production should use these environment variables when SQLite is the data source:
   - `STORAGE_MODE=sqlite`
   - `SQLITE_DB_PATH=/home/qzmivzbj/app-data/vhomework/app.sqlite`
@@ -847,6 +880,7 @@ Mandatory rules to prevent repeat incidents:
 - Never add automatic physical deletes on production data during app startup, login, page load, or read endpoints.
 - "Recent" UI requirements must be implemented with query/filter limits first. Physical cleanup must be a separate, explicit maintenance task with backup and confirmation.
 - Never point production fallback storage at the deploy directory. Runtime data must live under a persistent data directory such as `/home/qzmivzbj/app-data/vhomework`.
+- Do not depend on implicit local JSON. If local JSON is intentionally used for development or emergency recovery, set `STORAGE_MODE=local-json` and `LOCAL_DB_PATH` explicitly.
 - Before changing storage schema, test migrations against an existing production-shaped database, not only a new empty database.
 - When adding a SQLite column used by indexes or inserts, migration order must be: create base tables, `ALTER TABLE` old tables if missing columns, then create indexes, then write new data.
 - Before deploys that touch storage, auth, migration, cleanup, or result/session persistence, take a backup of the active DB file.
@@ -863,6 +897,8 @@ Mandatory rules to prevent repeat incidents:
 - `GameSession` has optional `guestId`.
 - Grammar learning uses the same guest keys. New grammar students enter a name in `GrammarLearningArea`; students who already entered a vocabulary name can start grammar immediately.
 - Guest grammar attempts store `userId/studentId` as the guest id plus `guestId`, `studentName`, and best-available `classId/className`.
+- New guest grammar attempts also receive a server-issued `attemptToken`; the server stores only `attemptTokenHash`. Guest answer/submit/review requests for new attempts must send the matching token, which the frontend stores in localStorage by attempt id.
+- For legacy grammar attempts created before attempt tokens existed, the server keeps guest-id compatibility so old completed work remains reviewable.
 - Do not send `studentName` in HTTP headers. Browser `fetch` rejects Unicode header values, so grammar GET requests pass guest identity through encoded query params and POST requests pass it through JSON body.
 - This prevents leaderboard grouping by `studentName` alone.
 - Registration is intended for teachers/admins at `/reg`, not required for students to learn.
@@ -927,6 +963,7 @@ New or changed game files:
   - currently hidden in `GAMES_LIST`
   - Web Speech recognition for pronunciation practice
   - uses item audio if available, otherwise `speakEnglish`
+  - saves pronunciation attempts through backend only; guest attempts require the active game session token and server timestamps are used.
 
 Registry:
 
@@ -936,12 +973,18 @@ Registry:
 ### Leaderboard / Bảng Vàng
 
 - `src/lib/leaderboard.ts` computes honor score from completed game sessions.
+- Leaderboard source is now separated from recent activity:
+  - `/api/results` and `/api/public/results` remain the 7-day recent activity feed.
+  - `/api/leaderboard-results` and `/api/public/leaderboard-results` return compact `leaderboard_events` plus legacy sessions/attempts still inside the leaderboard retention window.
+  - New completed vocabulary sessions and grammar attempts write a compact `leaderboard_events` row; this does not include `answerDetails` or heavy media data.
 - Current concept:
   - best result per student/vocab set/game mode
   - completed lessons
   - average accuracy
   - study days
   - improvement bonus
+- Improvement bonus is only awarded when a previous-period baseline exists; newcomers do not get improvement points from a zero baseline.
+- Leaderboard identity prefers `userId`, then server `ownerKey`, then `guestId`, then `studentId`, then normalized name. Class snapshot remains part of the student leaderboard key.
 - Student home, Admin dashboard inline expansion, and Admin results tab all use leaderboard-derived rows.
 - Admin dashboard "Xem bảng vàng" expands `dashboard-leaderboard-expanded` inline under the overview cards instead of navigating away from Tổng quan.
 - Dashboard leaderboard expansion reuses the same period/category/class/set filters as the full results tab.
@@ -949,7 +992,8 @@ Registry:
 - The in-game leaderboard supports a class filter beside the week/month filter.
 - Student names in the in-game leaderboard and admin leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
 - `/api/public/results` and `/api/results` return `classId`/`className`; old sessions are backfilled at read time from `assignmentId` or lesson `gradeLevel`, and new sessions store class metadata when created.
-- Assignment links must use assignment-level tokens (`assignments.shareToken` / `assignmentSlug` / id), not only vocab-set share links. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
+- Assignment links must use assignment-level random tokens (`assignments.shareToken` / `assignmentSlug`), not vocab-set-only links and not predictable assignment ids. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
+- Legacy assignments missing a token are assigned a new random token when assignment/share routes read them; clients should not construct `/assignment/<assignmentId>` links.
 - `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; when no assignment class exists, it falls back to the vocab set `gradeLevel` as a grade-level class bucket. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
 - Legacy sessions without `assignmentId` and without `classId`/`className` cannot be reliably class-filtered. Do not infer class only from `studentName`, because names can duplicate and students can move classes.
 - `/api/public/results` enriches class data safely for old sessions: direct session class first, then assignment class, then unique assignment class by vocab set, then lesson `gradeLevel`, then unique class member by normalized student name. Ambiguous matches stay blank. The client Firestore fallback mirrors this rule where local data is available.
@@ -983,10 +1027,13 @@ Current UI constraints:
 
 ### Current Implementation
 
-The default pronunciation path is browser Web Speech API:
+The default pronunciation path is managed cached audio first, browser Web Speech fallback:
 
 - `src/lib/game-engine/speech.ts`
   - exports `speakEnglish(text: string)`
+  - exports `playAudioUrl(audioUrl, fallbackText?)`
+  - exports `playVocabAudio(item, fallbackText?)`
+  - keeps one managed `HTMLAudioElement` and stops previous audio/speech before starting a new pronunciation
   - uses `window.speechSynthesis`
   - chooses a US English browser voice if available
   - rate is `0.9`
@@ -999,18 +1046,18 @@ Current callers:
 - `MatchingGame.tsx`
 - `MemoryGame.tsx`
 - `StudentLearningArea.tsx`
-- `AdminDashboard.tsx` example audio preview
+- `AdminDashboard.tsx` TTS row preview/playback
 - `SpeakingAIGame.tsx` fallback
 
 Current direct audio URL support:
 
 - `VocabItem.audioUrl?: string`
-- `MillionaireGame.tsx` can play `item.audioUrl` or alternate fields:
+- `MillionaireGame.tsx` can play `item.audioUrl` or alternate fields through the shared player:
   - `audio`
   - `sound`
   - `pronunciationAudio`
-- `SpeakingAIGame.tsx` can play `audioUrl` when target text is the term.
-- AI vocab detail routes currently return `audioUrl: ""`; no server-side audio generation exists yet.
+- `SpeakingAIGame.tsx` can play `audioUrl` when target text is the term through the shared player.
+- AI vocab detail routes still return `audioUrl: ""`; real pronunciation audio is generated through the TTS endpoints in section 21.
 
 ### Problem With Current Web Speech Path
 
@@ -1049,10 +1096,12 @@ provider + lang + voice + speed + normalizedText
 - `normalizedText` preserves case and is produced from sanitized TTS text, not raw row text.
 - TTS input cleanup uses the first non-empty line, removes trailing notes/IPA, removes text after a separator like `word - meaning`, collapses whitespace, and caps text at 120 chars. The returned metadata includes `ttsText` plus `audioWarnings` so teachers can see what was actually sent to TTS.
 - Cached audio is reused when the hash/file already exists. A forced regenerate bypasses the existing cache file and returns a cache-busted `/audio/{hash}.mp3?v=...` URL.
+- Backend TTS calls use an abort timeout (`TTS_FETCH_TIMEOUT_MS`), downloaded audio is capped (`TTS_MAX_AUDIO_BYTES`), and cache writes use a temp file followed by atomic rename.
+- In-flight generation is deduped by `audioHash` so concurrent requests for the same text/voice/speed do not create duplicate provider jobs in the same server process.
+- `normalizeTtsSettings` currently restricts provider to `ai33`. Add a real adapter before accepting another provider value.
 - Changing the English term in the editor clears stale audio metadata for that row so old files are not reused for new text.
-- Vocab item metadata stores only lightweight references:
+- Vocab item metadata stores only lightweight public references:
   - `audioUrl`
-  - `audioPath`
   - `audioHash`
   - `audioStatus`
   - `audioError`
@@ -1064,6 +1113,7 @@ provider + lang + voice + speed + normalizedText
   - `ttsSpeed`
   - `audioGeneratedAt`
 - Audio binary/base64 must never be stored in Firestore/SQLite JSON.
+- Absolute local `audioPath` is private server state and must not be stored in vocab items or returned to the client.
 - Teachers can generate TTS audio before saving a vocab set. The editor stores returned `audioUrl`/`audioHash` metadata on each row, then saves that metadata with the vocab set.
 - Optional post-save generation still exists for missing audio when `ttsSettings.autoGenerate` is enabled, but the preferred workflow is generate/check audio first, then save the set.
 - TTS failure marks the item as `audioStatus: "failed"` and preserves the vocab set.
@@ -1083,6 +1133,8 @@ AI33_API_KEY=<host-only key>
 TTS_AUDIO_DIR=/home/qzmivzbj/app-data/vhomework/audio
 AI33_TASK_STATUS_URL_TEMPLATE=https://api.ai33.pro/v1/task/{taskId}
 TTS_CONCURRENCY=5
+TTS_FETCH_TIMEOUT_MS=30000
+TTS_MAX_AUDIO_BYTES=3145728
 ```
 
 Keep Web Speech as the final fallback only when cached audio is missing or browser playback fails.

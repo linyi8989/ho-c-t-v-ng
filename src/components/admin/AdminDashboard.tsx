@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 
@@ -33,7 +33,7 @@ const getAssignmentLink = (set: VocabSet) => {
 };
 
 const getAssignmentRecordLink = (assignment: Assignment) => {
-  const token = assignment.shareToken || assignment.assignmentSlug || assignment.id;
+  const token = assignment.shareToken || assignment.assignmentSlug;
   return token ? `${window.location.origin}/assignment/${token}` : '';
 };
 
@@ -163,10 +163,25 @@ type ParsedBulkVocabularyRow = Pick<VocabItem, 'term' | 'meaning' | 'ipa' | 'pos
 function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow[]; errors: string[] } {
   const rows: ParsedBulkVocabularyRow[] = [];
   const errors: string[] = [];
+  const lines = input.split(/\r?\n/);
 
-  input.split(/\r?\n/).forEach((rawLine, index) => {
+  if (lines.length > 500) {
+    errors.push('Chi co the nhap toi da 500 dong moi lan.');
+  }
+
+  lines.slice(0, 500).forEach((rawLine, index) => {
     const line = rawLine.trim();
     if (!line) return;
+
+    const separatorCount = (line.match(/\|/g) || []).length;
+    if (separatorCount < 1) {
+      errors.push(`Dong ${index + 1}: thieu dau | giua tu tieng Anh va nghia tieng Viet.`);
+      return;
+    }
+    if (separatorCount > 3) {
+      errors.push(`Dong ${index + 1}: qua nhieu cot. Hay dung word | meaning | ipa | partOfSpeech.`);
+      return;
+    }
 
     const parts = line.split('|').map(part => part.trim());
     if (parts.length < 2 || parts.length > 4) {
@@ -181,10 +196,10 @@ function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow
     }
 
     rows.push({
-      term,
-      meaning,
-      ipa,
-      pos,
+      term: term.slice(0, 160),
+      meaning: meaning.slice(0, 500),
+      ipa: ipa.slice(0, 120),
+      pos: pos.slice(0, 120),
       example: '',
       exampleMeaning: ''
     });
@@ -281,6 +296,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [results, setResults] = useState<GameSession[]>([]);
+  const [leaderboardResults, setLeaderboardResults] = useState<GameSession[]>([]);
 
   // Super Admin States
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -396,55 +412,67 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     });
   };
 
+  const authFetchJson = async <T,>(url: string, options: any = {}): Promise<T> => {
+    const res = await authFetch(url, options);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || `Request failed with HTTP ${res.status}.`);
+    }
+    return data as T;
+  };
+
   // Load all initial data from our Express backend
   const refreshData = () => {
     if (!token) return;
 
     // Vocab Sets
-    authFetch('/api/vocab-sets')
-      .then(res => res.json())
+    authFetchJson<VocabSet[]>('/api/vocab-sets')
       .then(data => setVocabSets(data))
       .catch(err => console.error("Error loading vocab sets:", err));
 
     // Grammar Sets
-    authFetch('/api/grammar-sets')
-      .then(res => res.json())
+    authFetchJson<GrammarSet[]>('/api/grammar-sets')
       .then(data => setGrammarSets(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading grammar sets:", err));
 
     // Classes
-    authFetch('/api/classes')
-      .then(res => res.json())
+    authFetchJson<Class[]>('/api/classes')
       .then(data => setClasses(data))
       .catch(err => console.error("Error loading classes:", err));
 
     // Class Members
-    authFetch('/api/class-members')
-      .then(res => res.json())
+    authFetchJson<ClassMember[]>('/api/class-members')
       .then(data => setClassMembers(data))
       .catch(err => console.error("Error loading class members:", err));
 
     // Assignments
-    authFetch('/api/assignments')
-      .then(res => res.json())
+    authFetchJson<Assignment[]>('/api/assignments')
       .then(data => setAssignments(data))
       .catch(err => console.error("Error loading assignments:", err));
 
     // Game Results (Completed sessions)
-    authFetch('/api/results')
-      .then(res => res.json())
-      .then(data => setResults(data))
+    authFetchJson<GameSession[]>('/api/results')
+      .then(data => {
+        const recentResults = Array.isArray(data) ? data : [];
+        setResults(recentResults);
+        setLeaderboardResults(prev => prev.length ? prev : recentResults);
+      })
       .catch(err => console.error("Error loading results:", err));
+
+    // Longer-lived leaderboard summary. Falls back to recent results if unavailable.
+    authFetchJson<GameSession[]>('/api/leaderboard-results')
+      .then(data => {
+        if (Array.isArray(data)) setLeaderboardResults(data);
+      })
+      .catch(err => console.error("Error loading leaderboard results:", err));
 
     // Load users & audit logs if user is super_admin
     if (user?.role === 'super_admin') {
-      authFetch('/api/admin/users')
-        .then(res => res.json())
+      authFetchJson<any[]>('/api/admin/users')
         .then(data => setUsersList(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error loading admin users:", err));
 
-      authFetch('/api/admin/audit-logs')
-        .then(res => res.json())
+      authFetchJson<any[]>('/api/admin/audit-logs')
         .then(data => setAuditLogs(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error loading admin logs:", err));
     }
@@ -714,7 +742,6 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             ...item,
             [field]: value,
             audioUrl: '',
-            audioPath: '',
             audioHash: '',
             audioStatus: 'missing',
             audioError: '',
@@ -736,9 +763,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const refreshEditorAudioStatus = async (setId: string) => {
     try {
-      const res = await authFetch(`/api/vocab-sets/${setId}/audio/status`);
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data.items)) return;
+      const data = await authFetchJson<{ items: VocabItem[] }>(`/api/vocab-sets/${setId}/audio/status`);
+      if (!Array.isArray(data.items)) return;
       const byId = new Map<string, Partial<VocabItem>>(data.items.map((item: VocabItem) => [item.id, item]));
       setEditorItems(prev => prev.map(item => ({ ...item, ...(byId.get(item.id) ?? {}) })));
     } catch (err) {
@@ -749,19 +775,18 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const handlePreviewTtsVoice = async () => {
     setIsPreviewingTts(true);
     try {
-      const res = await authFetch('/api/tts/preview', {
+      const data = await authFetchJson<{ audioUrl?: string }>('/api/tts/preview', {
         method: 'POST',
         body: JSON.stringify({
           text: 'apple',
           settings: ttsSettings
         })
       });
-      const data = await res.json();
-      if (!res.ok || !data.audioUrl) {
-        showNotification(data.error || 'Khong the tao audio nghe thu.', 'error');
+      if (!data.audioUrl) {
+        showNotification('Khong the tao audio nghe thu.', 'error');
         return;
       }
-      new Audio(data.audioUrl).play().catch(() => showNotification('Trinh duyet chan phat audio nghe thu.', 'error'));
+      playAudioUrl(data.audioUrl, 'apple');
     } catch (err: any) {
       showNotification(err.message || 'Khong the nghe thu voice id.', 'error');
     } finally {
@@ -771,7 +796,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const handlePlayItemAudio = (item: VocabItem) => {
     if (item.audioUrl) {
-      new Audio(item.audioUrl).play().catch(() => speakEnglish(item.term));
+      playAudioUrl(item.audioUrl, item.term);
       return;
     }
     if (item.term.trim()) speakEnglish(item.term);
@@ -784,7 +809,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     }
     setEditorItems(prev => prev.map(item => item.id === itemId ? { ...item, audioStatus: 'queued', audioError: '' } : item));
     try {
-      const res = await authFetch(`/api/vocab-sets/${editingSetId}/audio/generate-missing`, {
+      const data = await authFetchJson<any>(`/api/vocab-sets/${editingSetId}/audio/generate-missing`, {
         method: 'POST',
         body: JSON.stringify({
           settings: ttsSettings,
@@ -792,8 +817,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           force
         })
       });
-      const data = await res.json();
-      if (!res.ok) {
+      void data;
+      if (data?.never) {
         showNotification(data.error || 'KhÃ´ng thá»ƒ xáº¿p hÃ ng táº¡o audio.', 'error');
         return;
       }
@@ -818,15 +843,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setIsBatchGeneratingAudio(true);
     setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '' } : item));
     try {
-      const res = await authFetch(`/api/vocab-sets/${editingSetId}/audio/generate-missing`, {
+      const data = await authFetchJson<any>(`/api/vocab-sets/${editingSetId}/audio/generate-missing`, {
         method: 'POST',
         body: JSON.stringify({
           settings: ttsSettings,
           force: false
         })
       });
-      const data = await res.json();
-      if (!res.ok) {
+      void data;
+      if (data?.never) {
         showNotification(data.error || 'Không thể xếp hàng tạo audio hàng loạt.', 'error');
         return;
       }
@@ -860,7 +885,6 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setEditorItems(prev => prev.map(item => item.id === itemId ? {
       ...item,
       audioUrl: force ? '' : item.audioUrl,
-      audioPath: force ? '' : item.audioPath,
       audioHash: force ? '' : item.audioHash,
       audioStatus: 'generating',
       audioError: '',
@@ -868,7 +892,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       audioUpdatedAt: new Date().toISOString()
     } : item));
     try {
-      const res = await authFetch('/api/tts/preview', {
+      const data = await authFetchJson<any>('/api/tts/preview', {
         method: 'POST',
         body: JSON.stringify({
           text: targetItem.term,
@@ -876,14 +900,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           force
         })
       });
-      const data = await res.json();
-      if (!res.ok || !data.audioUrl) {
+      if (!data.audioUrl) {
         setEditorItems(prev => prev.map(item => item.id === itemId ? {
           ...item,
           audioStatus: 'failed',
-          audioError: data.error || 'Khong the tao audio.'
+          audioError: 'Khong the tao audio.'
         } : item));
-        showNotification(data.error || 'Khong the tao audio.', 'error');
+        showNotification('Khong the tao audio.', 'error');
         return;
       }
 
@@ -926,7 +949,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setIsBatchGeneratingAudio(true);
     setEditorItems(prev => prev.map(item => item.term.trim() ? { ...item, audioStatus: 'queued', audioError: '', audioWarnings: [] } : item));
     try {
-      const res = await authFetch('/api/tts/batch-preview', {
+      const data = await authFetchJson<any>('/api/tts/batch-preview', {
         method: 'POST',
         body: JSON.stringify({
           items: targetItems.map(item => ({ id: item.id, text: item.term })),
@@ -934,13 +957,12 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           force: false
         })
       });
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data.items)) {
-        showNotification(data.error || 'Khong the tao audio hang loat.', 'error');
+      if (!Array.isArray(data.items)) {
+        showNotification('Khong the tao audio hang loat.', 'error');
         setEditorItems(prev => prev.map(item => item.term.trim() ? {
           ...item,
           audioStatus: 'failed',
-          audioError: data.error || 'Khong the tao audio hang loat.'
+          audioError: 'Khong the tao audio hang loat.'
         } : item));
         return;
       }
@@ -956,7 +978,6 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           return {
             ...item,
             audioUrl: result.audioUrl,
-            audioPath: result.audioPath || item.audioPath,
             audioHash: result.audioHash,
             audioStatus: 'ready',
             audioError: '',
@@ -1429,7 +1450,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const leaderboardRows = React.useMemo(() => {
     return getLeaderboardByCategory(
-      results,
+      leaderboardResults,
       assignments,
       {
         period: leaderboardPeriod,
@@ -1438,7 +1459,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       },
       leaderboardCategory
     );
-  }, [results, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
+  }, [leaderboardResults, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
 
   const completedActivityResults = React.useMemo(() => {
     return [...results]
@@ -1464,11 +1485,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     classes.forEach(cls => {
       if (cls.id && cls.name) byId.set(cls.id, cls.name);
     });
-    results.forEach(res => {
+    leaderboardResults.forEach(res => {
       if (res.classId && res.className) byId.set(res.classId, formatGradeLabel(res.className));
     });
     return Array.from(byId.entries()).map(([id, name]) => ({ id, name }));
-  }, [classes, results]);
+  }, [classes, leaderboardResults]);
 
   const leaderboardSetOptions = React.useMemo(() => {
     return [
@@ -1483,8 +1504,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   }, [selectedActivity]);
 
   const dashboardGoldRows = React.useMemo(() => {
-    return getLeaderboardByCategory(results, assignments, { period: 'week' }, 'gold').slice(0, 5);
-  }, [results, assignments]);
+    return getLeaderboardByCategory(leaderboardResults, assignments, { period: 'week' }, 'gold').slice(0, 5);
+  }, [leaderboardResults, assignments]);
 
   const leaderboardTitleMap: Record<LeaderboardCategory, string> = {
     gold: 'Bảng vàng tuần này',

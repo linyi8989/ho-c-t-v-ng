@@ -46,6 +46,7 @@ export default function FillBlankGame({
   const [incorrectCount, setIncorrectCount] = useState(0);
   const [isCorrect, setIsCorrect] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +62,7 @@ export default function FillBlankGame({
     setUserInput('');
     setIsSubmitted(false);
     setShowHint(false);
+    setIsFinished(false);
     answerDetailsRef.current = [];
   }, [items, config]);
 
@@ -84,6 +86,42 @@ export default function FillBlankGame({
 
   // Get the target word for evaluation
   const targetWord = currentItem.term.trim();
+
+  const buildAnswerDetail = (item: VocabItem, index: number, answer: string, answered: boolean): GameAnswerDetail => {
+    const expectedAnswer = item.term.trim();
+    return {
+      questionIndex: index,
+      wordId: item.id,
+      word: item.term,
+      questionText: item.meaning,
+      correctAnswer: expectedAnswer,
+      userAnswer: answer,
+      isCorrect: answered && normalizeAnswerText(answer) === normalizeAnswerText(expectedAnswer)
+    };
+  };
+
+  const syncCounters = (details: GameAnswerDetail[]) => {
+    const correct = details.filter(detail => detail.isCorrect).length;
+    setCorrectCount(correct);
+    setIncorrectCount(details.length - correct);
+  };
+
+  const upsertAnswerDetail = (detail: GameAnswerDetail) => {
+    const nextDetails = [
+      ...answerDetailsRef.current.filter(item => item.wordId !== detail.wordId),
+      detail
+    ].sort((a, b) => a.questionIndex - b.questionIndex);
+    answerDetailsRef.current = nextDetails;
+    syncCounters(nextDetails);
+  };
+
+  const getFinalAnswerDetails = () => {
+    const detailByWordId = new Map<string, GameAnswerDetail>();
+    answerDetailsRef.current.forEach(detail => {
+      if (detail.wordId) detailByWordId.set(detail.wordId, detail);
+    });
+    return items.map((item, index) => detailByWordId.get(item.id) || buildAnswerDetail(item, index, '', false));
+  };
 
   // Generate missing letters display for 'missing_letters' mode
   const getMissingLettersHint = () => {
@@ -120,7 +158,7 @@ export default function FillBlankGame({
 
   const handleCheckAnswer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitted || !userInput.trim()) return;
+    if (isSubmitted || isFinished || !userInput.trim()) return;
 
     const cleanInput = normalizeAnswerText(userInput);
     const cleanTarget = normalizeAnswerText(targetWord);
@@ -128,37 +166,29 @@ export default function FillBlankGame({
     const matched = cleanInput === cleanTarget;
     setIsCorrect(matched);
     setIsSubmitted(true);
-    answerDetailsRef.current = [
-      ...answerDetailsRef.current,
-      {
-        questionIndex: currentIndex,
-        wordId: currentItem.id,
-        word: currentItem.term,
-        questionText: currentItem.meaning,
-        correctAnswer: targetWord,
-        userAnswer: userInput.trim(),
-        isCorrect: matched
-      }
-    ];
+    upsertAnswerDetail(buildAnswerDetail(currentItem, currentIndex, userInput.trim(), true));
 
     if (matched) {
-      setCorrectCount(prev => prev + 1);
       if (isSoundOn) {
         playVocabAudio(currentItem, targetWord);
       }
-    } else {
-      setIncorrectCount(prev => prev + 1);
     }
   };
 
   const handleNext = () => {
+    if (isFinished) return;
     if (currentIndex < items.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
-      const total = items.length;
-      const score = Math.round((correctCount / total) * 100);
-      onComplete(score, correctCount, incorrectCount, {
-        answerDetails: answerDetailsRef.current
+      const finalDetails = getFinalAnswerDetails();
+      const finalCorrect = finalDetails.filter(detail => detail.isCorrect).length;
+      const finalIncorrect = finalDetails.length - finalCorrect;
+      const score = Math.round((finalCorrect / finalDetails.length) * 100);
+      setCorrectCount(finalCorrect);
+      setIncorrectCount(finalIncorrect);
+      setIsFinished(true);
+      onComplete(score, finalCorrect, finalIncorrect, {
+        answerDetails: finalDetails
       });
     }
   };
