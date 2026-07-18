@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-14
+Last updated: 2026-07-18
 
 ## 1. Project Overview
 
@@ -452,7 +452,7 @@ Teacher/super admin:
 Key state groups:
 
 - Data lists: `vocabSets`, per-set `vocabResults`, `classes`, `classMembers`, `assignments`, `results`, `usersList`, `auditLogs`.
-- Filters: vocab search/grade/status; user search/role/status; recent activity student-name search; leaderboard period/category/class/vocab-set filters.
+- Filters: vocab search/grade/status; grammar search/grade/status; user search/role/status; recent activity student-name search; leaderboard period/category/class/vocab-set filters.
 - Editor state: title, description, subject, grade, status, tags, items.
 - Batch import: terms, meanings, IPAs.
 - AI generation: topic, grade, count, loading.
@@ -490,11 +490,20 @@ Grammar module notes:
 
 Vocabulary result history:
 
-- Each vocabulary card uses the same five-action layout as grammar: `Play`, `Sửa`, `Sao chép`, `Kết quả`, `Xóa`.
-- `Kết quả` calls `GET /api/admin/vocab-sets/:id/results` and expands `vocab-results-panel` below the vocabulary grid.
+- The vocabulary and grammar directories use compact, sortable-by-created-date-first link lists instead of large card grids. The title is a link-like Play control, while each row still exposes `Play`, `Sửa`, `Sao chép`, `Kết quả`, and `Xóa`.
+- Rows show class/grade, subject/topic, item or question count, visibility, creation time, and a compact private-link copy control. Full URLs are no longer rendered as large card blocks.
+- Both directories paginate on the client with a default of 10 rows per page and options for 20 or 50. The pagination displays numbered pages with ellipses, previous/next controls, and resets to page 1 when search/filter/page-size changes.
+- `Kết quả` calls `GET /api/admin/vocab-sets/:id/results` and expands `vocab-results-panel` below the vocabulary list.
 - The result table shows student, game, score, correct/wrong/unanswered counts, duration, completion time, and a `Xem` action.
 - `Xem` reuses the existing `selectedActivity` detail modal and the compact `answerDetails` already stored in `game_sessions`; legacy rows without answer details remain visible as summaries.
 - This history is read-only. It must not delete, rewrite, or expire `game_sessions`; the 7-day filter remains specific to Recent Activity APIs/UI.
+
+Grammar directory behavior:
+
+- `grammar-sets` uses the same compact list pattern and action set as vocabulary, with grammar-specific question count and topic metadata.
+- Grammar search, grade, and visibility filters are client-side and use the same 10/20/50 pagination component.
+- `Kết quả` calls `GET /api/admin/grammar-sets/:id/results` and expands `grammar-results-panel` below the grammar list. Existing result-detail behavior remains unchanged.
+- Missing legacy `createdAt` values display as `--` and sort after dated records; no backfill or database write is performed by the directory UI.
 
 Recent activity behavior:
 

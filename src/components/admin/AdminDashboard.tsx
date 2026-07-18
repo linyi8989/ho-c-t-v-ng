@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
-  Shield, FileText, Lock, Unlock, Star, X
+  Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
@@ -41,6 +41,18 @@ const getGrammarPrivateLink = (set: GrammarSet) => {
   const token = (set.shareToken || set.assignmentSlug || '').replace(/^grammar-/, '');
   return token ? `${window.location.origin}/grammar/private/${token}` : '';
 };
+
+function formatVisibilityLabel(value: string) {
+  if (value === 'public') return 'Công khai';
+  if (value === 'draft') return 'Bản nháp';
+  return 'Link riêng';
+}
+
+function getCreatedAtTimestamp(value?: string) {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
 
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
   autoGenerate: false,
@@ -84,6 +96,91 @@ function formatDuration(totalSeconds?: number) {
   const mins = Math.floor(secs / 60);
   const remainingSecs = secs % 60;
   return `${mins.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+}
+
+const LIBRARY_PAGE_SIZE_OPTIONS = [10, 20, 50];
+
+function getPageItems(currentPage: number, totalPages: number): Array<number | 'ellipsis'> {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 4) return [1, 2, 3, 4, 5, 'ellipsis', totalPages];
+  if (currentPage >= totalPages - 3) {
+    return [1, 'ellipsis', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', totalPages];
+}
+
+function LibraryPagination({
+  currentPage,
+  totalPages,
+  pageSize,
+  totalItems,
+  onPageChange,
+  onPageSizeChange
+}: {
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
+  totalItems: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}) {
+  if (totalItems === 0) return null;
+
+  const pageItems = getPageItems(currentPage, totalPages);
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 bg-white border border-gray-100 rounded-2xl shadow-sm">
+      <p className="text-xs font-semibold text-gray-500">
+        Hiển thị {Math.min((currentPage - 1) * pageSize + 1, totalItems)} - {Math.min(currentPage * pageSize, totalItems)} trên {totalItems}
+      </p>
+      <div className="flex items-center justify-between sm:justify-end gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Trang trước"
+          >
+            <ChevronLeft size={15} />
+          </button>
+          {pageItems.map((item, index) => item === 'ellipsis' ? (
+            <span key={`ellipsis-${index}`} className="h-8 w-8 inline-flex items-center justify-center text-gray-400" aria-hidden="true">
+              <MoreHorizontal size={15} />
+            </span>
+          ) : (
+            <button
+              type="button"
+              key={item}
+              onClick={() => onPageChange(item)}
+              className={`h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-lg text-xs font-bold transition-colors ${
+                item === currentPage ? 'border border-blue-500 text-blue-700 bg-blue-50' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+              aria-current={item === currentPage ? 'page' : undefined}
+            >
+              {item}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Trang sau"
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+        <select
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          className="h-8 rounded-lg border border-blue-300 bg-white px-2 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
+          aria-label="Số dòng mỗi trang"
+        >
+          {LIBRARY_PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / trang</option>)}
+        </select>
+      </div>
+    </div>
+  );
 }
 
 function grammarAttemptToActivity(attempt: any, set?: GrammarSet | null): GameSession {
@@ -321,6 +418,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [searchQuery, setSearchQuery] = useState('');
   const [filterGrade, setFilterGrade] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [vocabPage, setVocabPage] = useState(1);
+  const [vocabPageSize, setVocabPageSize] = useState(10);
+  const [grammarSearchQuery, setGrammarSearchQuery] = useState('');
+  const [grammarFilterGrade, setGrammarFilterGrade] = useState('');
+  const [grammarFilterStatus, setGrammarFilterStatus] = useState('');
+  const [grammarPage, setGrammarPage] = useState(1);
+  const [grammarPageSize, setGrammarPageSize] = useState(10);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
   const [leaderboardCategory, setLeaderboardCategory] = useState<LeaderboardCategory>('gold');
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
@@ -407,6 +511,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       editorGrade
     ]));
   }, [classes, vocabSets, editorGrade]);
+
+  const grammarGradeOptions = React.useMemo(() => {
+    return Array.from(new Set([
+      ...DEFAULT_GRADE_OPTIONS,
+      ...classes.map(cls => cls.name).filter(Boolean),
+      ...grammarSets.map(set => set.gradeLevel).filter(Boolean),
+      grammarGrade
+    ]));
+  }, [classes, grammarSets, grammarGrade]);
 
   const teacherDisplayName = React.useMemo(() => {
     const rawName = (user?.name || '').trim();
@@ -1477,6 +1590,53 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     return matchesSearch && matchesGrade && matchesStatus;
   });
 
+  const sortedFilteredSets = [...filteredSets].sort((a, b) =>
+    getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt)
+  );
+  const vocabTotalPages = Math.max(1, Math.ceil(sortedFilteredSets.length / vocabPageSize));
+  const vocabCurrentPage = Math.min(vocabPage, vocabTotalPages);
+  const paginatedVocabSets = sortedFilteredSets.slice(
+    (vocabCurrentPage - 1) * vocabPageSize,
+    vocabCurrentPage * vocabPageSize
+  );
+
+  const filteredGrammarSets = grammarSets.filter(set => {
+    const keyword = grammarSearchQuery.trim().toLowerCase();
+    const searchableText = [set.title, set.description, set.subject, set.topic, ...(set.tags || [])]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const matchesSearch = !keyword || searchableText.includes(keyword);
+    const matchesGrade = grammarFilterGrade ? set.gradeLevel === grammarFilterGrade : true;
+    const matchesStatus = grammarFilterStatus ? set.visibility === grammarFilterStatus : true;
+    return matchesSearch && matchesGrade && matchesStatus;
+  });
+  const sortedGrammarSets = [...filteredGrammarSets].sort((a, b) =>
+    getCreatedAtTimestamp(b.createdAt) - getCreatedAtTimestamp(a.createdAt)
+  );
+  const grammarTotalPages = Math.max(1, Math.ceil(sortedGrammarSets.length / grammarPageSize));
+  const grammarCurrentPage = Math.min(grammarPage, grammarTotalPages);
+  const paginatedGrammarSets = sortedGrammarSets.slice(
+    (grammarCurrentPage - 1) * grammarPageSize,
+    grammarCurrentPage * grammarPageSize
+  );
+
+  React.useEffect(() => {
+    setVocabPage(1);
+  }, [searchQuery, filterGrade, filterStatus, vocabPageSize]);
+
+  React.useEffect(() => {
+    if (vocabPage > vocabTotalPages) setVocabPage(vocabTotalPages);
+  }, [vocabPage, vocabTotalPages]);
+
+  React.useEffect(() => {
+    setGrammarPage(1);
+  }, [grammarSearchQuery, grammarFilterGrade, grammarFilterStatus, grammarPageSize]);
+
+  React.useEffect(() => {
+    if (grammarPage > grammarTotalPages) setGrammarPage(grammarTotalPages);
+  }, [grammarPage, grammarTotalPages]);
+
   const leaderboardRows = React.useMemo(() => {
     return getLeaderboardByCategory(
       leaderboardResults,
@@ -2284,104 +2444,106 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               </div>
             </div>
 
-            {/* Grid list of sets */}
-            {filteredSets.length === 0 ? (
+            {/* Compact link list of sets */}
+            {sortedFilteredSets.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 font-medium">
                 Không tìm thấy bộ từ vựng nào khớp với điều kiện tìm kiếm.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="sets-grid">
-                {filteredSets.map((set) => {
-                  const visibility = getSetVisibility(set);
-                  const assignmentLink = getAssignmentLink(set);
-                  return (
-                  <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 hover:shadow-md transition-all flex flex-col justify-between" id={`set-card-${set.id}`}>
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-start">
-                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                          {set.gradeLevel}
-                        </span>
-                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          visibility === 'public' ? 'bg-emerald-50 text-emerald-600' :
-                          visibility === 'draft' ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
-                        }`}>
-                          {visibility === 'public' ? 'CÔNG KHAI' : visibility === 'draft' ? 'BẢN NHÁP' : 'LINK RIÊNG'}
-                        </span>
-                      </div>
-
-                      <div className="space-y-1">
-                        <h3 className="font-extrabold text-gray-800 text-lg leading-tight truncate-2-lines">{set.title}</h3>
-                        <p className="text-xs text-gray-400 font-medium">Chủ đề: {set.subject}</p>
-                        <p className="text-sm text-gray-500 line-clamp-3 leading-relaxed mt-1">{set.description}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {set.tags.map((t, idx) => (
-                          <span key={idx} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-2 py-0.5 rounded">#{t}</span>
-                        ))}
-                      </div>
-                      {visibility === 'assignment' && assignmentLink && (
-                        <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
-                          <p className="text-[10px] font-black uppercase text-indigo-500">Link giao bài</p>
-                          <div className="flex gap-2">
-                            <input
-                              value={assignmentLink}
-                              readOnly
-                              className="min-w-0 flex-1 bg-white border border-indigo-100 rounded-xl px-3 py-2 text-[11px] font-semibold text-gray-600"
-                            />
-                            <button
-                              onClick={() => {
-                                navigator.clipboard?.writeText(assignmentLink);
-                                showNotification("Đã copy link giao bài.");
-                              }}
-                              className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all cursor-pointer"
-                              title="Copy link giao bài"
-                            >
-                              <Copy size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-6 pt-4 border-t border-gray-50 space-y-3">
-                      <span className="block text-xs text-gray-400 font-semibold">{set.items.length} từ vựng</span>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        <button
-                          onClick={() => onViewAsStudent(set)}
-                          className="px-1 py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 leading-tight"
-                        >
-                          <Play size={13} />
-                          <span>Play</span>
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditEditor(set)}
-                          className="px-1 py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-lg text-[10px] font-black leading-tight"
-                        >
-                          Sửa
-                        </button>
-                        <button
-                          onClick={() => handleCloneSet(set.id)}
-                          className="px-1 py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-lg text-[10px] font-black leading-tight"
-                        >
-                          Sao chép
-                        </button>
-                        <button
-                          onClick={() => handleLoadVocabResults(set)}
-                          className="px-1 py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-lg text-[10px] font-black leading-tight"
-                        >
-                          Kết quả
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSet(set.id)}
-                          className="px-1 py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-lg text-[10px] font-black leading-tight"
-                        >
-                          Xóa
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );})}
+              <div className="space-y-3" id="sets-list">
+                <div className="overflow-x-auto bg-white rounded-3xl border border-gray-100 shadow-sm">
+                  <table className="w-full min-w-[1120px] text-left text-sm">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 w-12">STT</th>
+                        <th className="px-4 py-3 min-w-[280px]">Bộ từ vựng</th>
+                        <th className="px-4 py-3">Lớp</th>
+                        <th className="px-4 py-3">Chủ đề</th>
+                        <th className="px-4 py-3">Số lượng</th>
+                        <th className="px-4 py-3">Trạng thái</th>
+                        <th className="px-4 py-3">Ngày tạo</th>
+                        <th className="px-4 py-3">Link</th>
+                        <th className="px-4 py-3 min-w-[360px]">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {paginatedVocabSets.map((set, index) => {
+                        const visibility = getSetVisibility(set);
+                        const assignmentLink = getAssignmentLink(set);
+                        return (
+                          <tr key={set.id} id={`set-row-${set.id}`} className="hover:bg-indigo-50/30 transition-colors">
+                            <td className="px-4 py-4 font-bold text-gray-400">{(vocabCurrentPage - 1) * vocabPageSize + index + 1}</td>
+                            <td className="px-4 py-4">
+                              <button
+                                type="button"
+                                onClick={() => onViewAsStudent(set)}
+                                className="block max-w-[320px] text-left font-black text-indigo-700 hover:text-indigo-900 hover:underline truncate"
+                                title="Mở bài học"
+                              >
+                                {set.title}
+                              </button>
+                              <p className="mt-1 max-w-[320px] text-xs text-gray-500 line-clamp-2">{set.description || 'Chưa có mô tả'}</p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(set.tags || []).slice(0, 3).map((tag, tagIndex) => (
+                                  <span key={`${set.id}-tag-${tagIndex}`} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">#{tag}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className="inline-flex whitespace-nowrap rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[10px] font-black uppercase text-indigo-700">
+                                {formatGradeLabel(set.gradeLevel) || '--'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-xs font-semibold text-gray-600">{set.subject || '--'}</td>
+                            <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-700">{set.items?.length || 0} từ</td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${
+                                visibility === 'public' ? 'bg-emerald-50 text-emerald-700' :
+                                visibility === 'draft' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'
+                              }`}>
+                                {formatVisibilityLabel(visibility)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-xs font-semibold text-gray-600">{formatVietnamDateTime(set.createdAt)}</td>
+                            <td className="px-4 py-4">
+                              {visibility === 'assignment' && assignmentLink ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(assignmentLink);
+                                    showNotification('Đã copy link giao bài.');
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-black text-indigo-700 hover:bg-indigo-100"
+                                  title="Copy link giao bài"
+                                >
+                                  <Copy size={13} />
+                                  Link riêng
+                                </button>
+                              ) : <span className="text-xs text-gray-300">--</span>}
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-1.5">
+                                <button type="button" onClick={() => onViewAsStudent(set)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-700 hover:bg-emerald-100"><Play size={13} />Play</button>
+                                <button type="button" onClick={() => handleOpenEditEditor(set)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-black text-blue-700 hover:bg-blue-100">Sửa</button>
+                                <button type="button" onClick={() => handleCloneSet(set.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-black text-indigo-700 hover:bg-indigo-100">Sao chép</button>
+                                <button type="button" onClick={() => handleLoadVocabResults(set)} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-black text-amber-700 hover:bg-amber-100">Kết quả</button>
+                                <button type="button" onClick={() => handleDeleteSet(set.id)} className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-black text-rose-700 hover:bg-rose-100">Xóa</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <LibraryPagination
+                  currentPage={vocabCurrentPage}
+                  totalPages={vocabTotalPages}
+                  pageSize={vocabPageSize}
+                  totalItems={sortedFilteredSets.length}
+                  onPageChange={setVocabPage}
+                  onPageSizeChange={setVocabPageSize}
+                />
               </div>
             )}
 
@@ -2486,67 +2648,141 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {grammarSets.length === 0 ? (
-                <div className="md:col-span-2 lg:col-span-3 bg-white rounded-3xl p-12 border border-gray-100 text-center text-gray-400 font-semibold">
-                  Chưa có bài ngữ pháp nào.
-                </div>
-              ) : (
-                grammarSets.map(set => {
-                  const grammarLink = getGrammarPrivateLink(set);
-                  return (
-                  <div key={set.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
-                        {formatGradeLabel(set.gradeLevel)}
-                      </span>
-                      <span className="text-xs font-bold text-gray-400">{set.questions?.length || 0} câu</span>
-                    </div>
-                    <div>
-                      <h3 className="font-black text-gray-900">{set.title}</h3>
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{set.description}</p>
-                      <p className="text-[10px] text-gray-400 font-bold mt-2">Trạng thái: {set.visibility}</p>
-                    </div>
-                    {set.visibility === 'assignment' && grammarLink && (
-                      <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 space-y-2">
-                        <p className="text-[10px] font-black uppercase text-indigo-500">Link grammar riêng</p>
-                        <div className="flex gap-2">
-                          <input
-                            value={grammarLink}
-                            readOnly
-                            className="min-w-0 flex-1 bg-white border border-indigo-100 rounded-xl px-3 py-2 text-[11px] font-semibold text-gray-600"
-                          />
-                          <button
-                            onClick={() => {
-                              navigator.clipboard?.writeText(grammarLink);
-                              showNotification("Đã copy link grammar riêng.");
-                            }}
-                            className="p-2 !bg-indigo-600 hover:!bg-indigo-700 !text-white rounded-xl transition-all cursor-pointer"
-                            title="Copy link grammar riêng"
-                          >
-                            <Copy size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-5 gap-1.5">
-                      <button
-                        onClick={() => onViewGrammarAsStudent?.(set)}
-                        className="px-1 py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 leading-tight"
-                      >
-                        <Play size={13} />
-                        <span>Play</span>
-                      </button>
-                      <button onClick={() => handleEditGrammarSet(set)} className="px-1 py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-lg text-[10px] font-black leading-tight">Sửa</button>
-                      <button onClick={() => handleCloneGrammarSet(set)} className="px-1 py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-lg text-[10px] font-black leading-tight">Sao chép</button>
-                      <button onClick={() => handleLoadGrammarResults(set)} className="px-1 py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-lg text-[10px] font-black leading-tight">Kết quả</button>
-                      <button onClick={() => handleDeleteGrammarSet(set)} className="px-1 py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-lg text-[10px] font-black leading-tight">Xóa</button>
-                    </div>
-                  </div>
-                  );
-                })
-              )}
+            <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm bài ngữ pháp theo tên, chủ đề..."
+                  value={grammarSearchQuery}
+                  onChange={(event) => setGrammarSearchQuery(event.target.value)}
+                  className="w-full p-3.5 pl-11 bg-gray-50 rounded-2xl outline-none focus:bg-white focus:ring-4 focus:ring-emerald-50 border border-gray-100 focus:border-emerald-400 font-semibold text-sm"
+                />
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={grammarFilterGrade}
+                  onChange={(event) => setGrammarFilterGrade(event.target.value)}
+                  className="p-3 bg-gray-50 border border-gray-100 hover:border-emerald-200 rounded-2xl outline-none text-sm font-semibold text-gray-600"
+                >
+                  <option value="">Tất cả Lớp học</option>
+                  {grammarGradeOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                </select>
+                <select
+                  value={grammarFilterStatus}
+                  onChange={(event) => setGrammarFilterStatus(event.target.value)}
+                  className="p-3 bg-gray-50 border border-gray-100 hover:border-emerald-200 rounded-2xl outline-none text-sm font-semibold text-gray-600"
+                >
+                  <option value="">Tất cả Trạng thái</option>
+                  <option value="public">Công khai</option>
+                  <option value="draft">Bản nháp</option>
+                  <option value="assignment">Link riêng</option>
+                </select>
+              </div>
             </div>
+
+            {/* Compact link list of grammar sets */}
+            {sortedGrammarSets.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 border border-gray-100 text-center text-gray-400 font-semibold">
+                Chưa có bài ngữ pháp nào khớp với điều kiện tìm kiếm.
+              </div>
+            ) : (
+              <div className="space-y-3" id="grammar-sets-list">
+                <div className="overflow-x-auto bg-white rounded-3xl border border-gray-100 shadow-sm">
+                  <table className="w-full min-w-[1120px] text-left text-sm">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 w-12">STT</th>
+                        <th className="px-4 py-3 min-w-[280px]">Bài ngữ pháp</th>
+                        <th className="px-4 py-3">Lớp</th>
+                        <th className="px-4 py-3">Chủ đề</th>
+                        <th className="px-4 py-3">Số lượng</th>
+                        <th className="px-4 py-3">Trạng thái</th>
+                        <th className="px-4 py-3">Ngày tạo</th>
+                        <th className="px-4 py-3">Link</th>
+                        <th className="px-4 py-3 min-w-[360px]">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {paginatedGrammarSets.map((set, index) => {
+                        const grammarLink = getGrammarPrivateLink(set);
+                        const visibility = set.visibility || 'draft';
+                        return (
+                          <tr key={set.id} className="hover:bg-emerald-50/30 transition-colors">
+                            <td className="px-4 py-4 font-bold text-gray-400">{(grammarCurrentPage - 1) * grammarPageSize + index + 1}</td>
+                            <td className="px-4 py-4">
+                              <button
+                                type="button"
+                                onClick={() => onViewGrammarAsStudent?.(set)}
+                                className="block max-w-[320px] text-left font-black text-emerald-700 hover:text-emerald-900 hover:underline truncate"
+                                title="Mở bài học"
+                              >
+                                {set.title}
+                              </button>
+                              <p className="mt-1 max-w-[320px] text-xs text-gray-500 line-clamp-2">{set.description || 'Chưa có mô tả'}</p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {(set.tags || []).slice(0, 3).map((tag, tagIndex) => (
+                                  <span key={`${set.id}-tag-${tagIndex}`} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">#{tag}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className="inline-flex whitespace-nowrap rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase text-emerald-700">
+                                {formatGradeLabel(set.gradeLevel) || '--'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-xs font-semibold text-gray-600">{set.topic || set.subject || '--'}</td>
+                            <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-700">{set.questions?.length || 0} câu</td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${
+                                visibility === 'public' ? 'bg-emerald-50 text-emerald-700' :
+                                visibility === 'draft' ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'
+                              }`}>
+                                {formatVisibilityLabel(visibility)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-xs font-semibold text-gray-600">{formatVietnamDateTime(set.createdAt)}</td>
+                            <td className="px-4 py-4">
+                              {visibility === 'assignment' && grammarLink ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(grammarLink);
+                                    showNotification('Đã copy link grammar riêng.');
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-black text-indigo-700 hover:bg-indigo-100"
+                                  title="Copy link grammar riêng"
+                                >
+                                  <Copy size={13} />
+                                  Link riêng
+                                </button>
+                              ) : <span className="text-xs text-gray-300">--</span>}
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-1.5">
+                                <button type="button" onClick={() => onViewGrammarAsStudent?.(set)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-700 hover:bg-emerald-100"><Play size={13} />Play</button>
+                                <button type="button" onClick={() => handleEditGrammarSet(set)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-black text-blue-700 hover:bg-blue-100">Sửa</button>
+                                <button type="button" onClick={() => handleCloneGrammarSet(set)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-black text-indigo-700 hover:bg-indigo-100">Sao chép</button>
+                                <button type="button" onClick={() => handleLoadGrammarResults(set)} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-black text-amber-700 hover:bg-amber-100">Kết quả</button>
+                                <button type="button" onClick={() => handleDeleteGrammarSet(set)} className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-black text-rose-700 hover:bg-rose-100">Xóa</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <LibraryPagination
+                  currentPage={grammarCurrentPage}
+                  totalPages={grammarTotalPages}
+                  pageSize={grammarPageSize}
+                  totalItems={sortedGrammarSets.length}
+                  onPageChange={setGrammarPage}
+                  onPageSizeChange={setGrammarPageSize}
+                />
+              </div>
+            )}
 
             {grammarResultsSet && (
               <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4" id="grammar-results-panel">
