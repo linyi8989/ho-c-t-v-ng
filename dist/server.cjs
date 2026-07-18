@@ -4199,6 +4199,28 @@ app2.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["
     sendApiError(res, err);
   }
 });
+app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!setDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (!canManageVocabSet(req.user, set)) {
+      return res.status(403).json({ error: "You do not have permission to view results for this vocabulary set." });
+    }
+    const snapshot = await adminDb.collection("game_sessions").where("vocabSetId", "==", set.id).get();
+    const sessions = [];
+    snapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      if (data.vocabSetId !== set.id || !data.completedAt) return;
+      sessions.push(omitSensitiveSessionFields(data));
+    });
+    sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
+    res.json({ set, sessions });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
 app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
   try {
     const payload = req.body || {};
@@ -4792,7 +4814,7 @@ function fisherYates(input) {
 function normalizeGrammarQuestion(question, index) {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
   const rawOptions = Array.isArray(question.options) ? question.options : [];
-  const options = rawOptions.slice(0, 4).map((option, optionIndex) => ({
+  const options = rawOptions.slice(0, 5).map((option, optionIndex) => ({
     id: option.id || `${questionId}-option-${optionIndex + 1}`,
     text: safeText(option.text, 1e3),
     originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex + 1
@@ -4811,12 +4833,16 @@ function validateGrammarQuestion(question, index) {
   const errors = [];
   if (!question.questionText) errors.push(`C\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
   if (!question.explanation) errors.push(`C\xE2u ${index + 1}: thi\u1EBFu l\u1EDDi gi\u1EA3i th\xEDch.`);
-  if (!Array.isArray(question.options) || question.options.length !== 4) {
-    errors.push(`C\xE2u ${index + 1}: c\u1EA7n \u0111\xFAng 4 ph\u01B0\u01A1ng \xE1n.`);
+  if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4) {
+    errors.push(`C\xE2u ${index + 1}: c\u1EA7n t\u1EEB 2 \u0111\u1EBFn 4 ph\u01B0\u01A1ng \xE1n.`);
   }
   question.options?.forEach((option, optionIndex) => {
     if (!option.text) errors.push(`C\xE2u ${index + 1}: ph\u01B0\u01A1ng \xE1n ${optionIndex + 1} \u0111ang tr\u1ED1ng.`);
   });
+  const optionIds = (question.options || []).map((option) => String(option.id || ""));
+  if (new Set(optionIds).size !== optionIds.length) {
+    errors.push(`C\xE2u ${index + 1}: c\xF3 ph\u01B0\u01A1ng \xE1n b\u1ECB tr\xF9ng ID.`);
+  }
   if (!question.correctOptionId || !question.options?.some((option) => option.id === question.correctOptionId)) {
     errors.push(`C\xE2u ${index + 1}: \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
   }

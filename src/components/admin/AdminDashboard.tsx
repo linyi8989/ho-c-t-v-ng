@@ -234,23 +234,35 @@ function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; er
       }
     });
 
-    const missing = ['QUESTION', 'A', 'B', 'C', 'D', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
+    const unsupportedOption = lines
+      .map(line => line.trim().match(/^([E-Z])\s*:/i)?.[1]?.toUpperCase())
+      .find(Boolean);
+    if (unsupportedOption) {
+      errors.push(`Câu số ${blockIndex + 1} có đáp án ${unsupportedOption}; mỗi câu chỉ được có tối đa 4 đáp án A, B, C, D.`);
+      return;
+    }
+
+    const missing = ['QUESTION', 'A', 'B', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
     if (missing.length > 0) {
       errors.push(`Câu số ${blockIndex + 1} không được nhập vì thiếu ${missing.join(', ')}.`);
       return;
     }
 
     const answerKey = data.ANSWER.toUpperCase();
-    if (!['A', 'B', 'C', 'D'].includes(answerKey)) {
-      errors.push(`Câu số ${blockIndex + 1} có ANSWER là ${data.ANSWER}, chỉ chấp nhận A, B, C hoặc D.`);
+    if (data.D && !data.C) {
+      errors.push(`Câu số ${blockIndex + 1} có đáp án D nhưng thiếu đáp án C.`);
       return;
     }
 
-    const optionValues = ['A', 'B', 'C', 'D'].map(key => data[key].trim());
-    if (optionValues.some(value => !value)) {
-      errors.push(`Câu số ${blockIndex + 1} có phương án trống.`);
+    const optionKeys = ['A', 'B'];
+    if (data.C) optionKeys.push('C');
+    if (data.D) optionKeys.push('D');
+    if (!optionKeys.includes(answerKey)) {
+      errors.push(`Câu số ${blockIndex + 1} có ANSWER là ${data.ANSWER}, nhưng câu này chỉ có đáp án ${optionKeys.join(', ')}.`);
       return;
     }
+
+    const optionValues = optionKeys.map(key => data[key].trim());
     if (new Set(optionValues.map(value => value.toLowerCase())).size !== optionValues.length) {
       warnings.push(`Câu số ${blockIndex + 1} có phương án trùng nhau.`);
     }
@@ -261,7 +273,7 @@ function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; er
       text,
       originalPosition: index + 1
     }));
-    const correctIndex = answerKey.charCodeAt(0) - 65;
+    const correctIndex = optionKeys.indexOf(answerKey);
 
     questions.push({
       id: questionId,
@@ -361,6 +373,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [grammarShowReviewAfterSubmit, setGrammarShowReviewAfterSubmit] = useState(true);
   const [grammarBulkText, setGrammarBulkText] = useState('');
   const [grammarQuestions, setGrammarQuestions] = useState<GrammarQuestion[]>([]);
+  const [vocabResultsSet, setVocabResultsSet] = useState<VocabSet | null>(null);
+  const [vocabResults, setVocabResults] = useState<GameSession[]>([]);
+  const [isVocabResultsLoading, setIsVocabResultsLoading] = useState(false);
   const [grammarResultsSet, setGrammarResultsSet] = useState<GrammarSet | null>(null);
   const [grammarResults, setGrammarResults] = useState<any[]>([]);
 
@@ -698,6 +713,20 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         setGrammarResults(Array.isArray(data.attempts) ? data.attempts : []);
       })
       .catch(err => showNotification(err.message, 'error'));
+  };
+
+  const handleLoadVocabResults = (set: VocabSet) => {
+    setVocabResultsSet(set);
+    setVocabResults([]);
+    setIsVocabResultsLoading(true);
+    authFetch(`/api/admin/vocab-sets/${set.id}/results`)
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Khong tai duoc ket qua.');
+        setVocabResults(Array.isArray(data.sessions) ? data.sessions : []);
+      })
+      .catch(err => showNotification(err.message, 'error'))
+      .finally(() => setIsVocabResultsLoading(false));
   };
 
   const handleOpenEditEditor = (set: VocabSet) => {
@@ -2315,42 +2344,124 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       )}
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-                      <span className="text-xs text-gray-400 font-semibold">{set.items.length} từ vựng</span>
-                      
-                      <div className="flex space-x-1">
+                    <div className="mt-6 pt-4 border-t border-gray-50 space-y-3">
+                      <span className="block text-xs text-gray-400 font-semibold">{set.items.length} từ vựng</span>
+                      <div className="grid grid-cols-5 gap-1.5">
                         <button
                           onClick={() => onViewAsStudent(set)}
-                          className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-all cursor-pointer"
-                          title="Học tập"
+                          className="px-1 py-2 !bg-emerald-50 hover:!bg-emerald-100 !text-emerald-700 !border !border-emerald-200 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 leading-tight"
                         >
-                          <Play size={14} />
+                          <Play size={13} />
+                          <span>Play</span>
                         </button>
                         <button
                           onClick={() => handleOpenEditEditor(set)}
-                          className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl transition-all cursor-pointer"
-                          title="Sửa"
+                          className="px-1 py-2 !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 rounded-lg text-[10px] font-black leading-tight"
                         >
-                          <Edit2 size={14} />
+                          Sửa
                         </button>
                         <button
                           onClick={() => handleCloneSet(set.id)}
-                          className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl transition-all cursor-pointer"
-                          title="Nhân bản"
+                          className="px-1 py-2 !bg-indigo-50 hover:!bg-indigo-100 !text-indigo-700 !border !border-indigo-200 rounded-lg text-[10px] font-black leading-tight"
                         >
-                          <Copy size={14} />
+                          Sao chép
+                        </button>
+                        <button
+                          onClick={() => handleLoadVocabResults(set)}
+                          className="px-1 py-2 !bg-amber-50 hover:!bg-amber-100 !text-amber-700 !border !border-amber-200 rounded-lg text-[10px] font-black leading-tight"
+                        >
+                          Kết quả
                         </button>
                         <button
                           onClick={() => handleDeleteSet(set.id)}
-                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-all cursor-pointer"
-                          title="Xóa"
+                          className="px-1 py-2 !bg-rose-50 hover:!bg-rose-100 !text-rose-700 !border !border-rose-200 rounded-lg text-[10px] font-black leading-tight"
                         >
-                          <Trash2 size={14} />
+                          Xóa
                         </button>
                       </div>
                     </div>
                   </div>
                 );})}
+              </div>
+            )}
+
+            {vocabResultsSet && (
+              <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm space-y-4" id="vocab-results-panel">
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                  <div>
+                    <h3 className="font-black text-gray-900">Kết quả: {vocabResultsSet.title}</h3>
+                    <p className="text-xs text-gray-500">
+                      {isVocabResultsLoading ? 'Đang tải kết quả...' : `${vocabResults.length} lượt chơi`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVocabResultsSet(null);
+                      setVocabResults([]);
+                    }}
+                    className="p-2 rounded-xl border border-gray-200 text-gray-600"
+                    aria-label="Đóng bảng kết quả"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-2xl border border-gray-200">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 text-[10px] uppercase font-black text-gray-500">
+                      <tr>
+                        <th className="p-3">STT</th>
+                        <th className="p-3">Học sinh</th>
+                        <th className="p-3">Game</th>
+                        <th className="p-3">Điểm</th>
+                        <th className="p-3">Đúng/Sai/Bỏ trống</th>
+                        <th className="p-3">Thời gian</th>
+                        <th className="p-3">Ngày hoàn thành</th>
+                        <th className="p-3">Chi tiết</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {isVocabResultsLoading ? (
+                        <tr><td colSpan={8} className="p-8 text-center text-gray-400">Đang tải kết quả...</td></tr>
+                      ) : vocabResults.length === 0 ? (
+                        <tr><td colSpan={8} className="p-8 text-center text-gray-400">Chưa có học sinh hoàn thành game trong bộ từ này.</td></tr>
+                      ) : vocabResults.map((session, index) => {
+                        const unansweredCount = Math.max(
+                          0,
+                          Number(session.totalQuestions || 0)
+                            - Number(session.correctAnswers || 0)
+                            - Number(session.incorrectAnswers || 0)
+                        );
+                        return (
+                          <tr key={session.id}>
+                            <td className="p-3 font-bold text-gray-500">{index + 1}</td>
+                            <td className="p-3 font-black text-gray-900">
+                              {formatLeaderboardDisplayName({ studentName: session.studentName || 'Học sinh', className: session.className })}
+                            </td>
+                            <td className="p-3 text-xs font-bold text-gray-600">{session.gameName || session.gameId}</td>
+                            <td className="p-3 font-black text-blue-700">{session.score}</td>
+                            <td className="p-3 text-xs font-bold text-gray-600">
+                              {session.correctAnswers}/{session.incorrectAnswers}/{unansweredCount}
+                            </td>
+                            <td className="p-3 text-xs font-bold text-gray-600">
+                              {formatDuration(session.durationSeconds || Math.round((session.durationMs || 0) / 1000))}
+                            </td>
+                            <td className="p-3 text-xs font-bold text-gray-600">
+                              {formatVietnamDateTime(getSessionEndTime(session) || session.createdAt)}
+                            </td>
+                            <td className="p-3">
+                              <button
+                                onClick={() => setSelectedActivity(session)}
+                                className="px-3 py-1.5 rounded-xl !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 text-xs font-black"
+                              >
+                                Xem
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -2487,6 +2598,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                 </div>
               </div>
             )}
+
           </div>
         )}
 
@@ -2566,13 +2678,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
               <div>
                 <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
-                <p className="text-xs text-gray-500">Mỗi câu gồm QUESTION, A, B, C, D, ANSWER, EXPLANATION và cách nhau bằng dòng trống.</p>
+                <p className="text-xs text-gray-500">Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.</p>
               </div>
               <textarea
                 value={grammarBulkText}
                 onChange={e => setGrammarBulkText(e.target.value)}
                 className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"
-                placeholder={`QUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nD: played\nANSWER: B\nEXPLANATION: Chủ ngữ They là số nhiều nên dùng động từ nguyên mẫu play.`}
+                placeholder={`QUESTION: She is a teacher, _____?\nA: is she\nB: isn't she\nANSWER: B\nEXPLANATION: Câu khẳng định dùng đuôi phủ định.\n\nQUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nANSWER: B\nEXPLANATION: Chủ ngữ They dùng động từ nguyên mẫu play.`}
               />
               <button onClick={handleParseGrammarBulk} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
                 Ghép dữ liệu vào bảng câu hỏi

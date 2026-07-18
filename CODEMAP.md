@@ -335,6 +335,7 @@ Teacher or super admin:
 - `PUT /api/vocab-sets/:id`: update vocab set.
 - `DELETE /api/vocab-sets/:id`: delete vocab set and related assignments.
 - `POST /api/vocab-sets/:id/clone`: clone vocab set as draft.
+- `GET /api/admin/vocab-sets/:id/results`: teacher/admin completed game sessions for one managed vocabulary set, newest first; response omits session token hashes and does not apply recent-activity deletion/cleanup.
 - `POST /api/classes`: create class.
 - `DELETE /api/classes/:id`: delete class, members, and assignments.
 - `POST /api/classes/:classId/members`: add class member.
@@ -450,7 +451,7 @@ Teacher/super admin:
 
 Key state groups:
 
-- Data lists: `vocabSets`, `classes`, `classMembers`, `assignments`, `results`, `usersList`, `auditLogs`.
+- Data lists: `vocabSets`, per-set `vocabResults`, `classes`, `classMembers`, `assignments`, `results`, `usersList`, `auditLogs`.
 - Filters: vocab search/grade/status; user search/role/status; recent activity student-name search; leaderboard period/category/class/vocab-set filters.
 - Editor state: title, description, subject, grade, status, tags, items.
 - Batch import: terms, meanings, IPAs.
@@ -479,12 +480,21 @@ Grammar module notes:
 - Grammar data is stored separately from vocabulary data.
 - Runtime collections/tables include `grammar_sets` and `grammar_attempts`; SQLite migration also creates separate grammar tables for questions/options/attempt details.
 - Admin UI adds `grammar-sets` and `grammar-editor` tabs in `AdminDashboard.tsx`.
-- `parseBulkGrammarText()` accepts blocks with `QUESTION`, `A`, `B`, `C`, `D`, `ANSWER`, and `EXPLANATION`; explanation may span multiple lines.
+- `parseBulkGrammarText()` accepts 2-4 answer options per block: `QUESTION`, `A`, `B`, `ANSWER`, and `EXPLANATION` are required; `C` and `D` are optional but must remain contiguous. `ANSWER` must reference an option present in that block, and explanation may span multiple lines.
 - Correct answers are stored and checked by stable option IDs, not by A/B/C/D labels after shuffle.
+- Server validation accepts 2-4 non-empty, uniquely identified answer options. Existing 4-option questions remain compatible, while student attempt/review screens render only the dynamic `optionsSnapshot` stored for each question.
 - Student attempts persist question order and option order snapshots, so reload/review does not reshuffle completed work.
 - Server APIs grade answers and reject updates after submit; students may only review their own attempts.
-- Answer-save responses do not expose `correctOptionId` unless `showExplanationImmediately` is enabled. Submit/review responses only expose correct answers and explanations to students/guests when `showReviewAfterSubmit` is enabled; staff with manage permission can review full details.
+- Answer-save responses do not expose `correctOptionId` unless `showExplanationImmediately` is enabled. When enabled, `GrammarLearningArea` stores feedback per question, marks the correct/wrong options, shows the explanation immediately, and locks that question after the response is saved. Submit/review responses only expose correct answers and explanations to students/guests when `showReviewAfterSubmit` is enabled; staff with manage permission can review full details.
 - Before deploying storage/schema changes to production SQLite, backup `/home/qzmivzbj/app-data/vhomework/app.sqlite`. The grammar migration must remain additive/idempotent and must not delete or rewrite existing vocabulary/game/user tables.
+
+Vocabulary result history:
+
+- Each vocabulary card uses the same five-action layout as grammar: `Play`, `Sửa`, `Sao chép`, `Kết quả`, `Xóa`.
+- `Kết quả` calls `GET /api/admin/vocab-sets/:id/results` and expands `vocab-results-panel` below the vocabulary grid.
+- The result table shows student, game, score, correct/wrong/unanswered counts, duration, completion time, and a `Xem` action.
+- `Xem` reuses the existing `selectedActivity` detail modal and the compact `answerDetails` already stored in `game_sessions`; legacy rows without answer details remain visible as summaries.
+- This history is read-only. It must not delete, rewrite, or expire `game_sessions`; the 7-day filter remains specific to Recent Activity APIs/UI.
 
 Recent activity behavior:
 
@@ -492,7 +502,8 @@ Recent activity behavior:
 - `/api/results` is expected to return completed game sessions within the display window, currently 7 days.
 - Dashboard overview shows the 30 newest completed sessions only.
 - The dashboard "Xem tất cả" button expands `dashboard-activity-expanded` inline under the overview cards instead of navigating to the results tab. It shows all returned sessions from the 7-day window, sorted newest first.
-- `dashboard-activity-expanded` and `activity-results-sheet` filter by student name on the client, using accent-insensitive search.
+- `dashboard-activity-expanded` filters by student name on the client, using accent-insensitive search.
+- The duplicate `activity-results-sheet` inside the dedicated Results/Bang vang tab is hidden; the Results tab now focuses on leaderboard filters, podium, and ranking table only. Recent-activity review remains in the Dashboard expansion.
 - Clicking an activity opens the existing `selectedActivity` detail modal with summary and answer details.
 - Do not implement recent activity by deleting records from `game_sessions`; old records should be hidden by API/query/display filtering unless an explicit, backed-up maintenance cleanup is approved.
 

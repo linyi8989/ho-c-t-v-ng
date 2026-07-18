@@ -691,12 +691,14 @@ export default function App() {
                 <button
                   onClick={() => { window.location.href = '/login'; }}
                   className="px-3 py-2 bg-gray-50 hover:bg-indigo-50 text-gray-600 hover:text-indigo-700 border border-gray-100 rounded-xl text-xs font-bold transition-all"
+                  id="teacher-admin-login-btn"
                 >
                   Giáo viên/Admin
                 </button>
                 <button
                   onClick={() => { window.location.href = '/reg'; }}
                   className="hidden sm:inline-flex px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
+                  id="public-register-btn"
                 >
                   Đăng ký
                 </button>

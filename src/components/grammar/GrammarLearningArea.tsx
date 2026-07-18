@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,13 @@ interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
   accessToken?: string;
   onBack: () => void;
+}
+
+interface GrammarQuestionFeedback {
+  isCorrect: boolean;
+  correctOptionId: string;
+  explanation?: string;
+  scoreAwarded: number;
 }
 
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
@@ -96,6 +103,9 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const [review, setReview] = useState<GrammarAttempt | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [feedbackByQuestion, setFeedbackByQuestion] = useState<Record<string, GrammarQuestionFeedback>>({});
+  const [savingQuestionIds, setSavingQuestionIds] = useState<Record<string, boolean>>({});
+  const answerRequestsRef = useRef(new Set<string>());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [guestId] = useState(() => getStoredGuestId());
@@ -201,6 +211,9 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       setAttempt(data);
       setCurrentIndex(0);
       setSelectedOptions({});
+      setFeedbackByQuestion({});
+      setSavingQuestionIds({});
+      answerRequestsRef.current.clear();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -210,7 +223,13 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
 
   const answerQuestion = async (attemptQuestionId: string, selectedOptionId: string) => {
     if (!attempt) return;
+    if (feedbackByQuestion[attemptQuestionId] || answerRequestsRef.current.has(attemptQuestionId)) return;
+
+    const previousSelectedOptionId = selectedOptions[attemptQuestionId];
+    answerRequestsRef.current.add(attemptQuestionId);
+    setSavingQuestionIds(prev => ({ ...prev, [attemptQuestionId]: true }));
     setSelectedOptions(prev => ({ ...prev, [attemptQuestionId]: selectedOptionId }));
+    setError('');
     try {
       const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
         method: 'POST',
@@ -229,8 +248,28 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         ...prev,
         answers: [...(prev.answers || []).filter(answer => answer.attemptQuestionId !== attemptQuestionId), data.answer]
       } : prev);
+      if (data.feedback) {
+        setFeedbackByQuestion(prev => ({ ...prev, [attemptQuestionId]: data.feedback }));
+      }
     } catch (err: any) {
+      setSelectedOptions(prev => {
+        if (prev[attemptQuestionId] !== selectedOptionId) return prev;
+        const next = { ...prev };
+        if (previousSelectedOptionId) {
+          next[attemptQuestionId] = previousSelectedOptionId;
+        } else {
+          delete next[attemptQuestionId];
+        }
+        return next;
+      });
       setError(err.message);
+    } finally {
+      answerRequestsRef.current.delete(attemptQuestionId);
+      setSavingQuestionIds(prev => {
+        const next = { ...prev };
+        delete next[attemptQuestionId];
+        return next;
+      });
     }
   };
 
@@ -278,6 +317,11 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
 
   const currentQuestion = attempt?.questions?.[currentIndex];
   const answeredCount = attempt ? Object.keys(selectedOptions).length : 0;
+  const currentQuestionFeedback = currentQuestion ? feedbackByQuestion[currentQuestion.id] : undefined;
+  const currentQuestionIsSaving = currentQuestion ? Boolean(savingQuestionIds[currentQuestion.id]) : false;
+  const currentQuestionHasSavedAnswer = Boolean(
+    currentQuestion && attempt?.answers.some(answer => answer.attemptQuestionId === currentQuestion.id)
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -378,40 +422,84 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
             <div className="grid grid-cols-1 gap-3">
               {currentQuestion.optionsSnapshot.map((option, index) => {
                 const selected = selectedOptions[currentQuestion.id] === option.id;
+                const isCorrectOption = currentQuestionFeedback?.correctOptionId === option.id;
+                const isWrongSelection = Boolean(currentQuestionFeedback && selected && !currentQuestionFeedback.isCorrect);
                 return (
                   <button
                     key={option.id}
                     onClick={() => answerQuestion(currentQuestion.id, option.id)}
+                    disabled={currentQuestionIsSaving}
+                    data-feedback-locked={currentQuestionFeedback ? 'true' : undefined}
                     className={`w-full rounded-2xl border p-4 text-left font-bold transition-all ${
-                      selected
-                        ? '!bg-blue-600 !border-blue-700 !text-white shadow-sm'
-                        : '!bg-white !border-blue-300 hover:!bg-blue-50 hover:!border-blue-500 !text-gray-900'
+                      isCorrectOption
+                        ? '!bg-emerald-50 !border-emerald-500 !text-emerald-900 shadow-sm cursor-default'
+                        : isWrongSelection
+                          ? '!bg-rose-50 !border-rose-500 !text-rose-900 shadow-sm cursor-default'
+                          : selected
+                            ? '!bg-blue-600 !border-blue-700 !text-white shadow-sm'
+                            : currentQuestionFeedback
+                              ? '!bg-white !border-gray-200 !text-gray-700 cursor-default'
+                              : '!bg-white !border-blue-300 hover:!bg-blue-50 hover:!border-blue-500 !text-gray-900'
                     }`}
                   >
                     <span className={`mr-3 inline-flex w-8 h-8 items-center justify-center rounded-xl border font-black ${
-                      selected ? '!bg-white !border-white !text-blue-700' : '!bg-blue-50 !border-blue-200 !text-blue-700'
+                      isCorrectOption
+                        ? '!bg-emerald-100 !border-emerald-300 !text-emerald-800'
+                        : isWrongSelection
+                          ? '!bg-rose-100 !border-rose-300 !text-rose-800'
+                          : selected
+                            ? '!bg-white !border-white !text-blue-700'
+                            : '!bg-blue-50 !border-blue-200 !text-blue-700'
                     }`}>
                       {String.fromCharCode(65 + index)}
                     </span>
                     {option.text}
+                    {isCorrectOption && <CheckCircle2 size={18} className="ml-3 inline-block align-middle" />}
+                    {isWrongSelection && <XCircle size={18} className="ml-3 inline-block align-middle" />}
                   </button>
                 );
               })}
             </div>
+            {currentQuestionIsSaving && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">
+                Đang lưu đáp án...
+              </div>
+            )}
+            {currentQuestionFeedback && (
+              <div className={`rounded-2xl border p-4 ${
+                currentQuestionFeedback.isCorrect
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                  : 'border-rose-300 bg-rose-50 text-rose-900'
+              }`}>
+                <div className="flex items-center gap-2 font-black">
+                  {currentQuestionFeedback.isCorrect ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+                  {currentQuestionFeedback.isCorrect ? 'Chính xác!' : 'Chưa chính xác.'}
+                </div>
+                {currentQuestionFeedback.explanation && (
+                  <p className="mt-2 text-sm leading-relaxed">
+                    <strong>Giải Thích:</strong> {currentQuestionFeedback.explanation}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row justify-between gap-3">
               <button
                 onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-                disabled={currentIndex === 0}
+                disabled={currentIndex === 0 || currentQuestionIsSaving}
                 className="px-5 py-3 rounded-2xl !border !border-gray-300 !bg-white !text-gray-800 disabled:!bg-gray-100 disabled:!text-gray-500 disabled:opacity-100 font-bold"
               >
                 Câu trước
               </button>
               {currentIndex < attempt.questions.length - 1 ? (
-                <button onClick={() => setCurrentIndex(currentIndex + 1)} className="px-5 py-3 rounded-2xl !bg-blue-600 hover:!bg-blue-700 !text-white !border !border-blue-700 font-black shadow-sm">
+                <button
+                  onClick={() => setCurrentIndex(currentIndex + 1)}
+                  disabled={currentQuestionIsSaving || !currentQuestionHasSavedAnswer}
+                  className="px-5 py-3 rounded-2xl !bg-blue-600 hover:!bg-blue-700 disabled:!bg-blue-300 disabled:!border-blue-300 !text-white !border !border-blue-700 font-black shadow-sm"
+                >
                   Câu tiếp theo
                 </button>
               ) : (
-                <button onClick={submitAttempt} disabled={loading} className="px-5 py-3 rounded-2xl !bg-emerald-600 hover:!bg-emerald-700 disabled:!bg-emerald-300 !text-white !border !border-emerald-700 font-black shadow-sm">
+                <button onClick={submitAttempt} disabled={loading || currentQuestionIsSaving || !currentQuestionHasSavedAnswer} className="px-5 py-3 rounded-2xl !bg-emerald-600 hover:!bg-emerald-700 disabled:!bg-emerald-300 !text-white !border !border-emerald-700 font-black shadow-sm">
                   Nộp bài
                 </button>
               )}

@@ -2084,3 +2084,133 @@ textarea::placeholder {
     font-size: 0.8125rem !important;
   }
 }
+
+/* Auth and public-header contrast fixes.
+   Scoped overrides keep the light theme readable without changing game/admin logic. */
+#login-screen,
+#register-screen {
+  background: #f8fafc !important;
+  color: var(--text-primary) !important;
+}
+
+#login-screen > div.max-w-md,
+#register-screen > div.max-w-md {
+  background: #ffffff !important;
+  border-color: #dbe2ea !important;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.1) !important;
+}
+
+#login-screen h2,
+#register-screen h2 {
+  color: var(--text-primary) !important;
+}
+
+#login-screen p,
+#login-screen label,
+#login-screen .text-gray-400,
+#login-screen .text-gray-500,
+#register-screen p,
+#register-screen label,
+#register-screen .text-gray-400,
+#register-screen .text-gray-500 {
+  color: var(--text-secondary) !important;
+}
+
+#login-screen input,
+#register-screen input {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: var(--text-primary) !important;
+}
+
+#login-screen input::placeholder,
+#register-screen input::placeholder {
+  color: var(--text-muted) !important;
+}
+
+#login-screen button[type="submit"]:not(:disabled),
+#register-screen button[type="submit"]:not(:disabled),
+#public-register-btn {
+  background: var(--accent-blue) !important;
+  border: 1px solid var(--accent-blue) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22) !important;
+}
+
+#login-screen button[type="submit"]:not(:disabled) *,
+#login-screen button[type="submit"]:not(:disabled) svg,
+#register-screen button[type="submit"]:not(:disabled) *,
+#register-screen button[type="submit"]:not(:disabled) svg,
+#public-register-btn,
+#public-register-btn * {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#login-screen button[type="submit"]:disabled,
+#register-screen button[type="submit"]:disabled {
+  background: #dbeafe !important;
+  border: 1px solid #93c5fd !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
+#login-screen button[type="submit"]:disabled *,
+#login-screen button[type="submit"]:disabled svg,
+#register-screen button[type="submit"]:disabled *,
+#register-screen button[type="submit"]:disabled svg {
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
+#login-screen .grid.grid-cols-2 button {
+  color: var(--text-secondary) !important;
+  opacity: 1 !important;
+}
+
+#login-screen .grid.grid-cols-2 button.bg-white,
+#login-screen .grid.grid-cols-2 button.text-indigo-600 {
+  background: #ffffff !important;
+  color: var(--accent-blue) !important;
+  border-color: var(--accent-blue-border) !important;
+}
+
+#login-screen button:not([type="submit"]),
+#register-screen button:not([type="submit"]),
+#teacher-admin-login-btn {
+  background: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
+#login-screen button:not([type="submit"]) *,
+#login-screen button:not([type="submit"]) svg,
+#register-screen button:not([type="submit"]) *,
+#register-screen button:not([type="submit"]) svg,
+#teacher-admin-login-btn,
+#teacher-admin-login-btn * {
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+}
+
+#login-screen button:not([type="submit"]):hover,
+#register-screen button:not([type="submit"]):hover,
+#teacher-admin-login-btn:hover {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1e40af !important;
+}
+
+#login-screen .text-indigo-600,
+#register-screen .text-indigo-600 {
+  color: var(--accent-blue) !important;
+}
+
+/* The Results/Bang vang tab focuses on ranking only.
+   Recent activity is handled in the Dashboard expansion, so hide the duplicate
+   activity sheet here to avoid opening malformed legacy activity rows. */
+#results-tab-content #activity-results-sheet {
+  display: none !important;
+}

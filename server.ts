@@ -3329,6 +3329,32 @@ app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["t
   }
 });
 
+app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!setDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (!canManageVocabSet(req.user, set)) {
+      return res.status(403).json({ error: "You do not have permission to view results for this vocabulary set." });
+    }
+
+    const snapshot = await adminDb.collection("game_sessions").where("vocabSetId", "==", set.id).get();
+    const sessions: any[] = [];
+    snapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      if (data.vocabSetId !== set.id || !data.completedAt) return;
+      sessions.push(omitSensitiveSessionFields(data));
+    });
+    sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
+
+    res.json({ set, sessions });
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
 // 19. GAME SESSIONS: Start a session
 app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
   try {
@@ -4045,7 +4071,7 @@ function fisherYates<T>(input: T[]) {
 function normalizeGrammarQuestion(question: any, index: number) {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
   const rawOptions = Array.isArray(question.options) ? question.options : [];
-  const options = rawOptions.slice(0, 4).map((option: any, optionIndex: number) => ({
+  const options = rawOptions.slice(0, 5).map((option: any, optionIndex: number) => ({
     id: option.id || `${questionId}-option-${optionIndex + 1}`,
     text: safeText(option.text, 1000),
     originalPosition: Number.isFinite(Number(option.originalPosition))
@@ -4068,12 +4094,16 @@ function validateGrammarQuestion(question: any, index: number) {
   const errors: string[] = [];
   if (!question.questionText) errors.push(`Câu ${index + 1}: thiếu nội dung câu hỏi.`);
   if (!question.explanation) errors.push(`Câu ${index + 1}: thiếu lời giải thích.`);
-  if (!Array.isArray(question.options) || question.options.length !== 4) {
-    errors.push(`Câu ${index + 1}: cần đúng 4 phương án.`);
+  if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4) {
+    errors.push(`Câu ${index + 1}: cần từ 2 đến 4 phương án.`);
   }
   question.options?.forEach((option: any, optionIndex: number) => {
     if (!option.text) errors.push(`Câu ${index + 1}: phương án ${optionIndex + 1} đang trống.`);
   });
+  const optionIds = (question.options || []).map((option: any) => String(option.id || ""));
+  if (new Set(optionIds).size !== optionIds.length) {
+    errors.push(`Câu ${index + 1}: có phương án bị trùng ID.`);
+  }
   if (!question.correctOptionId || !question.options?.some((option: any) => option.id === question.correctOptionId)) {
     errors.push(`Câu ${index + 1}: đáp án đúng không hợp lệ.`);
   }
