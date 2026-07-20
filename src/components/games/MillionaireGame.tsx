@@ -9,7 +9,7 @@ import {
   Timer,
   X,
 } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -20,6 +20,7 @@ interface MillionaireGameProps {
     enableLifelines?: boolean;
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -97,6 +98,7 @@ export default function MillionaireGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -132,7 +134,7 @@ export default function MillionaireGame({
       return [];
     }
 
-    return shuffleList(validItems)
+    return validItems
       .slice(0, maxQuestions)
       .map((item) => {
         const correctAnswer = item.meaning.trim();
@@ -248,6 +250,7 @@ export default function MillionaireGame({
     playEffect('select');
 
     const isCorrect = answer === currentQuestion.correctAnswer;
+    onAction?.({ type: 'millionaire.answer', wordId: currentQuestion.item.id, userAnswer: answer });
     answerDetailsRef.current = [
       ...answerDetailsRef.current,
       {

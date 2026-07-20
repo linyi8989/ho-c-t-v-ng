@@ -17,6 +17,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Name-only student profiles are managed exclusively by backend APIs.
+    match /guest_profiles/{guestId} {
+      allow read, write: if false;
+    }
+
     // Runtime/admin-managed collections must be written through backend APIs.
     // Backend Firebase Admin bypasses these rules.
     match /vocab_sets/{setId} {
@@ -42,6 +47,10 @@ service cloud.firestore {
     match /game_sessions/{sessionId} {
       allow read: if false;
       allow write: if false;
+    }
+
+    match /game_session_actions/{actionId} {
+      allow read, write: if false;
     }
 
     match /grammar_sets/{setId} {

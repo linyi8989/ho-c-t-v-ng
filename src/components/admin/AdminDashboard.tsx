@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Edit2, Trash2, Copy, Search, Filter, BookOpen, Layers, Users, 
+  Plus, Edit2, Edit3, Trash2, Copy, Search, Filter, BookOpen, Layers, Users,
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
   Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal
 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSe
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
+import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 
 interface AdminDashboardProps {
@@ -201,6 +202,7 @@ function grammarAttemptToActivity(attempt: any, set?: GrammarSet | null): GameSe
     sourceType: 'grammar',
     userId: attempt.userId,
     studentId: attempt.userId,
+    guestId: attempt.guestId || '',
     studentName: attempt.studentName || 'Học sinh',
     assignmentId: attempt.assignmentId || '',
     classId: attempt.classId || '',
@@ -413,6 +415,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [usersSearch, setUsersSearch] = useState('');
   const [usersRoleFilter, setUsersRoleFilter] = useState('');
   const [usersStatusFilter, setUsersStatusFilter] = useState('');
+  const [editingAccount, setEditingAccount] = useState<any | null>(null);
+  const [editingAccountName, setEditingAccountName] = useState('');
   
   // Searching/Filtering state
   const [searchQuery, setSearchQuery] = useState('');
@@ -596,7 +600,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
     // Load users & audit logs if user is super_admin
     if (user?.role === 'super_admin') {
-      authFetchJson<any[]>('/api/admin/users')
+      authFetchJson<any[]>('/api/admin/accounts')
         .then(data => setUsersList(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error loading admin users:", err));
 
@@ -1747,10 +1751,46 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     });
   };
 
+  const handleToggleAccountStatus = (account: any) => {
+    if (account.accountType !== 'guest') {
+      handleToggleUserStatus(account.id, account.status);
+      return;
+    }
+    const status = account.status === 'blocked' ? 'active' : 'blocked';
+    authFetchJson(`/api/admin/guest-profiles/${encodeURIComponent(account.guestId || account.id)}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status })
+    }).then(() => {
+      showNotification(status === 'blocked' ? 'Đã khóa hồ sơ học sinh.' : 'Đã mở khóa hồ sơ học sinh.');
+      refreshData();
+    }).catch((err: any) => showNotification(err.message || 'Không thể cập nhật hồ sơ.', 'error'));
+  };
+
+  const handleSaveAccountName = async () => {
+    if (!editingAccount) return;
+    const validation = validateStudentDisplayName(editingAccountName);
+    if (!validation.valid) {
+      showNotification(validation.error, 'error');
+      return;
+    }
+    const url = editingAccount.accountType === 'guest'
+      ? `/api/admin/guest-profiles/${encodeURIComponent(editingAccount.guestId || editingAccount.id)}/display-name`
+      : `/api/admin/users/${encodeURIComponent(editingAccount.id)}/display-name`;
+    try {
+      await authFetchJson(url, { method: 'PUT', body: JSON.stringify({ displayName: validation.value }) });
+      setEditingAccount(null);
+      showNotification('Đã cập nhật tên hiển thị.');
+      refreshData();
+    } catch (err: any) {
+      showNotification(err.message || 'Không thể cập nhật tên hiển thị.', 'error');
+    }
+  };
+
   const filteredUsers = usersList.filter(u => {
     const matchesSearch = (u.name || '').toLowerCase().includes(usersSearch.toLowerCase()) ||
                           (u.email || '').toLowerCase().includes(usersSearch.toLowerCase()) ||
-                          (u.phone || '').toLowerCase().includes(usersSearch.toLowerCase());
+                          (u.phone || '').toLowerCase().includes(usersSearch.toLowerCase()) ||
+                          (u.guestId || u.id || '').toLowerCase().includes(usersSearch.toLowerCase());
     const matchesRole = usersRoleFilter ? u.role === usersRoleFilter : true;
     const matchesStatus = usersStatusFilter ? u.status === usersStatusFilter : true;
     return matchesSearch && matchesRole && matchesStatus;
@@ -1799,6 +1839,29 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           >
             Đóng
           </button>
+        </div>
+      )}
+
+      {editingAccount && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl space-y-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wider text-indigo-500">Sửa tên hiển thị</p>
+              <h3 className="text-xl font-black text-gray-900">{editingAccount.name}</h3>
+              <p className="text-xs text-gray-500">Tên gồm 2–20 ký tự, chỉ dùng chữ cái, khoảng trắng, dấu nháy hoặc gạch nối.</p>
+            </div>
+            <input
+              value={editingAccountName}
+              onChange={(event) => setEditingAccountName(event.target.value)}
+              maxLength={STUDENT_NAME_MAX_LENGTH}
+              className="w-full rounded-2xl border border-gray-200 p-3 font-bold text-gray-900"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingAccount(null)} className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700">Hủy</button>
+              <button onClick={handleSaveAccountName} className="rounded-xl border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-bold text-white">Lưu tên</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2574,6 +2637,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         <th className="p-3">STT</th>
                         <th className="p-3">Học sinh</th>
                         <th className="p-3">Game</th>
+                        <th className="p-3">Trạng thái</th>
                         <th className="p-3">Điểm</th>
                         <th className="p-3">Đúng/Sai/Bỏ trống</th>
                         <th className="p-3">Thời gian</th>
@@ -2583,9 +2647,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {isVocabResultsLoading ? (
-                        <tr><td colSpan={8} className="p-8 text-center text-gray-400">Đang tải kết quả...</td></tr>
+                        <tr><td colSpan={9} className="p-8 text-center text-gray-400">Đang tải kết quả...</td></tr>
                       ) : vocabResults.length === 0 ? (
-                        <tr><td colSpan={8} className="p-8 text-center text-gray-400">Chưa có học sinh hoàn thành game trong bộ từ này.</td></tr>
+                        <tr><td colSpan={9} className="p-8 text-center text-gray-400">Chưa có lượt học nào trong bộ từ này.</td></tr>
                       ) : vocabResults.map((session, index) => {
                         const unansweredCount = Math.max(
                           0,
@@ -2600,9 +2664,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               {formatLeaderboardDisplayName({ studentName: session.studentName || 'Học sinh', className: session.className })}
                             </td>
                             <td className="p-3 text-xs font-bold text-gray-600">{session.gameName || session.gameId}</td>
-                            <td className="p-3 font-black text-blue-700">{session.score}</td>
+                            <td className="p-3"><span className={`rounded-full px-2 py-1 text-[10px] font-black ${session.completedAt ? 'bg-emerald-50 text-emerald-700' : (session as any).displayStatus === 'abandoned' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>{session.completedAt ? 'Đã hoàn thành' : (session as any).displayStatus === 'abandoned' ? 'Gián đoạn' : 'Đang làm'}</span></td>
+                            <td className="p-3 font-black text-blue-700">{session.completedAt ? session.score : '--'}</td>
                             <td className="p-3 text-xs font-bold text-gray-600">
-                              {session.correctAnswers}/{session.incorrectAnswers}/{unansweredCount}
+                              {session.completedAt ? `${session.correctAnswers}/${session.incorrectAnswers}/${unansweredCount}` : '--'}
                             </td>
                             <td className="p-3 text-xs font-bold text-gray-600">
                               {formatDuration(session.durationSeconds || Math.round((session.durationMs || 0) / 1000))}
@@ -2613,6 +2678,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             <td className="p-3">
                               <button
                                 onClick={() => setSelectedActivity(session)}
+                                disabled={!session.completedAt}
                                 className="px-3 py-1.5 rounded-xl !bg-blue-50 hover:!bg-blue-100 !text-blue-700 !border !border-blue-200 text-xs font-black"
                               >
                                 Xem
@@ -4196,7 +4262,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           <div className="space-y-6 animate-fade-in" id="users-tab-content">
             <div>
               <h2 className="text-2xl font-black text-gray-800">Quản lý Tài khoản người dùng</h2>
-              <p className="text-gray-400 text-sm">Xem danh sách, tìm kiếm, phân quyền vai trò (Role) và kích hoạt/khoá (Lock) tài khoản học sinh, giáo viên.</p>
+              <p className="text-gray-400 text-sm">Quản lý chung tài khoản đăng ký và hồ sơ học sinh khách. Hồ sơ khách luôn có vai trò Học sinh.</p>
             </div>
 
             {/* Filters Row */}
@@ -4205,7 +4271,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                 <Search className="absolute left-4 top-3 text-gray-400" size={18} />
                 <input
                   type="text"
-                  placeholder="Tìm theo tên, email, số điện thoại..."
+                  placeholder="Tìm theo tên, liên hệ hoặc ID..."
                   value={usersSearch}
                   onChange={(e) => setUsersSearch(e.target.value)}
                   className="w-full bg-gray-50 border-0 rounded-2xl py-2.5 pl-11 pr-4 text-sm font-semibold text-gray-700 placeholder-gray-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
@@ -4250,17 +4316,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <tr className="bg-gray-50/50 text-[10px] font-black uppercase text-gray-400 border-b border-gray-100">
                       <th className="p-4">STT</th>
                       <th className="p-4">Tên hiển thị</th>
+                      <th className="p-4">Loại hồ sơ</th>
                       <th className="p-4">Liên hệ (Email / SĐT)</th>
                       <th className="p-4">ID tài khoản</th>
                       <th className="p-4 text-center">Vai trò</th>
                       <th className="p-4 text-center">Trạng thái</th>
+                      <th className="p-4">Hoạt động cuối</th>
                       <th className="p-4 text-center">Hành động</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-12 text-center text-gray-400 text-sm font-medium">
+                        <td colSpan={9} className="p-12 text-center text-gray-400 text-sm font-medium">
                           Không tìm thấy tài khoản người dùng nào khớp với bộ lọc.
                         </td>
                       </tr>
@@ -4277,8 +4345,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             </div>
                           </td>
                           <td className="p-4">
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${u.accountType === 'guest' ? 'bg-sky-50 text-sky-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                              {u.accountType === 'guest' ? 'Học sinh khách' : 'Đã đăng ký'}
+                            </span>
+                          </td>
+                          <td className="p-4">
                             <div className="flex flex-col">
-                              <span className="text-xs text-gray-600 font-medium">{u.email || 'Không có email'}</span>
+                              <span className="text-xs text-gray-600 font-medium">{u.email || (u.accountType === 'guest' ? 'Không yêu cầu liên hệ' : 'Không có email')}</span>
                               {u.phone && <span className="text-[10px] text-gray-400 font-bold">{u.phone}</span>}
                             </div>
                           </td>
@@ -4286,16 +4359,20 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             {u.id}
                           </td>
                           <td className="p-4 text-center">
-                            <select
-                              value={u.role}
-                              disabled={u.id === user?.id} // Cannot demote self
-                              onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
-                              className="bg-gray-50 text-xs font-bold text-gray-700 border-0 rounded-xl py-1.5 px-3 focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer"
-                            >
-                              <option value="student">Học sinh (Student)</option>
-                              <option value="teacher">Giáo viên (Teacher)</option>
-                              <option value="super_admin">Super Admin</option>
-                            </select>
+                            {u.accountType === 'guest' ? (
+                              <span className="text-xs font-bold text-gray-600">Học sinh</span>
+                            ) : (
+                              <select
+                                value={u.role}
+                                disabled={u.id === user?.id}
+                                onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                                className="bg-gray-50 text-xs font-bold text-gray-700 border-0 rounded-xl py-1.5 px-3 focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer"
+                              >
+                                <option value="student">Học sinh (Student)</option>
+                                <option value="teacher">Giáo viên (Teacher)</option>
+                                <option value="super_admin">Super Admin</option>
+                              </select>
+                            )}
                           </td>
                           <td className="p-4 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
@@ -4304,10 +4381,21 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               {u.status === 'blocked' ? 'Đã khóa' : 'Hoạt động'}
                             </span>
                           </td>
+                          <td className="p-4 text-xs text-gray-500 whitespace-nowrap">
+                            {u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleString('vi-VN') : 'Chưa ghi nhận'}
+                          </td>
                           <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => { setEditingAccount(u); setEditingAccountName(u.name || ''); }}
+                                className="rounded-xl border border-indigo-100 bg-indigo-50 p-2 text-indigo-600 hover:bg-indigo-100"
+                                title="Sửa tên hiển thị"
+                              >
+                                <Edit3 size={14} />
+                              </button>
                             {u.id !== user?.id ? (
                               <button
-                                onClick={() => handleToggleUserStatus(u.id, u.status)}
+                                onClick={() => handleToggleAccountStatus(u)}
                                 className={`p-2 rounded-xl border transition-all cursor-pointer ${
                                   u.status === 'blocked'
                                     ? 'bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100'
@@ -4320,6 +4408,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             ) : (
                               <span className="text-xs text-gray-400 italic">Bản thân</span>
                             )}
+                            </div>
                           </td>
                         </tr>
                       ))

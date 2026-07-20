@@ -6,6 +6,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
+import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 
 // Load environment variables
 dotenv.config();
@@ -303,8 +304,297 @@ function getRequestSessionToken(req: express.Request) {
 }
 
 function omitSensitiveSessionFields(session: any) {
-  const { sessionTokenHash, ...safeSession } = session;
+  const { sessionTokenHash, privateSnapshot, ...safeSession } = session;
   return safeSession;
+}
+
+const SESSION_V2_GAME_IDS = new Set([
+  "flashcard-en-vi", "flashcard-vi-en", "flashcard-sound",
+  "quiz-en-vi", "quiz-vi-en", "quiz-sound",
+  "fill-meaning", "fill-missing", "matching-word-meaning",
+  "memory-match", "millionaire-vocab", "speaking-ai"
+]);
+
+function normalizeGameAnswer(value: any) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase()
+    .replace(/[‘’‚‛`´]/g, "'").replace(/\s+/g, " ");
+}
+
+function buildGameSessionSnapshot(vocabSet: any, gameId: string, requestedOrder: any[] = []) {
+  const canonicalItems = (Array.isArray(vocabSet.items) ? vocabSet.items : []).slice(0, 200).map((item: any, index: number) => ({
+    id: safeText(item.id || `item-${index + 1}`, 160),
+    term: safeText(item.term, 500),
+    meaning: safeText(item.meaning, 1000),
+    example: safeText(item.example, 1500),
+    ipa: safeText(item.ipa, 160),
+    audioUrl: normalizeAudioUrlForClient(item.audioUrl),
+    displayOrder: Number(item.displayOrder || index + 1)
+  })).filter((item: any) => item.id && item.term);
+  const byId = new Map<string, any>(canonicalItems.map((item: any) => [item.id, item]));
+  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map(id => safeText(id, 160)).filter((id, index, list) => id && byId.has(id) && list.indexOf(id) === index) : [];
+  const items = orderedIds.length ? orderedIds.map(id => byId.get(id)) : canonicalItems;
+  const config = gameId.startsWith("quiz-")
+    ? { answerType: gameId === "quiz-en-vi" ? "meaning" : "term", questionType: gameId === "quiz-vi-en" ? "meaning" : gameId === "quiz-sound" ? "sound" : "term" }
+    : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" }
+    : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" }
+    : gameId === "millionaire-vocab" ? { maxQuestions: 15 }
+    : gameId === "speaking-ai" ? { targetMode: "example_or_term" }
+    : {};
+  return { itemOrder: items.map((item: any) => item.id), items, config };
+}
+
+function sanitizeGameAction(input: any) {
+  const type = safeText(input?.type, 60);
+  const allowed = new Set(["flashcard.rate", "quiz.answer", "fill.answer", "matching.attempt", "memory.move", "millionaire.answer", "speaking.attempt"]);
+  if (!allowed.has(type)) throw createHttpError(400, "Game action type is not supported.");
+  const sequence = Number(input?.sequence);
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > 1000) throw createHttpError(400, "Invalid game action sequence.");
+  return {
+    actionId: safeText(input?.actionId, 120), type, sequence,
+    wordId: safeText(input?.wordId, 160),
+    userAnswer: safeText(input?.userAnswer, 1000),
+    firstItemId: safeText(input?.firstItemId, 160), firstSide: input?.firstSide === "meaning" ? "meaning" : "term",
+    secondItemId: safeText(input?.secondItemId, 160), secondSide: input?.secondSide === "meaning" ? "meaning" : "term",
+    recognizedText: safeText(input?.recognizedText, 1000),
+    responseMs: Math.max(0, Math.min(120000, Number(input?.responseMs || 0))),
+    attemptNumber: Math.max(1, Math.min(20, Number(input?.attemptNumber || 1)))
+  };
+}
+
+function speakingScore(target: string, recognized: string, responseMs: number) {
+  const words = (value: string) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9'\s]/g, " ").split(/\s+/).filter(Boolean);
+  const targetWords = words(target); const recognizedWords = words(recognized);
+  if (!recognizedWords.length) return { score: 0, correctWords: 0, totalWords: Math.max(1, targetWords.length) };
+  const totalWords = Math.max(1, targetWords.length);
+  const correctWords = targetWords.filter((word, index) => word === recognizedWords[index]).length;
+  const score = Math.min(100, Math.round(correctWords / totalWords * 60) + Math.round(Math.min(recognizedWords.length / totalWords, 1) * 20) + (responseMs <= 8000 ? 10 : responseMs <= 15000 ? 6 : 3) + 10);
+  return { score, correctWords, totalWords };
+}
+
+function gradeGameSessionV2(session: any, actions: any[]) {
+  const items = session.privateSnapshot?.items || [];
+  const byId = new Map<string, any>(items.map((item: any) => [item.id, item]));
+  const ordered = [...actions].sort((a, b) => a.sequence - b.sequence);
+  const details: any[] = [];
+  let correct = 0; let incorrect = 0; let gameScore: number | undefined;
+
+  if (session.gameId.startsWith("flashcard-")) {
+    const latest = new Map<string, any>(); ordered.filter(a => a.type === "flashcard.rate" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
+    items.forEach((item: any, index: number) => { const known = latest.get(item.id)?.userAnswer === "known"; if (known) correct++; else incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: known ? "Đã thuộc" : "Chưa thuộc", isCorrect: known }); });
+  } else if (session.gameId.startsWith("quiz-")) {
+    const latest = new Map<string, any>(); ordered.filter(a => a.type === "quiz.answer" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
+    items.forEach((item: any, index: number) => { const answer = latest.get(item.id)?.userAnswer || ""; const expected = session.gameId === "quiz-en-vi" ? item.meaning : item.term; const ok = answer === expected; ok ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: session.gameId === "quiz-vi-en" ? item.meaning : item.term, correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok }); });
+  } else if (session.gameId.startsWith("fill-")) {
+    const latest = new Map<string, any>(); ordered.filter(a => a.type === "fill.answer" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
+    items.forEach((item: any, index: number) => { const answer = latest.get(item.id)?.userAnswer || ""; const ok = normalizeGameAnswer(answer) === normalizeGameAnswer(item.term); ok ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.meaning, correctAnswer: item.term, userAnswer: answer, isCorrect: ok }); });
+  } else if (session.gameId === "matching-word-meaning" || session.gameId === "memory-match") {
+    const limit = session.gameId === "matching-word-meaning" ? 8 : 6; const active = items.slice(0, limit); const validIds = new Set(active.map((item: any) => item.id));
+    const matched = new Set<string>();
+    ordered.filter(a => (a.type === "matching.attempt" || a.type === "memory.move") && validIds.has(a.firstItemId) && validIds.has(a.secondItemId)).forEach((a, index) => { const ok = a.firstItemId === a.secondItemId && a.firstSide !== a.secondSide && !matched.has(a.firstItemId); if (ok) matched.add(a.firstItemId); else incorrect++; details.push({ questionIndex: index, wordId: a.firstItemId, questionText: a.firstSide === "term" ? byId.get(a.firstItemId)?.term : byId.get(a.firstItemId)?.meaning, selectedAnswer: a.secondSide === "term" ? byId.get(a.secondItemId)?.term : byId.get(a.secondItemId)?.meaning, isCorrect: ok }); });
+    const mistakes = incorrect; correct = matched.size; incorrect += Math.max(0, active.length - matched.size); gameScore = matched.size === active.length ? Math.max(50, 100 - mistakes * (session.gameId === "matching-word-meaning" ? 5 : 4)) : Math.round(correct / Math.max(1, active.length) * 100);
+  } else if (session.gameId === "millionaire-vocab") {
+    const active = items.filter((item: any) => item.meaning).slice(0, 15); const latest = new Map<string, any>(); ordered.filter(a => a.type === "millionaire.answer" && byId.has(a.wordId)).forEach(a => { if (!latest.has(a.wordId)) latest.set(a.wordId, a); });
+    for (let index = 0; index < active.length; index++) { const item: any = active[index]; const answer = latest.get(item.id)?.userAnswer || ""; const ok = answer === item.meaning; if (ok) correct++; else incorrect++; if (answer) details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: answer, selectedAnswer: answer, isCorrect: ok }); if (answer && !ok) break; }
+    incorrect = active.length - correct; const ladder = [100,200,300,500,1000,2000,4000,8000,16000,32000,64000,125000,250000,500000,1000000]; gameScore = correct ? ladder[Math.min(correct, ladder.length) - 1] : 0;
+  } else if (session.gameId === "speaking-ai") {
+    const latest = new Map<string, any>(); ordered.filter(a => a.type === "speaking.attempt" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a)); let totalScore = 0;
+    items.forEach((item: any, index: number) => { const action = latest.get(item.id); const target = item.example || item.term; const result = speakingScore(target, action?.recognizedText || "", action?.responseMs || 0); totalScore += result.score; result.score >= 70 ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", isCorrect: result.score >= 70 }); }); gameScore = items.length ? Math.round(totalScore / items.length) : 0;
+  }
+  const total = correct + incorrect; const score = gameScore !== undefined && session.gameId !== "millionaire-vocab" ? gameScore : total ? Math.round(correct / total * 100) : 0;
+  return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, rawScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, maxScore: session.gameId === "millionaire-vocab" ? 1000000 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
+}
+
+function getGuestProfileId(value: any) {
+  return safeText(value, 120);
+}
+
+function isGuestOwnedRecord(data: any) {
+  const guestId = getGuestProfileId(data?.guestId);
+  const userId = safeText(data?.userId, 120);
+  return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
+}
+
+async function resolveGuestProfile(
+  guestIdValue: any,
+  studentNameValue: any,
+  touchActivity = true,
+  classInfo: { classId?: any; className?: any } = {}
+) {
+  const guestId = getGuestProfileId(guestIdValue);
+  if (!guestId) throw createHttpError(400, "Thiếu mã nhận diện học sinh.");
+
+  const profileRef = adminDb.collection("guest_profiles").doc(guestId);
+  const profileDoc = await profileRef.get();
+  const now = new Date().toISOString();
+
+  if (profileDoc.exists) {
+    const existing = { id: profileDoc.id, ...profileDoc.data() } as any;
+    if (existing.status === "blocked") {
+      throw createHttpError(403, "Hồ sơ học sinh này đã bị khóa.");
+    }
+
+    const displayName = safeText(existing.displayName || existing.name, 120);
+    if (!displayName) {
+      const validation = validateStudentDisplayName(studentNameValue);
+      if (!validation.valid) throw createHttpError(400, validation.error);
+      const repaired = {
+        ...existing,
+        displayName: validation.value,
+        name: validation.value,
+        normalizedName: normalizePersonName(validation.value),
+        updatedAt: now,
+        lastActiveAt: touchActivity ? now : (existing.lastActiveAt || now),
+        needsReview: false
+      };
+      await profileRef.set(repaired);
+      return repaired;
+    }
+
+    const classId = safeText(classInfo.classId, 160);
+    const className = safeText(classInfo.className, 240);
+    if (touchActivity || classId || className) {
+      await profileRef.update({
+        ...(touchActivity ? { lastActiveAt: now } : {}),
+        ...(classId ? { classId } : {}),
+        ...(className ? { className } : {})
+      });
+    }
+    return {
+      ...existing,
+      displayName,
+      name: displayName,
+      lastActiveAt: touchActivity ? now : existing.lastActiveAt,
+      classId: classId || existing.classId,
+      className: className || existing.className
+    };
+  }
+
+  const validation = validateStudentDisplayName(studentNameValue);
+  if (!validation.valid) throw createHttpError(400, validation.error);
+  const profile = {
+    id: guestId,
+    guestId,
+    accountType: "guest",
+    displayName: validation.value,
+    name: validation.value,
+    normalizedName: normalizePersonName(validation.value),
+    role: "student",
+    status: "active",
+    classId: safeText(classInfo.classId, 160),
+    className: safeText(classInfo.className, 240),
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now,
+    needsReview: false
+  };
+  await profileRef.set(profile);
+  return profile;
+}
+
+async function ensureLegacyGuestProfiles() {
+  const [profilesSnapshot, sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+    adminDb.collection("guest_profiles").get(),
+    adminDb.collection("game_sessions").get(),
+    adminDb.collection("grammar_attempts").get()
+  ]);
+  const existingIds = new Set<string>();
+  profilesSnapshot.forEach((doc: any) => existingIds.add(doc.id));
+
+  const candidates = new Map<string, any>();
+  const collect = (data: any) => {
+    if (!isGuestOwnedRecord(data)) return;
+    const guestId = getGuestProfileId(data.guestId);
+    const activityAt = getActivityTime(data) || data.updatedAt || data.createdAt || new Date(0).toISOString();
+    const existing = candidates.get(guestId);
+    const createdAt = data.createdAt || data.startedAt || activityAt;
+    if (!existing || new Date(activityAt).getTime() >= new Date(existing.lastActiveAt).getTime()) {
+      candidates.set(guestId, {
+        guestId,
+        displayName: safeText(data.studentName || "Học sinh", 120),
+        createdAt: existing?.createdAt && new Date(existing.createdAt).getTime() < new Date(createdAt).getTime()
+          ? existing.createdAt
+          : createdAt,
+        lastActiveAt: activityAt
+      });
+    } else if (new Date(createdAt).getTime() < new Date(existing.createdAt).getTime()) {
+      existing.createdAt = createdAt;
+    }
+  };
+  sessionsSnapshot.forEach((doc: any) => collect({ id: doc.id, ...doc.data() }));
+  attemptsSnapshot.forEach((doc: any) => collect({ id: doc.id, ...doc.data() }));
+
+  const missing = [...candidates.values()].filter(candidate => !existingIds.has(candidate.guestId));
+  for (let offset = 0; offset < missing.length; offset += 400) {
+    const batch = adminDb.batch();
+    for (const candidate of missing.slice(offset, offset + 400)) {
+      const validation = validateStudentDisplayName(candidate.displayName);
+      const now = new Date().toISOString();
+      batch.set(adminDb.collection("guest_profiles").doc(candidate.guestId), {
+        id: candidate.guestId,
+        guestId: candidate.guestId,
+        accountType: "guest",
+        displayName: candidate.displayName,
+        name: candidate.displayName,
+        normalizedName: normalizePersonName(candidate.displayName),
+        role: "student",
+        status: "active",
+        createdAt: candidate.createdAt || now,
+        updatedAt: now,
+        lastActiveAt: candidate.lastActiveAt || now,
+        needsReview: !validation.valid
+      });
+    }
+    await batch.commit();
+  }
+}
+
+let legacyGuestProfileBackfillPromise: Promise<void> | null = null;
+
+async function ensureLegacyGuestProfilesOnce() {
+  if (!legacyGuestProfileBackfillPromise) {
+    legacyGuestProfileBackfillPromise = ensureLegacyGuestProfiles().catch(err => {
+      legacyGuestProfileBackfillPromise = null;
+      throw err;
+    });
+  }
+  await legacyGuestProfileBackfillPromise;
+}
+
+async function getCanonicalStudentNameMaps() {
+  await ensureLegacyGuestProfilesOnce();
+  const [usersSnapshot, profilesSnapshot] = await Promise.all([
+    adminDb.collection("users").get(),
+    adminDb.collection("guest_profiles").get()
+  ]);
+  const users = new Map<string, string>();
+  const guests = new Map<string, string>();
+  usersSnapshot.forEach((doc: any) => {
+    const data = doc.data();
+    const name = safeText(data.name || data.displayName, 120);
+    if (name) users.set(doc.id, name);
+  });
+  profilesSnapshot.forEach((doc: any) => {
+    const data = doc.data();
+    const name = safeText(data.displayName || data.name, 120);
+    if (name) guests.set(doc.id, name);
+  });
+  return { users, guests };
+}
+
+function enrichStudentName(data: any, maps: Awaited<ReturnType<typeof getCanonicalStudentNameMaps>>) {
+  if (!data) return data;
+  const guestId = getGuestProfileId(data.guestId);
+  const userId = safeText(data.userId || data.studentId, 120);
+  const canonicalName = isGuestOwnedRecord(data)
+    ? maps.guests.get(guestId)
+    : maps.users.get(userId);
+  if (canonicalName) return { ...data, studentName: canonicalName };
+  return guestId || userId ? data : { ...data, legacyUnlinked: true };
+}
+
+async function enrichStudentNames<T extends any>(items: T[]) {
+  const maps = await getCanonicalStudentNameMaps();
+  return items.map(item => enrichStudentName(item, maps));
 }
 
 function getGameSessionActor(req: express.Request, payload: any = {}) {
@@ -505,7 +795,7 @@ function grammarAttemptToActivity(attempt: any, set: any = {}) {
     userId: attempt.userId,
     studentId: attempt.userId,
     studentName: attempt.studentName || "Học sinh",
-    guestId: attempt.userId || normalizePersonName(attempt.studentName || ""),
+    guestId: attempt.guestId || "",
     assignmentId: attempt.assignmentId || "",
     classId: attempt.classId || set.classId || gradeClass.classId || "",
     className: attempt.className || set.className || gradeClass.className || "",
@@ -687,7 +977,7 @@ async function loadLeaderboardEventsFromSources() {
     events.push(grammarAttemptToLeaderboardEvent(data, grammarSetsById.get(data.grammarSetId)));
   });
 
-  return mergeLeaderboardEvents(events);
+  return enrichStudentNames(mergeLeaderboardEvents(events));
 }
 
 async function getGrammarSetMap() {
@@ -1735,10 +2025,14 @@ app.post("/api/register", authenticateUser, async (req, res) => {
     if (requestedPhone && existingPhone && req.user.phoneVerified && requestedPhone !== existingPhone) {
       return res.status(400).json({ error: "Verified phone number cannot be replaced without a new OTP verification." });
     }
+    const nameValidation = validateStudentDisplayName(name || req.user.name);
+    if (!nameValidation.valid) {
+      return res.status(400).json({ error: nameValidation.error });
+    }
     const normalizedPhone = requestedPhone || existingPhone;
     const updatedProfile = {
       ...req.user,
-      name: safeText(name || req.user.name, 120),
+      name: nameValidation.value,
       phone: normalizedPhone || undefined,
       phoneVerified: Boolean(req.user.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
       role: req.user.role,
@@ -1780,6 +2074,26 @@ app.post("/api/ai/ipa", authenticateUser, async (req, res) => {
       aiProvider: "fallback",
       aiErrors: [sanitizeAiError("AI", error)]
     });
+  }
+});
+
+// Name-only student identity. This endpoint never accepts roles or permissions.
+app.post("/api/guest-profiles/resolve", async (req, res) => {
+  try {
+    const profile = await resolveGuestProfile(
+      req.body?.guestId,
+      req.body?.displayName || req.body?.studentName,
+      true,
+      { classId: req.body?.classId, className: req.body?.className }
+    );
+    res.json({
+      id: profile.id,
+      guestId: profile.guestId || profile.id,
+      displayName: profile.displayName || profile.name,
+      status: profile.status
+    });
+  } catch (err: any) {
+    sendApiError(res, err);
   }
 });
 
@@ -2254,7 +2568,7 @@ app.get("/api/public/results", async (req, res) => {
     });
 
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(list);
+    res.json(await enrichStudentNames(list));
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3108,7 +3422,7 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
 
 app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const set = await getGrammarSetOr404(req.params.id);
     if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
@@ -3180,7 +3494,7 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
 
 app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
@@ -3226,7 +3540,7 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
 
 app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
@@ -3274,7 +3588,7 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
 
 app.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
@@ -3291,7 +3605,7 @@ app.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, asy
 
 app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để xem lịch sử làm bài." });
     const set = await getGrammarSetOr404(req.params.id);
     const snapshot = await adminDb.collection("grammar_attempts").get();
@@ -3323,7 +3637,7 @@ app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["t
       if (attempt.grammarSetId === set.id) attempts.push(attempt);
     });
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
-    res.json({ set, attempts });
+    res.json({ set, attempts: await enrichStudentNames(attempts) });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3344,12 +3658,13 @@ app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["tea
     const sessions: any[] = [];
     snapshot.forEach(doc => {
       const data = { id: doc.id, ...doc.data() };
-      if (data.vocabSetId !== set.id || !data.completedAt) return;
-      sessions.push(omitSensitiveSessionFields(data));
+      if (data.vocabSetId !== set.id) return;
+      const interrupted = !data.completedAt && Date.now() - new Date(data.lastSavedAt || data.startedAt || data.createdAt || 0).getTime() >= 24 * 60 * 60 * 1000;
+      sessions.push(omitSensitiveSessionFields({ ...data, displayStatus: data.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress" }));
     });
     sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
 
-    res.json({ set, sessions });
+    res.json({ set, sessions: await enrichStudentNames(sessions) });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3359,8 +3674,15 @@ app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["tea
 app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
   try {
     const payload = req.body || {};
-    const actor = getGameSessionActor(req, payload);
+    let actor = getGameSessionActor(req, payload);
     if (!actor) return res.status(401).json({ error: "Student identity is required to start a game session." });
+    if (actor.ownerType === "guest") {
+      const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
+        classId: payload.classId,
+        className: payload.className
+      });
+      actor = { ...actor, studentName: profile.displayName || profile.name };
+    }
     const id = `session-${crypto.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = new Date().toISOString();
@@ -3368,6 +3690,9 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     const gameId = safeText(payload.gameId, 120);
     if (!vocabSetId || !gameId) {
       return res.status(400).json({ error: "vocabSetId and gameId are required." });
+    }
+    if (!SESSION_V2_GAME_IDS.has(gameId)) {
+      return res.status(400).json({ error: "Game không được hỗ trợ." });
     }
     let assignment: any = null;
     if (payload.assignmentId) {
@@ -3429,6 +3754,10 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       startedAt: now,
       createdAt: now,
       status: "started",
+      schemaVersion: 2,
+      gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
+      privateSnapshot: buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder),
+      lastSavedAt: now,
       score: 0,
       totalQuestions: 0,
       correctAnswers: 0,
@@ -3505,6 +3834,53 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
   } catch (err: any) {
     sendApiError(res, err);
   }
+});
+
+app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
+  try {
+    const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
+    if (!sessionDoc.exists) return res.status(404).json({ error: "Session không tồn tại." });
+    const session = sessionDoc.data();
+    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền lưu lượt chơi này." });
+    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session cũ không hỗ trợ lưu tiến độ." });
+    if (session.status === "completed") return res.json({ saved: true, completed: true });
+    const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
+    if (!action.actionId) return res.status(400).json({ error: "Thiếu actionId." });
+    const actionId = `${req.params.id}:${action.actionId}`;
+    const actionRef = adminDb.collection("game_session_actions").doc(actionId);
+    const existing = await actionRef.get();
+    if (!existing.exists) {
+      const snapshot = await adminDb.collection("game_session_actions").get();
+      let sequenceConflict = false;
+      snapshot.forEach(doc => { const data = doc.data(); if (data.sessionId === req.params.id && data.sequence === action.sequence) sequenceConflict = true; });
+      if (sequenceConflict) return res.status(409).json({ error: "Action sequence đã tồn tại." });
+      await actionRef.set({ ...action, id: actionId, sessionId: req.params.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      await adminDb.collection("game_sessions").doc(req.params.id).update({ status: "in_progress", lastSavedAt: new Date().toISOString() });
+    }
+    res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
+  } catch (err: any) { sendApiError(res, err); }
+});
+
+app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
+  try {
+    const docRef = adminDb.collection("game_sessions").doc(req.params.id);
+    const existing = await docRef.get();
+    if (!existing.exists) return res.status(404).json({ error: "Session không tồn tại." });
+    const session = existing.data();
+    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền nộp lượt chơi này." });
+    if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
+    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session cũ phải dùng endpoint hoàn thành cũ." });
+    const snapshot = await adminDb.collection("game_session_actions").get();
+    const actions: any[] = [];
+    snapshot.forEach(doc => { const data = doc.data(); if (data.sessionId === req.params.id) actions.push(data); });
+    const result = gradeGameSessionV2(session, actions);
+    const completedAt = new Date().toISOString();
+    const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
+    const completed = { ...session, ...result, status: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1000), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
+    await docRef.set(completed);
+    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...completed, id: req.params.id }));
+    res.json(omitSensitiveSessionFields(completed));
+  } catch (err: any) { sendApiError(res, err); }
 });
 
 // 21. PRONUNCIATION ATTEMPTS: Save one speaking practice attempt
@@ -3618,7 +3994,7 @@ app.get("/api/results", authenticateUser, async (req, res) => {
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(list);
+    res.json(await enrichStudentNames(list));
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3668,6 +4044,119 @@ app.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), asyn
     const users: any[] = [];
     snapshot.forEach(doc => users.push(doc.data()));
     res.json(users);
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+// Unified account directory: Firebase users plus name-only student profiles.
+app.get("/api/admin/accounts", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    await ensureLegacyGuestProfilesOnce();
+    const [usersSnapshot, guestsSnapshot] = await Promise.all([
+      adminDb.collection("users").get(),
+      adminDb.collection("guest_profiles").get()
+    ]);
+    const accounts: any[] = [];
+    usersSnapshot.forEach((doc: any) => {
+      const data = doc.data();
+      accounts.push({
+        ...data,
+        id: data.id || doc.id,
+        name: data.name || data.displayName || "Chưa đặt tên",
+        accountType: "registered",
+        status: data.status || "active"
+      });
+    });
+    guestsSnapshot.forEach((doc: any) => {
+      const data = doc.data();
+      accounts.push({
+        ...data,
+        id: data.id || doc.id,
+        guestId: data.guestId || doc.id,
+        name: data.displayName || data.name || "Chưa đặt tên",
+        email: "",
+        phone: "",
+        role: "student",
+        accountType: "guest",
+        status: data.status || "active"
+      });
+    });
+    accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime()
+      - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
+    res.json(accounts);
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+app.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+    const userRef = adminDb.collection("users").doc(req.params.userId);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return res.status(404).json({ error: "Người dùng không tồn tại." });
+    const existing = userDoc.data();
+    const now = new Date().toISOString();
+    await userRef.update({ name: validation.value, updatedAt: now });
+
+    let authWarning = "";
+    try {
+      await adminAuth.updateUser(req.params.userId, { displayName: validation.value });
+    } catch (authErr: any) {
+      authWarning = authErr?.message || "Không đồng bộ được tên lên Firebase Authentication.";
+      console.warn(`Could not update Firebase display name for ${req.params.userId}: ${authWarning}`);
+    }
+    await logAuditAction(req.user.id, req.user.name, req.user.email, "UPDATE_USER_DISPLAY_NAME",
+      `Đổi tên tài khoản "${existing?.name || req.params.userId}" thành "${validation.value}"`);
+    res.json({ success: true, userId: req.params.userId, displayName: validation.value, authWarning });
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+app.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
+    const profileDoc = await profileRef.get();
+    if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
+    const existing = profileDoc.data();
+    await profileRef.update({
+      displayName: validation.value,
+      name: validation.value,
+      normalizedName: normalizePersonName(validation.value),
+      needsReview: false,
+      updatedAt: new Date().toISOString()
+    });
+    await logAuditAction(req.user.id, req.user.name, req.user.email, "UPDATE_GUEST_DISPLAY_NAME",
+      `Đổi tên học sinh khách "${existing?.displayName || req.params.guestId}" thành "${validation.value}"`);
+    res.json({ success: true, guestId: req.params.guestId, displayName: validation.value });
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+app.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const status = req.body?.status;
+    if (!["active", "blocked"].includes(status)) {
+      return res.status(400).json({ error: "Trạng thái hồ sơ không hợp lệ." });
+    }
+    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
+    const profileDoc = await profileRef.get();
+    if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
+    const existing = profileDoc.data();
+    await profileRef.update({ status, updatedAt: new Date().toISOString() });
+    await logAuditAction(req.user.id, req.user.name, req.user.email,
+      status === "blocked" ? "LOCK_GUEST_PROFILE" : "UNLOCK_GUEST_PROFILE",
+      `Chuyển hồ sơ học sinh "${existing?.displayName || req.params.guestId}" thành ${status}`);
+    res.json({ success: true, guestId: req.params.guestId, status });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -4002,7 +4491,8 @@ function getRequestShareToken(req: express.Request) {
 
 function getGuestIdentity(req: express.Request) {
   const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
-  const studentName = safeText(req.body?.studentName || req.query?.studentName, 120);
+  const validation = validateStudentDisplayName(req.body?.studentName || req.query?.studentName);
+  const studentName = validation.valid ? validation.value : "";
   if (!guestId || !studentName) return null;
   return {
     id: guestId,
@@ -4015,10 +4505,13 @@ function getGuestIdentity(req: express.Request) {
   };
 }
 
-function getGrammarActor(req: express.Request) {
+async function getGrammarActor(req: express.Request) {
   if ((req as any).authBlocked) return null;
   if (req.user) return { ...req.user, name: req.user.name || "Học sinh", isGuest: false };
-  return getGuestIdentity(req);
+  const guest = getGuestIdentity(req);
+  if (!guest) return null;
+  const profile = await resolveGuestProfile(guest.id, guest.name);
+  return { ...guest, name: profile.displayName || profile.name };
 }
 
 function canOpenGrammarSetForLearning(set: any, actor: any, req: express.Request) {

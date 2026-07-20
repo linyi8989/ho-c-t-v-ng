@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, AlertCircle, Sparkles } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -14,6 +14,7 @@ interface QuizGameProps {
     autoPlaySound?: boolean;
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -26,6 +27,7 @@ export default function QuizGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -161,6 +163,7 @@ export default function QuizGame({
 
     const isCorrect = option === correctAnswer;
     upsertAnswerDetail(buildAnswerDetail(currentItem, currentIndex, option, options, true));
+    onAction?.({ type: 'quiz.answer', wordId: currentItem.id, userAnswer: option });
     if (isCorrect) {
       // Play a high pitched audio cue or speak the term
       if (isSoundOn) {

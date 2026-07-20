@@ -21,6 +21,8 @@ let transactionDepth = 0;
 
 const collectionTableMap: Record<string, string> = {
   users: 'users',
+  guest_profiles: 'guest_profiles',
+  guestprofiles: 'guest_profiles',
   vocab_sets: 'vocab_sets',
   vocabsets: 'vocab_sets',
   classes: 'classes',
@@ -31,6 +33,8 @@ const collectionTableMap: Record<string, string> = {
   game_sessions: 'game_results',
   gamesessions: 'game_results',
   game_results: 'game_results',
+  game_session_actions: 'game_session_actions',
+  gamesessionactions: 'game_session_actions',
   gameresults: 'game_results',
   leaderboard_events: 'leaderboard_events',
   leaderboardevents: 'leaderboard_events',
@@ -261,6 +265,31 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'guest_profiles') {
+    run(
+      `INSERT INTO guest_profiles (id, display_name, normalized_name, status, created_at, updated_at, last_active_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        normalized_name = excluded.normalized_name,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        last_active_at = excluded.last_active_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.displayName || data.name || null,
+        data.normalizedName || null,
+        data.status || 'active',
+        createdAt,
+        updatedAt,
+        data.lastActiveAt || data.last_active_at || updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (table === 'vocab_sets') {
     withTransaction(() => {
       run(
@@ -416,6 +445,16 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'game_session_actions') {
+    run(
+      `INSERT INTO game_session_actions (id, session_id, sequence, action_type, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json`,
+      [id, data.sessionId || null, Number(data.sequence || 0), data.type || null, createdAt, updatedAt, dataJson]
+    );
+    return;
+  }
+
   if (table === 'leaderboard_events') {
     run(
       `INSERT INTO leaderboard_events (id, source_type, source_id, student_key, class_id, vocab_set_id, score, completed_at, expires_at, data_json)
@@ -523,6 +562,17 @@ function runSchemaMigration() {
       data_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS guest_profiles (
+      id TEXT PRIMARY KEY,
+      display_name TEXT,
+      normalized_name TEXT,
+      status TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      last_active_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS vocab_sets (
       id TEXT PRIMARY KEY,
       title TEXT,
@@ -604,6 +654,16 @@ function runSchemaMigration() {
       data_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS game_session_actions (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS leaderboard_events (
       id TEXT PRIMARY KEY,
       source_type TEXT,
@@ -682,6 +742,9 @@ function runSchemaMigration() {
 
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_normalized_name ON guest_profiles(normalized_name);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_status ON guest_profiles(status);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_last_active_at ON guest_profiles(last_active_at);
     CREATE INDEX IF NOT EXISTS idx_vocab_items_vocab_set_id ON vocab_items(vocab_set_id);
     CREATE INDEX IF NOT EXISTS idx_class_members_class_id ON class_members(class_id);
     CREATE INDEX IF NOT EXISTS idx_class_members_user_id ON class_members(user_id);
@@ -693,6 +756,8 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_session_actions_session_sequence ON game_session_actions(session_id, sequence);
+    CREATE INDEX IF NOT EXISTS idx_game_session_actions_session_id ON game_session_actions(session_id);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_completed_at ON leaderboard_events(completed_at);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_class_id ON leaderboard_events(class_id);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_student_key ON leaderboard_events(student_key);

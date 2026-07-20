@@ -3,7 +3,7 @@ import {
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
 } from 'lucide-react';
-import { Assignment, Class, ClassMember, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
+import { Assignment, Class, ClassMember, GameAction, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
@@ -17,6 +17,7 @@ import MemoryGame from './MemoryGame';
 import MillionaireGame from './MillionaireGame';
 import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
+import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -137,6 +138,7 @@ export default function StudentLearningArea({
   const [guestId] = useState(() => getStoredGuestId());
   const [studentName, setStudentName] = useState(() => propStudentName || getStoredStudentName());
   const [nameSubmitted, setNameSubmitted] = useState(() => !!(propStudentName || getStoredStudentName()));
+  const [nameError, setNameError] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
   const [activeItems, setActiveItems] = useState<VocabItem[]>([...vocabSet.items]);
   const [isRandomized, setIsRandomized] = useState(false);
@@ -150,6 +152,12 @@ export default function StudentLearningArea({
   const [leaderboardSessions, setLeaderboardSessions] = useState<GameSession[]>([]);
   const sessionGenerationRef = useRef(0);
   const completedSessionIdsRef = useRef<Set<string>>(new Set());
+  const actionSequenceRef = useRef(0);
+  const actionQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const gameActionsRef = useRef<GameAction[]>([]);
+  const pendingCompletionRef = useRef<{ score: number; correct: number; incorrect: number; details?: GameCompletionDetails } | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<'creating' | 'ready' | 'create_failed' | 'saving' | 'saved' | 'save_failed'>('creating');
+  const [saveError, setSaveError] = useState('');
 
   // Load initial game if requested
   useEffect(() => {
@@ -272,11 +280,37 @@ export default function StudentLearningArea({
     };
   }, []);
 
-  const handleSubmitName = () => {
-    const normalizedName = studentName.trim();
-    if (!normalizedName) return;
+  const handleSubmitName = async () => {
+    const validation = validateStudentDisplayName(studentName);
+    if (!validation.valid) {
+      setNameError(validation.error);
+      return;
+    }
+
+    let normalizedName = validation.value;
+    if (!token) {
+      try {
+        const res = await fetch('/api/guest-profiles/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            guestId,
+            displayName: normalizedName,
+            classId: assignmentClassId || vocabSet.classId || getLessonGradeClassId(vocabSet),
+            className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Không thể lưu hồ sơ học sinh.');
+        normalizedName = data.displayName || normalizedName;
+      } catch (err: any) {
+        setNameError(err.message || 'Không thể lưu hồ sơ học sinh.');
+        return;
+      }
+    }
 
     setStudentName(normalizedName);
+    setNameError('');
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, normalizedName);
@@ -297,6 +331,12 @@ export default function StudentLearningArea({
     completedSessionIdsRef.current.clear();
     setGameResult(null);
     setSession(null);
+    setSessionStatus('creating');
+    setSaveError('');
+    actionSequenceRef.current = 0;
+    actionQueueRef.current = Promise.resolve();
+    gameActionsRef.current = [];
+    pendingCompletionRef.current = null;
 
     // Create a new session on the server
     fetch('/api/game-sessions', {
@@ -313,6 +353,7 @@ export default function StudentLearningArea({
         gameId: selectedGame.gameId,
         gameName: selectedGame.title,
         gameType: selectedGame.category,
+        itemOrder: activeItems.map(item => item.id),
         studentName: studentName,
         studentId: guestId,
         guestId,
@@ -327,6 +368,7 @@ export default function StudentLearningArea({
     .then(data => {
       if (!controller.signal.aborted && generation === sessionGenerationRef.current) {
         setSession(data);
+        setSessionStatus('ready');
       }
     })
     .catch((err) => {
@@ -334,6 +376,8 @@ export default function StudentLearningArea({
       console.warn("Backend starting game session failed; score persistence is disabled for this attempt:", err);
       if (generation === sessionGenerationRef.current) {
         setSession(null);
+        setSessionStatus('create_failed');
+        setSaveError(err.message || 'Không thể tạo lượt học.');
       }
     });
 
@@ -349,6 +393,7 @@ export default function StudentLearningArea({
       setActiveItems([...vocabSet.items].sort(() => Math.random() - 0.5));
     }
     setIsRandomized(!isRandomized);
+    setGameRunId(prev => prev + 1);
   };
 
   const handleToggleFullscreen = () => {
@@ -374,87 +419,71 @@ export default function StudentLearningArea({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  const persistGameAction = (input: Omit<GameAction, 'actionId' | 'sequence'>) => {
+    if (!session) return;
+    const sequence = actionSequenceRef.current++;
+    const actionId = `${session.id}-${sequence}`;
+    const action: GameAction = { ...input, actionId, sequence };
+    gameActionsRef.current.push(action);
+    const sendAction = async (queuedAction: GameAction) => {
+      const res = await fetch(`/api/game-sessions/${session.id}/actions/${encodeURIComponent(actionId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: queuedAction, guestId, sessionToken: session.sessionToken })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Không lưu được tiến độ.');
+    };
+    actionQueueRef.current = actionQueueRef.current.catch(() => undefined).then(() => sendAction(action)).catch((err) => {
+      setSaveError(err.message || 'Không lưu được tiến độ.');
+      setSessionStatus('save_failed');
+      throw err;
+    });
+  };
+
+  const submitCompletedSession = async () => {
+    if (!session || !pendingCompletionRef.current) return;
+    setSessionStatus('saving');
+    setSaveError('');
+    try {
+      await actionQueueRef.current.catch(() => undefined);
+      for (const action of gameActionsRef.current) {
+        const res = await fetch(`/api/game-sessions/${session.id}/actions/${encodeURIComponent(action.actionId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ action, guestId, sessionToken: session.sessionToken })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Không đồng bộ được tiến độ.');
+      }
+      const res = await fetch(`/api/game-sessions/${session.id}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ guestId, sessionToken: session.sessionToken })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Không lưu được kết quả.');
+      completedSessionIdsRef.current.add(session.id);
+      setSession(data);
+      setGameResult({ score: data.score, correct: data.correctAnswers, incorrect: data.incorrectAnswers });
+      setLeaderboardSessions(prev => [data, ...prev.filter(item => item.id !== data.id)]);
+      setSessionStatus('saved');
+    } catch (err: any) {
+      setSaveError(err.message || 'Không lưu được kết quả.');
+      setSessionStatus('save_failed');
+    }
+  };
+
   const handleGameComplete = (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => {
     setGameResult({ score, correct, incorrect });
-
-    if (!session) return;
+    pendingCompletionRef.current = { score, correct, incorrect, details };
+    if (!session) {
+      setSessionStatus('create_failed');
+      setSaveError('Lượt học chưa được tạo nên chưa thể lưu kết quả.');
+      return;
+    }
     if (completedSessionIdsRef.current.has(session.id)) return;
-    completedSessionIdsRef.current.add(session.id);
-
-    const endedAt = new Date().toISOString();
-    const completedSessionId = session.id;
-    const completedGeneration = sessionGenerationRef.current;
-    const startedAtMs = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
-    const durationMs = Math.max(0, new Date(endedAt).getTime() - startedAtMs);
-    const totalQuestions = correct + incorrect;
-    const accuracy = totalQuestions > 0 ? Math.round((correct / totalQuestions) * 100) : 0;
-    const answerDetails = (details?.answerDetails || []).slice(0, 200).map(detail => ({
-      questionIndex: detail.questionIndex,
-      wordId: detail.wordId,
-      word: detail.word,
-      questionText: detail.questionText,
-      correctAnswer: detail.correctAnswer,
-      userAnswer: detail.userAnswer,
-      selectedAnswer: detail.selectedAnswer,
-      isCorrect: Boolean(detail.isCorrect),
-      timeSpentMs: detail.timeSpentMs,
-      options: detail.options?.slice(0, 6)
-    }));
-
-    const completedSession: GameSession = {
-      ...session,
-      score,
-      totalQuestions,
-      correctAnswers: correct,
-      incorrectAnswers: incorrect,
-      endedAt,
-      completedAt: endedAt,
-      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS),
-      durationMs,
-      durationSeconds: Math.round(durationMs / 1000),
-      accuracy,
-      answerDetails
-    };
-
-    setLeaderboardSessions(prev => {
-      const withoutCurrent = prev.filter(item => item.id !== completedSession.id);
-      return [completedSession, ...withoutCurrent];
-    });
-
-    // Update session stats on the server
-    fetch(`/api/game-sessions/${session.id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({
-        score,
-        totalQuestions,
-        correctAnswers: correct,
-        incorrectAnswers: incorrect,
-        endedAt,
-        expiresAt: completedSession.expiresAt,
-        durationMs,
-        durationSeconds: Math.round(durationMs / 1000),
-        accuracy,
-        answerDetails,
-        guestId,
-        sessionToken: session.sessionToken
-      })
-    })
-    .then(res => {
-      if (!res.ok) throw new Error("Backend game-sessions complete API failed");
-      return res.json();
-    })
-    .then(data => {
-      if (sessionGenerationRef.current === completedGeneration && data?.id === completedSessionId) {
-        setSession(data);
-      }
-    })
-    .catch((err) => {
-      console.warn("Backend updating game session failed; direct Firestore update is disabled:", err);
-    });
+    void submitCompletedSession();
   };
 
   const playTermSound = (term: string) => {
@@ -512,6 +541,7 @@ export default function StudentLearningArea({
       items: activeItems,
       config: selectedGame.config,
       onComplete: handleGameComplete,
+      onAction: persistGameAction,
       isMuted,
       setIsMuted,
       isRandomized,
@@ -632,12 +662,14 @@ export default function StudentLearningArea({
                   placeholder="Nhập họ và tên của em..."
                   value={studentName}
                   onChange={(e) => setStudentName(e.target.value)}
+                  maxLength={STUDENT_NAME_MAX_LENGTH}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSubmitName();
                   }}
                   className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-center text-lg"
                   id="student-name-input"
                 />
+                {nameError && <p className="text-sm font-bold text-rose-600">{nameError}</p>}
                 <button
                   onClick={handleSubmitName}
                   disabled={!studentName.trim()}
@@ -718,7 +750,14 @@ export default function StudentLearningArea({
 
                 {/* Render game area */}
                 <div className="relative" id="active-game-viewport">
-                  {renderActiveGame()}
+                  {sessionStatus === 'creating' ? (
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-8 text-center font-bold text-blue-800">Đang chuẩn bị lượt học...</div>
+                  ) : sessionStatus === 'create_failed' && !gameResult ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center space-y-3">
+                      <p className="font-bold text-rose-700">{saveError || 'Không thể tạo lượt học.'}</p>
+                      <button onClick={restartCurrentGame} className="rounded-xl bg-blue-600 px-5 py-2 font-bold text-white">Thử lại</button>
+                    </div>
+                  ) : renderActiveGame()}
                 </div>
 
                 {/* Score Summary Modal overlay after complete */}
@@ -730,7 +769,7 @@ export default function StudentLearningArea({
                     <div className="space-y-1">
                       <h3 className="text-3xl font-black text-white">Hoàn thành bài học!</h3>
                       <p className="text-slate-300 text-sm max-w-xs mx-auto leading-relaxed">
-                        Điểm số của em đã được ghi nhận thành công trên hệ thống của giáo viên.
+                        {sessionStatus === 'saved' ? 'Điểm số của em đã được ghi nhận thành công trên hệ thống của giáo viên.' : sessionStatus === 'saving' ? 'Đang lưu kết quả lên hệ thống...' : 'Kết quả chưa được lưu. Em hãy thử lại.'}
                       </p>
                     </div>
 
@@ -750,6 +789,9 @@ export default function StudentLearningArea({
                     </div>
 
                     <div className="flex space-x-3">
+                      {sessionStatus === 'save_failed' && (
+                        <button onClick={() => void submitCompletedSession()} className="py-3 px-6 bg-amber-400 text-slate-950 font-bold rounded-xl">Thử lưu lại</button>
+                      )}
                       <button
                         onClick={restartCurrentGame}
                         className="py-3 px-6 bg-white hover:bg-emerald-50 text-slate-950 border border-emerald-300 font-bold rounded-xl transition-all cursor-pointer text-sm"

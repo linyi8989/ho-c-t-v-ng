@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, HelpCircle, Trophy, Timer } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -11,6 +11,7 @@ interface MemoryGameProps {
     gridSize?: 'small' | 'large';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -32,6 +33,7 @@ export default function MemoryGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -167,6 +169,7 @@ export default function MemoryGame({
       const secondCard = nextCards[nextFlipped[1]];
 
       const isMatch = firstCard.itemId === secondCard.itemId && firstCard.type !== secondCard.type;
+      onAction?.({ type: 'memory.move', firstItemId: firstCard.itemId, firstSide: firstCard.type, secondItemId: secondCard.itemId, secondSide: secondCard.type });
       answerDetailsRef.current = [
         ...answerDetailsRef.current,
         {

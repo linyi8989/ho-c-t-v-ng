@@ -216,6 +216,26 @@ export interface GameSession {
   incorrectAnswers: number;
   answerDetails?: GameAnswerDetail[];
   sessionToken?: string;
+  schemaVersion?: 1 | 2;
+  gradingMode?: 'client-legacy' | 'server' | 'server-self-report';
+  saveStatus?: 'started' | 'in_progress' | 'completed' | 'abandoned';
+  gameScore?: number;
+  snapshot?: { itemOrder: string[]; items: VocabItem[]; config: Record<string, any> };
+}
+
+export interface GameAction {
+  actionId: string;
+  sequence: number;
+  type: 'flashcard.rate' | 'quiz.answer' | 'fill.answer' | 'matching.attempt' | 'memory.move' | 'millionaire.answer' | 'speaking.attempt';
+  wordId?: string;
+  userAnswer?: string;
+  firstItemId?: string;
+  firstSide?: 'term' | 'meaning';
+  secondItemId?: string;
+  secondSide?: 'term' | 'meaning';
+  recognizedText?: string;
+  responseMs?: number;
+  attemptNumber?: number;
 }
 
 export interface GameAnswerDetail {

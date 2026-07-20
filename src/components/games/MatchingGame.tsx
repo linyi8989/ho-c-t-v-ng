@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, RotateCcw, Timer, Zap, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -11,6 +11,7 @@ interface MatchingGameProps {
     matchType: 'term_to_meaning';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -30,6 +31,7 @@ export default function MatchingGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -166,6 +168,7 @@ export default function MatchingGame({
       setAttempts(attemptNumber);
 
       const isPair = selectedCard.itemId === card.itemId && selectedCard.type !== card.type;
+      onAction?.({ type: 'matching.attempt', firstItemId: selectedCard.itemId, firstSide: selectedCard.type, secondItemId: card.itemId, secondSide: card.type });
       answerDetailsRef.current = [
         ...answerDetailsRef.current,
         {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Volume2, HelpCircle, CheckCircle } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -14,6 +14,7 @@ interface FlashcardGameProps {
     autoPlaySound?: boolean;
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -26,6 +27,7 @@ export default function FlashcardGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -145,6 +147,7 @@ export default function FlashcardGame({
       }
     ];
     setLearnedCount(nextLearned);
+    onAction?.({ type: 'flashcard.rate', wordId: currentItem.id, userAnswer: status });
 
     if (currentIndex < items.length - 1) {
       setCurrentIndex(prev => prev + 1);

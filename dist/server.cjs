@@ -55,6 +55,8 @@ var initPromise = null;
 var transactionDepth = 0;
 var collectionTableMap = {
   users: "users",
+  guest_profiles: "guest_profiles",
+  guestprofiles: "guest_profiles",
   vocab_sets: "vocab_sets",
   vocabsets: "vocab_sets",
   classes: "classes",
@@ -65,6 +67,8 @@ var collectionTableMap = {
   game_sessions: "game_results",
   gamesessions: "game_results",
   game_results: "game_results",
+  game_session_actions: "game_session_actions",
+  gamesessionactions: "game_session_actions",
   gameresults: "game_results",
   leaderboard_events: "leaderboard_events",
   leaderboardevents: "leaderboard_events",
@@ -270,6 +274,30 @@ function upsertDoc(collectionName, id, inputData) {
     );
     return;
   }
+  if (table === "guest_profiles") {
+    run(
+      `INSERT INTO guest_profiles (id, display_name, normalized_name, status, created_at, updated_at, last_active_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        normalized_name = excluded.normalized_name,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        last_active_at = excluded.last_active_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.displayName || data.name || null,
+        data.normalizedName || null,
+        data.status || "active",
+        createdAt,
+        updatedAt,
+        data.lastActiveAt || data.last_active_at || updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
   if (table === "vocab_sets") {
     withTransaction(() => {
       run(
@@ -418,6 +446,15 @@ function upsertDoc(collectionName, id, inputData) {
     );
     return;
   }
+  if (table === "game_session_actions") {
+    run(
+      `INSERT INTO game_session_actions (id, session_id, sequence, action_type, created_at, updated_at, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json`,
+      [id, data.sessionId || null, Number(data.sequence || 0), data.type || null, createdAt, updatedAt, dataJson]
+    );
+    return;
+  }
   if (table === "leaderboard_events") {
     run(
       `INSERT INTO leaderboard_events (id, source_type, source_id, student_key, class_id, vocab_set_id, score, completed_at, expires_at, data_json)
@@ -519,6 +556,17 @@ function runSchemaMigration() {
       data_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS guest_profiles (
+      id TEXT PRIMARY KEY,
+      display_name TEXT,
+      normalized_name TEXT,
+      status TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      last_active_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS vocab_sets (
       id TEXT PRIMARY KEY,
       title TEXT,
@@ -600,6 +648,16 @@ function runSchemaMigration() {
       data_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS game_session_actions (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      action_type TEXT NOT NULL,
+      created_at TEXT,
+      updated_at TEXT,
+      data_json TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS leaderboard_events (
       id TEXT PRIMARY KEY,
       source_type TEXT,
@@ -678,6 +736,9 @@ function runSchemaMigration() {
 
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_normalized_name ON guest_profiles(normalized_name);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_status ON guest_profiles(status);
+    CREATE INDEX IF NOT EXISTS idx_guest_profiles_last_active_at ON guest_profiles(last_active_at);
     CREATE INDEX IF NOT EXISTS idx_vocab_items_vocab_set_id ON vocab_items(vocab_set_id);
     CREATE INDEX IF NOT EXISTS idx_class_members_class_id ON class_members(class_id);
     CREATE INDEX IF NOT EXISTS idx_class_members_user_id ON class_members(user_id);
@@ -689,6 +750,8 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_game_results_user_id ON game_results(user_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_game_id ON game_results(game_id);
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_game_session_actions_session_sequence ON game_session_actions(session_id, sequence);
+    CREATE INDEX IF NOT EXISTS idx_game_session_actions_session_id ON game_session_actions(session_id);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_completed_at ON leaderboard_events(completed_at);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_class_id ON leaderboard_events(class_id);
     CREATE INDEX IF NOT EXISTS idx_leaderboard_events_student_key ON leaderboard_events(student_key);
@@ -1417,6 +1480,39 @@ async function getStorageDiagnostics() {
   };
 }
 
+// src/lib/studentIdentity.ts
+var STUDENT_NAME_MIN_LENGTH = 2;
+var STUDENT_NAME_MAX_LENGTH = 20;
+function normalizeStudentDisplayName(value) {
+  return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+function validateStudentDisplayName(value) {
+  const normalized = normalizeStudentDisplayName(value);
+  const length = Array.from(normalized).length;
+  if (length < STUDENT_NAME_MIN_LENGTH) {
+    return {
+      valid: false,
+      value: normalized,
+      error: `T\xEAn hi\u1EC3n th\u1ECB ph\u1EA3i c\xF3 \xEDt nh\u1EA5t ${STUDENT_NAME_MIN_LENGTH} k\xFD t\u1EF1.`
+    };
+  }
+  if (length > STUDENT_NAME_MAX_LENGTH) {
+    return {
+      valid: false,
+      value: normalized,
+      error: `T\xEAn hi\u1EC3n th\u1ECB kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${STUDENT_NAME_MAX_LENGTH} k\xFD t\u1EF1.`
+    };
+  }
+  if (!/^[\p{L}\p{M}]+(?:[ '\u2019-][\p{L}\p{M}]+)*$/u.test(normalized)) {
+    return {
+      valid: false,
+      value: normalized,
+      error: "T\xEAn ch\u1EC9 \u0111\u01B0\u1EE3c ch\u1EE9a ch\u1EEF c\xE1i, kho\u1EA3ng tr\u1EAFng, d\u1EA5u nh\xE1y ho\u1EB7c d\u1EA5u g\u1EA1ch n\u1ED1i."
+    };
+  }
+  return { valid: true, value: normalized, error: "" };
+}
+
 // server.ts
 import_dotenv.default.config();
 var app2 = (0, import_express.default)();
@@ -1625,8 +1721,327 @@ function getRequestSessionToken(req) {
   return safeText(req.body?.sessionToken || req.headers["x-session-token"], 160);
 }
 function omitSensitiveSessionFields(session) {
-  const { sessionTokenHash, ...safeSession } = session;
+  const { sessionTokenHash, privateSnapshot, ...safeSession } = session;
   return safeSession;
+}
+var SESSION_V2_GAME_IDS = /* @__PURE__ */ new Set([
+  "flashcard-en-vi",
+  "flashcard-vi-en",
+  "flashcard-sound",
+  "quiz-en-vi",
+  "quiz-vi-en",
+  "quiz-sound",
+  "fill-meaning",
+  "fill-missing",
+  "matching-word-meaning",
+  "memory-match",
+  "millionaire-vocab",
+  "speaking-ai"
+]);
+function normalizeGameAnswer(value) {
+  return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/[‘’‚‛`´]/g, "'").replace(/\s+/g, " ");
+}
+function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
+  const canonicalItems = (Array.isArray(vocabSet.items) ? vocabSet.items : []).slice(0, 200).map((item, index) => ({
+    id: safeText(item.id || `item-${index + 1}`, 160),
+    term: safeText(item.term, 500),
+    meaning: safeText(item.meaning, 1e3),
+    example: safeText(item.example, 1500),
+    ipa: safeText(item.ipa, 160),
+    audioUrl: normalizeAudioUrlForClient(item.audioUrl),
+    displayOrder: Number(item.displayOrder || index + 1)
+  })).filter((item) => item.id && item.term);
+  const byId = new Map(canonicalItems.map((item) => [item.id, item]));
+  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id) => safeText(id, 160)).filter((id, index, list) => id && byId.has(id) && list.indexOf(id) === index) : [];
+  const items = orderedIds.length ? orderedIds.map((id) => byId.get(id)) : canonicalItems;
+  const config = gameId.startsWith("quiz-") ? { answerType: gameId === "quiz-en-vi" ? "meaning" : "term", questionType: gameId === "quiz-vi-en" ? "meaning" : gameId === "quiz-sound" ? "sound" : "term" } : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
+  return { itemOrder: items.map((item) => item.id), items, config };
+}
+function sanitizeGameAction(input) {
+  const type = safeText(input?.type, 60);
+  const allowed = /* @__PURE__ */ new Set(["flashcard.rate", "quiz.answer", "fill.answer", "matching.attempt", "memory.move", "millionaire.answer", "speaking.attempt"]);
+  if (!allowed.has(type)) throw createHttpError(400, "Game action type is not supported.");
+  const sequence = Number(input?.sequence);
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > 1e3) throw createHttpError(400, "Invalid game action sequence.");
+  return {
+    actionId: safeText(input?.actionId, 120),
+    type,
+    sequence,
+    wordId: safeText(input?.wordId, 160),
+    userAnswer: safeText(input?.userAnswer, 1e3),
+    firstItemId: safeText(input?.firstItemId, 160),
+    firstSide: input?.firstSide === "meaning" ? "meaning" : "term",
+    secondItemId: safeText(input?.secondItemId, 160),
+    secondSide: input?.secondSide === "meaning" ? "meaning" : "term",
+    recognizedText: safeText(input?.recognizedText, 1e3),
+    responseMs: Math.max(0, Math.min(12e4, Number(input?.responseMs || 0))),
+    attemptNumber: Math.max(1, Math.min(20, Number(input?.attemptNumber || 1)))
+  };
+}
+function speakingScore(target, recognized, responseMs) {
+  const words = (value) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9'\s]/g, " ").split(/\s+/).filter(Boolean);
+  const targetWords = words(target);
+  const recognizedWords = words(recognized);
+  if (!recognizedWords.length) return { score: 0, correctWords: 0, totalWords: Math.max(1, targetWords.length) };
+  const totalWords = Math.max(1, targetWords.length);
+  const correctWords = targetWords.filter((word, index) => word === recognizedWords[index]).length;
+  const score = Math.min(100, Math.round(correctWords / totalWords * 60) + Math.round(Math.min(recognizedWords.length / totalWords, 1) * 20) + (responseMs <= 8e3 ? 10 : responseMs <= 15e3 ? 6 : 3) + 10);
+  return { score, correctWords, totalWords };
+}
+function gradeGameSessionV2(session, actions) {
+  const items = session.privateSnapshot?.items || [];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const ordered = [...actions].sort((a, b) => a.sequence - b.sequence);
+  const details = [];
+  let correct = 0;
+  let incorrect = 0;
+  let gameScore;
+  if (session.gameId.startsWith("flashcard-")) {
+    const latest = /* @__PURE__ */ new Map();
+    ordered.filter((a) => a.type === "flashcard.rate" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
+    items.forEach((item, index) => {
+      const known = latest.get(item.id)?.userAnswer === "known";
+      if (known) correct++;
+      else incorrect++;
+      details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: known ? "\u0110\xE3 thu\u1ED9c" : "Ch\u01B0a thu\u1ED9c", isCorrect: known });
+    });
+  } else if (session.gameId.startsWith("quiz-")) {
+    const latest = /* @__PURE__ */ new Map();
+    ordered.filter((a) => a.type === "quiz.answer" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
+    items.forEach((item, index) => {
+      const answer = latest.get(item.id)?.userAnswer || "";
+      const expected = session.gameId === "quiz-en-vi" ? item.meaning : item.term;
+      const ok = answer === expected;
+      ok ? correct++ : incorrect++;
+      details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: session.gameId === "quiz-vi-en" ? item.meaning : item.term, correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok });
+    });
+  } else if (session.gameId.startsWith("fill-")) {
+    const latest = /* @__PURE__ */ new Map();
+    ordered.filter((a) => a.type === "fill.answer" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
+    items.forEach((item, index) => {
+      const answer = latest.get(item.id)?.userAnswer || "";
+      const ok = normalizeGameAnswer(answer) === normalizeGameAnswer(item.term);
+      ok ? correct++ : incorrect++;
+      details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.meaning, correctAnswer: item.term, userAnswer: answer, isCorrect: ok });
+    });
+  } else if (session.gameId === "matching-word-meaning" || session.gameId === "memory-match") {
+    const limit = session.gameId === "matching-word-meaning" ? 8 : 6;
+    const active = items.slice(0, limit);
+    const validIds = new Set(active.map((item) => item.id));
+    const matched = /* @__PURE__ */ new Set();
+    ordered.filter((a) => (a.type === "matching.attempt" || a.type === "memory.move") && validIds.has(a.firstItemId) && validIds.has(a.secondItemId)).forEach((a, index) => {
+      const ok = a.firstItemId === a.secondItemId && a.firstSide !== a.secondSide && !matched.has(a.firstItemId);
+      if (ok) matched.add(a.firstItemId);
+      else incorrect++;
+      details.push({ questionIndex: index, wordId: a.firstItemId, questionText: a.firstSide === "term" ? byId.get(a.firstItemId)?.term : byId.get(a.firstItemId)?.meaning, selectedAnswer: a.secondSide === "term" ? byId.get(a.secondItemId)?.term : byId.get(a.secondItemId)?.meaning, isCorrect: ok });
+    });
+    const mistakes = incorrect;
+    correct = matched.size;
+    incorrect += Math.max(0, active.length - matched.size);
+    gameScore = matched.size === active.length ? Math.max(50, 100 - mistakes * (session.gameId === "matching-word-meaning" ? 5 : 4)) : Math.round(correct / Math.max(1, active.length) * 100);
+  } else if (session.gameId === "millionaire-vocab") {
+    const active = items.filter((item) => item.meaning).slice(0, 15);
+    const latest = /* @__PURE__ */ new Map();
+    ordered.filter((a) => a.type === "millionaire.answer" && byId.has(a.wordId)).forEach((a) => {
+      if (!latest.has(a.wordId)) latest.set(a.wordId, a);
+    });
+    for (let index = 0; index < active.length; index++) {
+      const item = active[index];
+      const answer = latest.get(item.id)?.userAnswer || "";
+      const ok = answer === item.meaning;
+      if (ok) correct++;
+      else incorrect++;
+      if (answer) details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: answer, selectedAnswer: answer, isCorrect: ok });
+      if (answer && !ok) break;
+    }
+    incorrect = active.length - correct;
+    const ladder = [100, 200, 300, 500, 1e3, 2e3, 4e3, 8e3, 16e3, 32e3, 64e3, 125e3, 25e4, 5e5, 1e6];
+    gameScore = correct ? ladder[Math.min(correct, ladder.length) - 1] : 0;
+  } else if (session.gameId === "speaking-ai") {
+    const latest = /* @__PURE__ */ new Map();
+    ordered.filter((a) => a.type === "speaking.attempt" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
+    let totalScore = 0;
+    items.forEach((item, index) => {
+      const action = latest.get(item.id);
+      const target = item.example || item.term;
+      const result = speakingScore(target, action?.recognizedText || "", action?.responseMs || 0);
+      totalScore += result.score;
+      result.score >= 70 ? correct++ : incorrect++;
+      details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", isCorrect: result.score >= 70 });
+    });
+    gameScore = items.length ? Math.round(totalScore / items.length) : 0;
+  }
+  const total = correct + incorrect;
+  const score = gameScore !== void 0 && session.gameId !== "millionaire-vocab" ? gameScore : total ? Math.round(correct / total * 100) : 0;
+  return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, rawScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, maxScore: session.gameId === "millionaire-vocab" ? 1e6 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
+}
+function getGuestProfileId(value) {
+  return safeText(value, 120);
+}
+function isGuestOwnedRecord(data) {
+  const guestId = getGuestProfileId(data?.guestId);
+  const userId = safeText(data?.userId, 120);
+  return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
+}
+async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}) {
+  const guestId = getGuestProfileId(guestIdValue);
+  if (!guestId) throw createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
+  const profileRef = adminDb.collection("guest_profiles").doc(guestId);
+  const profileDoc = await profileRef.get();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (profileDoc.exists) {
+    const existing = { id: profileDoc.id, ...profileDoc.data() };
+    if (existing.status === "blocked") {
+      throw createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+    }
+    const displayName = safeText(existing.displayName || existing.name, 120);
+    if (!displayName) {
+      const validation2 = validateStudentDisplayName(studentNameValue);
+      if (!validation2.valid) throw createHttpError(400, validation2.error);
+      const repaired = {
+        ...existing,
+        displayName: validation2.value,
+        name: validation2.value,
+        normalizedName: normalizePersonName(validation2.value),
+        updatedAt: now,
+        lastActiveAt: touchActivity ? now : existing.lastActiveAt || now,
+        needsReview: false
+      };
+      await profileRef.set(repaired);
+      return repaired;
+    }
+    const classId = safeText(classInfo.classId, 160);
+    const className = safeText(classInfo.className, 240);
+    if (touchActivity || classId || className) {
+      await profileRef.update({
+        ...touchActivity ? { lastActiveAt: now } : {},
+        ...classId ? { classId } : {},
+        ...className ? { className } : {}
+      });
+    }
+    return {
+      ...existing,
+      displayName,
+      name: displayName,
+      lastActiveAt: touchActivity ? now : existing.lastActiveAt,
+      classId: classId || existing.classId,
+      className: className || existing.className
+    };
+  }
+  const validation = validateStudentDisplayName(studentNameValue);
+  if (!validation.valid) throw createHttpError(400, validation.error);
+  const profile = {
+    id: guestId,
+    guestId,
+    accountType: "guest",
+    displayName: validation.value,
+    name: validation.value,
+    normalizedName: normalizePersonName(validation.value),
+    role: "student",
+    status: "active",
+    classId: safeText(classInfo.classId, 160),
+    className: safeText(classInfo.className, 240),
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now,
+    needsReview: false
+  };
+  await profileRef.set(profile);
+  return profile;
+}
+async function ensureLegacyGuestProfiles() {
+  const [profilesSnapshot, sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+    adminDb.collection("guest_profiles").get(),
+    adminDb.collection("game_sessions").get(),
+    adminDb.collection("grammar_attempts").get()
+  ]);
+  const existingIds = /* @__PURE__ */ new Set();
+  profilesSnapshot.forEach((doc) => existingIds.add(doc.id));
+  const candidates = /* @__PURE__ */ new Map();
+  const collect = (data) => {
+    if (!isGuestOwnedRecord(data)) return;
+    const guestId = getGuestProfileId(data.guestId);
+    const activityAt = getActivityTime(data) || data.updatedAt || data.createdAt || (/* @__PURE__ */ new Date(0)).toISOString();
+    const existing = candidates.get(guestId);
+    const createdAt = data.createdAt || data.startedAt || activityAt;
+    if (!existing || new Date(activityAt).getTime() >= new Date(existing.lastActiveAt).getTime()) {
+      candidates.set(guestId, {
+        guestId,
+        displayName: safeText(data.studentName || "H\u1ECDc sinh", 120),
+        createdAt: existing?.createdAt && new Date(existing.createdAt).getTime() < new Date(createdAt).getTime() ? existing.createdAt : createdAt,
+        lastActiveAt: activityAt
+      });
+    } else if (new Date(createdAt).getTime() < new Date(existing.createdAt).getTime()) {
+      existing.createdAt = createdAt;
+    }
+  };
+  sessionsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
+  attemptsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
+  const missing = [...candidates.values()].filter((candidate) => !existingIds.has(candidate.guestId));
+  for (let offset = 0; offset < missing.length; offset += 400) {
+    const batch = adminDb.batch();
+    for (const candidate of missing.slice(offset, offset + 400)) {
+      const validation = validateStudentDisplayName(candidate.displayName);
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      batch.set(adminDb.collection("guest_profiles").doc(candidate.guestId), {
+        id: candidate.guestId,
+        guestId: candidate.guestId,
+        accountType: "guest",
+        displayName: candidate.displayName,
+        name: candidate.displayName,
+        normalizedName: normalizePersonName(candidate.displayName),
+        role: "student",
+        status: "active",
+        createdAt: candidate.createdAt || now,
+        updatedAt: now,
+        lastActiveAt: candidate.lastActiveAt || now,
+        needsReview: !validation.valid
+      });
+    }
+    await batch.commit();
+  }
+}
+var legacyGuestProfileBackfillPromise = null;
+async function ensureLegacyGuestProfilesOnce() {
+  if (!legacyGuestProfileBackfillPromise) {
+    legacyGuestProfileBackfillPromise = ensureLegacyGuestProfiles().catch((err) => {
+      legacyGuestProfileBackfillPromise = null;
+      throw err;
+    });
+  }
+  await legacyGuestProfileBackfillPromise;
+}
+async function getCanonicalStudentNameMaps() {
+  await ensureLegacyGuestProfilesOnce();
+  const [usersSnapshot, profilesSnapshot] = await Promise.all([
+    adminDb.collection("users").get(),
+    adminDb.collection("guest_profiles").get()
+  ]);
+  const users = /* @__PURE__ */ new Map();
+  const guests = /* @__PURE__ */ new Map();
+  usersSnapshot.forEach((doc) => {
+    const data = doc.data();
+    const name = safeText(data.name || data.displayName, 120);
+    if (name) users.set(doc.id, name);
+  });
+  profilesSnapshot.forEach((doc) => {
+    const data = doc.data();
+    const name = safeText(data.displayName || data.name, 120);
+    if (name) guests.set(doc.id, name);
+  });
+  return { users, guests };
+}
+function enrichStudentName(data, maps) {
+  if (!data) return data;
+  const guestId = getGuestProfileId(data.guestId);
+  const userId = safeText(data.userId || data.studentId, 120);
+  const canonicalName = isGuestOwnedRecord(data) ? maps.guests.get(guestId) : maps.users.get(userId);
+  if (canonicalName) return { ...data, studentName: canonicalName };
+  return guestId || userId ? data : { ...data, legacyUnlinked: true };
+}
+async function enrichStudentNames(items) {
+  const maps = await getCanonicalStudentNameMaps();
+  return items.map((item) => enrichStudentName(item, maps));
 }
 function getGameSessionActor(req, payload = {}) {
   if (req.authBlocked) return null;
@@ -1786,7 +2201,7 @@ function grammarAttemptToActivity(attempt, set = {}) {
     userId: attempt.userId,
     studentId: attempt.userId,
     studentName: attempt.studentName || "H\u1ECDc sinh",
-    guestId: attempt.userId || normalizePersonName(attempt.studentName || ""),
+    guestId: attempt.guestId || "",
     assignmentId: attempt.assignmentId || "",
     classId: attempt.classId || set.classId || gradeClass.classId || "",
     className: attempt.className || set.className || gradeClass.className || "",
@@ -1954,7 +2369,7 @@ async function loadLeaderboardEventsFromSources() {
     if (isOutsideLeaderboardRetention(data)) return;
     events.push(grammarAttemptToLeaderboardEvent(data, grammarSetsById.get(data.grammarSetId)));
   });
-  return mergeLeaderboardEvents(events);
+  return enrichStudentNames(mergeLeaderboardEvents(events));
 }
 async function getGrammarSetMap() {
   const snapshot = await adminDb.collection("grammar_sets").get();
@@ -2827,10 +3242,14 @@ app2.post("/api/register", authenticateUser, async (req, res) => {
     if (requestedPhone && existingPhone && req.user.phoneVerified && requestedPhone !== existingPhone) {
       return res.status(400).json({ error: "Verified phone number cannot be replaced without a new OTP verification." });
     }
+    const nameValidation = validateStudentDisplayName(name || req.user.name);
+    if (!nameValidation.valid) {
+      return res.status(400).json({ error: nameValidation.error });
+    }
     const normalizedPhone = requestedPhone || existingPhone;
     const updatedProfile = {
       ...req.user,
-      name: safeText(name || req.user.name, 120),
+      name: nameValidation.value,
       phone: normalizedPhone || void 0,
       phoneVerified: Boolean(req.user.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
       role: req.user.role,
@@ -2867,6 +3286,24 @@ app2.post("/api/ai/ipa", authenticateUser, async (req, res) => {
       aiProvider: "fallback",
       aiErrors: [sanitizeAiError("AI", error)]
     });
+  }
+});
+app2.post("/api/guest-profiles/resolve", async (req, res) => {
+  try {
+    const profile = await resolveGuestProfile(
+      req.body?.guestId,
+      req.body?.displayName || req.body?.studentName,
+      true,
+      { classId: req.body?.classId, className: req.body?.className }
+    );
+    res.json({
+      id: profile.id,
+      guestId: profile.guestId || profile.id,
+      displayName: profile.displayName || profile.name,
+      status: profile.status
+    });
+  } catch (err) {
+    sendApiError(res, err);
   }
 });
 var ALLOWED_PARTS_OF_SPEECH = [
@@ -3272,7 +3709,7 @@ app2.get("/api/public/results", async (req, res) => {
       list.push(activity);
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(list);
+    res.json(await enrichStudentNames(list));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -3996,7 +4433,7 @@ app2.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["t
 });
 app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const set = await getGrammarSetOr404(req.params.id);
     if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -4063,7 +4500,7 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
 });
 app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -4103,7 +4540,7 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
 });
 app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -4148,7 +4585,7 @@ app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, a
 });
 app2.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
     if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -4164,7 +4601,7 @@ app2.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, as
 });
 app2.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (req, res) => {
   try {
-    const actor = getGrammarActor(req);
+    const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 xem l\u1ECBch s\u1EED l\xE0m b\xE0i." });
     const set = await getGrammarSetOr404(req.params.id);
     const snapshot = await adminDb.collection("grammar_attempts").get();
@@ -4194,7 +4631,7 @@ app2.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["
       if (attempt.grammarSetId === set.id) attempts.push(attempt);
     });
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
-    res.json({ set, attempts });
+    res.json({ set, attempts: await enrichStudentNames(attempts) });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4212,11 +4649,12 @@ app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["te
     const sessions = [];
     snapshot.forEach((doc) => {
       const data = { id: doc.id, ...doc.data() };
-      if (data.vocabSetId !== set.id || !data.completedAt) return;
-      sessions.push(omitSensitiveSessionFields(data));
+      if (data.vocabSetId !== set.id) return;
+      const interrupted = !data.completedAt && Date.now() - new Date(data.lastSavedAt || data.startedAt || data.createdAt || 0).getTime() >= 24 * 60 * 60 * 1e3;
+      sessions.push(omitSensitiveSessionFields({ ...data, displayStatus: data.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress" }));
     });
     sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
-    res.json({ set, sessions });
+    res.json({ set, sessions: await enrichStudentNames(sessions) });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4224,8 +4662,15 @@ app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["te
 app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
   try {
     const payload = req.body || {};
-    const actor = getGameSessionActor(req, payload);
+    let actor = getGameSessionActor(req, payload);
     if (!actor) return res.status(401).json({ error: "Student identity is required to start a game session." });
+    if (actor.ownerType === "guest") {
+      const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
+        classId: payload.classId,
+        className: payload.className
+      });
+      actor = { ...actor, studentName: profile.displayName || profile.name };
+    }
     const id = `session-${import_crypto.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -4233,6 +4678,9 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     const gameId = safeText(payload.gameId, 120);
     if (!vocabSetId || !gameId) {
       return res.status(400).json({ error: "vocabSetId and gameId are required." });
+    }
+    if (!SESSION_V2_GAME_IDS.has(gameId)) {
+      return res.status(400).json({ error: "Game kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3." });
     }
     let assignment = null;
     if (payload.assignmentId) {
@@ -4292,6 +4740,10 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       startedAt: now,
       createdAt: now,
       status: "started",
+      schemaVersion: 2,
+      gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
+      privateSnapshot: buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder),
+      lastSavedAt: now,
       score: 0,
       totalQuestions: 0,
       correctAnswers: 0,
@@ -4355,6 +4807,61 @@ app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) =>
     await docRef.set(updatedSession);
     await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...updatedSession, id }));
     res.json(omitSensitiveSessionFields(updatedSession));
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
+  try {
+    const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
+    if (!sessionDoc.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
+    const session = sessionDoc.data();
+    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
+    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session c\u0169 kh\xF4ng h\u1ED7 tr\u1EE3 l\u01B0u ti\u1EBFn \u0111\u1ED9." });
+    if (session.status === "completed") return res.json({ saved: true, completed: true });
+    const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
+    if (!action.actionId) return res.status(400).json({ error: "Thi\u1EBFu actionId." });
+    const actionId = `${req.params.id}:${action.actionId}`;
+    const actionRef = adminDb.collection("game_session_actions").doc(actionId);
+    const existing = await actionRef.get();
+    if (!existing.exists) {
+      const snapshot = await adminDb.collection("game_session_actions").get();
+      let sequenceConflict = false;
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.sessionId === req.params.id && data.sequence === action.sequence) sequenceConflict = true;
+      });
+      if (sequenceConflict) return res.status(409).json({ error: "Action sequence \u0111\xE3 t\u1ED3n t\u1EA1i." });
+      await actionRef.set({ ...action, id: actionId, sessionId: req.params.id, createdAt: (/* @__PURE__ */ new Date()).toISOString(), updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+      await adminDb.collection("game_sessions").doc(req.params.id).update({ status: "in_progress", lastSavedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    }
+    res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
+  try {
+    const docRef = adminDb.collection("game_sessions").doc(req.params.id);
+    const existing = await docRef.get();
+    if (!existing.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
+    const session = existing.data();
+    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
+    if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
+    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169." });
+    const snapshot = await adminDb.collection("game_session_actions").get();
+    const actions = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.sessionId === req.params.id) actions.push(data);
+    });
+    const result = gradeGameSessionV2(session, actions);
+    const completedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
+    const completed = { ...session, ...result, status: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1e3), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
+    await docRef.set(completed);
+    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...completed, id: req.params.id }));
+    res.json(omitSensitiveSessionFields(completed));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4462,7 +4969,7 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(list);
+    res.json(await enrichStudentNames(list));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4502,6 +5009,126 @@ app2.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), asy
     const users = [];
     snapshot.forEach((doc) => users.push(doc.data()));
     res.json(users);
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.get("/api/admin/accounts", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    await ensureLegacyGuestProfilesOnce();
+    const [usersSnapshot, guestsSnapshot] = await Promise.all([
+      adminDb.collection("users").get(),
+      adminDb.collection("guest_profiles").get()
+    ]);
+    const accounts = [];
+    usersSnapshot.forEach((doc) => {
+      const data = doc.data();
+      accounts.push({
+        ...data,
+        id: data.id || doc.id,
+        name: data.name || data.displayName || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
+        accountType: "registered",
+        status: data.status || "active"
+      });
+    });
+    guestsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      accounts.push({
+        ...data,
+        id: data.id || doc.id,
+        guestId: data.guestId || doc.id,
+        name: data.displayName || data.name || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
+        email: "",
+        phone: "",
+        role: "student",
+        accountType: "guest",
+        status: data.status || "active"
+      });
+    });
+    accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime() - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
+    res.json(accounts);
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+    const userRef = adminDb.collection("users").doc(req.params.userId);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return res.status(404).json({ error: "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i." });
+    const existing = userDoc.data();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    await userRef.update({ name: validation.value, updatedAt: now });
+    let authWarning = "";
+    try {
+      await adminAuth.updateUser(req.params.userId, { displayName: validation.value });
+    } catch (authErr) {
+      authWarning = authErr?.message || "Kh\xF4ng \u0111\u1ED3ng b\u1ED9 \u0111\u01B0\u1EE3c t\xEAn l\xEAn Firebase Authentication.";
+      console.warn(`Could not update Firebase display name for ${req.params.userId}: ${authWarning}`);
+    }
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      "UPDATE_USER_DISPLAY_NAME",
+      `\u0110\u1ED5i t\xEAn t\xE0i kho\u1EA3n "${existing?.name || req.params.userId}" th\xE0nh "${validation.value}"`
+    );
+    res.json({ success: true, userId: req.params.userId, displayName: validation.value, authWarning });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
+    if (!validation.valid) return res.status(400).json({ error: validation.error });
+    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
+    const profileDoc = await profileRef.get();
+    if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
+    const existing = profileDoc.data();
+    await profileRef.update({
+      displayName: validation.value,
+      name: validation.value,
+      normalizedName: normalizePersonName(validation.value),
+      needsReview: false,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      "UPDATE_GUEST_DISPLAY_NAME",
+      `\u0110\u1ED5i t\xEAn h\u1ECDc sinh kh\xE1ch "${existing?.displayName || req.params.guestId}" th\xE0nh "${validation.value}"`
+    );
+    res.json({ success: true, guestId: req.params.guestId, displayName: validation.value });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+    const status = req.body?.status;
+    if (!["active", "blocked"].includes(status)) {
+      return res.status(400).json({ error: "Tr\u1EA1ng th\xE1i h\u1ED3 s\u01A1 kh\xF4ng h\u1EE3p l\u1EC7." });
+    }
+    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
+    const profileDoc = await profileRef.get();
+    if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
+    const existing = profileDoc.data();
+    await profileRef.update({ status, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    await logAuditAction(
+      req.user.id,
+      req.user.name,
+      req.user.email,
+      status === "blocked" ? "LOCK_GUEST_PROFILE" : "UNLOCK_GUEST_PROFILE",
+      `Chuy\u1EC3n h\u1ED3 s\u01A1 h\u1ECDc sinh "${existing?.displayName || req.params.guestId}" th\xE0nh ${status}`
+    );
+    res.json({ success: true, guestId: req.params.guestId, status });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4756,7 +5383,8 @@ function getRequestShareToken(req) {
 }
 function getGuestIdentity(req) {
   const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
-  const studentName = safeText(req.body?.studentName || req.query?.studentName, 120);
+  const validation = validateStudentDisplayName(req.body?.studentName || req.query?.studentName);
+  const studentName = validation.valid ? validation.value : "";
   if (!guestId || !studentName) return null;
   return {
     id: guestId,
@@ -4768,10 +5396,13 @@ function getGuestIdentity(req) {
     isGuest: true
   };
 }
-function getGrammarActor(req) {
+async function getGrammarActor(req) {
   if (req.authBlocked) return null;
   if (req.user) return { ...req.user, name: req.user.name || "H\u1ECDc sinh", isGuest: false };
-  return getGuestIdentity(req);
+  const guest = getGuestIdentity(req);
+  if (!guest) return null;
+  const profile = await resolveGuestProfile(guest.id, guest.name);
+  return { ...guest, name: profile.displayName || profile.name };
 }
 function canOpenGrammarSetForLearning(set, actor, req) {
   if (!set || !actor) return false;

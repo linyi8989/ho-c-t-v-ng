@@ -204,9 +204,11 @@ Canonical runtime collections:
 - `class_members`
 - `assignments`
 - `game_sessions`
+- `game_session_actions`
 - `grammar_sets`
 - `grammar_attempts`
 - `audit_logs`
+- `guest_profiles`
 
 ### User Profile
 
@@ -219,6 +221,19 @@ Fields used:
 - `role`: `student | teacher | super_admin`
 - `status`: `active | pending | blocked | deleted`
 - `createdAt`
+
+### Guest Profile
+
+Name-only learners are stored separately from Firebase accounts in `guest_profiles`:
+
+- `id` / `guestId`
+- `displayName` and `normalizedName`
+- fixed `role: student`
+- `status: active | blocked`
+- optional `classId` / `className`
+- `createdAt`, `updatedAt`, `lastActiveAt`
+
+Guest profiles never contain passwords or synthetic email addresses and cannot be promoted to teacher or super admin. Display names are normalized with Unicode NFKC and must contain 2-20 letters/marks plus spaces, apostrophes, or hyphens.
 
 ### VocabSet
 
@@ -314,6 +329,7 @@ Unauthenticated:
 
 - `GET /api/auth/debug`: checks backend DB access/debug info.
 - `POST /api/auth/email-by-phone`: maps phone number to email for phone + password login.
+- `POST /api/guest-profiles/resolve`: validates a name-only learner and creates/touches the profile for the browser `guestId`.
 
 Authenticated:
 
@@ -368,6 +384,17 @@ Super admin only:
 - `PUT /api/admin/users/:userId/role`: change role and Firebase custom claims.
 - `PUT /api/admin/users/:userId/status`: lock/unlock/change status.
 - `GET /api/admin/audit-logs`: list audit logs ordered by timestamp desc.
+- `GET /api/admin/accounts`: unified registered-account and guest-profile directory.
+- `PUT /api/admin/users/:userId/display-name`: validate and rename a registered account; Firebase Auth sync is best effort.
+- `PUT /api/admin/guest-profiles/:guestId/display-name`: validate and rename a guest profile.
+- `PUT /api/admin/guest-profiles/:guestId/status`: block or reactivate a guest profile; guest role remains student.
+
+Account/result identity behavior:
+
+- Vocabulary, grammar, registration, and admin rename inputs share the 2-20 character display-name validator.
+- Existing `game_sessions`, `grammar_attempts`, and `leaderboard_events` retain their original name snapshots.
+- Result and leaderboard APIs resolve the current name from `users` or `guest_profiles`, then fall back to the stored snapshot.
+- Legacy activities with a `guestId` are backfilled additively into `guest_profiles` using the most recent activity name. Activities without a stable user/guest id are left untouched and marked `legacyUnlinked` in enriched API output.
 
 ## 7. Backend Fallback DB Layer
 
@@ -497,6 +524,10 @@ Vocabulary result history:
 - The result table shows student, game, score, correct/wrong/unanswered counts, duration, completion time, and a `Xem` action.
 - `Xem` reuses the existing `selectedActivity` detail modal and the compact `answerDetails` already stored in `game_sessions`; legacy rows without answer details remain visible as summaries.
 - This history is read-only. It must not delete, rewrite, or expire `game_sessions`; the 7-day filter remains specific to Recent Activity APIs/UI.
+- Vocabulary game sessions created after the v2 rollout use `schemaVersion: 2`: the backend freezes a canonical vocabulary/config snapshot, clients persist idempotent actions in `game_session_actions`, and `POST /api/game-sessions/:id/submit` calculates the authoritative score and answer details. Client-supplied score/correctness remains supported only by the legacy completion endpoint for old sessions.
+- The game is mounted only after its session is created. Action writes are serialized and replayed before submit; failed submit keeps the result locally and exposes a retry control. Repeated submit returns the already-completed result.
+- Canonical scores use 0-100. Millionaire additionally stores its prize-ladder value in `gameScore`/`rawScore` with `maxScore: 1000000` so cross-game leaderboard comparisons remain normalized.
+- Per-set results include completed, in-progress, and interrupted sessions. Sessions without completion after 24 hours display as interrupted but are not deleted and never enter score/leaderboard calculations.
 
 Grammar directory behavior:
 

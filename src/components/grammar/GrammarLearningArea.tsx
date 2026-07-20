@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 
 interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
@@ -139,11 +140,32 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     return `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
   };
 
-  const persistStudentName = (value: string) => {
-    const normalizedName = value.trim().replace(/\s+/g, ' ');
-    if (!normalizedName) {
-      setError('Vui lòng nhập tên học sinh để luyện ngữ pháp.');
+  const persistStudentName = async (value: string) => {
+    const validation = validateStudentDisplayName(value);
+    if (!validation.valid) {
+      setError(validation.error);
       return;
+    }
+
+    let normalizedName = validation.value;
+    if (!token) {
+      try {
+        const res = await grammarFetch('/api/guest-profiles/resolve', {
+          method: 'POST',
+          body: JSON.stringify({
+            guestId,
+            displayName: normalizedName,
+            classId: grammarSet.classId,
+            className: grammarSet.className || grammarSet.gradeLevel
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Không thể lưu hồ sơ học sinh.');
+        normalizedName = data.displayName || normalizedName;
+      } catch (err: any) {
+        setError(err.message || 'Không thể lưu hồ sơ học sinh.');
+        return;
+      }
     }
 
     try {
@@ -360,8 +382,9 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
               <input
                 type="text"
                 placeholder="Nhập họ và tên của em..."
-                value={studentName}
-                onChange={(event) => setStudentName(event.target.value)}
+                  value={studentName}
+                  onChange={(event) => setStudentName(event.target.value)}
+                  maxLength={STUDENT_NAME_MAX_LENGTH}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') persistStudentName(studentName);
                 }}

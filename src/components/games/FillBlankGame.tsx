@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, ArrowRight, HelpCircle, Info } from 'lucide-react';
-import { GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -12,6 +12,7 @@ interface FillBlankGameProps {
     promptType: 'meaning' | 'meaning_and_hint';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -32,6 +33,7 @@ export default function FillBlankGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -167,6 +169,7 @@ export default function FillBlankGame({
     setIsCorrect(matched);
     setIsSubmitted(true);
     upsertAnswerDetail(buildAnswerDetail(currentItem, currentIndex, userInput.trim(), true));
+    onAction?.({ type: 'fill.answer', wordId: currentItem.id, userAnswer: userInput.trim() });
 
     if (matched) {
       if (isSoundOn) {

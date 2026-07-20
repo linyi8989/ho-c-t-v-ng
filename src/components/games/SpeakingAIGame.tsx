@@ -9,7 +9,7 @@ import {
   Sparkles,
   Volume2,
 } from 'lucide-react';
-import { GameCompletionDetails, VocabItem } from '../../types';
+import { GameAction, GameCompletionDetails, VocabItem } from '../../types';
 import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
@@ -27,6 +27,7 @@ interface SpeakingAIGameProps {
     recognitionLang?: string;
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
+  onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
   isMuted: boolean;
   setIsMuted: React.Dispatch<React.SetStateAction<boolean>>;
   isRandomized: boolean;
@@ -99,6 +100,7 @@ export default function SpeakingAIGame({
   items,
   config,
   onComplete,
+  onAction,
   isMuted,
   setIsMuted,
   isRandomized,
@@ -245,6 +247,7 @@ export default function SpeakingAIGame({
         const withoutCurrent = prev.filter((item) => item.wordId !== currentItem.id);
         return [...withoutCurrent, result];
       });
+      onAction?.({ type: 'speaking.attempt', wordId: currentItem.id, recognizedText: transcript, responseMs, attemptNumber: nextAttemptCount });
       saveAttempt(result);
     };
 

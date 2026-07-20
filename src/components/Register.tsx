@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getAuthErrorMessage } from '../lib/authErrors';
+import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../lib/studentIdentity';
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
@@ -31,6 +32,12 @@ export default function Register({ onNavigateToLogin, onNavigateToHome }: Regist
       return;
     }
 
+    const nameValidation = validateStudentDisplayName(name);
+    if (!nameValidation.valid) {
+      setError(nameValidation.error);
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Mật khẩu nhập lại không khớp.');
       return;
@@ -43,7 +50,7 @@ export default function Register({ onNavigateToLogin, onNavigateToHome }: Regist
 
     setIsSubmitting(true);
     try {
-      await registerWithEmail(email.trim(), password, name.trim(), phone.trim() || undefined);
+      await registerWithEmail(email.trim(), password, nameValidation.value, phone.trim() || undefined);
       onNavigateToHome();
     } catch (err: any) {
       console.error(err);
@@ -87,6 +94,7 @@ export default function Register({ onNavigateToLogin, onNavigateToHome }: Regist
                 placeholder="Nguyễn Văn An"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                maxLength={STUDENT_NAME_MAX_LENGTH}
                 className="w-full p-3.5 pl-12 bg-gray-50 rounded-2xl border border-gray-100 focus:border-indigo-400 focus:bg-white outline-none font-semibold text-gray-700 text-sm transition-all"
                 required
               />
