@@ -715,6 +715,40 @@ function isAssignmentOpenForLearning(assignment: any, set: any) {
   return visibility === "public" || visibility === "assignment";
 }
 
+function getRequestVocabShareToken(req: express.Request) {
+  return safeText(req.body?.accessToken || req.headers["x-vocab-share-token"], 200);
+}
+
+async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = "", expectedAssignmentId = "") {
+  const token = safeText(tokenValue, 200);
+  if (!token) return null;
+
+  const assignmentsSnapshot = await adminDb.collection("assignments").get();
+  for (const doc of assignmentsSnapshot.docs || []) {
+    const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
+    if (getAssignmentShareToken(assignment) !== token) continue;
+    if (expectedAssignmentId && assignment.id !== expectedAssignmentId) return null;
+    if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
+    const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (!isAssignmentOpenForLearning(assignment, set)) return null;
+    return { accessType: "assignment" as const, set, assignment };
+  }
+
+  const setsSnapshot = await adminDb.collection("vocab_sets").get();
+  for (const doc of setsSnapshot.docs || []) {
+    const set = { id: doc.id, ...doc.data() };
+    const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
+    if (setToken !== token || getVocabVisibility(set) !== "assignment") continue;
+    if (expectedAssignmentId) return null;
+    if (expectedVocabSetId && set.id !== expectedVocabSetId) return null;
+    return { accessType: "vocab_set" as const, set, assignment: null };
+  }
+
+  return null;
+}
+
 function canViewResultSession(
   user: any,
   session: any,
@@ -2374,63 +2408,23 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
       return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
     }
 
-    const assignmentsSnapshot = await adminDb.collection("assignments").get();
-    const assignments: any[] = [];
-    let matchedAssignment: any = null;
-    for (const doc of assignmentsSnapshot.docs || []) {
-      const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
-      assignments.push(assignment);
-      const assignmentToken = getAssignmentShareToken(assignment);
-      if (!matchedAssignment && assignmentToken === token) {
-        matchedAssignment = assignment;
-      }
-    }
-
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    let found: any = null;
-
-    if (matchedAssignment) {
-      snapshot.forEach(doc => {
-        const set = { id: doc.id, ...doc.data() };
-        if (!found && set.id === matchedAssignment.vocabSetId && isAssignmentOpenForLearning(matchedAssignment, set)) {
-          found = {
-            ...normalizeVocabSetForRead(set),
-            assignmentId: matchedAssignment.id,
-            assignmentGameId: matchedAssignment.gameId,
-            assignmentTitle: matchedAssignment.title,
-            classId: matchedAssignment.classId,
-            className: matchedAssignment.className
-          };
-        }
-      });
-    } else {
-      snapshot.forEach(doc => {
-        const set = { id: doc.id, ...doc.data() };
-        const setToken = set.shareToken || set.assignmentSlug;
-        if (!found && setToken === token && getVocabVisibility(set) === "assignment") {
-          found = normalizeVocabSetForRead(set);
-        }
-      });
-
-      if (found) {
-        const matchingAssignments = assignments.filter(assignment => assignment.vocabSetId === found.id);
-        if (matchingAssignments.length === 1) {
-          const assignment = matchingAssignments[0];
-          found = {
-            ...found,
-            assignmentId: assignment.id,
-            assignmentGameId: assignment.gameId,
-            assignmentTitle: assignment.title,
-            classId: assignment.classId,
-            className: assignment.className
-          };
-        }
-      }
-    }
-
-    if (!found) {
+    const access = await resolveVocabLearningAccess(token);
+    if (!access) {
       return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
     }
+
+    const found = access.assignment ? {
+      ...normalizeVocabSetForRead(access.set),
+      accessType: access.accessType,
+      assignmentId: access.assignment.id,
+      assignmentGameId: access.assignment.gameId,
+      assignmentTitle: access.assignment.title,
+      classId: access.assignment.classId,
+      className: access.assignment.className
+    } : {
+      ...normalizeVocabSetForRead(access.set),
+      accessType: access.accessType
+    };
 
     res.json(stripPrivateVocabSetFields(found));
   } catch (err: any) {
@@ -3695,7 +3689,13 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       return res.status(400).json({ error: "Game không được hỗ trợ." });
     }
     let assignment: any = null;
-    if (payload.assignmentId) {
+    let access: Awaited<ReturnType<typeof resolveVocabLearningAccess>> = null;
+    const accessToken = getRequestVocabShareToken(req);
+    if (accessToken) {
+      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+      if (!access) return res.status(403).json({ error: "Link không có quyền tạo lượt học này." });
+      assignment = access.assignment;
+    } else if (payload.assignmentId) {
       const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
       assignment = assignmentDoc.exists ? assignmentDoc.data() : null;
       if (!assignment) {
@@ -3718,8 +3718,18 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
         return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
       }
+      if (!req.user && !accessToken) {
+        return res.status(403).json({ error: "Link giao bài không hợp lệ hoặc đã hết quyền truy cập." });
+      }
+      if (assignment.gameId && assignment.gameId !== gameId) {
+        return res.status(403).json({ error: "Game không đúng với bài giáo viên đã giao." });
+      }
+    } else if (access?.accessType === "vocab_set") {
+      if (access.set.id !== vocabSetId || getVocabVisibility(vocabSet) !== "assignment") {
+        return res.status(403).json({ error: "Link không có quyền tạo lượt học này." });
+      }
     } else if (!canViewVocabSet(req.user, vocabSet)) {
-      return res.status(403).json({ error: "You do not have permission to start this vocabulary game." });
+      return res.status(403).json({ error: "Bạn không có quyền bắt đầu game với bộ từ này." });
     }
 
     let inferredClass: any = null;
@@ -3742,15 +3752,15 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       userId: actor.userId,
       studentId: actor.studentId,
       guestId: actor.guestId,
-      assignmentId: safeText(payload.assignmentId || "", 160),
+      assignmentId: safeText(assignment?.id || "", 160),
       vocabSetId,
       vocabSetTitle: safeText(payload.vocabSetTitle, 240),
       gameId,
       gameName: safeText(payload.gameName, 160),
       gameType: safeText(payload.gameType, 80),
       studentName: actor.studentName,
-      classId: safeText(payload.classId || assignment?.classId || inferredClass?.classId || "", 160),
-      className: safeText(payload.className || assignment?.className || inferredClass?.className || "", 160),
+      classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+      className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
       startedAt: now,
       createdAt: now,
       status: "started",

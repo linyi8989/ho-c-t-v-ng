@@ -154,6 +154,7 @@ Phase 2 authorization hardening:
 - `/api/results` is role-scoped: super admin can view all completed activity, teachers only view activity tied to vocab/grammar/classes/assignments they manage, and students only view their own authenticated activity.
 - Teacher write actions now go through ownership helpers for vocab sets, classes, class members, assignments, grammar sets, and TTS actions.
 - Assignment private links must use random `shareToken`/`assignmentSlug`; the server no longer treats a predictable assignment id as a valid share token.
+- Vocabulary private links have two explicit access contexts: an assignment token binds the session to that assignment/game/class, while a direct vocab-set token opens the private set without guessing an assignment and uses the set/grade class metadata. `GET /api/vocab-sets/share/:token` and `POST /api/game-sessions` share the same token resolver, and guest session creation revalidates the token.
 - Legacy assignments missing share tokens are backfilled with random tokens when assignment lists/share links are read.
 - Starting a vocabulary game rejects draft or unavailable vocab sets unless a valid assignment context makes the lesson eligible.
 
@@ -1043,7 +1044,8 @@ Registry:
 - The in-game leaderboard supports a class filter beside the week/month filter.
 - Student names in the in-game leaderboard and admin leaderboard display a class suffix when class data exists, e.g. `Nguyen Van A - Lop 3`.
 - `/api/public/results` and `/api/results` return `classId`/`className`; old sessions are backfilled at read time from `assignmentId` or lesson `gradeLevel`, and new sessions store class metadata when created.
-- Assignment links must use assignment-level random tokens (`assignments.shareToken` / `assignmentSlug`), not vocab-set-only links and not predictable assignment ids. `/api/vocab-sets/share/:token` first resolves an assignment token and returns the vocab set with `assignmentId`, `assignmentGameId`, `classId`, and `className`.
+- Assignment links use assignment-level random tokens (`assignments.shareToken` / `assignmentSlug`), never predictable assignment ids. Direct private-set links continue to use the set token and return `accessType: vocab_set`; assignment-token links return `accessType: assignment` plus `assignmentId`, `assignmentGameId`, `classId`, and `className`.
+- `StudentLearningArea` sends the private token in `X-Vocab-Share-Token` when creating a session. Guest assignment sessions require a matching assignment token; direct-set sessions require a matching set token. A set token is never converted to an assignment merely because exactly one assignment currently references that set.
 - Legacy assignments missing a token are assigned a new random token when assignment/share routes read them; clients should not construct `/assignment/<assignmentId>` links.
 - `StudentLearningArea` sends the assignment class snapshot into `/api/game-sessions`; when no assignment class exists, it falls back to the vocab set `gradeLevel` as a grade-level class bucket. This makes class leaderboard filtering stable when a student later moves to another class or completes work assigned to multiple classes.
 - Legacy sessions without `assignmentId` and without `classId`/`className` cannot be reliably class-filtered. Do not infer class only from `studentName`, because names can duplicate and students can move classes.

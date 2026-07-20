@@ -538,6 +538,8 @@ export default function App() {
         assignmentId={privateAssignmentSet.assignmentId}
         assignmentClassId={privateAssignmentSet.classId}
         assignmentClassName={privateAssignmentSet.className}
+        accessToken={privateAssignmentToken || undefined}
+        accessType={privateAssignmentSet.accessType}
         initialGameId={privateAssignmentSet.assignmentGameId}
         onBack={() => { window.location.href = '/'; }}
       />

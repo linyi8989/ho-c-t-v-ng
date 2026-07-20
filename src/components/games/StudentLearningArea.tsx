@@ -25,6 +25,8 @@ interface StudentLearningAreaProps {
   assignmentId?: string;
   assignmentClassId?: string;
   assignmentClassName?: string;
+  accessToken?: string;
+  accessType?: 'assignment' | 'vocab_set';
   initialGameId?: string;
   onBack: () => void;
 }
@@ -70,7 +72,9 @@ function getStoredGuestId() {
 function getStoredStudentName() {
   if (typeof window === 'undefined') return '';
   try {
-    return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
+    const stored = window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
+    const validation = validateStudentDisplayName(stored);
+    return validation.valid ? validation.value : '';
   } catch {
     return '';
   }
@@ -131,6 +135,8 @@ export default function StudentLearningArea({
   assignmentId, 
   assignmentClassId,
   assignmentClassName,
+  accessToken,
+  accessType,
   initialGameId, 
   onBack 
 }: StudentLearningAreaProps) {
@@ -344,6 +350,7 @@ export default function StudentLearningArea({
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(accessToken ? { 'X-Vocab-Share-Token': accessToken } : {}),
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
@@ -353,6 +360,7 @@ export default function StudentLearningArea({
         gameId: selectedGame.gameId,
         gameName: selectedGame.title,
         gameType: selectedGame.category,
+        accessType,
         itemOrder: activeItems.map(item => item.id),
         studentName: studentName,
         studentId: guestId,
@@ -361,9 +369,10 @@ export default function StudentLearningArea({
         className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel || undefined
       })
     })
-    .then(res => {
-      if (!res.ok) throw new Error("Backend game-sessions API failed");
-      return res.json();
+    .then(async res => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Không thể tạo lượt học (${res.status}).`);
+      return data;
     })
     .then(data => {
       if (!controller.signal.aborted && generation === sessionGenerationRef.current) {
@@ -382,7 +391,7 @@ export default function StudentLearningArea({
     });
 
     return () => controller.abort();
-  }, [selectedGame, gameRunId, nameSubmitted, studentName, guestId, vocabSet, assignmentId, assignmentClassId, assignmentClassName, token]);
+  }, [selectedGame, gameRunId, nameSubmitted, studentName, guestId, vocabSet, assignmentId, assignmentClassId, assignmentClassName, accessToken, accessType, token]);
 
   const handleShuffle = () => {
     if (isRandomized) {

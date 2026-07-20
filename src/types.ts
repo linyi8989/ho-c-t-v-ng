@@ -73,6 +73,7 @@ export interface VocabSet {
   classId?: string;
   className?: string;
   assignmentTitle?: string;
+  accessType?: 'assignment' | 'vocab_set';
   ttsSettings?: TtsSettings;
   items: VocabItem[];
 }
