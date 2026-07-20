@@ -8,7 +8,8 @@
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node app.js",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:identity": "tsx --test src/lib/guestIdentity.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

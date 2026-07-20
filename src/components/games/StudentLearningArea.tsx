@@ -18,6 +18,7 @@ import MillionaireGame from './MillionaireGame';
 import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
+import { identifyExistingGuest } from '../../lib/guestIdentity';
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -34,6 +35,7 @@ interface StudentLearningAreaProps {
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const ACTIVITY_TTL_DAYS = 7;
+type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
 const VISIBLE_GAMES_LIST = GAMES_LIST.filter((game) => !game.hidden);
 const GAME_CATEGORY_ORDER = ['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'] as const;
 const GAME_CATEGORY_TITLES: Record<string, string> = {
@@ -72,9 +74,7 @@ function getStoredGuestId() {
 function getStoredStudentName() {
   if (typeof window === 'undefined') return '';
   try {
-    const stored = window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
-    const validation = validateStudentDisplayName(stored);
-    return validation.valid ? validation.value : '';
+    return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || '';
   } catch {
     return '';
   }
@@ -140,10 +140,11 @@ export default function StudentLearningArea({
   initialGameId, 
   onBack 
 }: StudentLearningAreaProps) {
-  const { token } = useAuth();
+  const { token, user, loading: authLoading } = useAuth();
   const [guestId] = useState(() => getStoredGuestId());
-  const [studentName, setStudentName] = useState(() => propStudentName || getStoredStudentName());
-  const [nameSubmitted, setNameSubmitted] = useState(() => !!(propStudentName || getStoredStudentName()));
+  const [studentName, setStudentName] = useState(() => propStudentName || user?.name || '');
+  const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => (propStudentName || user?.name) ? 'ready' : 'checking');
+  const nameSubmitted = identityStatus === 'ready';
   const [nameError, setNameError] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
   const [activeItems, setActiveItems] = useState<VocabItem[]>([...vocabSet.items]);
@@ -176,17 +177,48 @@ export default function StudentLearningArea({
   }, [initialGameId]);
 
   useEffect(() => {
-    if (!propStudentName) return;
-    setStudentName(propStudentName);
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, propStudentName);
-      } catch {
-        // Ignore storage errors so learning can continue.
-      }
+    if (authLoading) {
+      setIdentityStatus('checking');
+      return;
     }
-    setNameSubmitted(true);
-  }, [propStudentName]);
+    const authenticatedName = propStudentName || user?.name || '';
+    if (authenticatedName) {
+      setStudentName(authenticatedName);
+      setIdentityStatus('ready');
+      setNameError('');
+      return;
+    }
+
+    const controller = new AbortController();
+    setIdentityStatus('checking');
+    identifyExistingGuest(guestId, controller.signal)
+      .then(profile => {
+        if (controller.signal.aborted) return;
+        if (!profile) {
+          const storedValidation = validateStudentDisplayName(getStoredStudentName());
+          setStudentName(storedValidation.valid ? storedValidation.value : '');
+          setIdentityStatus('needs_name');
+          return;
+        }
+
+        setStudentName(profile.displayName);
+        setIdentityStatus('ready');
+        setNameError('');
+        try {
+          window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, profile.displayName);
+        } catch {
+          // The verified identity remains available in component state.
+        }
+      })
+      .catch((err: any) => {
+        if (controller.signal.aborted) return;
+        setIdentityStatus('needs_name');
+        setStudentName('');
+        setNameError(err.message || 'Không thể xác minh hồ sơ học sinh.');
+      });
+
+    return () => controller.abort();
+  }, [authLoading, guestId, propStudentName, user?.id, user?.name]);
 
   useEffect(() => {
     let isMounted = true;
@@ -324,7 +356,7 @@ export default function StudentLearningArea({
         // Ignore storage errors so learning can continue.
       }
     }
-    setNameSubmitted(true);
+    setIdentityStatus('ready');
   };
 
   // Set up student session on game select
@@ -653,7 +685,11 @@ export default function StudentLearningArea({
         <div className="lg:col-span-8 space-y-8">
           
           {/* Ask for Name if not submitted */}
-          {!nameSubmitted ? (
+          {identityStatus === 'checking' ? (
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center">
+              <p className="text-sm font-bold text-gray-600">Đang kiểm tra hồ sơ học sinh...</p>
+            </div>
+          ) : identityStatus === 'needs_name' ? (
             <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center space-y-6" id="name-prompt-container">
               <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
                 <BookOpen size={32} />

@@ -1883,6 +1883,63 @@ function isGuestOwnedRecord(data) {
   const userId = safeText(data?.userId, 120);
   return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
 }
+function getGuestActivityTime(data) {
+  return data?.completedAt || data?.endedAt || data?.lastSavedAt || data?.updatedAt || data?.startedAt || data?.createdAt || "";
+}
+async function findLegacyGuestIdentity(guestIdValue) {
+  const guestId = getGuestProfileId(guestIdValue);
+  if (!guestId) return null;
+  const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+    adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
+    adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
+  ]);
+  let latest = null;
+  const collect = (data) => {
+    if (!isGuestOwnedRecord(data) || getGuestProfileId(data.guestId) !== guestId) return;
+    const displayName = safeText(data.studentName, 120);
+    if (!displayName) return;
+    const activityAt = getGuestActivityTime(data);
+    if (!latest || new Date(activityAt || 0).getTime() >= new Date(latest.activityAt || 0).getTime()) {
+      latest = { displayName, activityAt };
+    }
+  };
+  sessionsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
+  attemptsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
+  if (!latest) return null;
+  return {
+    id: guestId,
+    guestId,
+    accountType: "guest",
+    displayName: latest.displayName,
+    name: latest.displayName,
+    role: "student",
+    status: "active",
+    legacy: true,
+    activityAt: latest.activityAt
+  };
+}
+async function findExistingGuestIdentity(guestIdValue) {
+  const guestId = getGuestProfileId(guestIdValue);
+  if (!guestId) return null;
+  const profileDoc = await adminDb.collection("guest_profiles").doc(guestId).get();
+  if (profileDoc.exists) {
+    const profile = { id: profileDoc.id, guestId, ...profileDoc.data() };
+    if (profile.status === "blocked") {
+      throw createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+    }
+    const displayName = safeText(profile.displayName || profile.name, 120);
+    if (displayName) {
+      return {
+        ...profile,
+        displayName,
+        name: displayName,
+        status: profile.status || "active",
+        legacy: !validateStudentDisplayName(displayName).valid
+      };
+    }
+  }
+  return findLegacyGuestIdentity(guestId);
+}
 async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) throw createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
@@ -1896,6 +1953,8 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     }
     const displayName = safeText(existing.displayName || existing.name, 120);
     if (!displayName) {
+      const legacyIdentity2 = await findLegacyGuestIdentity(guestId);
+      if (legacyIdentity2) return legacyIdentity2;
       const validation2 = validateStudentDisplayName(studentNameValue);
       if (!validation2.valid) throw createHttpError(400, validation2.error);
       const repaired = {
@@ -1928,6 +1987,8 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
       className: className || existing.className
     };
   }
+  const legacyIdentity = await findLegacyGuestIdentity(guestId);
+  if (legacyIdentity) return legacyIdentity;
   const validation = validateStudentDisplayName(studentNameValue);
   if (!validation.valid) throw createHttpError(400, validation.error);
   const profile = {
@@ -2110,6 +2171,30 @@ function canManageAssignment(user, assignment, classData) {
   if (!isTeacher(user)) return false;
   if (assignment?.createdBy === user.id) return true;
   return Boolean(classData) && canManageClass(user, classData);
+}
+async function canManageGuestProfile(user, profile) {
+  if (isSuperAdmin(user)) return true;
+  if (!isTeacher(user)) return false;
+  const guestId = getGuestProfileId(profile?.guestId || profile?.id);
+  const classIds = /* @__PURE__ */ new Set();
+  const addClassId = (value) => {
+    const classId = safeText(value, 160);
+    if (classId) classIds.add(classId);
+  };
+  addClassId(profile?.classId);
+  if (guestId) {
+    const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+      adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
+      adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
+    ]);
+    sessionsSnapshot.forEach((doc) => addClassId(doc.data()?.classId));
+    attemptsSnapshot.forEach((doc) => addClassId(doc.data()?.classId));
+  }
+  for (const classId of classIds) {
+    const classDoc = await adminDb.collection("classes").doc(classId).get();
+    if (classDoc.exists && canManageClass(user, classDoc.data())) return true;
+  }
+  return false;
 }
 function getAssignmentShareToken(assignment) {
   return String(assignment?.shareToken || assignment?.assignmentSlug || "").trim();
@@ -3330,6 +3415,26 @@ app2.post("/api/guest-profiles/resolve", async (req, res) => {
       guestId: profile.guestId || profile.id,
       displayName: profile.displayName || profile.name,
       status: profile.status
+    });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.post("/api/guest-profiles/identify", async (req, res) => {
+  try {
+    const profile = await findExistingGuestIdentity(req.body?.guestId);
+    if (!profile) {
+      return res.status(404).json({
+        error: "Kh\xF4ng t\xECm th\u1EA5y h\u1ED3 s\u01A1 h\u1ECDc sinh \u0111\xE3 \u0111\u0103ng k\xFD.",
+        code: "GUEST_PROFILE_NOT_FOUND"
+      });
+    }
+    res.json({
+      id: profile.id,
+      guestId: profile.guestId || profile.id,
+      displayName: profile.displayName || profile.name,
+      status: profile.status || "active",
+      legacy: Boolean(profile.legacy)
     });
   } catch (err) {
     sendApiError(res, err);
@@ -5021,30 +5126,40 @@ app2.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), asy
     sendApiError(res, err);
   }
 });
-app2.get("/api/admin/accounts", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
+    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     await ensureLegacyGuestProfilesOnce();
     const [usersSnapshot, guestsSnapshot] = await Promise.all([
       adminDb.collection("users").get(),
       adminDb.collection("guest_profiles").get()
     ]);
     const accounts = [];
-    usersSnapshot.forEach((doc) => {
-      const data = doc.data();
-      accounts.push({
-        ...data,
-        id: data.id || doc.id,
-        name: data.name || data.displayName || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
-        accountType: "registered",
-        status: data.status || "active"
+    if (isSuperAdmin(req.user)) {
+      usersSnapshot.forEach((doc) => {
+        const data = doc.data();
+        accounts.push({
+          ...data,
+          id: data.id || doc.id,
+          name: data.name || data.displayName || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
+          accountType: "registered",
+          status: data.status || "active"
+        });
       });
-    });
+    }
+    const guestProfiles = [];
     guestsSnapshot.forEach((doc) => {
       const data = doc.data();
-      accounts.push({
+      guestProfiles.push({
         ...data,
         id: data.id || doc.id,
-        guestId: data.guestId || doc.id,
+        guestId: data.guestId || doc.id
+      });
+    });
+    for (const data of guestProfiles) {
+      if (!await canManageGuestProfile(req.user, data)) continue;
+      accounts.push({
+        ...data,
         name: data.displayName || data.name || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
         email: "",
         phone: "",
@@ -5052,7 +5167,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["super_admin"]), 
         accountType: "guest",
         status: data.status || "active"
       });
-    });
+    }
     accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime() - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
     res.json(accounts);
   } catch (err) {
@@ -5089,7 +5204,7 @@ app2.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(
     sendApiError(res, err);
   }
 });
-app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
+app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
@@ -5098,6 +5213,9 @@ app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, re
     const profileDoc = await profileRef.get();
     if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
     const existing = profileDoc.data();
+    if (!await canManageGuestProfile(req.user, { id: profileDoc.id, ...existing })) {
+      return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n \u0111\u1ED5i t\xEAn h\u1ECDc sinh n\xE0y." });
+    }
     await profileRef.update({
       displayName: validation.value,
       name: validation.value,
@@ -5389,28 +5507,34 @@ function getRequestShareToken(req) {
   const raw = req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.headers["x-grammar-share-token"];
   return String(raw || "").replace(/^grammar-/, "").trim();
 }
-function getGuestIdentity(req) {
+function getGuestIdentityInput(req) {
   const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
-  const validation = validateStudentDisplayName(req.body?.studentName || req.query?.studentName);
-  const studentName = validation.valid ? validation.value : "";
-  if (!guestId || !studentName) return null;
+  const studentName = req.body?.studentName || req.query?.studentName;
+  if (!guestId) return null;
+  return { guestId, studentName };
+}
+function toGuestActor(profile) {
   return {
-    id: guestId,
-    name: studentName,
+    id: profile.guestId || profile.id,
+    name: profile.displayName || profile.name,
     email: "",
     role: "student",
     status: "active",
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    createdAt: profile.createdAt || (/* @__PURE__ */ new Date()).toISOString(),
     isGuest: true
   };
 }
 async function getGrammarActor(req) {
   if (req.authBlocked) return null;
   if (req.user) return { ...req.user, name: req.user.name || "H\u1ECDc sinh", isGuest: false };
-  const guest = getGuestIdentity(req);
-  if (!guest) return null;
-  const profile = await resolveGuestProfile(guest.id, guest.name);
-  return { ...guest, name: profile.displayName || profile.name };
+  const input = getGuestIdentityInput(req);
+  if (!input) return null;
+  const existingProfile = await findExistingGuestIdentity(input.guestId);
+  if (existingProfile) return toGuestActor(existingProfile);
+  const validation = validateStudentDisplayName(input.studentName);
+  if (!validation.valid) return null;
+  const profile = await resolveGuestProfile(input.guestId, validation.value);
+  return toGuestActor(profile);
 }
 function canOpenGrammarSetForLearning(set, actor, req) {
   if (!set || !actor) return false;

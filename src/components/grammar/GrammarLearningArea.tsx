@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'luc
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
+import { identifyExistingGuest } from '../../lib/guestIdentity';
 
 interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
@@ -16,6 +17,8 @@ interface GrammarQuestionFeedback {
   explanation?: string;
   scoreAwarded: number;
 }
+
+type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
 
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
@@ -98,7 +101,7 @@ function formatGradeLabel(value?: string) {
 }
 
 export default function GrammarLearningArea({ grammarSet, accessToken, onBack }: GrammarLearningAreaProps) {
-  const { token, user } = useAuth();
+  const { token, user, loading: authLoading } = useAuth();
   const [attempts, setAttempts] = useState<GrammarAttempt[]>([]);
   const [attempt, setAttempt] = useState<GrammarAttempt | null>(null);
   const [review, setReview] = useState<GrammarAttempt | null>(null);
@@ -110,8 +113,9 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [guestId] = useState(() => getStoredGuestId());
-  const [studentName, setStudentName] = useState(() => user?.name || getStoredStudentName());
-  const [nameSubmitted, setNameSubmitted] = useState(() => !!(user?.name || getStoredStudentName()));
+  const [studentName, setStudentName] = useState(() => user?.name || '');
+  const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => user?.name ? 'ready' : 'checking');
+  const nameSubmitted = identityStatus === 'ready';
 
   const grammarFetch = (url: string, options: RequestInit = {}) => {
     const baseHeaders: Record<string, string> = {
@@ -139,6 +143,49 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     if (attemptToken) params.set('attemptToken', attemptToken);
     return `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
   };
+
+  useEffect(() => {
+    if (authLoading) {
+      setIdentityStatus('checking');
+      return;
+    }
+    if (user?.name) {
+      setStudentName(user.name);
+      setIdentityStatus('ready');
+      setError('');
+      return;
+    }
+
+    const controller = new AbortController();
+    setIdentityStatus('checking');
+    identifyExistingGuest(guestId, controller.signal)
+      .then(profile => {
+        if (controller.signal.aborted) return;
+        if (!profile) {
+          const storedValidation = validateStudentDisplayName(getStoredStudentName());
+          setStudentName(storedValidation.valid ? storedValidation.value : '');
+          setIdentityStatus('needs_name');
+          return;
+        }
+
+        setStudentName(profile.displayName);
+        setIdentityStatus('ready');
+        setError('');
+        try {
+          window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, profile.displayName);
+        } catch {
+          // The verified identity remains available in component state.
+        }
+      })
+      .catch((err: any) => {
+        if (controller.signal.aborted) return;
+        setIdentityStatus('needs_name');
+        setStudentName('');
+        setError(err.message || 'Không thể xác minh hồ sơ học sinh.');
+      });
+
+    return () => controller.abort();
+  }, [authLoading, guestId, user?.id, user?.name]);
 
   const persistStudentName = async (value: string) => {
     const validation = validateStudentDisplayName(value);
@@ -176,7 +223,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     }
 
     setStudentName(normalizedName);
-    setNameSubmitted(true);
+    setIdentityStatus('ready');
     setError('');
   };
 
@@ -194,18 +241,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
 
   useEffect(() => {
     loadAttempts();
-  }, [token, grammarSet.id, nameSubmitted, studentName, guestId, accessToken]);
-
-  useEffect(() => {
-    if (!user?.name) return;
-    try {
-      window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, user.name);
-    } catch {
-      // Ignore localStorage errors; authenticated user identity is still available.
-    }
-    setStudentName(user.name);
-    setNameSubmitted(true);
-  }, [user?.name]);
+  }, [token, grammarSet.id, identityStatus, studentName, guestId, accessToken]);
 
   const startAttempt = async () => {
     if (!nameSubmitted || !studentName.trim()) {
@@ -366,7 +402,13 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{error}</div>
         )}
 
-        {!nameSubmitted && !attempt && !review && (
+        {identityStatus === 'checking' && !attempt && !review && (
+          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center">
+            <p className="text-sm font-bold text-gray-600">Đang kiểm tra hồ sơ học sinh...</p>
+          </div>
+        )}
+
+        {identityStatus === 'needs_name' && !attempt && !review && (
           <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center space-y-6" id="grammar-name-prompt-container">
             <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
               <BookOpen size={32} />

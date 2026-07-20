@@ -598,12 +598,14 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       })
       .catch(err => console.error("Error loading leaderboard results:", err));
 
-    // Load users & audit logs if user is super_admin
-    if (user?.role === 'super_admin') {
+    // Teachers receive only guest students from classes they manage; super admins receive all accounts.
+    if (user?.role === 'teacher' || user?.role === 'super_admin') {
       authFetchJson<any[]>('/api/admin/accounts')
         .then(data => setUsersList(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error loading admin users:", err));
+    }
 
+    if (user?.role === 'super_admin') {
       authFetchJson<any[]>('/api/admin/audit-logs')
         .then(data => setAuditLogs(Array.isArray(data) ? data : []))
         .catch(err => console.error("Error loading admin logs:", err));
@@ -2065,20 +2067,20 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             <span>Bảng vàng học sinh</span>
           </button>
 
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'users' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-users"
+          >
+            <Shield size={18} className="text-amber-500" />
+            <span>{user?.role === 'super_admin' ? 'Quản lý Tài khoản' : 'Quản lý Học sinh'}</span>
+          </button>
+
           {/* SUPER ADMIN ONLY TABS */}
           {user?.role === 'super_admin' && (
             <>
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-                  activeTab === 'users' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
-                }`}
-                id="tab-users"
-              >
-                <Shield size={18} className="text-amber-500" />
-                <span>Quản lý Tài khoản</span>
-              </button>
-
               <button
                 onClick={() => setActiveTab('audit-logs')}
                 className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
@@ -4256,13 +4258,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         )}
 
         {/* ==================================================================== */}
-        {/* TAB 7: SUPER ADMIN USER MANAGEMENT */}
+        {/* TAB 7: ACCOUNT / STUDENT PROFILE MANAGEMENT */}
         {/* ==================================================================== */}
-        {activeTab === 'users' && user?.role === 'super_admin' && (
+        {activeTab === 'users' && (user?.role === 'teacher' || user?.role === 'super_admin') && (
           <div className="space-y-6 animate-fade-in" id="users-tab-content">
             <div>
-              <h2 className="text-2xl font-black text-gray-800">Quản lý Tài khoản người dùng</h2>
-              <p className="text-gray-400 text-sm">Quản lý chung tài khoản đăng ký và hồ sơ học sinh khách. Hồ sơ khách luôn có vai trò Học sinh.</p>
+              <h2 className="text-2xl font-black text-gray-800">
+                {user?.role === 'super_admin' ? 'Quản lý Tài khoản người dùng' : 'Quản lý Học sinh'}
+              </h2>
+              <p className="text-gray-400 text-sm">
+                {user?.role === 'super_admin'
+                  ? 'Quản lý chung tài khoản đăng ký và hồ sơ học sinh khách. Hồ sơ khách luôn có vai trò Học sinh.'
+                  : 'Đổi tên hiển thị cho học sinh có hoạt động trong các lớp bạn quản lý.'}
+              </p>
             </div>
 
             {/* Filters Row */}
@@ -4393,7 +4401,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               >
                                 <Edit3 size={14} />
                               </button>
-                            {u.id !== user?.id ? (
+                            {user?.role === 'super_admin' && u.id !== user?.id ? (
                               <button
                                 onClick={() => handleToggleAccountStatus(u)}
                                 className={`p-2 rounded-xl border transition-all cursor-pointer ${
@@ -4405,9 +4413,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               >
                                 {u.status === 'blocked' ? <Unlock size={14} /> : <Lock size={14} />}
                               </button>
-                            ) : (
+                            ) : user?.role === 'super_admin' ? (
                               <span className="text-xs text-gray-400 italic">Bản thân</span>
-                            )}
+                            ) : null}
                             </div>
                           </td>
                         </tr>

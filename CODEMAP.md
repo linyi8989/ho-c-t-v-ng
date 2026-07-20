@@ -330,7 +330,8 @@ Unauthenticated:
 
 - `GET /api/auth/debug`: checks backend DB access/debug info.
 - `POST /api/auth/email-by-phone`: maps phone number to email for phone + password login.
-- `POST /api/guest-profiles/resolve`: validates a name-only learner and creates/touches the profile for the browser `guestId`.
+- `POST /api/guest-profiles/resolve`: resolves an existing learner by `guestId`, or validates a new 2-20 character name before creating the browser guest profile.
+- `POST /api/guest-profiles/identify`: read-only lookup by stable `guestId`; returns the canonical existing profile name or a legacy name snapshot without creating, renaming, or deleting data.
 
 Authenticated:
 
@@ -353,6 +354,7 @@ Teacher or super admin:
 - `DELETE /api/vocab-sets/:id`: delete vocab set and related assignments.
 - `POST /api/vocab-sets/:id/clone`: clone vocab set as draft.
 - `GET /api/admin/vocab-sets/:id/results`: teacher/admin completed game sessions for one managed vocabulary set, newest first; response omits session token hashes and does not apply recent-activity deletion/cleanup.
+- `GET /api/admin/accounts`: super admin receives the unified account directory; teachers receive only guest students with activity in classes they manage.
 - `POST /api/classes`: create class.
 - `DELETE /api/classes/:id`: delete class, members, and assignments.
 - `POST /api/classes/:classId/members`: add class member.
@@ -385,14 +387,16 @@ Super admin only:
 - `PUT /api/admin/users/:userId/role`: change role and Firebase custom claims.
 - `PUT /api/admin/users/:userId/status`: lock/unlock/change status.
 - `GET /api/admin/audit-logs`: list audit logs ordered by timestamp desc.
-- `GET /api/admin/accounts`: unified registered-account and guest-profile directory.
 - `PUT /api/admin/users/:userId/display-name`: validate and rename a registered account; Firebase Auth sync is best effort.
-- `PUT /api/admin/guest-profiles/:guestId/display-name`: validate and rename a guest profile.
+- `PUT /api/admin/guest-profiles/:guestId/display-name`: validate and rename a guest profile. Super admin can manage all guest profiles; a teacher is limited to students with activity in a class managed by that teacher.
 - `PUT /api/admin/guest-profiles/:guestId/status`: block or reactivate a guest profile; guest role remains student.
 
 Account/result identity behavior:
 
-- Vocabulary, grammar, registration, and admin rename inputs share the 2-20 character display-name validator.
+- New vocabulary/grammar guest registration, registered-account sign-up, and explicit admin/teacher rename inputs share the 2-20 character display-name validator.
+- Existing registered users and existing guests are resolved by stable `userId`/`guestId` first. Their stored canonical name remains accepted even when a legacy name is longer than 20 characters.
+- A browser `localStorage` name is never sufficient proof of an existing identity. The frontend calls the read-only guest identity endpoint before enabling vocabulary or grammar learning.
+- If no guest profile exists, the backend may resolve a legacy guest by the same stable `guestId` in `game_sessions` or `grammar_attempts`. This compatibility lookup does not rewrite the historical record or create a replacement profile.
 - Existing `game_sessions`, `grammar_attempts`, and `leaderboard_events` retain their original name snapshots.
 - Result and leaderboard APIs resolve the current name from `users` or `guest_profiles`, then fall back to the stored snapshot.
 - Legacy activities with a `guestId` are backfilled additively into `guest_profiles` using the most recent activity name. Activities without a stable user/guest id are left untouched and marked `legacyUnlinked` in enriched API output.
@@ -948,6 +952,8 @@ Mandatory rules to prevent repeat incidents:
   - localStorage key `msdieu_student_name`
 - `GameSession` has optional `guestId`.
 - Grammar learning uses the same guest keys. New grammar students enter a name in `GrammarLearningArea`; students who already entered a vocabulary name can start grammar immediately.
+- `GrammarLearningArea` and `StudentLearningArea` use `checking -> ready | needs_name` identity states. They only treat a guest as ready after `/api/guest-profiles/identify` confirms the stored `guestId`, or after `/api/guest-profiles/resolve` creates a new 2-20 character profile.
+- Authenticated account names are kept separate from guest local storage. Existing authenticated names are accepted from the server profile even if they predate the 20-character rule.
 - Guest grammar attempts store `userId/studentId` as the guest id plus `guestId`, `studentName`, and best-available `classId/className`.
 - New guest grammar attempts also receive a server-issued `attemptToken`; the server stores only `attemptTokenHash`. Guest answer/submit/review requests for new attempts must send the matching token, which the frontend stores in localStorage by attempt id.
 - For legacy grammar attempts created before attempt tokens existed, the server keeps guest-id compatibility so old completed work remains reviewable.
