@@ -6,7 +6,7 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
+import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, getStoragePersistStats, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 
 // Load environment variables
@@ -16,14 +16,68 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 const AUDIO_PUBLIC_PREFIX = "/audio";
+const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 
 app.use(express.json());
+app.use((req, _res, next) => {
+  (req as any).__requestStartedAt = performance.now();
+  (req as any).__storagePersistStartedAt = getStoragePersistStats();
+  next();
+});
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use(AUDIO_PUBLIC_PREFIX, express.static(AUDIO_DIR));
 
 function sendApiError(res: express.Response, err: any) {
   const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
   res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
+}
+
+function createApiTiming(req: express.Request, label: string) {
+  const requestStartedAt = Number((req as any).__requestStartedAt || performance.now());
+  const persistStartedAt = (req as any).__storagePersistStartedAt || getStoragePersistStats();
+  let checkpoint = performance.now();
+  const entries: Array<{ name: string; durationMs: number }> = [];
+  const authDurationMs = Math.max(0, checkpoint - requestStartedAt);
+  if (authDurationMs > 0) entries.push({ name: "auth", durationMs: authDurationMs });
+  let finished = false;
+
+  return {
+    mark(name: string) {
+      const now = performance.now();
+      entries.push({
+        name: name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "step",
+        durationMs: Math.max(0, now - checkpoint)
+      });
+      checkpoint = now;
+    },
+    finish(res: express.Response) {
+      if (finished) return;
+      finished = true;
+      const totalMs = Math.max(0, performance.now() - requestStartedAt);
+      const persistFinishedAt = getStoragePersistStats();
+      const persistCount = persistStartedAt && persistFinishedAt
+        ? Math.max(0, Number(persistFinishedAt.attempts) - Number(persistStartedAt.attempts))
+        : 0;
+      const persistMs = persistStartedAt && persistFinishedAt
+        ? Math.max(0, Number(persistFinishedAt.totalMs) - Number(persistStartedAt.totalMs))
+        : 0;
+      const timingEntries = [
+        ...entries,
+        ...(persistCount > 0 ? [{ name: "sqlite_persist", durationMs: persistMs }] : []),
+        { name: "total", durationMs: totalMs }
+      ];
+      const serverTiming = timingEntries
+        .map(entry => `${entry.name};dur=${entry.durationMs.toFixed(1)}`)
+        .join(", ");
+      if (!res.headersSent) res.setHeader("Server-Timing", serverTiming);
+      if (totalMs >= SLOW_API_LOG_MS) {
+        const detail = entries.map(entry => `${entry.name}=${entry.durationMs.toFixed(1)}ms`).join(" ");
+        console.warn(
+          `[PERF] ${label} total=${totalMs.toFixed(1)}ms persists=${persistCount} persistMs=${persistMs.toFixed(1)} ${detail}`
+        );
+      }
+    }
+  };
 }
 
 // ============================================================================
@@ -315,6 +369,10 @@ const SESSION_V2_GAME_IDS = new Set([
   "fill-meaning", "fill-missing", "matching-word-meaning",
   "memory-match", "millionaire-vocab", "speaking-ai"
 ]);
+const GAME_ACTION_BATCH_MAX_ITEMS = Math.max(
+  1,
+  Math.min(200, Number(process.env.GAME_ACTION_BATCH_MAX_ITEMS || 50))
+);
 
 function normalizeGameAnswer(value: any) {
   return String(value || "").normalize("NFKC").trim().toLowerCase()
@@ -360,6 +418,37 @@ function sanitizeGameAction(input: any) {
     responseMs: Math.max(0, Math.min(120000, Number(input?.responseMs || 0))),
     attemptNumber: Math.max(1, Math.min(20, Number(input?.attemptNumber || 1)))
   };
+}
+
+function sanitizeSubmittedGameActions(input: any) {
+  if (!Array.isArray(input)) return [];
+  if (input.length > 1000) throw createHttpError(400, "Có quá nhiều thao tác trong một lượt chơi.");
+  const actions = input.map(sanitizeGameAction);
+  const sequenceSet = new Set<number>();
+  for (const action of actions) {
+    if (sequenceSet.has(action.sequence)) {
+      throw createHttpError(400, "Game action sequence bị trùng.");
+    }
+    sequenceSet.add(action.sequence);
+  }
+  return actions.sort((a, b) => a.sequence - b.sequence);
+}
+
+function dedupeStoredGameActions(actions: any[]) {
+  const bySequence = new Map<number, any>();
+  for (const action of actions) {
+    const sequence = Number(action?.sequence);
+    if (!Number.isInteger(sequence) || sequence < 0 || bySequence.has(sequence)) continue;
+    bySequence.set(sequence, action);
+  }
+  return [...bySequence.values()].sort((a, b) => Number(a.sequence) - Number(b.sequence));
+}
+
+function getGameActionPersistence(gameId: string, snapshot: any) {
+  const itemCount = Array.isArray(snapshot?.items) ? snapshot.items.length : 0;
+  const effectiveItemCount = gameId === "millionaire-vocab" ? Math.min(itemCount, 15) : itemCount;
+  if (gameId === "speaking-ai" || effectiveItemCount > GAME_ACTION_BATCH_MAX_ITEMS) return "incremental";
+  return "submit_batch";
 }
 
 function speakingScore(target: string, recognized: string, responseMs: number) {
@@ -479,6 +568,11 @@ async function findExistingGuestIdentity(guestIdValue: any) {
   return findLegacyGuestIdentity(guestId);
 }
 
+const GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 60_000)
+);
+
 async function resolveGuestProfile(
   guestIdValue: any,
   studentNameValue: any,
@@ -520,18 +614,25 @@ async function resolveGuestProfile(
 
     const classId = safeText(classInfo.classId, 160);
     const className = safeText(classInfo.className, 240);
-    if (touchActivity || classId || className) {
+    const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
+    const shouldTouchActivity = Boolean(
+      touchActivity
+      && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
+    );
+    const shouldUpdateClassId = Boolean(classId && classId !== safeText(existing.classId, 160));
+    const shouldUpdateClassName = Boolean(className && className !== safeText(existing.className, 240));
+    if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
       await profileRef.update({
-        ...(touchActivity ? { lastActiveAt: now } : {}),
-        ...(classId ? { classId } : {}),
-        ...(className ? { className } : {})
+        ...(shouldTouchActivity ? { lastActiveAt: now } : {}),
+        ...(shouldUpdateClassId ? { classId } : {}),
+        ...(shouldUpdateClassName ? { className } : {})
       });
     }
     return {
       ...existing,
       displayName,
       name: displayName,
-      lastActiveAt: touchActivity ? now : existing.lastActiveAt,
+      lastActiveAt: shouldTouchActivity ? now : existing.lastActiveAt,
       classId: classId || existing.classId,
       className: className || existing.className
     };
@@ -821,6 +922,32 @@ function getRequestVocabShareToken(req: express.Request) {
 async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = "", expectedAssignmentId = "") {
   const token = safeText(tokenValue, 200);
   if (!token) return null;
+
+  if (expectedAssignmentId) {
+    const assignmentDoc = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
+    if (!assignmentDoc.exists) return null;
+    const assignment = await ensureAssignmentShareToken(
+      { id: assignmentDoc.id, ...assignmentDoc.data() },
+      assignmentDoc.ref
+    );
+    if (getAssignmentShareToken(assignment) !== token) return null;
+    if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
+    const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (!isAssignmentOpenForLearning(assignment, set)) return null;
+    return { accessType: "assignment" as const, set, assignment };
+  }
+
+  if (expectedVocabSetId) {
+    const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
+    if (setToken === token && getVocabVisibility(set) === "assignment") {
+      return { accessType: "vocab_set" as const, set, assignment: null };
+    }
+  }
 
   const assignmentsSnapshot = await adminDb.collection("assignments").get();
   for (const doc of assignmentsSnapshot.docs || []) {
@@ -3543,24 +3670,28 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
 });
 
 app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const set = await getGrammarSetOr404(req.params.id);
+    timing.mark("set_read");
     if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
     if (!canOpenGrammarSetForLearning(set, actor, req)) {
       return res.status(403).json({ error: "Bạn không có quyền làm bài này." });
     }
 
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts").get();
-    let completedAttempts = 0;
-    attemptsSnapshot.forEach(doc => {
-      const attempt = doc.data();
-      if (attempt.grammarSetId === set.id && (attempt.userId === actor.id || attempt.guestId === actor.id) && attempt.status === "completed") {
-        completedAttempts++;
-      }
-    });
-    if (completedAttempts >= Number(set.maxAttempts || 1)) {
+    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
+      .where("grammarSetId", "==", set.id)
+      .where(actorField, "==", actor.id)
+      .where("status", "==", "completed")
+      .limit(maxAttempts)
+      .get();
+    timing.mark("attempt_limit");
+    if (attemptsSnapshot.size >= maxAttempts) {
       return res.status(403).json({ error: "Bạn đã hết số lần làm bài được phép." });
     }
 
@@ -3613,19 +3744,26 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
     };
 
     await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
+    timing.mark("persist");
+    timing.finish(res);
     res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 
 app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/answers");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    timing.mark("attempt_read");
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
     const set = await getGrammarSetOr404(attempt.grammarSetId);
+    timing.mark("set_read");
     if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền sửa lượt làm bài này." });
     if (attempt.status === "completed") return res.status(400).json({ error: "Bài đã nộp, không thể thay đổi đáp án." });
 
@@ -3665,6 +3803,7 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
     answers.push(answer);
     const updatedAttempt = { ...attempt, answers };
     await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+    timing.mark("persist");
 
     const feedback = set?.showExplanationImmediately
       ? {
@@ -3675,19 +3814,25 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
           scoreAwarded: answer.scoreAwarded
         }
       : null;
+    timing.finish(res);
     res.json({ answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)), feedback });
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 
 app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/submit");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    timing.mark("attempt_read");
     if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
     const set = await getGrammarSetOr404(attempt.grammarSetId);
+    timing.mark("set_read");
     if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
     if (attempt.status === "completed") return res.status(400).json({ error: "Bài này đã được nộp." });
 
@@ -3721,10 +3866,16 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
       completedAt,
       durationSeconds
     };
-    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
-    await persistLeaderboardEvent(grammarAttemptToLeaderboardEvent(updatedAttempt, set));
+    const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -3751,13 +3902,15 @@ app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (re
     const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để xem lịch sử làm bài." });
     const set = await getGrammarSetOr404(req.params.id);
-    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const snapshot = await adminDb.collection("grammar_attempts")
+      .where("grammarSetId", "==", req.params.id)
+      .where(actorField, "==", actor.id)
+      .get();
     const list: any[] = [];
     snapshot.forEach(doc => {
       const attempt = { id: doc.id, ...doc.data() };
-      if (attempt.grammarSetId === req.params.id && (attempt.userId === actor.id || attempt.guestId === actor.id)) {
-        list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
-      }
+      list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
     });
     list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     res.json(list);
@@ -3773,11 +3926,13 @@ app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["t
     if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
     if (!canManageGrammarSet(req.user, set)) return res.status(403).json({ error: "Bạn không có quyền xem kết quả bài này." });
 
-    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const snapshot = await adminDb.collection("grammar_attempts")
+      .where("grammarSetId", "==", set.id)
+      .get();
     const attempts: any[] = [];
     snapshot.forEach(doc => {
       const attempt = { id: doc.id, ...doc.data() };
-      if (attempt.grammarSetId === set.id) attempts.push(attempt);
+      attempts.push(attempt);
     });
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
     res.json({ set, attempts: await enrichStudentNames(attempts) });
@@ -3815,6 +3970,7 @@ app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["tea
 
 // 19. GAME SESSIONS: Start a session
 app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions");
   try {
     const payload = req.body || {};
     let actor = getGameSessionActor(req, payload);
@@ -3826,6 +3982,7 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       });
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
+    timing.mark("identity");
     const id = `session-${crypto.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = new Date().toISOString();
@@ -3857,12 +4014,17 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
         });
       }
     }
+    timing.mark("access");
 
-    const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
-    if (!vocabDoc.exists) {
-      return res.status(404).json({ error: "Vocabulary set not found." });
+    let vocabSet = access?.set || null;
+    if (!vocabSet) {
+      const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+      if (!vocabDoc.exists) {
+        return res.status(404).json({ error: "Vocabulary set not found." });
+      }
+      vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
     }
-    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
+    timing.mark("set_read");
     if (assignment) {
       if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
         return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
@@ -3883,7 +4045,9 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
 
     let inferredClass: any = null;
     if (!payload.classId && !assignment && payload.vocabSetId) {
-      const assignmentsSnapshot = await adminDb.collection("assignments").get();
+      const assignmentsSnapshot = await adminDb.collection("assignments")
+        .where("vocabSetId", "==", payload.vocabSetId)
+        .get();
       const uniqueBySet = new Map<string, any | null>();
       assignmentsSnapshot.forEach(doc => {
         const data = { id: doc.id, ...doc.data() };
@@ -3894,6 +4058,8 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       });
       inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
     }
+    timing.mark("class_resolve");
+    const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
     const newSession = {
       id,
       ownerKey: actor.ownerKey,
@@ -3915,7 +4081,8 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       status: "started",
       schemaVersion: 2,
       gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
-      privateSnapshot: buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder),
+      actionPersistence: getGameActionPersistence(gameId, privateSnapshot),
+      privateSnapshot,
       lastSavedAt: now,
       score: 0,
       totalQuestions: 0,
@@ -3925,8 +4092,11 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     };
 
     await adminDb.collection("game_sessions").doc(id).set(newSession);
+    timing.mark("persist");
+    timing.finish(res);
     res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -3987,8 +4157,11 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
       expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
     };
 
-    await docRef.set(updatedSession);
-    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...updatedSession, id }));
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id });
+    const batch = adminDb.batch();
+    batch.set(docRef, updatedSession);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err: any) {
     sendApiError(res, err);
@@ -3996,8 +4169,10 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
 });
 
 app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "PUT /api/game-sessions/:id/actions/:actionId");
   try {
     const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
+    timing.mark("session_read");
     if (!sessionDoc.exists) return res.status(404).json({ error: "Session không tồn tại." });
     const session = sessionDoc.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền lưu lượt chơi này." });
@@ -4005,41 +4180,88 @@ app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, as
     if (session.status === "completed") return res.json({ saved: true, completed: true });
     const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
     if (!action.actionId) return res.status(400).json({ error: "Thiếu actionId." });
-    const actionId = `${req.params.id}:${action.actionId}`;
-    const actionRef = adminDb.collection("game_session_actions").doc(actionId);
-    const existing = await actionRef.get();
-    if (!existing.exists) {
-      const snapshot = await adminDb.collection("game_session_actions").get();
-      let sequenceConflict = false;
-      snapshot.forEach(doc => { const data = doc.data(); if (data.sessionId === req.params.id && data.sequence === action.sequence) sequenceConflict = true; });
-      if (sequenceConflict) return res.status(409).json({ error: "Action sequence đã tồn tại." });
-      await actionRef.set({ ...action, id: actionId, sessionId: req.params.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      await adminDb.collection("game_sessions").doc(req.params.id).update({ status: "in_progress", lastSavedAt: new Date().toISOString() });
+    const canonicalActionId = `${req.params.id}:sequence:${action.sequence}`;
+    const legacyActionId = `${req.params.id}:${action.actionId}`;
+    const canonicalRef = adminDb.collection("game_session_actions").doc(canonicalActionId);
+    const legacyRef = adminDb.collection("game_session_actions").doc(legacyActionId);
+    const [canonicalDoc, legacyDoc] = await Promise.all([canonicalRef.get(), legacyRef.get()]);
+    timing.mark("action_lookup");
+    if (canonicalDoc.exists) {
+      const existingAction = canonicalDoc.data();
+      if (existingAction.actionId && existingAction.actionId !== action.actionId) {
+        return res.status(409).json({ error: "Action sequence đã tồn tại." });
+      }
+      timing.finish(res);
+      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
     }
+    if (legacyDoc.exists) {
+      timing.finish(res);
+      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
+    }
+
+    const now = new Date().toISOString();
+    const batch = adminDb.batch();
+    batch.set(canonicalRef, {
+      ...action,
+      id: canonicalActionId,
+      sessionId: req.params.id,
+      createdAt: now,
+      updatedAt: now
+    });
+    batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
+      status: "in_progress",
+      lastSavedAt: now
+    });
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-  } catch (err: any) { sendApiError(res, err); }
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
 });
 
 app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions/:id/submit");
   try {
     const docRef = adminDb.collection("game_sessions").doc(req.params.id);
     const existing = await docRef.get();
+    timing.mark("session_read");
     if (!existing.exists) return res.status(404).json({ error: "Session không tồn tại." });
     const session = existing.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền nộp lượt chơi này." });
     if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
     if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session cũ phải dùng endpoint hoàn thành cũ." });
-    const snapshot = await adminDb.collection("game_session_actions").get();
-    const actions: any[] = [];
-    snapshot.forEach(doc => { const data = doc.data(); if (data.sessionId === req.params.id) actions.push(data); });
+    let actions: any[];
+    const submittedActionsProvided = Array.isArray(req.body?.actions);
+    if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
+      actions = sanitizeSubmittedGameActions(req.body.actions);
+    } else {
+      const snapshot = await adminDb.collection("game_session_actions")
+        .where("sessionId", "==", req.params.id)
+        .get();
+      const storedActions: any[] = [];
+      snapshot.forEach(doc => storedActions.push(doc.data()));
+      actions = dedupeStoredGameActions(storedActions);
+    }
+    timing.mark("actions_read");
     const result = gradeGameSessionV2(session, actions);
     const completedAt = new Date().toISOString();
     const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
     const completed = { ...session, ...result, status: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1000), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
-    await docRef.set(completed);
-    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...completed, id: req.params.id }));
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
+    const batch = adminDb.batch();
+    batch.set(docRef, completed);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));
-  } catch (err: any) { sendApiError(res, err); }
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
 });
 
 // 21. PRONUNCIATION ATTEMPTS: Save one speaking practice attempt

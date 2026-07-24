@@ -112,6 +112,9 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const [feedbackByQuestion, setFeedbackByQuestion] = useState<Record<string, GrammarQuestionFeedback>>({});
   const [savingQuestionIds, setSavingQuestionIds] = useState<Record<string, boolean>>({});
   const answerRequestsRef = useRef(new Set<string>());
+  const attemptsAbortRef = useRef<AbortController | null>(null);
+  const startAttemptAbortRef = useRef<AbortController | null>(null);
+  const startAttemptInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [guestId] = useState(() => getStoredGuestId());
@@ -229,34 +232,62 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setError('');
   };
 
-  const loadAttempts = async () => {
+  const loadAttempts = async (force = false) => {
     if (!nameSubmitted || !studentName.trim()) return;
+    if (!force && (attempt || review || startAttemptInFlightRef.current)) return;
+    attemptsAbortRef.current?.abort();
+    const controller = new AbortController();
+    attemptsAbortRef.current = controller;
     try {
-      const res = await grammarFetch(grammarUrlWithGuestQuery(`/api/grammar-sets/${grammarSet.id}/my-attempts`));
+      const res = await grammarFetch(
+        grammarUrlWithGuestQuery(`/api/grammar-sets/${grammarSet.id}/my-attempts`),
+        { signal: controller.signal }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không tải được lịch sử làm bài.');
       setAttempts(Array.isArray(data) ? data : []);
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       setError(err.message);
+    } finally {
+      if (attemptsAbortRef.current === controller) attemptsAbortRef.current = null;
     }
   };
 
   useEffect(() => {
-    loadAttempts();
-  }, [token, grammarSet.id, identityStatus, studentName, guestId, accessToken]);
+    if (attempt || review) return;
+    const timer = window.setTimeout(() => {
+      void loadAttempts();
+    }, 600);
+    return () => {
+      window.clearTimeout(timer);
+      attemptsAbortRef.current?.abort();
+    };
+  }, [token, grammarSet.id, identityStatus, studentName, guestId, accessToken, attempt?.id, review?.id]);
+
+  useEffect(() => {
+    return () => startAttemptAbortRef.current?.abort();
+  }, []);
 
   const startAttempt = async () => {
     if (!nameSubmitted || !studentName.trim()) {
       setError('Vui lòng nhập tên học sinh để luyện ngữ pháp.');
       return;
     }
+    if (startAttemptInFlightRef.current) return;
 
+    startAttemptInFlightRef.current = true;
+    attemptsAbortRef.current?.abort();
+    startAttemptAbortRef.current?.abort();
+    const controller = new AbortController();
+    startAttemptAbortRef.current = controller;
     setLoading(true);
     setError('');
     setReview(null);
     try {
       const res = await grammarFetch(`/api/grammar-sets/${grammarSet.id}/attempts`, {
         method: 'POST',
+        signal: controller.signal,
         body: JSON.stringify({
           guestId,
           studentName: studentName.trim(),
@@ -276,8 +307,11 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       setSavingQuestionIds({});
       answerRequestsRef.current.clear();
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       setError(err.message);
     } finally {
+      startAttemptInFlightRef.current = false;
+      if (startAttemptAbortRef.current === controller) startAttemptAbortRef.current = null;
       setLoading(false);
     }
   };
@@ -399,7 +433,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       if (!res.ok) throw new Error(data.error || 'Không nộp được bài.');
       setAttempt(null);
       setReview(data);
-      await loadAttempts();
+      await loadAttempts(true);
     } catch (err: any) {
       setError(err.message);
     } finally {

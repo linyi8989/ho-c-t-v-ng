@@ -162,6 +162,8 @@ export default function StudentLearningArea({
   const actionSequenceRef = useRef(0);
   const actionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const gameActionsRef = useRef<GameAction[]>([]);
+  const savedActionIdsRef = useRef<Set<string>>(new Set());
+  const completionSubmitInFlightRef = useRef(false);
   const pendingCompletionRef = useRef<{ score: number; correct: number; incorrect: number; details?: GameCompletionDetails } | null>(null);
   const [sessionStatus, setSessionStatus] = useState<'creating' | 'ready' | 'create_failed' | 'saving' | 'saved' | 'save_failed'>('creating');
   const [saveError, setSaveError] = useState('');
@@ -374,6 +376,8 @@ export default function StudentLearningArea({
     actionSequenceRef.current = 0;
     actionQueueRef.current = Promise.resolve();
     gameActionsRef.current = [];
+    savedActionIdsRef.current.clear();
+    completionSubmitInFlightRef.current = false;
     pendingCompletionRef.current = null;
 
     // Create a new session on the server
@@ -460,47 +464,55 @@ export default function StudentLearningArea({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  const sendGameAction = async (currentSession: GameSession, action: GameAction) => {
+    const res = await fetch(`/api/game-sessions/${currentSession.id}/actions/${encodeURIComponent(action.actionId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ action, guestId, sessionToken: currentSession.sessionToken })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Không lưu được tiến độ.');
+    savedActionIdsRef.current.add(action.actionId);
+  };
+
   const persistGameAction = (input: Omit<GameAction, 'actionId' | 'sequence'>) => {
     if (!session) return;
     const sequence = actionSequenceRef.current++;
     const actionId = `${session.id}-${sequence}`;
     const action: GameAction = { ...input, actionId, sequence };
     gameActionsRef.current.push(action);
-    const sendAction = async (queuedAction: GameAction) => {
-      const res = await fetch(`/api/game-sessions/${session.id}/actions/${encodeURIComponent(actionId)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ action: queuedAction, guestId, sessionToken: session.sessionToken })
+    if (session.actionPersistence === 'submit_batch') return;
+
+    actionQueueRef.current = actionQueueRef.current
+      .catch(() => undefined)
+      .then(() => sendGameAction(session, action))
+      .catch((err) => {
+        setSaveError(err.message || 'Không lưu được tiến độ.');
+        setSessionStatus('save_failed');
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Không lưu được tiến độ.');
-    };
-    actionQueueRef.current = actionQueueRef.current.catch(() => undefined).then(() => sendAction(action)).catch((err) => {
-      setSaveError(err.message || 'Không lưu được tiến độ.');
-      setSessionStatus('save_failed');
-      throw err;
-    });
   };
 
   const submitCompletedSession = async () => {
-    if (!session || !pendingCompletionRef.current) return;
+    if (!session || !pendingCompletionRef.current || completionSubmitInFlightRef.current) return;
+    completionSubmitInFlightRef.current = true;
     setSessionStatus('saving');
     setSaveError('');
     try {
-      await actionQueueRef.current.catch(() => undefined);
-      for (const action of gameActionsRef.current) {
-        const res = await fetch(`/api/game-sessions/${session.id}/actions/${encodeURIComponent(action.actionId)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ action, guestId, sessionToken: session.sessionToken })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Không đồng bộ được tiến độ.');
+      await actionQueueRef.current;
+      if (session.actionPersistence !== 'submit_batch') {
+        const unsavedActions = gameActionsRef.current.filter(action => !savedActionIdsRef.current.has(action.actionId));
+        for (const action of unsavedActions) {
+          await sendGameAction(session, action);
+        }
       }
       const res = await fetch(`/api/game-sessions/${session.id}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ guestId, sessionToken: session.sessionToken })
+        body: JSON.stringify({
+          guestId,
+          sessionToken: session.sessionToken,
+          ...(session.actionPersistence === 'submit_batch' ? { actions: gameActionsRef.current } : {})
+        })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Không lưu được kết quả.');
@@ -512,6 +524,8 @@ export default function StudentLearningArea({
     } catch (err: any) {
       setSaveError(err.message || 'Không lưu được kết quả.');
       setSessionStatus('save_failed');
+    } finally {
+      completionSubmitInFlightRef.current = false;
     }
   };
 

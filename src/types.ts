@@ -227,6 +227,7 @@ export interface GameSession {
   sessionToken?: string;
   schemaVersion?: 1 | 2;
   gradingMode?: 'client-legacy' | 'server' | 'server-self-report';
+  actionPersistence?: 'incremental' | 'submit_batch';
   saveStatus?: 'started' | 'in_progress' | 'completed' | 'abandoned';
   gameScore?: number;
   snapshot?: { itemOrder: string[]; items: VocabItem[]; config: Record<string, any> };

@@ -55,6 +55,8 @@ Never use the deploy directory as the source of truth for production data.
 - Before any storage, auth, migration, cleanup, result/session, or leaderboard change, back up the active production database.
 - Test SQLite migrations against an existing production-shaped database, not only a new empty database.
 - Migration order must be: create base tables, add missing columns, create indexes, then write new data.
+- Query-performance migrations may backfill new indexed columns from existing `data_json`, but must leave `data_json` and historical records unchanged. Test both a legacy schema and a new empty schema before deploy.
+- The `grammar-attempt-query-columns-v1` migration is additive: it adds query columns/indexes to `grammar_attempts` and never deletes attempts. A production backup is still mandatory before deploying it.
 - Runtime data must live in a persistent data directory such as `/home/qzmivzbj/app-data/vhomework`, not in `/home/qzmivzbj/app.msdieu.com`.
 - Generated audio files must also live in persistent storage, not in the deploy directory, and must not be stored as base64 in the database.
 - Do not commit `.env`, `.env.production`, service account private keys, API keys, or host-only diagnostic secrets.

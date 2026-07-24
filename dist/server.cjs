@@ -53,6 +53,7 @@ var require2 = (0, import_module.createRequire)(import_path.default.join(process
 var initSqlJs = require2("sql.js");
 var DEFAULT_SQLITE_PATH = "/home/qzmivzbj/app-data/vhomework/app.sqlite";
 var MIGRATION_ID = "import-db-json-v1";
+var GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = "grammar-attempt-query-columns-v1";
 var sqliteDb = null;
 var sqliteDbPath = "";
 var sqliteReady = false;
@@ -60,6 +61,10 @@ var sqliteLastError = null;
 var sqliteLastMigration = null;
 var initPromise = null;
 var transactionDepth = 0;
+var sqlitePersistAttempts = 0;
+var sqlitePersistSuccesses = 0;
+var sqlitePersistTotalMs = 0;
+var sqlitePersistLastMs = 0;
 var collectionTableMap = {
   users: "users",
   guest_profiles: "guest_profiles",
@@ -99,6 +104,46 @@ var collectionTableMap = {
   auditlogs: "audit_logs",
   settings: "settings"
 };
+var sqlQueryFieldMap = {
+  assignments: {
+    id: "id",
+    classId: "class_id",
+    userId: "user_id",
+    vocabSetId: "vocab_set_id",
+    gameId: "game_id",
+    dueDate: "due_date",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  game_results: {
+    id: "id",
+    assignmentId: "assignment_id",
+    userId: "user_id",
+    studentId: "user_id",
+    gameId: "game_id",
+    vocabSetId: "vocab_set_id",
+    score: "score",
+    createdAt: "created_at",
+    expiresAt: "expires_at"
+  },
+  game_session_actions: {
+    id: "id",
+    sessionId: "session_id",
+    sequence: "sequence",
+    type: "action_type",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  grammar_attempts: {
+    id: "id",
+    grammarSetId: "grammar_set_id",
+    userId: "user_id",
+    guestId: "guest_id",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  }
+};
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -127,6 +172,8 @@ function getDb() {
 }
 function persistDb() {
   if (!sqliteDb || !sqliteDbPath || transactionDepth > 0) return;
+  const startedAt = performance.now();
+  sqlitePersistAttempts++;
   const exported = sqliteDb.export();
   ensureParentDir(sqliteDbPath);
   const tempPath = import_path.default.join(
@@ -142,12 +189,16 @@ function persistDb() {
       import_fs.default.closeSync(fd);
     }
     import_fs.default.renameSync(tempPath, sqliteDbPath);
+    sqlitePersistSuccesses++;
   } catch (err) {
     try {
       if (import_fs.default.existsSync(tempPath)) import_fs.default.unlinkSync(tempPath);
     } catch {
     }
     throw err;
+  } finally {
+    sqlitePersistLastMs = Math.max(0, performance.now() - startedAt);
+    sqlitePersistTotalMs += sqlitePersistLastMs;
   }
 }
 function run(sql, params = [], shouldPersist = true) {
@@ -176,20 +227,24 @@ function withTransaction(action) {
     return;
   }
   transactionDepth++;
+  let committed = false;
   try {
     getDb().run("BEGIN TRANSACTION");
     action();
     getDb().run("COMMIT");
-    transactionDepth--;
-    persistDb();
+    committed = true;
   } catch (err) {
-    try {
-      getDb().run("ROLLBACK");
-    } catch {
+    if (!committed) {
+      try {
+        getDb().run("ROLLBACK");
+      } catch {
+      }
     }
-    transactionDepth--;
     throw err;
+  } finally {
+    transactionDepth--;
   }
+  persistDb();
 }
 function readRows(table) {
   if (table === "settings") {
@@ -201,6 +256,31 @@ function readRows(table) {
     }));
   }
   return all(`SELECT id, data_json FROM ${table}`).map((row) => ({
+    id: row.id,
+    ...parseJson(row.data_json)
+  }));
+}
+function readRowsWithSqlQuery(table, filters, orderField, orderDir = "asc", limitVal) {
+  const fieldMap = sqlQueryFieldMap[table];
+  if (!fieldMap) return null;
+  const allowedOperators = /* @__PURE__ */ new Set(["==", "!=", ">", ">=", "<", "<="]);
+  if (filters.some((filter) => !fieldMap[filter.field] || !allowedOperators.has(filter.op))) return null;
+  if (orderField && !fieldMap[orderField]) return null;
+  const params = [];
+  const whereParts = filters.map((filter) => {
+    const column = fieldMap[filter.field];
+    const operator = filter.op === "==" ? "=" : filter.op;
+    params.push(filter.val);
+    return `${column} ${operator} ?`;
+  });
+  let sql = `SELECT id, data_json FROM ${table}`;
+  if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
+  if (orderField) sql += ` ORDER BY ${fieldMap[orderField]} ${orderDir === "desc" ? "DESC" : "ASC"}`;
+  if (limitVal !== void 0) {
+    sql += " LIMIT ?";
+    params.push(Math.max(0, Math.floor(limitVal)));
+  }
+  return all(sql, params).map((row) => ({
     id: row.id,
     ...parseJson(row.data_json)
   }));
@@ -459,6 +539,32 @@ function upsertDoc(collectionName, id, inputData) {
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json`,
       [id, data.sessionId || null, Number(data.sequence || 0), data.type || null, createdAt, updatedAt, dataJson]
+    );
+    return;
+  }
+  if (table === "grammar_attempts") {
+    run(
+      `INSERT INTO grammar_attempts (
+        id, grammar_set_id, user_id, guest_id, status, created_at, updated_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        grammar_set_id = excluded.grammar_set_id,
+        user_id = excluded.user_id,
+        guest_id = excluded.guest_id,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.grammarSetId || data.grammar_set_id || null,
+        data.userId || data.user_id || null,
+        data.guestId || data.guest_id || null,
+        data.status || null,
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
     );
     return;
   }
@@ -722,6 +828,10 @@ function runSchemaMigration() {
 
     CREATE TABLE IF NOT EXISTS grammar_attempts (
       id TEXT PRIMARY KEY,
+      grammar_set_id TEXT,
+      user_id TEXT,
+      guest_id TEXT,
+      status TEXT,
       created_at TEXT,
       updated_at TEXT,
       data_json TEXT NOT NULL
@@ -789,6 +899,63 @@ function migrateActivityExpiryColumns() {
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
+}
+function migrateGrammarAttemptQueryColumns() {
+  if (hasMigration(GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID)) {
+    sqliteLastMigration = GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID;
+    return;
+  }
+  withTransaction(() => {
+    const requiredColumns = [
+      ["grammar_set_id", "TEXT"],
+      ["user_id", "TEXT"],
+      ["guest_id", "TEXT"],
+      ["status", "TEXT"]
+    ];
+    for (const [column, type] of requiredColumns) {
+      if (!tableHasColumn("grammar_attempts", column)) {
+        getDb().run(`ALTER TABLE grammar_attempts ADD COLUMN ${column} ${type}`);
+      }
+    }
+    const rows = all(
+      `SELECT id, grammar_set_id, user_id, guest_id, status, data_json
+       FROM grammar_attempts`
+    );
+    const update = getDb().prepare(
+      `UPDATE grammar_attempts
+       SET grammar_set_id = ?, user_id = ?, guest_id = ?, status = ?
+       WHERE id = ?`
+    );
+    try {
+      for (const row of rows) {
+        const data = parseJson(row.data_json);
+        update.run([
+          row.grammar_set_id || data.grammarSetId || data.grammar_set_id || null,
+          row.user_id || data.userId || data.user_id || null,
+          row.guest_id || data.guestId || data.guest_id || null,
+          row.status || data.status || null,
+          row.id
+        ]);
+      }
+    } finally {
+      update.free();
+    }
+    getDb().run(`
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_guest_status
+        ON grammar_attempts(grammar_set_id, guest_id, status);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_user_status
+        ON grammar_attempts(grammar_set_id, user_id, status);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_guest_created
+        ON grammar_attempts(grammar_set_id, guest_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_user_created
+        ON grammar_attempts(grammar_set_id, user_id, created_at);
+    `);
+    getDb().run(
+      "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+      [GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID, nowIso()]
+    );
+  });
+  sqliteLastMigration = GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID;
 }
 function getJsonImportCandidates() {
   return [
@@ -876,6 +1043,7 @@ async function initializeSQLiteStorage() {
       sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
       runSchemaMigration();
       migrateActivityExpiryColumns();
+      migrateGrammarAttemptQueryColumns();
       migrateFromJsonIfNeeded();
       sqliteReady = true;
       sqliteLastError = null;
@@ -957,11 +1125,20 @@ var SQLiteQuery = class {
   async get() {
     await initializeSQLiteStorage();
     const table = tableForCollection(this.collectionName);
-    let items = readRows(table);
-    items = applyFilters(items, this.filters);
-    items = applyOrder(items, this.orderField, this.orderDir);
-    if (this.limitVal !== void 0) {
-      items = items.slice(0, this.limitVal);
+    let items = readRowsWithSqlQuery(
+      table,
+      this.filters,
+      this.orderField,
+      this.orderDir,
+      this.limitVal
+    );
+    if (!items) {
+      items = readRows(table);
+      items = applyFilters(items, this.filters);
+      items = applyOrder(items, this.orderField, this.orderDir);
+      if (this.limitVal !== void 0) {
+        items = items.slice(0, this.limitVal);
+      }
     }
     const docs = items.map((item) => {
       const id = item.id || Math.random().toString(36).slice(2);
@@ -1056,6 +1233,14 @@ async function getSQLiteDiagnostics() {
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError
+  };
+}
+function getSQLitePersistStats() {
+  return {
+    attempts: sqlitePersistAttempts,
+    successes: sqlitePersistSuccesses,
+    totalMs: sqlitePersistTotalMs,
+    lastMs: sqlitePersistLastMs
   };
 }
 
@@ -1471,6 +1656,9 @@ var FallbackFirestore = class {
   }
 };
 var adminDb = isSQLiteStorageMode ? new SQLiteFirestore() : new FallbackFirestore();
+function getStoragePersistStats() {
+  return isSQLiteStorageMode ? getSQLitePersistStats() : null;
+}
 async function getStorageDiagnostics() {
   if (isSQLiteStorageMode) {
     return getSQLiteDiagnostics();
@@ -1526,12 +1714,58 @@ var app2 = (0, import_express.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 var AUDIO_PUBLIC_PREFIX = "/audio";
+var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 app2.use(import_express.default.json());
+app2.use((req, _res, next) => {
+  req.__requestStartedAt = performance.now();
+  req.__storagePersistStartedAt = getStoragePersistStats();
+  next();
+});
 import_fs3.default.mkdirSync(AUDIO_DIR, { recursive: true });
 app2.use(AUDIO_PUBLIC_PREFIX, import_express.default.static(AUDIO_DIR));
 function sendApiError(res, err) {
   const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
   res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
+}
+function createApiTiming(req, label) {
+  const requestStartedAt = Number(req.__requestStartedAt || performance.now());
+  const persistStartedAt = req.__storagePersistStartedAt || getStoragePersistStats();
+  let checkpoint = performance.now();
+  const entries = [];
+  const authDurationMs = Math.max(0, checkpoint - requestStartedAt);
+  if (authDurationMs > 0) entries.push({ name: "auth", durationMs: authDurationMs });
+  let finished = false;
+  return {
+    mark(name) {
+      const now = performance.now();
+      entries.push({
+        name: name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "step",
+        durationMs: Math.max(0, now - checkpoint)
+      });
+      checkpoint = now;
+    },
+    finish(res) {
+      if (finished) return;
+      finished = true;
+      const totalMs = Math.max(0, performance.now() - requestStartedAt);
+      const persistFinishedAt = getStoragePersistStats();
+      const persistCount = persistStartedAt && persistFinishedAt ? Math.max(0, Number(persistFinishedAt.attempts) - Number(persistStartedAt.attempts)) : 0;
+      const persistMs = persistStartedAt && persistFinishedAt ? Math.max(0, Number(persistFinishedAt.totalMs) - Number(persistStartedAt.totalMs)) : 0;
+      const timingEntries = [
+        ...entries,
+        ...persistCount > 0 ? [{ name: "sqlite_persist", durationMs: persistMs }] : [],
+        { name: "total", durationMs: totalMs }
+      ];
+      const serverTiming = timingEntries.map((entry) => `${entry.name};dur=${entry.durationMs.toFixed(1)}`).join(", ");
+      if (!res.headersSent) res.setHeader("Server-Timing", serverTiming);
+      if (totalMs >= SLOW_API_LOG_MS) {
+        const detail = entries.map((entry) => `${entry.name}=${entry.durationMs.toFixed(1)}ms`).join(" ");
+        console.warn(
+          `[PERF] ${label} total=${totalMs.toFixed(1)}ms persists=${persistCount} persistMs=${persistMs.toFixed(1)} ${detail}`
+        );
+      }
+    }
+  };
 }
 async function logAuditAction(userId, userName, userEmail, action, details) {
   try {
@@ -1745,6 +1979,10 @@ var SESSION_V2_GAME_IDS = /* @__PURE__ */ new Set([
   "millionaire-vocab",
   "speaking-ai"
 ]);
+var GAME_ACTION_BATCH_MAX_ITEMS = Math.max(
+  1,
+  Math.min(200, Number(process.env.GAME_ACTION_BATCH_MAX_ITEMS || 50))
+);
 function normalizeGameAnswer(value) {
   return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/[‘’‚‛`´]/g, "'").replace(/\s+/g, " ");
 }
@@ -1784,6 +2022,34 @@ function sanitizeGameAction(input) {
     responseMs: Math.max(0, Math.min(12e4, Number(input?.responseMs || 0))),
     attemptNumber: Math.max(1, Math.min(20, Number(input?.attemptNumber || 1)))
   };
+}
+function sanitizeSubmittedGameActions(input) {
+  if (!Array.isArray(input)) return [];
+  if (input.length > 1e3) throw createHttpError(400, "C\xF3 qu\xE1 nhi\u1EC1u thao t\xE1c trong m\u1ED9t l\u01B0\u1EE3t ch\u01A1i.");
+  const actions = input.map(sanitizeGameAction);
+  const sequenceSet = /* @__PURE__ */ new Set();
+  for (const action of actions) {
+    if (sequenceSet.has(action.sequence)) {
+      throw createHttpError(400, "Game action sequence b\u1ECB tr\xF9ng.");
+    }
+    sequenceSet.add(action.sequence);
+  }
+  return actions.sort((a, b) => a.sequence - b.sequence);
+}
+function dedupeStoredGameActions(actions) {
+  const bySequence = /* @__PURE__ */ new Map();
+  for (const action of actions) {
+    const sequence = Number(action?.sequence);
+    if (!Number.isInteger(sequence) || sequence < 0 || bySequence.has(sequence)) continue;
+    bySequence.set(sequence, action);
+  }
+  return [...bySequence.values()].sort((a, b) => Number(a.sequence) - Number(b.sequence));
+}
+function getGameActionPersistence(gameId, snapshot) {
+  const itemCount = Array.isArray(snapshot?.items) ? snapshot.items.length : 0;
+  const effectiveItemCount = gameId === "millionaire-vocab" ? Math.min(itemCount, 15) : itemCount;
+  if (gameId === "speaking-ai" || effectiveItemCount > GAME_ACTION_BATCH_MAX_ITEMS) return "incremental";
+  return "submit_batch";
 }
 function speakingScore(target, recognized, responseMs) {
   const words = (value) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9'\s]/g, " ").split(/\s+/).filter(Boolean);
@@ -1947,6 +2213,10 @@ async function findExistingGuestIdentity(guestIdValue) {
   }
   return findLegacyGuestIdentity(guestId);
 }
+var GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
+  6e4,
+  Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 6e4)
+);
 async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) throw createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
@@ -1978,18 +2248,24 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     }
     const classId = safeText(classInfo.classId, 160);
     const className = safeText(classInfo.className, 240);
-    if (touchActivity || classId || className) {
+    const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
+    const shouldTouchActivity = Boolean(
+      touchActivity && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
+    );
+    const shouldUpdateClassId = Boolean(classId && classId !== safeText(existing.classId, 160));
+    const shouldUpdateClassName = Boolean(className && className !== safeText(existing.className, 240));
+    if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
       await profileRef.update({
-        ...touchActivity ? { lastActiveAt: now } : {},
-        ...classId ? { classId } : {},
-        ...className ? { className } : {}
+        ...shouldTouchActivity ? { lastActiveAt: now } : {},
+        ...shouldUpdateClassId ? { classId } : {},
+        ...shouldUpdateClassName ? { className } : {}
       });
     }
     return {
       ...existing,
       displayName,
       name: displayName,
-      lastActiveAt: touchActivity ? now : existing.lastActiveAt,
+      lastActiveAt: shouldTouchActivity ? now : existing.lastActiveAt,
       classId: classId || existing.classId,
       className: className || existing.className
     };
@@ -2239,6 +2515,30 @@ function getRequestVocabShareToken(req) {
 async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", expectedAssignmentId = "") {
   const token = safeText(tokenValue, 200);
   if (!token) return null;
+  if (expectedAssignmentId) {
+    const assignmentDoc = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
+    if (!assignmentDoc.exists) return null;
+    const assignment = await ensureAssignmentShareToken(
+      { id: assignmentDoc.id, ...assignmentDoc.data() },
+      assignmentDoc.ref
+    );
+    if (getAssignmentShareToken(assignment) !== token) return null;
+    if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
+    const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (!isAssignmentOpenForLearning(assignment, set)) return null;
+    return { accessType: "assignment", set, assignment };
+  }
+  if (expectedVocabSetId) {
+    const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
+    if (setToken === token && getVocabVisibility(set) === "assignment") {
+      return { accessType: "vocab_set", set, assignment: null };
+    }
+  }
   const assignmentsSnapshot = await adminDb.collection("assignments").get();
   for (const doc of assignmentsSnapshot.docs || []) {
     const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
@@ -2444,11 +2744,6 @@ function grammarAttemptToLeaderboardEvent(attempt, set = {}) {
     grammarSetId: attempt.grammarSetId,
     expiresAt: addDaysIso(activity.completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
   });
-}
-async function persistLeaderboardEvent(event) {
-  if (!event?.completedAt) return;
-  const safeEvent = sanitizeLeaderboardEvent(event);
-  await adminDb.collection("leaderboard_events").doc(safeEvent.id).set(safeEvent);
 }
 function mergeLeaderboardEvents(events) {
   const bySource = /* @__PURE__ */ new Map();
@@ -4541,23 +4836,22 @@ app2.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["t
   }
 });
 app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const set = await getGrammarSetOr404(req.params.id);
+    timing.mark("set_read");
     if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
     if (!canOpenGrammarSetForLearning(set, actor, req)) {
       return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\xE0m b\xE0i n\xE0y." });
     }
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts").get();
-    let completedAttempts = 0;
-    attemptsSnapshot.forEach((doc) => {
-      const attempt2 = doc.data();
-      if (attempt2.grammarSetId === set.id && (attempt2.userId === actor.id || attempt2.guestId === actor.id) && attempt2.status === "completed") {
-        completedAttempts++;
-      }
-    });
-    if (completedAttempts >= Number(set.maxAttempts || 1)) {
+    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const attemptsSnapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).where(actorField, "==", actor.id).where("status", "==", "completed").limit(maxAttempts).get();
+    timing.mark("attempt_limit");
+    if (attemptsSnapshot.size >= maxAttempts) {
       return res.status(403).json({ error: "B\u1EA1n \u0111\xE3 h\u1EBFt s\u1ED1 l\u1EA7n l\xE0m b\xE0i \u0111\u01B0\u1EE3c ph\xE9p." });
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -4605,18 +4899,25 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
       attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
     };
     await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
+    timing.mark("persist");
+    timing.finish(res);
     res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/answers");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    timing.mark("attempt_read");
     if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
     const set = await getGrammarSetOr404(attempt.grammarSetId);
+    timing.mark("set_read");
     if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y." });
     if (attempt.status === "completed") return res.status(400).json({ error: "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n." });
     const attemptQuestion = (attempt.questions || []).find((question) => question.id === req.body?.attemptQuestionId);
@@ -4651,6 +4952,7 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     answers.push(answer);
     const updatedAttempt = { ...attempt, answers };
     await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+    timing.mark("persist");
     const feedback = set?.showExplanationImmediately ? {
       isCorrect,
       correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
@@ -4658,18 +4960,24 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
       explanation: attemptQuestion.explanationSnapshot,
       scoreAwarded: answer.scoreAwarded
     } : null;
+    timing.finish(res);
     res.json({ answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)), feedback });
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/submit");
   try {
     const actor = await getGrammarActor(req);
+    timing.mark("identity");
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
     const attempt = await getGrammarAttemptOr404(req.params.attemptId);
+    timing.mark("attempt_read");
     if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
     const set = await getGrammarSetOr404(attempt.grammarSetId);
+    timing.mark("set_read");
     if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y." });
     if (attempt.status === "completed") return res.status(400).json({ error: "B\xE0i n\xE0y \u0111\xE3 \u0111\u01B0\u1EE3c n\u1ED9p." });
     const answerMap = new Map((attempt.answers || []).map((answer) => [answer.attemptQuestionId, answer]));
@@ -4701,10 +5009,16 @@ app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, a
       completedAt,
       durationSeconds
     };
-    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
-    await persistLeaderboardEvent(grammarAttemptToLeaderboardEvent(updatedAttempt, set));
+    const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -4729,13 +5043,12 @@ app2.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (r
     const actor = await getGrammarActor(req);
     if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 xem l\u1ECBch s\u1EED l\xE0m b\xE0i." });
     const set = await getGrammarSetOr404(req.params.id);
-    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const snapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", req.params.id).where(actorField, "==", actor.id).get();
     const list = [];
     snapshot.forEach((doc) => {
       const attempt = { id: doc.id, ...doc.data() };
-      if (attempt.grammarSetId === req.params.id && (attempt.userId === actor.id || attempt.guestId === actor.id)) {
-        list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
-      }
+      list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
     });
     list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     res.json(list);
@@ -4749,11 +5062,11 @@ app2.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["
     const set = await getGrammarSetOr404(req.params.id);
     if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
     if (!canManageGrammarSet(req.user, set)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem k\u1EBFt qu\u1EA3 b\xE0i n\xE0y." });
-    const snapshot = await adminDb.collection("grammar_attempts").get();
+    const snapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).get();
     const attempts = [];
     snapshot.forEach((doc) => {
       const attempt = { id: doc.id, ...doc.data() };
-      if (attempt.grammarSetId === set.id) attempts.push(attempt);
+      attempts.push(attempt);
     });
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
     res.json({ set, attempts: await enrichStudentNames(attempts) });
@@ -4785,6 +5098,7 @@ app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["te
   }
 });
 app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions");
   try {
     const payload = req.body || {};
     let actor = getGameSessionActor(req, payload);
@@ -4796,6 +5110,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       });
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
+    timing.mark("identity");
     const id = `session-${import_crypto.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -4827,11 +5142,16 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
         });
       }
     }
-    const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
-    if (!vocabDoc.exists) {
-      return res.status(404).json({ error: "Vocabulary set not found." });
+    timing.mark("access");
+    let vocabSet = access?.set || null;
+    if (!vocabSet) {
+      const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+      if (!vocabDoc.exists) {
+        return res.status(404).json({ error: "Vocabulary set not found." });
+      }
+      vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
     }
-    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
+    timing.mark("set_read");
     if (assignment) {
       if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
         return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
@@ -4851,7 +5171,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     }
     let inferredClass = null;
     if (!payload.classId && !assignment && payload.vocabSetId) {
-      const assignmentsSnapshot = await adminDb.collection("assignments").get();
+      const assignmentsSnapshot = await adminDb.collection("assignments").where("vocabSetId", "==", payload.vocabSetId).get();
       const uniqueBySet = /* @__PURE__ */ new Map();
       assignmentsSnapshot.forEach((doc) => {
         const data = { id: doc.id, ...doc.data() };
@@ -4862,6 +5182,8 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       });
       inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
     }
+    timing.mark("class_resolve");
+    const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
     const newSession = {
       id,
       ownerKey: actor.ownerKey,
@@ -4883,7 +5205,8 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       status: "started",
       schemaVersion: 2,
       gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
-      privateSnapshot: buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder),
+      actionPersistence: getGameActionPersistence(gameId, privateSnapshot),
+      privateSnapshot,
       lastSavedAt: now,
       score: 0,
       totalQuestions: 0,
@@ -4892,8 +5215,11 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       sessionTokenHash: hashSessionToken(sessionToken)
     };
     await adminDb.collection("game_sessions").doc(id).set(newSession);
+    timing.mark("persist");
+    timing.finish(res);
     res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -4945,16 +5271,21 @@ app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) =>
       completedAt: endedAt,
       expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
     };
-    await docRef.set(updatedSession);
-    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...updatedSession, id }));
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id });
+    const batch = adminDb.batch();
+    batch.set(docRef, updatedSession);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err) {
     sendApiError(res, err);
   }
 });
 app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "PUT /api/game-sessions/:id/actions/:actionId");
   try {
     const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
+    timing.mark("session_read");
     if (!sessionDoc.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
     const session = sessionDoc.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
@@ -4962,48 +5293,82 @@ app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, a
     if (session.status === "completed") return res.json({ saved: true, completed: true });
     const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
     if (!action.actionId) return res.status(400).json({ error: "Thi\u1EBFu actionId." });
-    const actionId = `${req.params.id}:${action.actionId}`;
-    const actionRef = adminDb.collection("game_session_actions").doc(actionId);
-    const existing = await actionRef.get();
-    if (!existing.exists) {
-      const snapshot = await adminDb.collection("game_session_actions").get();
-      let sequenceConflict = false;
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.sessionId === req.params.id && data.sequence === action.sequence) sequenceConflict = true;
-      });
-      if (sequenceConflict) return res.status(409).json({ error: "Action sequence \u0111\xE3 t\u1ED3n t\u1EA1i." });
-      await actionRef.set({ ...action, id: actionId, sessionId: req.params.id, createdAt: (/* @__PURE__ */ new Date()).toISOString(), updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
-      await adminDb.collection("game_sessions").doc(req.params.id).update({ status: "in_progress", lastSavedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    const canonicalActionId = `${req.params.id}:sequence:${action.sequence}`;
+    const legacyActionId = `${req.params.id}:${action.actionId}`;
+    const canonicalRef = adminDb.collection("game_session_actions").doc(canonicalActionId);
+    const legacyRef = adminDb.collection("game_session_actions").doc(legacyActionId);
+    const [canonicalDoc, legacyDoc] = await Promise.all([canonicalRef.get(), legacyRef.get()]);
+    timing.mark("action_lookup");
+    if (canonicalDoc.exists) {
+      const existingAction = canonicalDoc.data();
+      if (existingAction.actionId && existingAction.actionId !== action.actionId) {
+        return res.status(409).json({ error: "Action sequence \u0111\xE3 t\u1ED3n t\u1EA1i." });
+      }
+      timing.finish(res);
+      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
     }
+    if (legacyDoc.exists) {
+      timing.finish(res);
+      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
+    }
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const batch = adminDb.batch();
+    batch.set(canonicalRef, {
+      ...action,
+      id: canonicalActionId,
+      sessionId: req.params.id,
+      createdAt: now,
+      updatedAt: now
+    });
+    batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
+      status: "in_progress",
+      lastSavedAt: now
+    });
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions/:id/submit");
   try {
     const docRef = adminDb.collection("game_sessions").doc(req.params.id);
     const existing = await docRef.get();
+    timing.mark("session_read");
     if (!existing.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
     const session = existing.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
     if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
     if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169." });
-    const snapshot = await adminDb.collection("game_session_actions").get();
-    const actions = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.sessionId === req.params.id) actions.push(data);
-    });
+    let actions;
+    const submittedActionsProvided = Array.isArray(req.body?.actions);
+    if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
+      actions = sanitizeSubmittedGameActions(req.body.actions);
+    } else {
+      const snapshot = await adminDb.collection("game_session_actions").where("sessionId", "==", req.params.id).get();
+      const storedActions = [];
+      snapshot.forEach((doc) => storedActions.push(doc.data()));
+      actions = dedupeStoredGameActions(storedActions);
+    }
+    timing.mark("actions_read");
     const result = gradeGameSessionV2(session, actions);
     const completedAt = (/* @__PURE__ */ new Date()).toISOString();
     const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
     const completed = { ...session, ...result, status: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1e3), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
-    await docRef.set(completed);
-    await persistLeaderboardEvent(gameSessionToLeaderboardEvent({ ...completed, id: req.params.id }));
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
+    const batch = adminDb.batch();
+    batch.set(docRef, completed);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });

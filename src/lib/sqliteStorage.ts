@@ -10,6 +10,7 @@ const initSqlJs = require('sql.js');
 
 const DEFAULT_SQLITE_PATH = '/home/qzmivzbj/app-data/vhomework/app.sqlite';
 const MIGRATION_ID = 'import-db-json-v1';
+const GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = 'grammar-attempt-query-columns-v1';
 
 let sqliteDb: any = null;
 let sqliteDbPath = '';
@@ -18,6 +19,10 @@ let sqliteLastError: string | null = null;
 let sqliteLastMigration: string | null = null;
 let initPromise: Promise<void> | null = null;
 let transactionDepth = 0;
+let sqlitePersistAttempts = 0;
+let sqlitePersistSuccesses = 0;
+let sqlitePersistTotalMs = 0;
+let sqlitePersistLastMs = 0;
 
 const collectionTableMap: Record<string, string> = {
   users: 'users',
@@ -59,6 +64,47 @@ const collectionTableMap: Record<string, string> = {
   settings: 'settings',
 };
 
+const sqlQueryFieldMap: Record<string, Record<string, string>> = {
+  assignments: {
+    id: 'id',
+    classId: 'class_id',
+    userId: 'user_id',
+    vocabSetId: 'vocab_set_id',
+    gameId: 'game_id',
+    dueDate: 'due_date',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  game_results: {
+    id: 'id',
+    assignmentId: 'assignment_id',
+    userId: 'user_id',
+    studentId: 'user_id',
+    gameId: 'game_id',
+    vocabSetId: 'vocab_set_id',
+    score: 'score',
+    createdAt: 'created_at',
+    expiresAt: 'expires_at',
+  },
+  game_session_actions: {
+    id: 'id',
+    sessionId: 'session_id',
+    sequence: 'sequence',
+    type: 'action_type',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  grammar_attempts: {
+    id: 'id',
+    grammarSetId: 'grammar_set_id',
+    userId: 'user_id',
+    guestId: 'guest_id',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+};
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -93,6 +139,8 @@ function getDb() {
 
 function persistDb() {
   if (!sqliteDb || !sqliteDbPath || transactionDepth > 0) return;
+  const startedAt = performance.now();
+  sqlitePersistAttempts++;
   const exported = sqliteDb.export();
   ensureParentDir(sqliteDbPath);
   const tempPath = path.join(
@@ -109,6 +157,7 @@ function persistDb() {
       fs.closeSync(fd);
     }
     fs.renameSync(tempPath, sqliteDbPath);
+    sqlitePersistSuccesses++;
   } catch (err) {
     try {
       if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
@@ -116,6 +165,9 @@ function persistDb() {
       // Keep the original persistence error.
     }
     throw err;
+  } finally {
+    sqlitePersistLastMs = Math.max(0, performance.now() - startedAt);
+    sqlitePersistTotalMs += sqlitePersistLastMs;
   }
 }
 
@@ -149,21 +201,26 @@ function withTransaction(action: () => void) {
   }
 
   transactionDepth++;
+  let committed = false;
   try {
     getDb().run('BEGIN TRANSACTION');
     action();
     getDb().run('COMMIT');
-    transactionDepth--;
-    persistDb();
+    committed = true;
   } catch (err) {
-    try {
-      getDb().run('ROLLBACK');
-    } catch {
-      // Ignore rollback errors; the original error is more useful.
+    if (!committed) {
+      try {
+        getDb().run('ROLLBACK');
+      } catch {
+        // Ignore rollback errors; the original error is more useful.
+      }
     }
-    transactionDepth--;
     throw err;
+  } finally {
+    transactionDepth--;
   }
+
+  persistDb();
 }
 
 function readRows(table: string): any[] {
@@ -177,6 +234,42 @@ function readRows(table: string): any[] {
   }
 
   return all(`SELECT id, data_json FROM ${table}`).map((row) => ({
+    id: row.id,
+    ...parseJson(row.data_json),
+  }));
+}
+
+function readRowsWithSqlQuery(
+  table: string,
+  filters: Filter[],
+  orderField?: string,
+  orderDir = 'asc',
+  limitVal?: number
+): any[] | null {
+  const fieldMap = sqlQueryFieldMap[table];
+  if (!fieldMap) return null;
+
+  const allowedOperators = new Set(['==', '!=', '>', '>=', '<', '<=']);
+  if (filters.some(filter => !fieldMap[filter.field] || !allowedOperators.has(filter.op))) return null;
+  if (orderField && !fieldMap[orderField]) return null;
+
+  const params: any[] = [];
+  const whereParts = filters.map(filter => {
+    const column = fieldMap[filter.field];
+    const operator = filter.op === '==' ? '=' : filter.op;
+    params.push(filter.val);
+    return `${column} ${operator} ?`;
+  });
+
+  let sql = `SELECT id, data_json FROM ${table}`;
+  if (whereParts.length) sql += ` WHERE ${whereParts.join(' AND ')}`;
+  if (orderField) sql += ` ORDER BY ${fieldMap[orderField]} ${orderDir === 'desc' ? 'DESC' : 'ASC'}`;
+  if (limitVal !== undefined) {
+    sql += ' LIMIT ?';
+    params.push(Math.max(0, Math.floor(limitVal)));
+  }
+
+  return all(sql, params).map(row => ({
     id: row.id,
     ...parseJson(row.data_json),
   }));
@@ -455,6 +548,33 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'grammar_attempts') {
+    run(
+      `INSERT INTO grammar_attempts (
+        id, grammar_set_id, user_id, guest_id, status, created_at, updated_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        grammar_set_id = excluded.grammar_set_id,
+        user_id = excluded.user_id,
+        guest_id = excluded.guest_id,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.grammarSetId || data.grammar_set_id || null,
+        data.userId || data.user_id || null,
+        data.guestId || data.guest_id || null,
+        data.status || null,
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (table === 'leaderboard_events') {
     run(
       `INSERT INTO leaderboard_events (id, source_type, source_id, student_key, class_id, vocab_set_id, score, completed_at, expires_at, data_json)
@@ -721,6 +841,10 @@ function runSchemaMigration() {
 
     CREATE TABLE IF NOT EXISTS grammar_attempts (
       id TEXT PRIMARY KEY,
+      grammar_set_id TEXT,
+      user_id TEXT,
+      guest_id TEXT,
+      status TEXT,
       created_at TEXT,
       updated_at TEXT,
       data_json TEXT NOT NULL
@@ -793,6 +917,67 @@ function migrateActivityExpiryColumns() {
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
+}
+
+function migrateGrammarAttemptQueryColumns() {
+  if (hasMigration(GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID)) {
+    sqliteLastMigration = GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID;
+    return;
+  }
+
+  withTransaction(() => {
+    const requiredColumns = [
+      ['grammar_set_id', 'TEXT'],
+      ['user_id', 'TEXT'],
+      ['guest_id', 'TEXT'],
+      ['status', 'TEXT'],
+    ];
+    for (const [column, type] of requiredColumns) {
+      if (!tableHasColumn('grammar_attempts', column)) {
+        getDb().run(`ALTER TABLE grammar_attempts ADD COLUMN ${column} ${type}`);
+      }
+    }
+
+    const rows = all(
+      `SELECT id, grammar_set_id, user_id, guest_id, status, data_json
+       FROM grammar_attempts`
+    );
+    const update = getDb().prepare(
+      `UPDATE grammar_attempts
+       SET grammar_set_id = ?, user_id = ?, guest_id = ?, status = ?
+       WHERE id = ?`
+    );
+    try {
+      for (const row of rows) {
+        const data = parseJson(row.data_json);
+        update.run([
+          row.grammar_set_id || data.grammarSetId || data.grammar_set_id || null,
+          row.user_id || data.userId || data.user_id || null,
+          row.guest_id || data.guestId || data.guest_id || null,
+          row.status || data.status || null,
+          row.id,
+        ]);
+      }
+    } finally {
+      update.free();
+    }
+
+    getDb().run(`
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_guest_status
+        ON grammar_attempts(grammar_set_id, guest_id, status);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_user_status
+        ON grammar_attempts(grammar_set_id, user_id, status);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_guest_created
+        ON grammar_attempts(grammar_set_id, guest_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_grammar_attempts_set_user_created
+        ON grammar_attempts(grammar_set_id, user_id, created_at);
+    `);
+    getDb().run(
+      'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+      [GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID, nowIso()]
+    );
+  });
+  sqliteLastMigration = GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID;
 }
 
 function getJsonImportCandidates() {
@@ -890,6 +1075,7 @@ export async function initializeSQLiteStorage() {
       sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
       runSchemaMigration();
       migrateActivityExpiryColumns();
+      migrateGrammarAttemptQueryColumns();
       migrateFromJsonIfNeeded();
       sqliteReady = true;
       sqliteLastError = null;
@@ -1004,11 +1190,20 @@ export class SQLiteQuery {
   public async get() {
     await initializeSQLiteStorage();
     const table = tableForCollection(this.collectionName);
-    let items = readRows(table);
-    items = applyFilters(items, this.filters);
-    items = applyOrder(items, this.orderField, this.orderDir);
-    if (this.limitVal !== undefined) {
-      items = items.slice(0, this.limitVal);
+    let items = readRowsWithSqlQuery(
+      table,
+      this.filters,
+      this.orderField,
+      this.orderDir,
+      this.limitVal
+    );
+    if (!items) {
+      items = readRows(table);
+      items = applyFilters(items, this.filters);
+      items = applyOrder(items, this.orderField, this.orderDir);
+      if (this.limitVal !== undefined) {
+        items = items.slice(0, this.limitVal);
+      }
     }
     const docs = items.map((item) => {
       const id = item.id || Math.random().toString(36).slice(2);
@@ -1113,5 +1308,14 @@ export async function getSQLiteDiagnostics() {
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,
+  };
+}
+
+export function getSQLitePersistStats() {
+  return {
+    attempts: sqlitePersistAttempts,
+    successes: sqlitePersistSuccesses,
+    totalMs: sqlitePersistTotalMs,
+    lastMs: sqlitePersistLastMs,
   };
 }

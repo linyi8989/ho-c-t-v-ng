@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   getSQLiteDiagnostics,
+  getSQLitePersistStats,
   initializeSQLiteStorage,
   SQLiteFirestore
 } from './sqliteStorage';
@@ -522,6 +523,10 @@ class FallbackFirestore {
 }
 
 export const adminDb = (isSQLiteStorageMode ? new SQLiteFirestore() : new FallbackFirestore()) as any;
+
+export function getStoragePersistStats() {
+  return isSQLiteStorageMode ? getSQLitePersistStats() : null;
+}
 
 export async function getStorageDiagnostics() {
   if (isSQLiteStorageMode) {

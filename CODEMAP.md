@@ -1436,3 +1436,36 @@ Phase 4 - optimization:
 - Avoid generating audio on every student click.
 - Avoid storing signed URLs that expire too soon unless the app can refresh them.
 - Prefer deterministic hash paths to prevent duplicate audio files.
+
+## 16. Game And Grammar Performance Hardening - 2026-07-24
+
+Observed bottlenecks:
+
+- Production SQLite uses `sql.js`. Every standalone write exports the whole database, writes a temporary file, calls `fsync`, and renames it over the active file.
+- The old `SQLiteQuery.get()` always loaded a full table and filtered in JavaScript, so SQL indexes were not used.
+- Grammar attempt creation/history scanned all `grammar_attempts`.
+- Each incremental game action scanned all `game_session_actions`, wrote the action, then persisted the session separately.
+- Game completion resent every action before submit even when each action had already been saved.
+
+Implemented behavior:
+
+- Slow game/grammar APIs return a `Server-Timing` header and log `[PERF]` when total duration exceeds `SLOW_API_LOG_MS` (default 500 ms). In SQLite mode, each log also reports `persists` and `persistMs`, measured from the real `persistDb()` calls, so export/fsync cost can be verified instead of inferred.
+- `SQLiteQuery.get()` now pushes supported filters/order/limit into real SQL for normalized fields. Unsupported fields retain the compatibility in-memory fallback.
+- Additive migration `grammar-attempt-query-columns-v1` adds/backfills `grammar_set_id`, `user_id`, `guest_id`, and `status` without changing `data_json`, then creates composite indexes for attempt limits/history.
+- Grammar attempt limits, personal history, and admin result lists query only the relevant set/student rows.
+- `SQLiteBatch.commit()` already wraps operations in `withTransaction()`; game action+session updates and completed result+leaderboard writes now use batches so sql.js persists once per logical operation.
+- New action IDs use `sessionId + sequence`. Existing legacy action IDs are checked directly for rolling-deploy compatibility; no sequence full scan is used.
+- Short games (up to `GAME_ACTION_BATCH_MAX_ITEMS`, default 50; Millionaire uses its effective 15-question limit) collect actions client-side and submit once. Speaking AI and longer games keep incremental durability.
+- Incremental games retry only unsaved actions. The normal submit path no longer resends every action.
+- Submit reads actions by `sessionId` using SQL/Firestore query filtering and deduplicates legacy/canonical actions by sequence.
+- Share-token revalidation reads assignment/vocabulary documents directly when their IDs are known. Full token scans remain only for the initial token-only URL resolution.
+- Existing guest `lastActiveAt` writes are throttled by `GUEST_ACTIVITY_TOUCH_INTERVAL_MS` (default 5 minutes), while class changes still persist immediately.
+- Grammar history loading is delayed and aborted when the student starts an attempt; duplicate start requests are blocked. Game session creation is aborted when switching games, and duplicate completion submits are blocked while a submit is in flight.
+
+Data-safety boundaries:
+
+- No game session, grammar attempt, action, leaderboard event, vocabulary set, account, or class is deleted by these optimizations.
+- Batch-mode actions are held client-side only while a short game is in progress; the completed result and leaderboard event are persisted atomically at submit.
+- Long games retain incremental progress writes.
+- Before deploying the additive grammar query migration, back up `/home/qzmivzbj/app-data/vhomework/app.sqlite` and test startup against a production-shaped copy.
+- Native `better-sqlite3`/WAL remains a separate staging task because cPanel native-binary compatibility must be verified before changing the production storage driver.
