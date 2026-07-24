@@ -94,6 +94,7 @@ export interface Assignment {
 }
 
 export type GrammarVisibility = 'public' | 'assignment' | 'draft';
+export type GrammarQuestionType = 'multiple_choice' | 'rewrite';
 
 export interface GrammarOption {
   id: string;
@@ -103,9 +104,11 @@ export interface GrammarOption {
 
 export interface GrammarQuestion {
   id: string;
+  questionType?: GrammarQuestionType;
   questionText: string;
   options: GrammarOption[];
   correctOptionId: string;
+  correctAnswer?: string;
   explanation: string;
   score: number;
   position: number;
@@ -122,6 +125,7 @@ export interface GrammarSet {
   topic: string;
   tags: string[];
   visibility: GrammarVisibility;
+  questionType?: GrammarQuestionType;
   status?: 'draft' | 'public' | 'private';
   shareToken?: string;
   assignmentSlug?: string;
@@ -141,6 +145,7 @@ export interface GrammarSet {
 export interface GrammarAttemptQuestion {
   id: string;
   questionId: string;
+  questionType?: GrammarQuestionType;
   displayPosition: number;
   optionOrder: string[];
   questionSnapshot: string;
@@ -148,14 +153,17 @@ export interface GrammarAttemptQuestion {
   scoreSnapshot: number;
   optionsSnapshot: GrammarOption[];
   correctOptionId?: string;
+  correctAnswerSnapshot?: string;
 }
 
 export interface GrammarAttemptAnswer {
   id: string;
   attemptQuestionId: string;
   questionId: string;
-  selectedOptionId: string;
+  selectedOptionId?: string;
+  textAnswer?: string;
   correctOptionId?: string;
+  correctAnswer?: string;
   isCorrect?: boolean;
   scoreAwarded?: number;
   answeredAt: string;

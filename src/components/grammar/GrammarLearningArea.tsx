@@ -13,7 +13,8 @@ interface GrammarLearningAreaProps {
 
 interface GrammarQuestionFeedback {
   isCorrect: boolean;
-  correctOptionId: string;
+  correctOptionId?: string;
+  correctAnswer?: string;
   explanation?: string;
   scoreAwarded: number;
 }
@@ -107,6 +108,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const [review, setReview] = useState<GrammarAttempt | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
   const [feedbackByQuestion, setFeedbackByQuestion] = useState<Record<string, GrammarQuestionFeedback>>({});
   const [savingQuestionIds, setSavingQuestionIds] = useState<Record<string, boolean>>({});
   const answerRequestsRef = useRef(new Set<string>());
@@ -269,6 +271,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       setAttempt(data);
       setCurrentIndex(0);
       setSelectedOptions({});
+      setTextAnswers({});
       setFeedbackByQuestion({});
       setSavingQuestionIds({});
       answerRequestsRef.current.clear();
@@ -331,6 +334,53 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     }
   };
 
+  const answerRewriteQuestion = async (attemptQuestionId: string) => {
+    if (!attempt) return;
+    if (feedbackByQuestion[attemptQuestionId] || answerRequestsRef.current.has(attemptQuestionId)) return;
+
+    const textAnswer = (textAnswers[attemptQuestionId] || '').trim();
+    if (!textAnswer) {
+      setError('Vui lòng nhập câu trả lời.');
+      return;
+    }
+
+    answerRequestsRef.current.add(attemptQuestionId);
+    setSavingQuestionIds(prev => ({ ...prev, [attemptQuestionId]: true }));
+    setError('');
+    try {
+      const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
+        method: 'POST',
+        body: JSON.stringify({
+          attemptQuestionId,
+          textAnswer,
+          guestId,
+          studentName: studentName.trim(),
+          shareToken: accessToken,
+          attemptToken: attempt.attemptToken || getStoredAttemptToken(attempt.id)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Không lưu được câu trả lời.');
+      setAttempt(prev => prev ? {
+        ...prev,
+        answers: [...(prev.answers || []).filter(answer => answer.attemptQuestionId !== attemptQuestionId), data.answer]
+      } : prev);
+      setTextAnswers(prev => ({ ...prev, [attemptQuestionId]: data.answer?.textAnswer || textAnswer }));
+      if (data.feedback) {
+        setFeedbackByQuestion(prev => ({ ...prev, [attemptQuestionId]: data.feedback }));
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      answerRequestsRef.current.delete(attemptQuestionId);
+      setSavingQuestionIds(prev => {
+        const next = { ...prev };
+        delete next[attemptQuestionId];
+        return next;
+      });
+    }
+  };
+
   const submitAttempt = async () => {
     if (!attempt) return;
     setLoading(true);
@@ -374,9 +424,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   };
 
   const currentQuestion = attempt?.questions?.[currentIndex];
-  const answeredCount = attempt ? Object.keys(selectedOptions).length : 0;
+  const answeredCount = attempt ? attempt.answers.length : 0;
   const currentQuestionFeedback = currentQuestion ? feedbackByQuestion[currentQuestion.id] : undefined;
   const currentQuestionIsSaving = currentQuestion ? Boolean(savingQuestionIds[currentQuestion.id]) : false;
+  const currentQuestionIsRewrite = Boolean(
+    currentQuestion && (currentQuestion.questionType === 'rewrite' || grammarSet.questionType === 'rewrite')
+  );
   const currentQuestionHasSavedAnswer = Boolean(
     currentQuestion && attempt?.answers.some(answer => answer.attemptQuestionId === currentQuestion.id)
   );
@@ -478,18 +531,38 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-black text-gray-700">Câu {currentIndex + 1}/{attempt.questions.length}</span>
               <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-3 py-1">
-                Đã chọn {answeredCount}/{attempt.questions.length}
+                Đã trả lời {answeredCount}/{attempt.questions.length}
               </span>
             </div>
             <div className="rounded-3xl border border-gray-200 bg-gray-50 p-6 text-center">
               <p className="text-xl font-black text-gray-900">{currentQuestion.questionSnapshot}</p>
             </div>
-            <div className="grid grid-cols-1 gap-3">
-              {currentQuestion.optionsSnapshot.map((option, index) => {
-                const selected = selectedOptions[currentQuestion.id] === option.id;
-                const isCorrectOption = currentQuestionFeedback?.correctOptionId === option.id;
-                const isWrongSelection = Boolean(currentQuestionFeedback && selected && !currentQuestionFeedback.isCorrect);
-                return (
+            {currentQuestionIsRewrite ? (
+              <div className="space-y-3">
+                <textarea
+                  value={textAnswers[currentQuestion.id] || ''}
+                  onChange={event => setTextAnswers(prev => ({ ...prev, [currentQuestion.id]: event.target.value }))}
+                  disabled={currentQuestionIsSaving || Boolean(currentQuestionFeedback)}
+                  className="min-h-36 w-full rounded-2xl border-2 border-blue-200 bg-white p-4 text-base font-bold text-gray-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-gray-50"
+                  placeholder="Nhập câu trả lời của em..."
+                />
+                <button
+                  onClick={() => answerRewriteQuestion(currentQuestion.id)}
+                  disabled={currentQuestionIsSaving || Boolean(currentQuestionFeedback) || !(textAnswers[currentQuestion.id] || '').trim()}
+                  className="w-full rounded-2xl !border !border-blue-700 !bg-blue-600 px-5 py-3 font-black !text-white shadow-sm hover:!bg-blue-700 disabled:!border-gray-300 disabled:!bg-gray-200 disabled:!text-gray-500"
+                >
+                  {currentQuestionIsSaving
+                    ? 'Đang lưu câu trả lời...'
+                    : currentQuestionHasSavedAnswer ? 'Cập nhật câu trả lời' : 'Trả lời'}
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {currentQuestion.optionsSnapshot.map((option, index) => {
+                  const selected = selectedOptions[currentQuestion.id] === option.id;
+                  const isCorrectOption = currentQuestionFeedback?.correctOptionId === option.id;
+                  const isWrongSelection = Boolean(currentQuestionFeedback && selected && !currentQuestionFeedback.isCorrect);
+                  return (
                   <button
                     key={option.id}
                     onClick={() => answerQuestion(currentQuestion.id, option.id)}
@@ -522,9 +595,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                     {isCorrectOption && <CheckCircle2 size={18} className="ml-3 inline-block align-middle" />}
                     {isWrongSelection && <XCircle size={18} className="ml-3 inline-block align-middle" />}
                   </button>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
             {currentQuestionIsSaving && (
               <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">
                 Đang lưu đáp án...
@@ -540,6 +614,11 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                   {currentQuestionFeedback.isCorrect ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
                   {currentQuestionFeedback.isCorrect ? 'Chính xác!' : 'Chưa chính xác.'}
                 </div>
+                {currentQuestionIsRewrite && currentQuestionFeedback.correctAnswer && (
+                  <p className="mt-2 text-sm leading-relaxed">
+                    <strong>Đáp án đúng:</strong> {currentQuestionFeedback.correctAnswer}
+                  </p>
+                )}
                 {currentQuestionFeedback.explanation && (
                   <p className="mt-2 text-sm leading-relaxed">
                     <strong>Giải Thích:</strong> {currentQuestionFeedback.explanation}
@@ -587,6 +666,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
             <div className="space-y-4">
               {review.questions.map((question, index) => {
                 const answer = review.answers.find(item => item.attemptQuestionId === question.id);
+                const isRewrite = question.questionType === 'rewrite' || grammarSet.questionType === 'rewrite';
                 const canShowCorrectAnswers = Boolean(question.correctOptionId);
                 return (
                   <div key={question.id} className="rounded-2xl border border-gray-200 overflow-hidden">
@@ -594,7 +674,24 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                       <p className="text-sm font-black text-gray-900">Câu {index + 1}: {question.questionSnapshot}</p>
                     </div>
                     <div className="p-4 space-y-2">
-                      {question.optionsSnapshot.map(option => {
+                      {isRewrite ? (
+                        <>
+                          <div className={`rounded-xl border p-3 text-sm ${
+                            typeof answer?.isCorrect !== 'boolean'
+                              ? 'border-blue-200 bg-blue-50 text-blue-900'
+                              : answer.isCorrect
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                : 'border-rose-300 bg-rose-50 text-rose-900'
+                          }`}>
+                            <strong>Câu trả lời của em:</strong> {answer?.textAnswer || 'Chưa trả lời'}
+                          </div>
+                          {question.correctAnswerSnapshot && (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                              <strong>Đáp án đúng:</strong> {question.correctAnswerSnapshot}
+                            </div>
+                          )}
+                        </>
+                      ) : question.optionsSnapshot.map(option => {
                         const isSelected = answer?.selectedOptionId === option.id;
                         const isCorrect = canShowCorrectAnswers && question.correctOptionId === option.id;
                         return (

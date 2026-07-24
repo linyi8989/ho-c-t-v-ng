@@ -48,6 +48,7 @@ Never use the deploy directory as the source of truth for production data.
 
 - Do not add automatic physical deletes during startup, login, page load, or read-only API routes.
 - Identity compatibility checks must be read-only. Never bulk-rewrite old `game_sessions`, `grammar_attempts`, or leaderboard snapshots to enforce a newer display-name rule.
+- New grammar question types must use additive fields inside existing grammar `data_json`; do not rewrite old multiple-choice sets/attempts or create a destructive schema migration.
 - Display-name corrections update only the canonical `users` or `guest_profiles` record; historical result snapshots remain unchanged.
 - "Recent activity" features must filter old records in queries/UI first. Physical cleanup must be a separate maintenance task with backup.
 - Do not reseed, reset, truncate, overwrite, or migrate production data unless the exact target database path is confirmed.

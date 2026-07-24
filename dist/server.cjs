@@ -25,6 +25,13 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var import_express = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
+
+// src/lib/grammarAnswers.ts
+function normalizeGrammarTextAnswer(value) {
+  return String(value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("vi-VN").slice(0, 4e3);
+}
+
+// server.ts
 var import_fs3 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
 var import_genai = require("@google/genai");
@@ -2287,10 +2294,12 @@ function sanitizeGrammarAnswerForStudent(answer, includeReview = false) {
     attemptQuestionId: answer.attemptQuestionId,
     questionId: answer.questionId,
     selectedOptionId: answer.selectedOptionId,
+    textAnswer: answer.textAnswer,
     answeredAt: answer.answeredAt
   };
   if (includeReview) {
     safeAnswer.correctOptionId = answer.correctOptionId;
+    safeAnswer.correctAnswer = answer.correctAnswer;
     safeAnswer.isCorrect = Boolean(answer.isCorrect);
     safeAnswer.scoreAwarded = Number(answer.scoreAwarded || 0);
   }
@@ -2339,15 +2348,18 @@ function grammarAttemptToActivity(attempt, set = {}) {
     accuracy,
     answerDetails: (attempt.questions || []).map((question, index) => {
       const answer = answersByQuestion.get(question.id);
+      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
       const selectedOption = (question.optionsSnapshot || []).find((option) => option.id === answer?.selectedOptionId);
       const correctOption = (question.optionsSnapshot || []).find((option) => option.id === question.correctOptionId || option.id === answer?.correctOptionId);
+      const userAnswer = questionType === "rewrite" ? answer?.textAnswer || "" : selectedOption?.text || "";
+      const correctAnswer = questionType === "rewrite" ? question.correctAnswerSnapshot || answer?.correctAnswer || "" : correctOption?.text || "";
       return {
         questionIndex: index,
         wordId: question.questionId,
         questionText: question.questionSnapshot,
-        selectedAnswer: selectedOption?.text || "",
-        userAnswer: selectedOption?.text || "",
-        correctAnswer: correctOption?.text || "",
+        selectedAnswer: userAnswer,
+        userAnswer,
+        correctAnswer,
         isCorrect: Boolean(answer?.isCorrect),
         options: (question.optionsSnapshot || []).map((option) => option.text).filter(Boolean)
       };
@@ -4551,17 +4563,20 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const questions = set.shuffleQuestions ? fisherYates(set.questions || []) : [...set.questions || []];
     const attemptQuestions = questions.map((question, index) => {
-      const options = set.shuffleOptions ? fisherYates(question.options || []) : [...question.options || []];
+      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
+      const options = questionType === "multiple_choice" && set.shuffleOptions ? fisherYates(question.options || []) : [...question.options || []];
       return {
         id: makeId(`grammar-attempt-question-${index + 1}`),
         questionId: question.id,
+        questionType,
         displayPosition: index + 1,
         optionOrder: options.map((option) => option.id),
         questionSnapshot: question.questionText,
         explanationSnapshot: question.explanation,
         scoreSnapshot: question.score,
         optionsSnapshot: options,
-        correctOptionId: question.correctOptionId
+        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : ""
       };
     });
     const attemptId = makeId("grammar-attempt");
@@ -4606,27 +4621,40 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     if (attempt.status === "completed") return res.status(400).json({ error: "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n." });
     const attemptQuestion = (attempt.questions || []).find((question) => question.id === req.body?.attemptQuestionId);
     if (!attemptQuestion) return res.status(400).json({ error: "C\xE2u h\u1ECFi kh\xF4ng h\u1EE3p l\u1EC7." });
-    const selectedOptionId = String(req.body?.selectedOptionId || "");
-    const selectedOption = attemptQuestion.optionsSnapshot.find((option) => option.id === selectedOptionId);
-    if (!selectedOption) return res.status(400).json({ error: "Ph\u01B0\u01A1ng \xE1n \u0111\xE3 ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7." });
-    const isCorrect = selectedOptionId === attemptQuestion.correctOptionId;
+    const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
+    const selectedOptionId = questionType === "multiple_choice" ? String(req.body?.selectedOptionId || "") : "";
+    const textAnswer = questionType === "rewrite" ? safeText(req.body?.textAnswer, 4e3) : "";
+    if (questionType === "multiple_choice") {
+      const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option) => option.id === selectedOptionId);
+      if (!selectedOption) return res.status(400).json({ error: "Ph\u01B0\u01A1ng \xE1n \u0111\xE3 ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7." });
+    } else if (!normalizeGrammarTextAnswer(textAnswer)) {
+      return res.status(400).json({ error: "Vui l\xF2ng nh\u1EADp c\xE2u tr\u1EA3 l\u1EDDi." });
+    }
+    const isCorrect = questionType === "rewrite" ? normalizeGrammarTextAnswer(textAnswer) === normalizeGrammarTextAnswer(attemptQuestion.correctAnswerSnapshot) : selectedOptionId === attemptQuestion.correctOptionId;
     const answer = {
       id: makeId("grammar-answer"),
       attemptQuestionId: attemptQuestion.id,
       questionId: attemptQuestion.questionId,
-      selectedOptionId,
-      correctOptionId: attemptQuestion.correctOptionId,
+      questionType,
       isCorrect,
       scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
       answeredAt: (/* @__PURE__ */ new Date()).toISOString()
     };
+    if (questionType === "rewrite") {
+      answer.textAnswer = textAnswer;
+      answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+    } else {
+      answer.selectedOptionId = selectedOptionId;
+      answer.correctOptionId = attemptQuestion.correctOptionId;
+    }
     const answers = (attempt.answers || []).filter((item) => item.attemptQuestionId !== attemptQuestion.id);
     answers.push(answer);
     const updatedAttempt = { ...attempt, answers };
     await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
     const feedback = set?.showExplanationImmediately ? {
       isCorrect,
-      correctOptionId: attemptQuestion.correctOptionId,
+      correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
+      correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
       explanation: attemptQuestion.explanationSnapshot,
       scoreAwarded: answer.scoreAwarded
     } : null;
@@ -5574,28 +5602,43 @@ function fisherYates(input) {
   }
   return items;
 }
-function normalizeGrammarQuestion(question, index) {
+function getGrammarQuestionType(value, fallback = "multiple_choice") {
+  return value === "rewrite" ? "rewrite" : fallback;
+}
+function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choice") {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
-  const rawOptions = Array.isArray(question.options) ? question.options : [];
+  const questionType = getGrammarQuestionType(question.questionType, fallbackType);
+  const rawOptions = questionType === "multiple_choice" && Array.isArray(question.options) ? question.options : [];
   const options = rawOptions.slice(0, 5).map((option, optionIndex) => ({
     id: option.id || `${questionId}-option-${optionIndex + 1}`,
     text: safeText(option.text, 1e3),
     originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex + 1
   }));
-  return {
+  const normalized = {
     id: questionId,
+    questionType,
     questionText: safeText(question.questionText || question.question, 4e3),
     options,
-    correctOptionId: String(question.correctOptionId || ""),
     explanation: safeText(question.explanation, 6e3),
     score: Math.max(1, Number(question.score || 1)),
     position: Number.isFinite(Number(question.position)) ? Number(question.position) : index + 1
   };
+  if (questionType === "rewrite") {
+    normalized.correctOptionId = "";
+    normalized.correctAnswer = safeText(question.correctAnswer || question.answer, 4e3);
+  } else {
+    normalized.correctOptionId = String(question.correctOptionId || "");
+  }
+  return normalized;
 }
 function validateGrammarQuestion(question, index) {
   const errors = [];
   if (!question.questionText) errors.push(`C\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
   if (!question.explanation) errors.push(`C\xE2u ${index + 1}: thi\u1EBFu l\u1EDDi gi\u1EA3i th\xEDch.`);
+  if (question.questionType === "rewrite") {
+    if (!question.correctAnswer) errors.push(`C\xE2u ${index + 1}: thi\u1EBFu \u0111\xE1p \xE1n \u0111\xFAng.`);
+    return errors;
+  }
   if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4) {
     errors.push(`C\xE2u ${index + 1}: c\u1EA7n t\u1EEB 2 \u0111\u1EBFn 4 ph\u01B0\u01A1ng \xE1n.`);
   }
@@ -5617,7 +5660,8 @@ function validateGrammarQuestion(question, index) {
 }
 function normalizeGrammarSetForSave(payload, existing = {}, user) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const questions = (Array.isArray(payload.questions) ? payload.questions : []).map(normalizeGrammarQuestion).sort((a, b) => a.position - b.position).map((question, index) => ({ ...question, position: index + 1 }));
+  const questionType = getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType));
+  const questions = (Array.isArray(payload.questions) ? payload.questions : []).map((question, index) => normalizeGrammarQuestion(question, index, questionType)).sort((a, b) => a.position - b.position).map((question, index) => ({ ...question, position: index + 1 }));
   const errors = questions.flatMap(validateGrammarQuestion);
   const duplicateQuestions = /* @__PURE__ */ new Map();
   questions.forEach((question, index) => {
@@ -5648,11 +5692,12 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     topic: safeText(payload.topic || existing.topic || "", 160),
     tags: Array.isArray(payload.tags) ? payload.tags.map((tag) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
     visibility,
+    questionType,
     status: visibility === "assignment" ? "private" : visibility,
     timeLimitMinutes: Math.max(0, Number(payload.timeLimitMinutes || 0)),
     maxAttempts: Math.max(1, Number(payload.maxAttempts || 1)),
     shuffleQuestions: payload.shuffleQuestions !== false,
-    shuffleOptions: payload.shuffleOptions !== false,
+    shuffleOptions: questionType === "rewrite" ? false : payload.shuffleOptions !== false,
     showExplanationImmediately: Boolean(payload.showExplanationImmediately),
     showReviewAfterSubmit: payload.showReviewAfterSubmit !== false,
     createdBy: existing.createdBy || user.id,
@@ -5685,8 +5730,9 @@ function sanitizeGrammarSetForStudent(set) {
     ...set,
     questions: (set.questions || []).map((question) => ({
       id: question.id,
+      questionType: getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType)),
       questionText: question.questionText,
-      options: question.options.map((option) => ({
+      options: (question.options || []).map((option) => ({
         id: option.id,
         text: option.text,
         originalPosition: option.originalPosition
@@ -5704,6 +5750,7 @@ function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken 
       const safeQuestion = {
         id: question.id,
         questionId: question.questionId,
+        questionType: getGrammarQuestionType(question.questionType),
         displayPosition: question.displayPosition,
         questionSnapshot: question.questionSnapshot,
         scoreSnapshot: question.scoreSnapshot,
@@ -5716,6 +5763,7 @@ function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken 
       if (includeReview) {
         safeQuestion.explanationSnapshot = question.explanationSnapshot;
         safeQuestion.correctOptionId = question.correctOptionId;
+        safeQuestion.correctAnswerSnapshot = question.correctAnswerSnapshot;
       }
       return safeQuestion;
     }),

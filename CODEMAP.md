@@ -512,13 +512,18 @@ Grammar module notes:
 - Grammar data is stored separately from vocabulary data.
 - Runtime collections/tables include `grammar_sets` and `grammar_attempts`; SQLite migration also creates separate grammar tables for questions/options/attempt details.
 - Admin UI adds `grammar-sets` and `grammar-editor` tabs in `AdminDashboard.tsx`.
+- `grammar_sets.questionType` supports `multiple_choice` and `rewrite`. Existing records without this field are always treated as `multiple_choice`, so the original grammar quiz flow remains backward compatible.
+- The admin menu exposes `Soạn bài ngữ pháp` for multiple choice and `Soạn bài tự luận` for text answers. Both save into the same grammar library and retain the existing edit, clone, delete, share, result, recent-activity, and leaderboard flows.
+- Rewrite bulk import accepts blocks containing `QUESTION`, `ANSWER`, and `EXPLANATION`. Rewrite questions store `correctAnswer`; they do not create A/B/C/D options.
 - `parseBulkGrammarText()` accepts 2-4 answer options per block: `QUESTION`, `A`, `B`, `ANSWER`, and `EXPLANATION` are required; `C` and `D` are optional but must remain contiguous. `ANSWER` must reference an option present in that block, and explanation may span multiple lines.
 - Correct answers are stored and checked by stable option IDs, not by A/B/C/D labels after shuffle.
 - Server validation accepts 2-4 non-empty, uniquely identified answer options. Existing 4-option questions remain compatible, while student attempt/review screens render only the dynamic `optionsSnapshot` stored for each question.
+- Rewrite attempt snapshots store `questionType`, `correctAnswerSnapshot`, and the student's `textAnswer` in `grammar_attempts`. Text grading normalizes Unicode, letter case, leading/trailing whitespace, and repeated whitespace before exact comparison.
 - Student attempts persist question order and option order snapshots, so reload/review does not reshuffle completed work.
 - Server APIs grade answers and reject updates after submit; students may only review their own attempts.
-- Answer-save responses do not expose `correctOptionId` unless `showExplanationImmediately` is enabled. When enabled, `GrammarLearningArea` stores feedback per question, marks the correct/wrong options, shows the explanation immediately, and locks that question after the response is saved. Submit/review responses only expose correct answers and explanations to students/guests when `showReviewAfterSubmit` is enabled; staff with manage permission can review full details.
+- Answer-save responses do not expose `correctOptionId`/`correctAnswer` unless `showExplanationImmediately` is enabled. When enabled, `GrammarLearningArea` stores feedback per question, marks the correct/wrong response, shows the correct answer and explanation immediately, and locks that question after the response is saved. Submit/review responses only expose correct answers and explanations to students/guests when `showReviewAfterSubmit` is enabled; staff with manage permission can review full details.
 - Before deploying storage/schema changes to production SQLite, backup `/home/qzmivzbj/app-data/vhomework/app.sqlite`. The grammar migration must remain additive/idempotent and must not delete or rewrite existing vocabulary/game/user tables.
+- The rewrite extension requires no destructive SQLite migration: grammar records remain in the existing `data_json` columns and all new fields are additive.
 
 Vocabulary result history:
 

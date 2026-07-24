@@ -4,7 +4,7 @@ import {
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
   Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal
 } from 'lucide-react';
-import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion } from '../../types';
+import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
@@ -229,13 +229,18 @@ function grammarAttemptToActivity(attempt: any, set?: GrammarSet | null): GameSe
       const answer = answersByQuestion.get(question.id);
       const selectedOption = (question.optionsSnapshot || []).find((option: any) => option.id === answer?.selectedOptionId);
       const correctOption = (question.optionsSnapshot || []).find((option: any) => option.id === question.correctOptionId || option.id === answer?.correctOptionId);
+      const isRewrite = question.questionType === 'rewrite' || set?.questionType === 'rewrite';
+      const userAnswer = isRewrite ? answer?.textAnswer || '' : selectedOption?.text || '';
+      const correctAnswer = isRewrite
+        ? question.correctAnswerSnapshot || answer?.correctAnswer || ''
+        : correctOption?.text || '';
       return {
         questionIndex: index,
         wordId: question.questionId,
         questionText: question.questionSnapshot,
-        selectedAnswer: selectedOption?.text || '',
-        userAnswer: selectedOption?.text || '',
-        correctAnswer: correctOption?.text || '',
+        selectedAnswer: userAnswer,
+        userAnswer,
+        correctAnswer,
         isCorrect: Boolean(answer?.isCorrect),
         options: (question.optionsSnapshot || []).map((option: any) => option.text).filter(Boolean)
       };
@@ -398,6 +403,64 @@ function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; er
   return { questions, errors, warnings };
 }
 
+function parseBulkRewriteText(input: string): { questions: GrammarQuestion[]; errors: string[]; warnings: string[] } {
+  const questions: GrammarQuestion[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const blocks = input
+    .split(/\n\s*\n+/)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  blocks.forEach((block, blockIndex) => {
+    const lines = block.split(/\r?\n/);
+    const data: Record<string, string> = {};
+    let currentKey = '';
+
+    lines.forEach(rawLine => {
+      const line = rawLine.trim();
+      if (!line) return;
+      const match = line.match(/^(question|answer|explanation)\s*:\s*(.*)$/i);
+      if (match) {
+        currentKey = match[1].toUpperCase();
+        data[currentKey] = match[2].trim();
+      } else if (currentKey === 'QUESTION' || currentKey === 'ANSWER' || currentKey === 'EXPLANATION') {
+        data[currentKey] = `${data[currentKey] || ''}\n${line}`.trim();
+      }
+    });
+
+    const missing = ['QUESTION', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
+    if (missing.length > 0) {
+      errors.push(`Câu số ${blockIndex + 1} không được nhập vì thiếu ${missing.join(', ')}.`);
+      return;
+    }
+
+    questions.push({
+      id: `grammar-rewrite-question-${Date.now()}-${blockIndex}`,
+      questionType: 'rewrite',
+      questionText: data.QUESTION.trim(),
+      options: [],
+      correctOptionId: '',
+      correctAnswer: data.ANSWER.trim(),
+      explanation: data.EXPLANATION.trim(),
+      score: 1,
+      position: questions.length + 1
+    });
+  });
+
+  const seenQuestions = new Map<string, number>();
+  questions.forEach((question, index) => {
+    const key = question.questionText.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seenQuestions.has(key)) {
+      warnings.push(`Câu số ${index + 1} bị trùng nội dung với câu ${seenQuestions.get(key)}.`);
+    } else {
+      seenQuestions.set(key, index + 1);
+    }
+  });
+
+  return { questions, errors, warnings };
+}
+
 export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -466,6 +529,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   // Grammar editor state
   const [editingGrammarSetId, setEditingGrammarSetId] = useState<string | null>(null);
+  const [grammarQuestionType, setGrammarQuestionType] = useState<GrammarQuestionType>('multiple_choice');
   const [grammarTitle, setGrammarTitle] = useState('');
   const [grammarDescription, setGrammarDescription] = useState('');
   const [grammarGrade, setGrammarGrade] = useState('Lớp 3');
@@ -643,19 +707,20 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setActiveTab('editor');
   };
 
-  const handleOpenNewGrammarEditor = () => {
+  const handleOpenNewGrammarEditor = (questionType: GrammarQuestionType = 'multiple_choice') => {
     setEditingGrammarSetId(null);
+    setGrammarQuestionType(questionType);
     setGrammarTitle('');
     setGrammarDescription('');
     setGrammarGrade('Lớp 3');
     setGrammarSubject('English Grammar');
     setGrammarTopic('');
     setGrammarVisibility('public');
-    setGrammarTags('grammar');
+    setGrammarTags(questionType === 'rewrite' ? 'grammar, tự luận' : 'grammar');
     setGrammarTimeLimitMinutes(0);
     setGrammarMaxAttempts(1);
     setGrammarShuffleQuestions(false);
-    setGrammarShuffleOptions(true);
+    setGrammarShuffleOptions(questionType === 'multiple_choice');
     setGrammarShowExplanationImmediately(false);
     setGrammarShowReviewAfterSubmit(true);
     setGrammarBulkText('');
@@ -665,6 +730,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const handleEditGrammarSet = (set: GrammarSet) => {
     setEditingGrammarSetId(set.id);
+    setGrammarQuestionType(set.questionType === 'rewrite' ? 'rewrite' : 'multiple_choice');
     setGrammarTitle(set.title);
     setGrammarDescription(set.description);
     setGrammarGrade(set.gradeLevel);
@@ -684,7 +750,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleParseGrammarBulk = () => {
-    const parsed = parseBulkGrammarText(grammarBulkText);
+    const parsed = grammarQuestionType === 'rewrite'
+      ? parseBulkRewriteText(grammarBulkText)
+      : parseBulkGrammarText(grammarBulkText);
     if (parsed.questions.length > 0) {
       setGrammarQuestions(prev => [
         ...prev,
@@ -718,6 +786,24 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const handleAddGrammarQuestion = () => {
     const questionId = `grammar-question-${Date.now()}`;
+    if (grammarQuestionType === 'rewrite') {
+      setGrammarQuestions(prev => [
+        ...prev,
+        {
+          id: questionId,
+          questionType: 'rewrite',
+          questionText: '',
+          options: [],
+          correctOptionId: '',
+          correctAnswer: '',
+          explanation: '',
+          score: 1,
+          position: prev.length + 1
+        }
+      ]);
+      return;
+    }
+
     const options = [1, 2, 3, 4].map(index => ({
       id: `${questionId}-option-${index}`,
       text: '',
@@ -727,6 +813,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       ...prev,
       {
         id: questionId,
+        questionType: 'multiple_choice',
         questionText: '',
         options,
         correctOptionId: options[0].id,
@@ -739,6 +826,21 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const handleDuplicateGrammarQuestion = (question: GrammarQuestion) => {
     const questionId = `grammar-question-${Date.now()}`;
+    if (grammarQuestionType === 'rewrite') {
+      setGrammarQuestions(prev => [
+        ...prev,
+        {
+          ...question,
+          id: questionId,
+          questionType: 'rewrite',
+          options: [],
+          correctOptionId: '',
+          position: prev.length + 1
+        }
+      ]);
+      return;
+    }
+
     const options = question.options.map((option, index) => ({
       ...option,
       id: `${questionId}-option-${index + 1}`,
@@ -762,6 +864,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     if (grammarQuestions.length === 0) return showNotification('Bài ngữ pháp cần ít nhất một câu hỏi.', 'error');
 
     const payload = {
+      questionType: grammarQuestionType,
       title: grammarTitle,
       description: grammarDescription,
       gradeLevel: grammarGrade,
@@ -772,7 +875,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       timeLimitMinutes: grammarTimeLimitMinutes,
       maxAttempts: grammarMaxAttempts,
       shuffleQuestions: grammarShuffleQuestions,
-      shuffleOptions: grammarShuffleOptions,
+      shuffleOptions: grammarQuestionType === 'multiple_choice' ? grammarShuffleOptions : false,
       showExplanationImmediately: grammarShowExplanationImmediately,
       showReviewAfterSubmit: grammarShowReviewAfterSubmit,
       questions: grammarQuestions.map((question, index) => ({ ...question, position: index + 1 }))
@@ -2035,14 +2138,25 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           </button>
 
           <button
-            onClick={handleOpenNewGrammarEditor}
+            onClick={() => handleOpenNewGrammarEditor('multiple_choice')}
             className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'grammar-editor' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'
+              activeTab === 'grammar-editor' && grammarQuestionType === 'multiple_choice' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'
             }`}
             id="tab-grammar-editor"
           >
             <Plus size={18} />
             <span>Soạn bài ngữ pháp</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenNewGrammarEditor('rewrite')}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'grammar-editor' && grammarQuestionType === 'rewrite' ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-grammar-rewrite-editor"
+          >
+            <Edit3 size={18} />
+            <span>Soạn bài tự luận</span>
           </button>
 
           <button
@@ -2705,15 +2819,24 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <div>
                 <h2 className="text-2xl font-black text-gray-900">Kho bài ngữ pháp</h2>
-                <p className="text-gray-500 text-sm">Quản lý bài luyện ngữ pháp trắc nghiệm, kết quả và lịch sử làm bài.</p>
+                <p className="text-gray-500 text-sm">Quản lý bài luyện ngữ pháp trắc nghiệm và tự luận, kết quả và lịch sử làm bài.</p>
               </div>
-              <button
-                onClick={handleOpenNewGrammarEditor}
-                className="py-3 px-6 !bg-emerald-600 hover:!bg-emerald-700 !text-white !border !border-emerald-700 font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
-              >
-                <Plus size={18} />
-                <span>Soạn bài ngữ pháp</span>
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => handleOpenNewGrammarEditor('multiple_choice')}
+                  className="py-3 px-5 !bg-emerald-600 hover:!bg-emerald-700 !text-white !border !border-emerald-700 font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
+                >
+                  <Plus size={18} />
+                  <span>Soạn bài ngữ pháp</span>
+                </button>
+                <button
+                  onClick={() => handleOpenNewGrammarEditor('rewrite')}
+                  className="py-3 px-5 !bg-blue-600 hover:!bg-blue-700 !text-white !border !border-blue-700 font-bold rounded-2xl flex items-center space-x-2 shadow-md transition-all cursor-pointer"
+                >
+                  <Edit3 size={18} />
+                  <span>Soạn bài tự luận</span>
+                </button>
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row gap-3">
@@ -2789,6 +2912,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               </button>
                               <p className="mt-1 max-w-[320px] text-xs text-gray-500 line-clamp-2">{set.description || 'Chưa có mô tả'}</p>
                               <div className="mt-1 flex flex-wrap gap-1">
+                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                                  set.questionType === 'rewrite'
+                                    ? 'bg-blue-50 text-blue-700'
+                                    : 'bg-emerald-50 text-emerald-700'
+                                }`}>
+                                  {set.questionType === 'rewrite' ? 'Tự luận' : 'Trắc nghiệm'}
+                                </span>
                                 {(set.tags || []).slice(0, 3).map((tag, tagIndex) => (
                                   <span key={`${set.id}-tag-${tagIndex}`} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">#{tag}</span>
                                 ))}
@@ -2913,11 +3043,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           <div className="space-y-6 animate-fade-in" id="grammar-editor-tab-content">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-900">{editingGrammarSetId ? 'Chỉnh sửa bài ngữ pháp' : 'Soạn bài ngữ pháp mới'}</h2>
-                <p className="text-gray-500 text-sm">Tạo bài trắc nghiệm ngữ pháp với đáp án đúng theo optionId ổn định.</p>
+                <h2 className="text-2xl font-black text-gray-900">
+                  {editingGrammarSetId
+                    ? grammarQuestionType === 'rewrite' ? 'Chỉnh sửa bài tự luận' : 'Chỉnh sửa bài ngữ pháp'
+                    : grammarQuestionType === 'rewrite' ? 'Soạn bài tự luận mới' : 'Soạn bài ngữ pháp mới'}
+                </h2>
+                <p className="text-gray-500 text-sm">
+                  {grammarQuestionType === 'rewrite'
+                    ? 'Tạo bài ngữ pháp với câu trả lời dạng văn bản và chấm điểm tự động sau khi chuẩn hóa.'
+                    : 'Tạo bài trắc nghiệm ngữ pháp với đáp án đúng theo optionId ổn định.'}
+                </p>
               </div>
               <button onClick={handleSaveGrammarSet} className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-md">
-                Lưu bài ngữ pháp
+                {grammarQuestionType === 'rewrite' ? 'Lưu bài tự luận' : 'Lưu bài ngữ pháp'}
               </button>
             </div>
 
@@ -2967,7 +3105,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-3">
                 {[
                   ['Trộn câu hỏi', grammarShuffleQuestions, setGrammarShuffleQuestions],
-                  ['Trộn đáp án', grammarShuffleOptions, setGrammarShuffleOptions],
+                  ...(grammarQuestionType === 'multiple_choice'
+                    ? [['Trộn đáp án', grammarShuffleOptions, setGrammarShuffleOptions]]
+                    : []),
                   ['Giải thích sau từng câu', grammarShowExplanationImmediately, setGrammarShowExplanationImmediately],
                   ['Xem giải thích sau khi nộp', grammarShowReviewAfterSubmit, setGrammarShowReviewAfterSubmit]
                 ].map(([label, checked, setter]: any) => (
@@ -2982,13 +3122,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
               <div>
                 <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
-                <p className="text-xs text-gray-500">Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.</p>
+                <p className="text-xs text-gray-500">
+                  {grammarQuestionType === 'rewrite'
+                    ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION và cách nhau bằng một dòng trống.'
+                    : 'Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.'}
+                </p>
               </div>
               <textarea
                 value={grammarBulkText}
                 onChange={e => setGrammarBulkText(e.target.value)}
                 className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"
-                placeholder={`QUESTION: She is a teacher, _____?\nA: is she\nB: isn't she\nANSWER: B\nEXPLANATION: Câu khẳng định dùng đuôi phủ định.\n\nQUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nANSWER: B\nEXPLANATION: Chủ ngữ They dùng động từ nguyên mẫu play.`}
+                placeholder={grammarQuestionType === 'rewrite'
+                  ? `QUESTION: Viết lại câu ở thì quá khứ: I go to school every day.\nANSWER: I went to school every day.\nEXPLANATION: Động từ go chuyển thành went ở thì quá khứ đơn.\n\nQUESTION: Hoàn thành câu: She _____ a teacher.\nANSWER: is\nEXPLANATION: Chủ ngữ She đi với động từ to be là is.`
+                  : `QUESTION: She is a teacher, _____?\nA: is she\nB: isn't she\nANSWER: B\nEXPLANATION: Câu khẳng định dùng đuôi phủ định.\n\nQUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nANSWER: B\nEXPLANATION: Chủ ngữ They dùng động từ nguyên mẫu play.`}
               />
               <button onClick={handleParseGrammarBulk} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
                 Ghép dữ liệu vào bảng câu hỏi
@@ -3011,22 +3157,33 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       </div>
                     </div>
                     <textarea value={question.questionText} onChange={e => updateGrammarQuestion(question.id, { questionText: e.target.value })} className="w-full p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder="Câu hỏi" />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {question.options.map((option, index) => (
-                        <div key={option.id} className="flex gap-2">
-                          <select value={question.correctOptionId === option.id ? option.id : ''} onChange={() => updateGrammarQuestion(question.id, { correctOptionId: option.id })} className="w-12 rounded-xl border border-gray-200 text-xs font-black text-gray-700">
-                            <option value="">{String.fromCharCode(65 + index)}</option>
-                            <option value={option.id}>Đúng</option>
-                          </select>
-                          <input value={option.text} onChange={e => updateGrammarOption(question.id, option.id, e.target.value)} className="flex-1 p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder={`Đáp án ${index + 1}`} />
-                        </div>
-                      ))}
-                    </div>
+                    {grammarQuestionType === 'rewrite' ? (
+                      <textarea
+                        value={question.correctAnswer || ''}
+                        onChange={e => updateGrammarQuestion(question.id, { correctAnswer: e.target.value })}
+                        className="w-full p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm font-bold text-gray-900"
+                        placeholder="Đáp án đúng"
+                      />
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {question.options.map((option, index) => (
+                          <div key={option.id} className="flex gap-2">
+                            <select value={question.correctOptionId === option.id ? option.id : ''} onChange={() => updateGrammarQuestion(question.id, { correctOptionId: option.id })} className="w-12 rounded-xl border border-gray-200 text-xs font-black text-gray-700">
+                              <option value="">{String.fromCharCode(65 + index)}</option>
+                              <option value={option.id}>Đúng</option>
+                            </select>
+                            <input value={option.text} onChange={e => updateGrammarOption(question.id, option.id, e.target.value)} className="flex-1 p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder={`Đáp án ${index + 1}`} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <textarea value={question.explanation} onChange={e => updateGrammarQuestion(question.id, { explanation: e.target.value })} className="w-full p-3 rounded-xl border border-gray-200 text-sm text-gray-800" placeholder="Lời giải thích bắt buộc" />
-                    <label className="flex items-center gap-2 text-xs font-black text-gray-500">
-                      Điểm
-                      <input type="number" min={1} value={question.score} onChange={e => updateGrammarQuestion(question.id, { score: Number(e.target.value) })} className="w-24 p-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" />
-                    </label>
+                    {grammarQuestionType === 'multiple_choice' && (
+                      <label className="flex items-center gap-2 text-xs font-black text-gray-500">
+                        Điểm
+                        <input type="number" min={1} value={question.score} onChange={e => updateGrammarQuestion(question.id, { score: Number(e.target.value) })} className="w-24 p-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" />
+                      </label>
+                    )}
                   </div>
                 ))}
               </div>

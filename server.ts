@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import crypto from "crypto";
+import { normalizeGrammarTextAnswer } from "./src/lib/grammarAnswers";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -892,11 +893,13 @@ function sanitizeGrammarAnswerForStudent(answer: any, includeReview = false) {
     attemptQuestionId: answer.attemptQuestionId,
     questionId: answer.questionId,
     selectedOptionId: answer.selectedOptionId,
+    textAnswer: answer.textAnswer,
     answeredAt: answer.answeredAt
   };
 
   if (includeReview) {
     safeAnswer.correctOptionId = answer.correctOptionId;
+    safeAnswer.correctAnswer = answer.correctAnswer;
     safeAnswer.isCorrect = Boolean(answer.isCorrect);
     safeAnswer.scoreAwarded = Number(answer.scoreAwarded || 0);
   }
@@ -951,15 +954,20 @@ function grammarAttemptToActivity(attempt: any, set: any = {}) {
     accuracy,
     answerDetails: (attempt.questions || []).map((question: any, index: number) => {
       const answer = answersByQuestion.get(question.id);
+      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
       const selectedOption = (question.optionsSnapshot || []).find((option: any) => option.id === answer?.selectedOptionId);
       const correctOption = (question.optionsSnapshot || []).find((option: any) => option.id === question.correctOptionId || option.id === answer?.correctOptionId);
+      const userAnswer = questionType === "rewrite" ? answer?.textAnswer || "" : selectedOption?.text || "";
+      const correctAnswer = questionType === "rewrite"
+        ? question.correctAnswerSnapshot || answer?.correctAnswer || ""
+        : correctOption?.text || "";
       return {
         questionIndex: index,
         wordId: question.questionId,
         questionText: question.questionSnapshot,
-        selectedAnswer: selectedOption?.text || "",
-        userAnswer: selectedOption?.text || "",
-        correctAnswer: correctOption?.text || "",
+        selectedAnswer: userAnswer,
+        userAnswer,
+        correctAnswer,
         isCorrect: Boolean(answer?.isCorrect),
         options: (question.optionsSnapshot || []).map((option: any) => option.text).filter(Boolean)
       };
@@ -3559,17 +3567,22 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
     const now = new Date().toISOString();
     const questions = set.shuffleQuestions ? fisherYates(set.questions || []) : [...(set.questions || [])];
     const attemptQuestions = questions.map((question: any, index: number) => {
-      const options = set.shuffleOptions ? fisherYates(question.options || []) : [...(question.options || [])];
+      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
+      const options = questionType === "multiple_choice" && set.shuffleOptions
+        ? fisherYates(question.options || [])
+        : [...(question.options || [])];
       return {
         id: makeId(`grammar-attempt-question-${index + 1}`),
         questionId: question.id,
+        questionType,
         displayPosition: index + 1,
         optionOrder: options.map((option: any) => option.id),
         questionSnapshot: question.questionText,
         explanationSnapshot: question.explanation,
         scoreSnapshot: question.score,
         optionsSnapshot: options,
-        correctOptionId: question.correctOptionId
+        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : ""
       };
     });
 
@@ -3618,21 +3631,36 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
 
     const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === req.body?.attemptQuestionId);
     if (!attemptQuestion) return res.status(400).json({ error: "Câu hỏi không hợp lệ." });
-    const selectedOptionId = String(req.body?.selectedOptionId || "");
-    const selectedOption = attemptQuestion.optionsSnapshot.find((option: any) => option.id === selectedOptionId);
-    if (!selectedOption) return res.status(400).json({ error: "Phương án đã chọn không hợp lệ." });
+    const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
+    const selectedOptionId = questionType === "multiple_choice" ? String(req.body?.selectedOptionId || "") : "";
+    const textAnswer = questionType === "rewrite" ? safeText(req.body?.textAnswer, 4000) : "";
 
-    const isCorrect = selectedOptionId === attemptQuestion.correctOptionId;
-    const answer = {
+    if (questionType === "multiple_choice") {
+      const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option: any) => option.id === selectedOptionId);
+      if (!selectedOption) return res.status(400).json({ error: "Phương án đã chọn không hợp lệ." });
+    } else if (!normalizeGrammarTextAnswer(textAnswer)) {
+      return res.status(400).json({ error: "Vui lòng nhập câu trả lời." });
+    }
+
+    const isCorrect = questionType === "rewrite"
+      ? normalizeGrammarTextAnswer(textAnswer) === normalizeGrammarTextAnswer(attemptQuestion.correctAnswerSnapshot)
+      : selectedOptionId === attemptQuestion.correctOptionId;
+    const answer: any = {
       id: makeId("grammar-answer"),
       attemptQuestionId: attemptQuestion.id,
       questionId: attemptQuestion.questionId,
-      selectedOptionId,
-      correctOptionId: attemptQuestion.correctOptionId,
+      questionType,
       isCorrect,
       scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
       answeredAt: new Date().toISOString()
     };
+    if (questionType === "rewrite") {
+      answer.textAnswer = textAnswer;
+      answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+    } else {
+      answer.selectedOptionId = selectedOptionId;
+      answer.correctOptionId = attemptQuestion.correctOptionId;
+    }
     const answers = (attempt.answers || []).filter((item: any) => item.attemptQuestionId !== attemptQuestion.id);
     answers.push(answer);
     const updatedAttempt = { ...attempt, answers };
@@ -3641,7 +3669,8 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
     const feedback = set?.showExplanationImmediately
       ? {
           isCorrect,
-          correctOptionId: attemptQuestion.correctOptionId,
+          correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
+          correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
           explanation: attemptQuestion.explanationSnapshot,
           scoreAwarded: answer.scoreAwarded
         }
@@ -4714,9 +4743,16 @@ function fisherYates<T>(input: T[]) {
   return items;
 }
 
-function normalizeGrammarQuestion(question: any, index: number) {
+type GrammarQuestionType = "multiple_choice" | "rewrite";
+
+function getGrammarQuestionType(value: any, fallback: GrammarQuestionType = "multiple_choice"): GrammarQuestionType {
+  return value === "rewrite" ? "rewrite" : fallback;
+}
+
+function normalizeGrammarQuestion(question: any, index: number, fallbackType: GrammarQuestionType = "multiple_choice") {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
-  const rawOptions = Array.isArray(question.options) ? question.options : [];
+  const questionType = getGrammarQuestionType(question.questionType, fallbackType);
+  const rawOptions = questionType === "multiple_choice" && Array.isArray(question.options) ? question.options : [];
   const options = rawOptions.slice(0, 5).map((option: any, optionIndex: number) => ({
     id: option.id || `${questionId}-option-${optionIndex + 1}`,
     text: safeText(option.text, 1000),
@@ -4725,21 +4761,35 @@ function normalizeGrammarQuestion(question: any, index: number) {
       : optionIndex + 1
   }));
 
-  return {
+  const normalized: any = {
     id: questionId,
+    questionType,
     questionText: safeText(question.questionText || question.question, 4000),
     options,
-    correctOptionId: String(question.correctOptionId || ""),
     explanation: safeText(question.explanation, 6000),
     score: Math.max(1, Number(question.score || 1)),
     position: Number.isFinite(Number(question.position)) ? Number(question.position) : index + 1
   };
+
+  if (questionType === "rewrite") {
+    normalized.correctOptionId = "";
+    normalized.correctAnswer = safeText(question.correctAnswer || question.answer, 4000);
+  } else {
+    normalized.correctOptionId = String(question.correctOptionId || "");
+  }
+
+  return normalized;
 }
 
 function validateGrammarQuestion(question: any, index: number) {
   const errors: string[] = [];
   if (!question.questionText) errors.push(`Câu ${index + 1}: thiếu nội dung câu hỏi.`);
   if (!question.explanation) errors.push(`Câu ${index + 1}: thiếu lời giải thích.`);
+  if (question.questionType === "rewrite") {
+    if (!question.correctAnswer) errors.push(`Câu ${index + 1}: thiếu đáp án đúng.`);
+    return errors;
+  }
+
   if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4) {
     errors.push(`Câu ${index + 1}: cần từ 2 đến 4 phương án.`);
   }
@@ -4763,8 +4813,9 @@ function validateGrammarQuestion(question: any, index: number) {
 
 function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any) {
   const now = new Date().toISOString();
+  const questionType = getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType));
   const questions = (Array.isArray(payload.questions) ? payload.questions : [])
-    .map(normalizeGrammarQuestion)
+    .map((question: any, index: number) => normalizeGrammarQuestion(question, index, questionType))
     .sort((a: any, b: any) => a.position - b.position)
     .map((question: any, index: number) => ({ ...question, position: index + 1 }));
 
@@ -4800,11 +4851,12 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     topic: safeText(payload.topic || existing.topic || "", 160),
     tags: Array.isArray(payload.tags) ? payload.tags.map((tag: any) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
     visibility,
+    questionType,
     status: visibility === "assignment" ? "private" : visibility,
     timeLimitMinutes: Math.max(0, Number(payload.timeLimitMinutes || 0)),
     maxAttempts: Math.max(1, Number(payload.maxAttempts || 1)),
     shuffleQuestions: payload.shuffleQuestions !== false,
-    shuffleOptions: payload.shuffleOptions !== false,
+    shuffleOptions: questionType === "rewrite" ? false : payload.shuffleOptions !== false,
     showExplanationImmediately: Boolean(payload.showExplanationImmediately),
     showReviewAfterSubmit: payload.showReviewAfterSubmit !== false,
     createdBy: existing.createdBy || user.id,
@@ -4842,8 +4894,9 @@ function sanitizeGrammarSetForStudent(set: any) {
     ...set,
     questions: (set.questions || []).map((question: any) => ({
       id: question.id,
+      questionType: getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType)),
       questionText: question.questionText,
-      options: question.options.map((option: any) => ({
+      options: (question.options || []).map((option: any) => ({
         id: option.id,
         text: option.text,
         originalPosition: option.originalPosition
@@ -4862,6 +4915,7 @@ function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptT
       const safeQuestion: any = {
         id: question.id,
         questionId: question.questionId,
+        questionType: getGrammarQuestionType(question.questionType),
         displayPosition: question.displayPosition,
         questionSnapshot: question.questionSnapshot,
         scoreSnapshot: question.scoreSnapshot,
@@ -4877,6 +4931,7 @@ function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptT
       if (includeReview) {
         safeQuestion.explanationSnapshot = question.explanationSnapshot;
         safeQuestion.correctOptionId = question.correctOptionId;
+        safeQuestion.correctAnswerSnapshot = question.correctAnswerSnapshot;
       }
 
       return safeQuestion;
