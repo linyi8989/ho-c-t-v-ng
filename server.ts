@@ -12,6 +12,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, getStoragePersistStats, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
+import { deterministicRunDocumentId, normalizeClientStartedAt } from "./src/lib/serverLearningRuns.js";
 
 // Load environment variables
 dotenv.config();
@@ -359,7 +360,7 @@ function hashSessionToken(token: string) {
 }
 
 function getRequestSessionToken(req: express.Request) {
-  return safeText(req.body?.sessionToken || req.headers["x-session-token"], 160);
+  return safeText(req.body?.sessionToken || req.body?.runSecret || req.headers["x-session-token"], 200);
 }
 
 function omitSensitiveSessionFields(session: any) {
@@ -377,6 +378,19 @@ const GAME_ACTION_BATCH_MAX_ITEMS = Math.max(
   1,
   Math.min(200, Number(process.env.GAME_ACTION_BATCH_MAX_ITEMS || 50))
 );
+const LAZY_SESSION_V3_ENABLED = process.env.LAZY_SESSION_V3_ENABLED !== "false";
+
+function getClientRunCredentials(payload: any) {
+  const clientRunId = safeText(payload?.clientRunId, 160);
+  const runSecret = safeText(payload?.runSecret || payload?.sessionToken, 200);
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(clientRunId)) {
+    throw createHttpError(400, "clientRunId khong hop le.");
+  }
+  if (runSecret.length < 24) {
+    throw createHttpError(400, "runSecret khong hop le.");
+  }
+  return { clientRunId, runSecret };
+}
 
 function normalizeGameAnswer(value: any) {
   return String(value || "").normalize("NFKC").trim().toLowerCase()
@@ -3673,6 +3687,137 @@ app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["te
   }
 });
 
+app.post("/api/grammar-sets/:id/attempts/prepare", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/prepare");
+  try {
+    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
+    const credentials = getClientRunCredentials(req.body || {});
+    const actor = await getGrammarActor(req);
+    timing.mark("identity");
+    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
+    const set = await getGrammarSetOr404(req.params.id);
+    timing.mark("set_read");
+    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
+    if (!canOpenGrammarSetForLearning(set, actor, req)) {
+      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
+    }
+
+    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
+      .where("grammarSetId", "==", set.id)
+      .where(actorField, "==", actor.id)
+      .where("status", "==", "completed")
+      .limit(maxAttempts)
+      .get();
+    timing.mark("attempt_limit");
+    if (attemptsSnapshot.size >= maxAttempts) {
+      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
+    }
+
+    const prepared = buildPreparedGrammarAttempt(set, actor, req.body || {}, credentials.clientRunId, credentials.runSecret);
+    timing.finish(res);
+    res.json(sanitizeAttemptForStudent(prepared, false, credentials.runSecret));
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
+
+app.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/activate");
+  try {
+    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
+    const payload = req.body || {};
+    const credentials = getClientRunCredentials(payload);
+    const actor = await getGrammarActor(req);
+    timing.mark("identity");
+    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
+    const set = await getGrammarSetOr404(req.params.id);
+    timing.mark("set_read");
+    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
+    if (!canOpenGrammarSetForLearning(set, actor, req)) {
+      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
+    }
+
+    const attemptId = deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
+    const docRef = adminDb.collection("grammar_attempts").doc(attemptId);
+    const existingDoc = await docRef.get();
+    timing.mark("idempotency_lookup");
+    if (existingDoc.exists) {
+      const existingAttempt = existingDoc.data();
+      if (!canAccessGrammarAttempt(existingAttempt, actor, set, req)) {
+        return res.status(403).json({ error: "Ban khong co quyen tiep tuc luot lam bai nay." });
+      }
+      const existingAnswer = (existingAttempt.answers || []).find((item: any) => item.attemptQuestionId === payload.attemptQuestionId);
+      if (existingAnswer) {
+        const feedback = buildGrammarAnswerFeedback(existingAttempt, set, existingAnswer);
+        timing.finish(res);
+        return res.json({
+          attempt: sanitizeAttemptForStudent(existingAttempt, false, credentials.runSecret),
+          answer: sanitizeGrammarAnswerForStudent(existingAnswer, Boolean(feedback)),
+          feedback,
+          alreadyActivated: true
+        });
+      }
+      if (existingAttempt.status === "completed") {
+        timing.finish(res);
+        return res.json({ attempt: sanitizeAttemptForStudent(existingAttempt, Boolean(set.showReviewAfterSubmit), credentials.runSecret), alreadyCompleted: true });
+      }
+      const { answer, feedback } = buildGrammarAttemptAnswer(existingAttempt, set, payload);
+      const answers = [...(existingAttempt.answers || []).filter((item: any) => item.attemptQuestionId !== answer.attemptQuestionId), answer];
+      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: new Date().toISOString() };
+      await docRef.set(updatedAttempt);
+      timing.mark("persist");
+      timing.finish(res);
+      return res.json({
+        attempt: sanitizeAttemptForStudent(updatedAttempt, false, credentials.runSecret),
+        answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)),
+        feedback,
+        alreadyActivated: true
+      });
+    }
+
+    if (safeText(payload.grammarSetVersion, 160) !== getGrammarSetVersion(set)) {
+      return res.status(409).json({ error: "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi." });
+    }
+    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
+      .where("grammarSetId", "==", set.id)
+      .where(actorField, "==", actor.id)
+      .where("status", "==", "completed")
+      .limit(maxAttempts)
+      .get();
+    timing.mark("attempt_limit");
+    if (attemptsSnapshot.size >= maxAttempts) {
+      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
+    }
+
+    const prepared = buildPreparedGrammarAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
+    const { answer, feedback } = buildGrammarAttemptAnswer(prepared, set, payload);
+    const now = new Date().toISOString();
+    const activated = {
+      ...prepared,
+      status: "in_progress",
+      activatedAt: now,
+      lastSavedAt: now,
+      answers: [answer]
+    };
+    await docRef.set(activated);
+    timing.mark("persist");
+    timing.finish(res);
+    res.status(201).json({
+      attempt: sanitizeAttemptForStudent(activated, false, credentials.runSecret),
+      answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)),
+      feedback
+    });
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
+
 app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
   const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts");
   try {
@@ -3846,7 +3991,13 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
     const set = await getGrammarSetOr404(attempt.grammarSetId);
     timing.mark("set_read");
     if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
-    if (attempt.status === "completed") return res.status(400).json({ error: "Bài này đã được nộp." });
+    if (attempt.status === "completed") {
+      timing.finish(res);
+      return res.json({
+        ...sanitizeAttemptForStudent(attempt, Boolean(set?.showReviewAfterSubmit)),
+        alreadyCompleted: true
+      });
+    }
 
     const answerMap = new Map((attempt.answers || []).map((answer: any) => [answer.attemptQuestionId, answer]));
     let score = 0;
@@ -3871,6 +4022,7 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
     const updatedAttempt = {
       ...attempt,
       status: "completed",
+      submissionStatus: "completed",
       score,
       correctCount,
       wrongCount,
@@ -3976,6 +4128,258 @@ app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["tea
 
     res.json({ set, sessions: await enrichStudentNames(sessions) });
   } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+async function resolveGameSessionStartContext(req: express.Request, payload: any, timing?: ReturnType<typeof createApiTiming>) {
+  let actor = getGameSessionActor(req, payload);
+  if (!actor) throw createHttpError(401, "Student identity is required to start a game session.");
+  if (actor.ownerType === "guest") {
+    const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
+      classId: payload.classId,
+      className: payload.className
+    });
+    actor = { ...actor, studentName: profile.displayName || profile.name };
+  }
+  timing?.mark("identity");
+
+  const vocabSetId = safeText(payload.vocabSetId, 160);
+  const gameId = safeText(payload.gameId, 120);
+  if (!vocabSetId || !gameId) throw createHttpError(400, "vocabSetId and gameId are required.");
+  if (!SESSION_V2_GAME_IDS.has(gameId)) throw createHttpError(400, "Game khong duoc ho tro.");
+
+  let assignment: any = null;
+  let access: Awaited<ReturnType<typeof resolveVocabLearningAccess>> = null;
+  const accessToken = getRequestVocabShareToken(req);
+  if (accessToken) {
+    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+    if (!access) throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
+    assignment = access.assignment;
+  } else if (payload.assignmentId) {
+    const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
+    assignment = assignmentDoc.exists ? { id: assignmentDoc.id, ...assignmentDoc.data() } : null;
+    if (!assignment) {
+      const assignmentsSnapshot = await adminDb.collection("assignments").get();
+      assignmentsSnapshot.forEach(doc => {
+        const data = { id: doc.id, ...doc.data() };
+        if (!assignment && data.id === String(payload.assignmentId)) assignment = data;
+      });
+    }
+  }
+  timing?.mark("access");
+
+  let vocabSet = access?.set || null;
+  if (!vocabSet) {
+    const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+    if (!vocabDoc.exists) throw createHttpError(404, "Vocabulary set not found.");
+    vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
+  }
+  timing?.mark("set_read");
+
+  if (assignment) {
+    if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
+      throw createHttpError(403, "Assignment is not available for this vocabulary set.");
+    }
+    if (!req.user && !accessToken) {
+      throw createHttpError(403, "Link giao bai khong hop le hoac da het quyen truy cap.");
+    }
+    if (assignment.gameId && assignment.gameId !== gameId) {
+      throw createHttpError(403, "Game khong dung voi bai giao.");
+    }
+  } else if (access?.accessType === "vocab_set") {
+    if (access.set.id !== vocabSetId || getVocabVisibility(vocabSet) !== "assignment") {
+      throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
+    }
+  } else if (!canViewVocabSet(req.user, vocabSet)) {
+    throw createHttpError(403, "Ban khong co quyen bat dau game voi bo tu nay.");
+  }
+
+  let inferredClass: any = null;
+  if (!payload.classId && !assignment && payload.vocabSetId) {
+    const assignmentsSnapshot = await adminDb.collection("assignments")
+      .where("vocabSetId", "==", payload.vocabSetId)
+      .get();
+    const uniqueBySet = new Map<string, any | null>();
+    assignmentsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      setUniqueClass(uniqueBySet, data.vocabSetId, {
+        classId: data.classId,
+        className: data.className || ""
+      });
+    });
+    inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
+  }
+  timing?.mark("class_resolve");
+
+  const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
+  return { actor, assignment, access, vocabSet, vocabSetId, gameId, inferredClass, privateSnapshot };
+}
+
+function buildGameSessionRecord(context: any, payload: any, options: {
+  id: string;
+  sessionTokenHash: string;
+  schemaVersion: 2 | 3;
+  clientRunId?: string;
+  startedAt?: string;
+}) {
+  const now = new Date().toISOString();
+  const startedAt = normalizeClientStartedAt(options.startedAt, now);
+  const { actor, assignment, access, vocabSet, vocabSetId, gameId, inferredClass, privateSnapshot } = context;
+  return {
+    id: options.id,
+    ownerKey: actor.ownerKey,
+    ownerType: actor.ownerType,
+    userId: actor.userId,
+    studentId: actor.studentId,
+    guestId: actor.guestId,
+    assignmentId: safeText(assignment?.id || "", 160),
+    vocabSetId,
+    vocabSetTitle: safeText(payload.vocabSetTitle || vocabSet.title, 240),
+    gameId,
+    gameName: safeText(payload.gameName, 160),
+    gameType: safeText(payload.gameType, 80),
+    studentName: actor.studentName,
+    classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+    className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+    startedAt,
+    createdAt: now,
+    activatedAt: options.schemaVersion === 3 ? now : undefined,
+    clientRunId: options.clientRunId || undefined,
+    status: "started",
+    submissionStatus: "pending",
+    schemaVersion: options.schemaVersion,
+    gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
+    actionPersistence: options.schemaVersion === 3 && gameId !== "speaking-ai"
+      ? "submit_batch"
+      : getGameActionPersistence(gameId, privateSnapshot),
+    privateSnapshot,
+    lastSavedAt: now,
+    score: 0,
+    totalQuestions: 0,
+    correctAnswers: 0,
+    incorrectAnswers: 0,
+    sessionTokenHash: options.sessionTokenHash
+  };
+}
+
+function canResumeClientRun(req: express.Request, session: any, runSecret: string) {
+  return canUpdateGameSession(req, session, { sessionToken: runSecret, guestId: session.guestId });
+}
+
+app.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions/activate");
+  try {
+    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
+    const payload = req.body || {};
+    const credentials = getClientRunCredentials(payload);
+    const context = await resolveGameSessionStartContext(req, payload, timing);
+    if (context.gameId !== "speaking-ai") {
+      return res.status(400).json({ error: "Chi game Speaking AI moi can kich hoat session som." });
+    }
+
+    const id = deterministicRunDocumentId("session-v3", [
+      context.actor.ownerKey,
+      context.vocabSetId,
+      context.gameId,
+      credentials.clientRunId
+    ]);
+    const docRef = adminDb.collection("game_sessions").doc(id);
+    const existing = await docRef.get();
+    timing.mark("idempotency_lookup");
+    if (existing.exists) {
+      const session = existing.data();
+      if (!canResumeClientRun(req, session, credentials.runSecret)) {
+        return res.status(403).json({ error: "Khong co quyen tiep tuc luot hoc nay." });
+      }
+      timing.finish(res);
+      return res.json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret, alreadyActivated: true });
+    }
+
+    const session = buildGameSessionRecord(context, payload, {
+      id,
+      sessionTokenHash: hashSessionToken(credentials.runSecret),
+      schemaVersion: 3,
+      clientRunId: credentials.clientRunId,
+      startedAt: payload.startedAt
+    });
+    await docRef.set(session);
+    timing.mark("persist");
+    timing.finish(res);
+    res.status(201).json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret });
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
+
+app.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/game-sessions/lazy-complete");
+  try {
+    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
+    const payload = req.body || {};
+    const credentials = getClientRunCredentials(payload);
+    const context = await resolveGameSessionStartContext(req, payload, timing);
+    if (context.gameId === "speaking-ai") {
+      return res.status(400).json({ error: "Speaking AI phai kich hoat session khi bat dau ghi am." });
+    }
+
+    const id = deterministicRunDocumentId("session-v3", [
+      context.actor.ownerKey,
+      context.vocabSetId,
+      context.gameId,
+      credentials.clientRunId
+    ]);
+    const docRef = adminDb.collection("game_sessions").doc(id);
+    const existing = await docRef.get();
+    timing.mark("idempotency_lookup");
+    if (existing.exists) {
+      const session = existing.data();
+      if (!canResumeClientRun(req, session, credentials.runSecret)) {
+        return res.status(403).json({ error: "Khong co quyen nop luot hoc nay." });
+      }
+      if (session.status === "completed") {
+        timing.finish(res);
+        return res.json({ ...omitSensitiveSessionFields(session), alreadyCompleted: true });
+      }
+    }
+
+    const actions = sanitizeSubmittedGameActions(payload.actions);
+    const baseSession = existing.exists
+      ? existing.data()
+      : buildGameSessionRecord(context, payload, {
+          id,
+          sessionTokenHash: hashSessionToken(credentials.runSecret),
+          schemaVersion: 3,
+          clientRunId: credentials.clientRunId,
+          startedAt: payload.startedAt
+        });
+    const result = gradeGameSessionV2(baseSession, actions);
+    const completedAt = new Date().toISOString();
+    const durationMs = Math.max(0, Date.now() - new Date(baseSession.startedAt || completedAt).getTime());
+    const completed = {
+      ...baseSession,
+      ...result,
+      status: "completed",
+      submissionStatus: "completed",
+      completedAt,
+      endedAt: completedAt,
+      submittedAt: completedAt,
+      lastSavedAt: completedAt,
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1000),
+      expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS)
+    };
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id });
+    const batch = adminDb.batch();
+    batch.set(docRef, completed);
+    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    await batch.commit();
+    timing.mark("persist");
+    timing.finish(res);
+    res.json(omitSensitiveSessionFields(completed));
+  } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -4164,6 +4568,7 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
       durationMs,
       durationSeconds: Math.round(durationMs / 1000),
       status: "completed",
+      submissionStatus: "completed",
       endedAt,
       completedAt: endedAt,
       expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
@@ -4261,7 +4666,7 @@ app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, 
     const result = gradeGameSessionV2(session, actions);
     const completedAt = new Date().toISOString();
     const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
-    const completed = { ...session, ...result, status: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1000), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
+    const completed = { ...session, ...result, status: "completed", submissionStatus: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1000), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
     const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
     const batch = adminDb.batch();
     batch.set(docRef, completed);
@@ -4975,6 +5380,150 @@ function fisherYates<T>(input: T[]) {
     [items[i], items[j]] = [items[j], items[i]];
   }
   return items;
+}
+
+function seededUnitInterval(seed: string, index: number) {
+  const digest = crypto.createHash("sha256").update(`${seed}:${index}`).digest();
+  return digest.readUInt32BE(0) / 0x100000000;
+}
+
+function deterministicShuffle<T>(input: T[], seed: string) {
+  const items = [...input];
+  let randomIndex = 0;
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(seededUnitInterval(seed, randomIndex++) * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function getGrammarSetVersion(set: any) {
+  return safeText(set?.updatedAt || set?.createdAt || set?.id, 160);
+}
+
+function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientRunId: string, runSecret: string) {
+  const grammarSetVersion = getGrammarSetVersion(set);
+  const questionSeed = `${clientRunId}:${set.id}:${grammarSetVersion}:questions`;
+  const questions = set.shuffleQuestions
+    ? deterministicShuffle(set.questions || [], questionSeed)
+    : [...(set.questions || [])];
+  const attemptQuestions = questions.map((question: any, index: number) => {
+    const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
+    const optionSeed = `${clientRunId}:${question.id}:${grammarSetVersion}:options`;
+    const options = questionType === "multiple_choice" && set.shuffleOptions
+      ? deterministicShuffle(question.options || [], optionSeed)
+      : [...(question.options || [])];
+    return {
+      id: deterministicRunDocumentId("grammar-attempt-question", [clientRunId, set.id, question.id]),
+      questionId: question.id,
+      questionType,
+      displayPosition: index + 1,
+      optionOrder: options.map((option: any) => option.id),
+      questionSnapshot: question.questionText,
+      explanationSnapshot: question.explanation,
+      scoreSnapshot: question.score,
+      optionsSnapshot: options,
+      correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+      correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
+      acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers)
+        ? [...question.acceptedAnswers]
+        : []
+    };
+  });
+  const now = new Date().toISOString();
+  const startedAt = normalizeClientStartedAt(payload.startedAt, now);
+  const attemptId = deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, clientRunId]);
+  return {
+    id: attemptId,
+    grammarSetId: set.id,
+    grammarSetTitle: set.title,
+    grammarSetVersion,
+    assignmentId: safeText(payload.assignmentId, 160),
+    userId: actor.id,
+    studentId: actor.id,
+    guestId: actor.isGuest ? actor.id : "",
+    studentName: actor.name,
+    classId: payload.classId || set.classId || getLessonGradeClass(set).classId || "",
+    className: payload.className || set.className || getLessonGradeClass(set).className || "",
+    status: "prepared",
+    submissionStatus: "pending",
+    schemaVersion: 2,
+    clientRunId,
+    score: 0,
+    maxScore: attemptQuestions.reduce((sum: number, question: any) => sum + Number(question.scoreSnapshot || 1), 0),
+    correctCount: 0,
+    wrongCount: 0,
+    unansweredCount: attemptQuestions.length,
+    startedAt,
+    createdAt: now,
+    questions: attemptQuestions,
+    answers: [],
+    attemptTokenHash: hashSessionToken(runSecret)
+  };
+}
+
+function buildGrammarAttemptAnswer(attempt: any, set: any, payload: any) {
+  const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === payload?.attemptQuestionId);
+  if (!attemptQuestion) throw createHttpError(400, "Cau hoi khong hop le.");
+  const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
+  const selectedOptionId = questionType === "multiple_choice" ? String(payload?.selectedOptionId || "") : "";
+  const textAnswer = questionType === "rewrite" ? safeText(payload?.textAnswer, 4000) : "";
+  if (questionType === "multiple_choice") {
+    const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option: any) => option.id === selectedOptionId);
+    if (!selectedOption) throw createHttpError(400, "Phuong an da chon khong hop le.");
+  } else if (!normalizeGrammarTextAnswer(textAnswer)) {
+    throw createHttpError(400, "Vui long nhap cau tra loi.");
+  }
+
+  const isCorrect = questionType === "rewrite"
+    ? isGrammarTextAnswerCorrect(textAnswer, attemptQuestion.correctAnswerSnapshot, attemptQuestion.acceptedAnswersSnapshot)
+    : selectedOptionId === attemptQuestion.correctOptionId;
+  const answer: any = {
+    id: deterministicRunDocumentId("grammar-answer-v2", [attempt.id, attemptQuestion.id]),
+    attemptQuestionId: attemptQuestion.id,
+    questionId: attemptQuestion.questionId,
+    questionType,
+    isCorrect,
+    scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
+    answeredAt: new Date().toISOString()
+  };
+  if (questionType === "rewrite") {
+    answer.textAnswer = textAnswer;
+    answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+    answer.gradingVersion = GRAMMAR_TEXT_GRADING_VERSION;
+  } else {
+    answer.selectedOptionId = selectedOptionId;
+    answer.correctOptionId = attemptQuestion.correctOptionId;
+  }
+  const feedback = set?.showExplanationImmediately
+    ? {
+        isCorrect,
+        correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
+        correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
+        explanation: attemptQuestion.explanationSnapshot,
+        scoreAwarded: answer.scoreAwarded
+      }
+    : null;
+  return { answer, feedback };
+}
+
+function buildGrammarAnswerFeedback(attempt: any, set: any, answer: any) {
+  if (!set?.showExplanationImmediately || !answer) return null;
+  const attemptQuestion = (attempt.questions || []).find(
+    (question: any) => question.id === answer.attemptQuestionId
+  );
+  if (!attemptQuestion) return null;
+  const questionType = getGrammarQuestionType(
+    attemptQuestion.questionType,
+    getGrammarQuestionType(set?.questionType)
+  );
+  return {
+    isCorrect: Boolean(answer.isCorrect),
+    correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
+    correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
+    explanation: attemptQuestion.explanationSnapshot,
+    scoreAwarded: Number(answer.scoreAwarded || 0)
+  };
 }
 
 type GrammarQuestionType = "multiple_choice" | "rewrite";

@@ -182,7 +182,7 @@ export interface GrammarAttempt {
   studentName: string;
   classId?: string;
   className?: string;
-  status: 'in_progress' | 'completed';
+  status: 'prepared' | 'in_progress' | 'completed';
   score: number;
   maxScore: number;
   correctCount: number;
@@ -193,6 +193,11 @@ export interface GrammarAttempt {
   durationSeconds?: number;
   createdAt: string;
   attemptToken?: string;
+  clientRunId?: string;
+  schemaVersion?: 1 | 2;
+  activatedAt?: string;
+  grammarSetVersion?: string;
+  submissionStatus?: 'pending' | 'completed';
   questions: GrammarAttemptQuestion[];
   answers: GrammarAttemptAnswer[];
 }
@@ -228,7 +233,10 @@ export interface GameSession {
   incorrectAnswers: number;
   answerDetails?: GameAnswerDetail[];
   sessionToken?: string;
-  schemaVersion?: 1 | 2;
+  schemaVersion?: 1 | 2 | 3;
+  clientRunId?: string;
+  activatedAt?: string;
+  submissionStatus?: 'pending' | 'completed';
   gradingMode?: 'client-legacy' | 'server' | 'server-self-report';
   actionPersistence?: 'incremental' | 'submit_batch';
   saveStatus?: 'started' | 'in_progress' | 'completed' | 'abandoned';

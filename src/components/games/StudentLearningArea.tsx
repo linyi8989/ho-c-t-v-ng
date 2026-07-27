@@ -19,6 +19,15 @@ import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { identifyExistingGuest } from '../../lib/guestIdentity';
+import {
+  ClientLearningRun,
+  PendingLearningSubmission,
+  createClientLearningRun,
+  findPendingSubmission,
+  pendingSubmissionKey,
+  removePendingSubmission,
+  storePendingSubmission
+} from '../../lib/learningRuns';
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -35,6 +44,7 @@ interface StudentLearningAreaProps {
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const ACTIVITY_TTL_DAYS = 7;
+const LAZY_SESSION_V3_ENABLED = import.meta.env.VITE_LAZY_SESSION_V3 !== 'false';
 type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
 const VISIBLE_GAMES_LIST = GAMES_LIST.filter((game) => !game.hidden);
 const GAME_CATEGORY_ORDER = ['flashcard', 'quiz', 'fill', 'matching', 'memory', 'millionaire'] as const;
@@ -165,7 +175,10 @@ export default function StudentLearningArea({
   const savedActionIdsRef = useRef<Set<string>>(new Set());
   const completionSubmitInFlightRef = useRef(false);
   const pendingCompletionRef = useRef<{ score: number; correct: number; incorrect: number; details?: GameCompletionDetails } | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<'creating' | 'ready' | 'create_failed' | 'saving' | 'saved' | 'save_failed'>('creating');
+  const clientRunRef = useRef<ClientLearningRun>(createClientLearningRun());
+  const sessionActivationRef = useRef<Promise<GameSession> | null>(null);
+  const [restoredPendingSubmission, setRestoredPendingSubmission] = useState<PendingLearningSubmission | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<'creating' | 'ready' | 'create_failed' | 'saving' | 'saved' | 'save_failed'>(LAZY_SESSION_V3_ENABLED ? 'ready' : 'creating');
   const [saveError, setSaveError] = useState('');
 
   // Load initial game if requested
@@ -365,7 +378,6 @@ export default function StudentLearningArea({
   useEffect(() => {
     if (!selectedGame || !nameSubmitted || !studentName) return;
 
-    const controller = new AbortController();
     const generation = sessionGenerationRef.current + 1;
     sessionGenerationRef.current = generation;
     completedSessionIdsRef.current.clear();
@@ -379,6 +391,34 @@ export default function StudentLearningArea({
     savedActionIdsRef.current.clear();
     completionSubmitInFlightRef.current = false;
     pendingCompletionRef.current = null;
+    sessionActivationRef.current = null;
+    setRestoredPendingSubmission(null);
+
+    if (LAZY_SESSION_V3_ENABLED) {
+      const pending = findPendingSubmission(vocabSet.id, selectedGame.gameId);
+      if (pending) {
+        clientRunRef.current = pending.run;
+        const clientResult = pending.payload.clientResult as { score?: number; correct?: number; incorrect?: number } | undefined;
+        if (clientResult) {
+          const restoredResult = {
+            score: Number(clientResult.score || 0),
+            correct: Number(clientResult.correct || 0),
+            incorrect: Number(clientResult.incorrect || 0)
+          };
+          pendingCompletionRef.current = restoredResult;
+          setGameResult(restoredResult);
+        }
+        setRestoredPendingSubmission(pending);
+        setSessionStatus('save_failed');
+        setSaveError('Kết quả trước đó chưa gửi xong. Hệ thống đang thử lưu lại.');
+      } else {
+        clientRunRef.current = createClientLearningRun();
+        setSessionStatus('ready');
+      }
+      return;
+    }
+
+    const controller = new AbortController();
 
     // Create a new session on the server
     fetch('/api/game-sessions', {
@@ -464,6 +504,61 @@ export default function StudentLearningArea({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  const buildSessionRequestPayload = (game: GameConfig, run = clientRunRef.current) => ({
+    assignmentId,
+    vocabSetId: vocabSet.id,
+    vocabSetTitle: vocabSet.title,
+    gameId: game.gameId,
+    gameName: game.title,
+    gameType: game.category,
+    accessType,
+    itemOrder: activeItems.map(item => item.id),
+    studentName,
+    studentId: guestId,
+    guestId,
+    classId: assignmentClassId || vocabSet.classId || getLessonGradeClassId(vocabSet),
+    className: assignmentClassName || vocabSet.className || vocabSet.gradeLevel || undefined,
+    clientRunId: run.clientRunId,
+    runSecret: run.runSecret,
+    startedAt: run.startedAt
+  });
+
+  const ensureSpeakingSession = async (): Promise<GameSession> => {
+    if (session) return session;
+    if (!selectedGame || selectedGame.gameId !== 'speaking-ai') {
+      throw new Error('Chỉ Speaking AI cần kích hoạt session trước khi hoàn thành.');
+    }
+    if (sessionActivationRef.current) return sessionActivationRef.current;
+
+    const activation = (async () => {
+      setSessionStatus('saving');
+      setSaveError('');
+      const res = await fetch('/api/game-sessions/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'X-Vocab-Share-Token': accessToken } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(buildSessionRequestPayload(selectedGame))
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Không thể kích hoạt lượt luyện nói.');
+      setSession(data);
+      setSessionStatus('ready');
+      return data as GameSession;
+    })();
+    sessionActivationRef.current = activation;
+    try {
+      return await activation;
+    } catch (err: any) {
+      sessionActivationRef.current = null;
+      setSessionStatus('save_failed');
+      setSaveError(err.message || 'Không thể kích hoạt lượt luyện nói.');
+      throw err;
+    }
+  };
+
   const sendGameAction = async (currentSession: GameSession, action: GameAction) => {
     const res = await fetch(`/api/game-sessions/${currentSession.id}/actions/${encodeURIComponent(action.actionId)}`, {
       method: 'PUT',
@@ -476,11 +571,25 @@ export default function StudentLearningArea({
   };
 
   const persistGameAction = (input: Omit<GameAction, 'actionId' | 'sequence'>) => {
-    if (!session) return;
     const sequence = actionSequenceRef.current++;
-    const actionId = `${session.id}-${sequence}`;
+    const actionId = `${clientRunRef.current.clientRunId}-${sequence}`;
     const action: GameAction = { ...input, actionId, sequence };
     gameActionsRef.current.push(action);
+
+    if (LAZY_SESSION_V3_ENABLED) {
+      if (selectedGame?.gameId !== 'speaking-ai') return;
+      actionQueueRef.current = actionQueueRef.current
+        .catch(() => undefined)
+        .then(() => ensureSpeakingSession())
+        .then(currentSession => sendGameAction(currentSession, action))
+        .catch((err) => {
+          setSaveError(err.message || 'Không lưu được tiến độ luyện nói.');
+          setSessionStatus('save_failed');
+        });
+      return;
+    }
+
+    if (!session) return;
     if (session.actionPersistence === 'submit_batch') return;
 
     actionQueueRef.current = actionQueueRef.current
@@ -492,31 +601,81 @@ export default function StudentLearningArea({
       });
   };
 
+  const submitLazyCompletion = async (submission: PendingLearningSubmission) => {
+    const res = await fetch('/api/game-sessions/lazy-complete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { 'X-Vocab-Share-Token': accessToken } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(submission.payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Không lưu được kết quả.');
+    removePendingSubmission(submission.key);
+    setRestoredPendingSubmission(null);
+    completedSessionIdsRef.current.add(data.id);
+    setSession(data);
+    setGameResult({ score: data.score, correct: data.correctAnswers, incorrect: data.incorrectAnswers });
+    setLeaderboardSessions(prev => [data, ...prev.filter(item => item.id !== data.id)]);
+    setSessionStatus('saved');
+  };
+
   const submitCompletedSession = async () => {
-    if (!session || !pendingCompletionRef.current || completionSubmitInFlightRef.current) return;
+    if (!pendingCompletionRef.current || completionSubmitInFlightRef.current) return;
     completionSubmitInFlightRef.current = true;
     setSessionStatus('saving');
     setSaveError('');
     try {
+      if (LAZY_SESSION_V3_ENABLED && selectedGame?.gameId !== 'speaking-ai') {
+        if (!selectedGame) throw new Error('Chưa chọn game để lưu kết quả.');
+        const completion = pendingCompletionRef.current;
+        const run = clientRunRef.current;
+        const payload = restoredPendingSubmission?.payload || {
+          ...buildSessionRequestPayload(selectedGame, run),
+          actions: gameActionsRef.current,
+          clientResult: {
+            score: completion.score,
+            correct: completion.correct,
+            incorrect: completion.incorrect
+          }
+        };
+        const submission: PendingLearningSubmission = restoredPendingSubmission || {
+          key: pendingSubmissionKey(vocabSet.id, selectedGame.gameId, run.clientRunId),
+          kind: 'vocabulary',
+          vocabSetId: vocabSet.id,
+          gameId: selectedGame.gameId,
+          run,
+          payload,
+          createdAt: new Date().toISOString()
+        };
+        storePendingSubmission(submission);
+        await submitLazyCompletion(submission);
+        return;
+      }
+
+      const currentSession = session || (LAZY_SESSION_V3_ENABLED ? await ensureSpeakingSession() : null);
+      if (!currentSession) throw new Error('Lượt học chưa được tạo nên chưa thể lưu kết quả.');
       await actionQueueRef.current;
-      if (session.actionPersistence !== 'submit_batch') {
+      if (currentSession.actionPersistence !== 'submit_batch') {
         const unsavedActions = gameActionsRef.current.filter(action => !savedActionIdsRef.current.has(action.actionId));
         for (const action of unsavedActions) {
-          await sendGameAction(session, action);
+          await sendGameAction(currentSession, action);
         }
       }
-      const res = await fetch(`/api/game-sessions/${session.id}/submit`, {
+      const res = await fetch(`/api/game-sessions/${currentSession.id}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           guestId,
-          sessionToken: session.sessionToken,
-          ...(session.actionPersistence === 'submit_batch' ? { actions: gameActionsRef.current } : {})
+          sessionToken: currentSession.sessionToken,
+          ...(currentSession.actionPersistence === 'submit_batch' ? { actions: gameActionsRef.current } : {})
         })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Không lưu được kết quả.');
-      completedSessionIdsRef.current.add(session.id);
+      completedSessionIdsRef.current.add(currentSession.id);
       setSession(data);
       setGameResult({ score: data.score, correct: data.correctAnswers, incorrect: data.incorrectAnswers });
       setLeaderboardSessions(prev => [data, ...prev.filter(item => item.id !== data.id)]);
@@ -529,15 +688,20 @@ export default function StudentLearningArea({
     }
   };
 
+  useEffect(() => {
+    if (!LAZY_SESSION_V3_ENABLED || !restoredPendingSubmission || !pendingCompletionRef.current) return;
+    void submitCompletedSession();
+  }, [restoredPendingSubmission?.key]);
+
   const handleGameComplete = (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => {
     setGameResult({ score, correct, incorrect });
     pendingCompletionRef.current = { score, correct, incorrect, details };
-    if (!session) {
+    if (!LAZY_SESSION_V3_ENABLED && !session) {
       setSessionStatus('create_failed');
       setSaveError('Lượt học chưa được tạo nên chưa thể lưu kết quả.');
       return;
     }
-    if (completedSessionIdsRef.current.has(session.id)) return;
+    if (session && completedSessionIdsRef.current.has(session.id)) return;
     void submitCompletedSession();
   };
 
@@ -653,6 +817,7 @@ export default function StudentLearningArea({
               gameSessionId={session?.id}
               sessionToken={session?.sessionToken}
               authToken={token}
+              ensureGameSession={ensureSpeakingSession}
             />
           </React.Fragment>
         );

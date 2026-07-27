@@ -4,6 +4,7 @@ import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { identifyExistingGuest } from '../../lib/guestIdentity';
+import { ClientLearningRun, createClientLearningRun } from '../../lib/learningRuns';
 
 interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
@@ -24,6 +25,7 @@ type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
 const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const GRAMMAR_ATTEMPT_TOKEN_STORAGE_KEY = 'msdieu_grammar_attempt_tokens';
+const LAZY_SESSION_V3_ENABLED = import.meta.env.VITE_LAZY_SESSION_V3 !== 'false';
 
 function createGuestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -115,6 +117,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const attemptsAbortRef = useRef<AbortController | null>(null);
   const startAttemptAbortRef = useRef<AbortController | null>(null);
   const startAttemptInFlightRef = useRef(false);
+  const clientRunRef = useRef<ClientLearningRun>(createClientLearningRun());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [guestId] = useState(() => getStoredGuestId());
@@ -285,7 +288,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setError('');
     setReview(null);
     try {
-      const res = await grammarFetch(`/api/grammar-sets/${grammarSet.id}/attempts`, {
+      const run = createClientLearningRun();
+      clientRunRef.current = run;
+      const endpoint = LAZY_SESSION_V3_ENABLED
+        ? `/api/grammar-sets/${grammarSet.id}/attempts/prepare`
+        : `/api/grammar-sets/${grammarSet.id}/attempts`;
+      const res = await grammarFetch(endpoint, {
         method: 'POST',
         signal: controller.signal,
         body: JSON.stringify({
@@ -293,7 +301,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
           studentName: studentName.trim(),
           shareToken: accessToken,
           classId: grammarSet.classId,
-          className: grammarSet.className || grammarSet.gradeLevel
+          className: grammarSet.className || grammarSet.gradeLevel,
+          ...(LAZY_SESSION_V3_ENABLED ? {
+            clientRunId: run.clientRunId,
+            runSecret: run.runSecret,
+            startedAt: run.startedAt
+          } : {})
         })
       });
       const data = await res.json();
@@ -316,6 +329,57 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     }
   };
 
+  const saveGrammarAnswer = async (
+    activeAttempt: GrammarAttempt,
+    answerPayload: { attemptQuestionId: string; selectedOptionId?: string; textAnswer?: string }
+  ) => {
+    const attemptToken = activeAttempt.attemptToken
+      || getStoredAttemptToken(activeAttempt.id)
+      || (LAZY_SESSION_V3_ENABLED ? clientRunRef.current.runSecret : '');
+    const isPreparedAttempt = LAZY_SESSION_V3_ENABLED && activeAttempt.status === 'prepared';
+    const endpoint = isPreparedAttempt
+      ? `/api/grammar-sets/${grammarSet.id}/attempts/activate`
+      : `/api/grammar-attempts/${activeAttempt.id}/answers`;
+    const run = clientRunRef.current;
+    const res = await grammarFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...answerPayload,
+        guestId,
+        studentName: studentName.trim(),
+        shareToken: accessToken,
+        attemptToken,
+        ...(isPreparedAttempt ? {
+          clientRunId: run.clientRunId,
+          runSecret: run.runSecret,
+          startedAt: run.startedAt,
+          grammarSetVersion: activeAttempt.grammarSetVersion
+        } : {})
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Không lưu được câu trả lời.');
+
+    if (isPreparedAttempt) {
+      if (!data.attempt || !data.answer) {
+        throw new Error('Phản hồi kích hoạt lượt làm không hợp lệ.');
+      }
+      const activatedAttempt = {
+        ...data.attempt,
+        attemptToken: data.attempt.attemptToken || attemptToken
+      } as GrammarAttempt;
+      storeAttemptToken(activatedAttempt.id, activatedAttempt.attemptToken);
+      setAttempt(activatedAttempt);
+    } else {
+      setAttempt(prev => prev ? {
+        ...prev,
+        answers: [...(prev.answers || []).filter(answer => answer.attemptQuestionId !== answerPayload.attemptQuestionId), data.answer]
+      } : prev);
+    }
+
+    return data;
+  };
+
   const answerQuestion = async (attemptQuestionId: string, selectedOptionId: string) => {
     if (!attempt) return;
     if (feedbackByQuestion[attemptQuestionId] || answerRequestsRef.current.has(attemptQuestionId)) return;
@@ -326,23 +390,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setSelectedOptions(prev => ({ ...prev, [attemptQuestionId]: selectedOptionId }));
     setError('');
     try {
-      const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          attemptQuestionId,
-          selectedOptionId,
-          guestId,
-          studentName: studentName.trim(),
-          shareToken: accessToken,
-          attemptToken: attempt.attemptToken || getStoredAttemptToken(attempt.id)
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Không lưu được đáp án.');
-      setAttempt(prev => prev ? {
-        ...prev,
-        answers: [...(prev.answers || []).filter(answer => answer.attemptQuestionId !== attemptQuestionId), data.answer]
-      } : prev);
+      const data = await saveGrammarAnswer(attempt, { attemptQuestionId, selectedOptionId });
+      if (data.answer?.selectedOptionId) {
+        setSelectedOptions(prev => ({ ...prev, [attemptQuestionId]: data.answer.selectedOptionId }));
+      }
       if (data.feedback) {
         setFeedbackByQuestion(prev => ({ ...prev, [attemptQuestionId]: data.feedback }));
       }
@@ -382,23 +433,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setSavingQuestionIds(prev => ({ ...prev, [attemptQuestionId]: true }));
     setError('');
     try {
-      const res = await grammarFetch(`/api/grammar-attempts/${attempt.id}/answers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          attemptQuestionId,
-          textAnswer,
-          guestId,
-          studentName: studentName.trim(),
-          shareToken: accessToken,
-          attemptToken: attempt.attemptToken || getStoredAttemptToken(attempt.id)
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Không lưu được câu trả lời.');
-      setAttempt(prev => prev ? {
-        ...prev,
-        answers: [...(prev.answers || []).filter(answer => answer.attemptQuestionId !== attemptQuestionId), data.answer]
-      } : prev);
+      const data = await saveGrammarAnswer(attempt, { attemptQuestionId, textAnswer });
       setTextAnswers(prev => ({ ...prev, [attemptQuestionId]: data.answer?.textAnswer || textAnswer }));
       if (data.feedback) {
         setFeedbackByQuestion(prev => ({ ...prev, [attemptQuestionId]: data.feedback }));
@@ -417,6 +452,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
 
   const submitAttempt = async () => {
     if (!attempt) return;
+    if (attempt.status === 'prepared') {
+      setError('Vui lòng trả lời ít nhất một câu trước khi nộp bài.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {

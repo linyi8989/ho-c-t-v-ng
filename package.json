@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:identity": "tsx --test src/lib/guestIdentity.test.ts",
-    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts"
+    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts",
+    "test:runs": "tsx --test src/lib/learningRuns.test.ts src/lib/serverLearningRuns.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

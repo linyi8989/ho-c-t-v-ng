@@ -40,6 +40,7 @@ interface SpeakingAIGameProps {
   gameSessionId?: string;
   sessionToken?: string;
   authToken?: string | null;
+  ensureGameSession?: () => Promise<{ id: string; sessionToken?: string }>;
 }
 
 interface AttemptResult {
@@ -113,6 +114,7 @@ export default function SpeakingAIGame({
   gameSessionId,
   sessionToken,
   authToken,
+  ensureGameSession,
 }: SpeakingAIGameProps) {
   const playableItems = useMemo(
     () => items.filter((item) => item.term?.trim() && item.meaning?.trim()),
@@ -128,6 +130,7 @@ export default function SpeakingAIGame({
   const recognitionRef = useRef<any>(null);
   const listenStartedAtRef = useRef(0);
   const completedRef = useRef(false);
+  const activationPromiseRef = useRef<Promise<{ id: string; sessionToken?: string }> | null>(null);
 
   const currentItem = playableItems[currentIndex];
   const isSoundOn = !isMuted;
@@ -164,14 +167,16 @@ export default function SpeakingAIGame({
     };
   }, []);
 
-  const saveAttempt = async (result: AttemptResult) => {
+  const saveAttempt = async (result: AttemptResult, activatedSession?: { id: string; sessionToken?: string }) => {
+    const activeSessionId = activatedSession?.id || gameSessionId;
+    const activeSessionToken = activatedSession?.sessionToken || sessionToken;
     try {
       await fetch('/api/pronunciation-attempts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-          ...(sessionToken ? { 'x-session-token': sessionToken } : {}),
+          ...(activeSessionToken ? { 'x-session-token': activeSessionToken } : {}),
         },
         body: JSON.stringify({
           guestId: studentId || '',
@@ -184,8 +189,8 @@ export default function SpeakingAIGame({
           correctWords: result.correctWords,
           totalWords: result.totalWords,
           attemptCount: result.attemptCount,
-          gameSessionId,
-          sessionToken,
+          gameSessionId: activeSessionId,
+          sessionToken: activeSessionToken,
         }),
       });
     } catch (err) {
@@ -217,6 +222,12 @@ export default function SpeakingAIGame({
     setLastResult(null);
     setIsListening(true);
     listenStartedAtRef.current = Date.now();
+    if (!gameSessionId && ensureGameSession && !activationPromiseRef.current) {
+      activationPromiseRef.current = ensureGameSession().catch((err) => {
+        activationPromiseRef.current = null;
+        throw err;
+      });
+    }
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
@@ -225,7 +236,7 @@ export default function SpeakingAIGame({
     recognition.maxAlternatives = 1;
     recognition.continuous = false;
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = async (event: any) => {
       const transcript = event.results?.[0]?.[0]?.transcript || '';
       const responseMs = Date.now() - listenStartedAtRef.current;
       const scored = calculateAttemptScore(targetText, transcript, responseMs);
@@ -248,7 +259,12 @@ export default function SpeakingAIGame({
         return [...withoutCurrent, result];
       });
       onAction?.({ type: 'speaking.attempt', wordId: currentItem.id, recognizedText: transcript, responseMs, attemptNumber: nextAttemptCount });
-      saveAttempt(result);
+      try {
+        const activatedSession = activationPromiseRef.current ? await activationPromiseRef.current : undefined;
+        await saveAttempt(result, activatedSession);
+      } catch (err: any) {
+        setBrowserError(err.message || 'Chưa thể lưu lượt luyện nói. Em có thể thử lại.');
+      }
     };
 
     recognition.onerror = (event: any) => {

@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-18
+Last updated: 2026-07-27
 
 ## 1. Project Overview
 
@@ -343,6 +343,8 @@ Authenticated:
 - `GET /api/class-members`: list class members.
 - `GET /api/assignments`: list assignments.
 - `POST /api/game-sessions`: start game session.
+- `POST /api/game-sessions/lazy-complete`: idempotently create and complete a short-game session in one logical batch. The immutable key is actor + vocabulary set + game + `clientRunId`; retries with the same run secret return the existing completed result.
+- `POST /api/game-sessions/activate`: lazily create/resume a Speaking AI session at the first recording interaction.
 - `PUT /api/game-sessions/:id`: complete/update game session.
 - `GET /api/results`: list completed game sessions.
 
@@ -374,6 +376,8 @@ Grammar:
 - `GET /api/grammar-sets/share/:token`: open a private grammar lesson by generated share token.
 - `GET /api/grammar-sets/:id`: read one grammar set with student-safe shape.
 - `POST /api/grammar-sets/:id/attempts`: create a grammar attempt and persist shuffled question/option order. Accepts authenticated users or guest body/query identity (`guestId`, `studentName`); private grammar links must include the share token.
+- `POST /api/grammar-sets/:id/attempts/prepare`: validate access/attempt limits and return deterministic question order without writing a `grammar_attempts` row.
+- `POST /api/grammar-sets/:id/attempts/activate`: create the prepared attempt and its first answer together. The deterministic `clientRunId` key and hashed run secret make retries idempotent.
 - `POST /api/grammar-attempts/:attemptId/answers`: save one selected option; server grades by option ID. Accepts the same authenticated/guest identity as attempt creation.
 - `POST /api/grammar-attempts/:attemptId/submit`: finalize and score attempt. Accepts the same authenticated/guest identity as attempt creation.
 - `GET /api/grammar-attempts/:attemptId/review`: review own attempt or teacher/admin-authorized attempt. Guests can review their own attempt using the same `msdieu_guest_id`.
@@ -535,8 +539,10 @@ Vocabulary result history:
 - The result table shows student, game, score, correct/wrong/unanswered counts, duration, completion time, and a `Xem` action.
 - `Xem` reuses the existing `selectedActivity` detail modal and the compact `answerDetails` already stored in `game_sessions`; legacy rows without answer details remain visible as summaries.
 - This history is read-only. It must not delete, rewrite, or expire `game_sessions`; the 7-day filter remains specific to Recent Activity APIs/UI.
-- Vocabulary game sessions created after the v2 rollout use `schemaVersion: 2`: the backend freezes a canonical vocabulary/config snapshot, clients persist idempotent actions in `game_session_actions`, and `POST /api/game-sessions/:id/submit` calculates the authoritative score and answer details. Client-supplied score/correctness remains supported only by the legacy completion endpoint for old sessions.
-- The game is mounted only after its session is created. Action writes are serialized and replayed before submit; failed submit keeps the result locally and exposes a retry control. Repeated submit returns the already-completed result.
+- Legacy vocabulary sessions remain readable as schema v1/v2. Lazy short-game sessions use `schemaVersion: 3`: opening a lesson, switching games, or starting without answering creates no database row. Actions stay in browser memory and `POST /api/game-sessions/lazy-complete` calculates the authoritative result, writes the completed session, and writes its deterministic leaderboard event in one batch.
+- `clientRunId` plus a random run secret identifies one immutable attempt. The server stores only the secret hash. A repeated request returns the existing result and cannot create a second leaderboard event. `Chơi lại` creates a new `clientRunId`.
+- A bounded 24-hour browser retry queue stores only failed completed short-game submissions. Reloading the same tab retries with the same immutable key. There is no direct Firestore fallback and no automatic cleanup of server records.
+- Speaking AI is the exception: it activates a schema-v3 session at the first recording interaction, then keeps incremental action/pronunciation durability because the backend session protects the speech API.
 - Canonical scores use 0-100. Millionaire additionally stores its prize-ladder value in `gameScore`/`rawScore` with `maxScore: 1000000` so cross-game leaderboard comparisons remain normalized.
 - Per-set results include completed, in-progress, and interrupted sessions. Sessions without completion after 24 hours display as interrupted but are not deleted and never enter score/leaderboard calculations.
 
@@ -603,15 +609,13 @@ Responsibilities:
 
 - Accepts `vocabSet`, optional `assignmentId`, optional `initialGameId`.
 - Manages selected game, active item order, shuffle, fullscreen, mute, current session, result overlay.
-- Starts a game session when selected game and student name are ready.
-- Completes session when game calls `onComplete`.
-- Uses backend `/api/game-sessions`.
+- Creates only a local `clientRunId`/run secret when a short game is selected; no server session is created until completion.
+- Completes short games through one `/api/game-sessions/lazy-complete` request when the game calls `onComplete`.
 - Direct Firestore write/update fallback was removed. If backend session persistence fails, the game can continue but that attempt is not written through a client-side bypass.
-- Backend session creation uses server-generated IDs, owner metadata, and a guest session token for completion.
-- Session creation is guarded by an AbortController plus a generation token. Stale create-session responses must not overwrite the current selected game/session.
-- Replay and switching games increment `gameRunId`, remount the child game, clear the result overlay, and create a fresh `/api/game-sessions` attempt.
-- Completion is de-duplicated per session id before sending `/api/game-sessions/:id`.
-- `SpeakingAIGame` receives the current session token and passes it to `/api/pronunciation-attempts`.
+- The lazy APIs derive deterministic server IDs from actor/lesson/game/`clientRunId`; the secret is hashed at rest and is required for guest retry/resume.
+- Replay and switching games increment `gameRunId`, remount the child game, clear the result overlay, and create a fresh local run. Merely switching creates no abandoned database session.
+- Failed completed submissions are retained in a bounded local retry queue and expose `Thử lưu lại`; successful responses remove the pending item.
+- `SpeakingAIGame` calls `ensureGameSession` at the first recording interaction and passes the returned session token to `/api/pronunciation-attempts`.
 
 ### Game Components
 
@@ -1462,6 +1466,14 @@ Implemented behavior:
 - Share-token revalidation reads assignment/vocabulary documents directly when their IDs are known. Full token scans remain only for the initial token-only URL resolution.
 - Existing guest `lastActiveAt` writes are throttled by `GUEST_ACTIVITY_TOUCH_INTERVAL_MS` (default 5 minutes), while class changes still persist immediately.
 - Grammar history loading is delayed and aborted when the student starts an attempt; duplicate start requests are blocked. Game session creation is aborted when switching games, and duplicate completion submits are blocked while a submit is in flight.
+
+Lazy-session v3 rollout (2026-07-27):
+
+- Controlled by matching frontend/backend flags `VITE_LAZY_SESSION_V3` and `LAZY_SESSION_V3_ENABLED`. Setting both to `false` preserves the legacy eager-session paths for rollback.
+- Short vocabulary games no longer create an empty session or write per answer. They submit compact actions once at completion; server timing covers identity/access/read/idempotency/persist phases.
+- Grammar uses `prepare -> activate`: Begin validates and returns deterministic shuffled content without persistence; the first answer creates the attempt and answer in the same write. Opening then leaving before an answer creates no attempt.
+- Deterministic server document IDs and leaderboard IDs provide natural idempotency. Tests in `learningRuns.test.ts` and `serverLearningRuns.test.ts` cover client credential uniqueness, local pending restore/removal, stable retry IDs, and bounded client start timestamps.
+- `schemaVersion`, `clientRunId`, `activatedAt`, and `submissionStatus` are additive JSON fields. Existing schema-v1/v2 game sessions and legacy grammar attempts remain readable and are not rewritten.
 
 Data-safety boundaries:
 
