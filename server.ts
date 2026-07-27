@@ -1,7 +1,11 @@
 import express from "express";
 import path from "path";
 import crypto from "crypto";
-import { normalizeGrammarTextAnswer } from "./src/lib/grammarAnswers";
+import {
+  GRAMMAR_TEXT_GRADING_VERSION,
+  isGrammarTextAnswerCorrect,
+  normalizeGrammarTextAnswer
+} from "./src/lib/grammarAnswers";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
@@ -3713,7 +3717,10 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
         scoreSnapshot: question.score,
         optionsSnapshot: options,
         correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
-        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : ""
+        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
+        acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers)
+          ? [...question.acceptedAnswers]
+          : []
       };
     });
 
@@ -3781,7 +3788,11 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
     }
 
     const isCorrect = questionType === "rewrite"
-      ? normalizeGrammarTextAnswer(textAnswer) === normalizeGrammarTextAnswer(attemptQuestion.correctAnswerSnapshot)
+      ? isGrammarTextAnswerCorrect(
+          textAnswer,
+          attemptQuestion.correctAnswerSnapshot,
+          attemptQuestion.acceptedAnswersSnapshot
+        )
       : selectedOptionId === attemptQuestion.correctOptionId;
     const answer: any = {
       id: makeId("grammar-answer"),
@@ -3795,6 +3806,7 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
     if (questionType === "rewrite") {
       answer.textAnswer = textAnswer;
       answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+      answer.gradingVersion = GRAMMAR_TEXT_GRADING_VERSION;
     } else {
       answer.selectedOptionId = selectedOptionId;
       answer.correctOptionId = attemptQuestion.correctOptionId;
@@ -4971,6 +4983,28 @@ function getGrammarQuestionType(value: any, fallback: GrammarQuestionType = "mul
   return value === "rewrite" ? "rewrite" : fallback;
 }
 
+function normalizeAcceptedGrammarAnswers(value: any, correctAnswer: string) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\r?\n/)
+      : [];
+  const seen = new Set<string>();
+  const normalizedCorrectAnswer = normalizeGrammarTextAnswer(correctAnswer);
+  if (normalizedCorrectAnswer) seen.add(normalizedCorrectAnswer);
+
+  const acceptedAnswers: string[] = [];
+  for (const candidate of source) {
+    const answer = safeText(candidate, 4000);
+    const normalizedAnswer = normalizeGrammarTextAnswer(answer);
+    if (!normalizedAnswer || seen.has(normalizedAnswer)) continue;
+    seen.add(normalizedAnswer);
+    acceptedAnswers.push(answer);
+    if (acceptedAnswers.length >= 20) break;
+  }
+  return acceptedAnswers;
+}
+
 function normalizeGrammarQuestion(question: any, index: number, fallbackType: GrammarQuestionType = "multiple_choice") {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
   const questionType = getGrammarQuestionType(question.questionType, fallbackType);
@@ -4996,6 +5030,10 @@ function normalizeGrammarQuestion(question: any, index: number, fallbackType: Gr
   if (questionType === "rewrite") {
     normalized.correctOptionId = "";
     normalized.correctAnswer = safeText(question.correctAnswer || question.answer, 4000);
+    normalized.acceptedAnswers = normalizeAcceptedGrammarAnswers(
+      question.acceptedAnswers,
+      normalized.correctAnswer
+    );
   } else {
     normalized.correctOptionId = String(question.correctOptionId || "");
   }

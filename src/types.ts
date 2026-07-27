@@ -109,6 +109,7 @@ export interface GrammarQuestion {
   options: GrammarOption[];
   correctOptionId: string;
   correctAnswer?: string;
+  acceptedAnswers?: string[];
   explanation: string;
   score: number;
   position: number;
@@ -154,6 +155,7 @@ export interface GrammarAttemptQuestion {
   optionsSnapshot: GrammarOption[];
   correctOptionId?: string;
   correctAnswerSnapshot?: string;
+  acceptedAnswersSnapshot?: string[];
 }
 
 export interface GrammarAttemptAnswer {
@@ -164,6 +166,7 @@ export interface GrammarAttemptAnswer {
   textAnswer?: string;
   correctOptionId?: string;
   correctAnswer?: string;
+  gradingVersion?: number;
   isCorrect?: boolean;
   scoreAwarded?: number;
   answeredAt: string;

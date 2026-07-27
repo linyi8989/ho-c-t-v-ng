@@ -27,8 +27,20 @@ var import_path3 = __toESM(require("path"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
 
 // src/lib/grammarAnswers.ts
+var GRAMMAR_TEXT_GRADING_VERSION = 2;
+var APOSTROPHE_VARIANTS = /[\u02BC\u2018\u2019\u201B\u2032\uFF07]/gu;
+var INVISIBLE_FORMATTING = /[\u200B-\u200D\u2060\uFEFF]/gu;
+var SPACED_PUNCTUATION = /\s*([.,;:!?])\s*/gu;
 function normalizeGrammarTextAnswer(value) {
-  return String(value ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("vi-VN").slice(0, 4e3);
+  return String(value ?? "").normalize("NFKC").replace(APOSTROPHE_VARIANTS, "'").replace(INVISIBLE_FORMATTING, "").trim().replace(/\s+/gu, " ").replace(SPACED_PUNCTUATION, "$1").toLocaleLowerCase("vi-VN").slice(0, 4e3);
+}
+function isGrammarTextAnswerCorrect(studentAnswer, correctAnswer, acceptedAnswers = []) {
+  const normalizedStudentAnswer = normalizeGrammarTextAnswer(studentAnswer);
+  if (!normalizedStudentAnswer) return false;
+  const alternatives = Array.isArray(acceptedAnswers) ? acceptedAnswers : [];
+  return [correctAnswer, ...alternatives].some(
+    (answer) => normalizeGrammarTextAnswer(answer) === normalizedStudentAnswer
+  );
 }
 
 // server.ts
@@ -4870,7 +4882,8 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
         scoreSnapshot: question.score,
         optionsSnapshot: options,
         correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
-        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : ""
+        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
+        acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
       };
     });
     const attemptId = makeId("grammar-attempt");
@@ -4931,7 +4944,11 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     } else if (!normalizeGrammarTextAnswer(textAnswer)) {
       return res.status(400).json({ error: "Vui l\xF2ng nh\u1EADp c\xE2u tr\u1EA3 l\u1EDDi." });
     }
-    const isCorrect = questionType === "rewrite" ? normalizeGrammarTextAnswer(textAnswer) === normalizeGrammarTextAnswer(attemptQuestion.correctAnswerSnapshot) : selectedOptionId === attemptQuestion.correctOptionId;
+    const isCorrect = questionType === "rewrite" ? isGrammarTextAnswerCorrect(
+      textAnswer,
+      attemptQuestion.correctAnswerSnapshot,
+      attemptQuestion.acceptedAnswersSnapshot
+    ) : selectedOptionId === attemptQuestion.correctOptionId;
     const answer = {
       id: makeId("grammar-answer"),
       attemptQuestionId: attemptQuestion.id,
@@ -4944,6 +4961,7 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     if (questionType === "rewrite") {
       answer.textAnswer = textAnswer;
       answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+      answer.gradingVersion = GRAMMAR_TEXT_GRADING_VERSION;
     } else {
       answer.selectedOptionId = selectedOptionId;
       answer.correctOptionId = attemptQuestion.correctOptionId;
@@ -5970,6 +5988,22 @@ function fisherYates(input) {
 function getGrammarQuestionType(value, fallback = "multiple_choice") {
   return value === "rewrite" ? "rewrite" : fallback;
 }
+function normalizeAcceptedGrammarAnswers(value, correctAnswer) {
+  const source = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\r?\n/) : [];
+  const seen = /* @__PURE__ */ new Set();
+  const normalizedCorrectAnswer = normalizeGrammarTextAnswer(correctAnswer);
+  if (normalizedCorrectAnswer) seen.add(normalizedCorrectAnswer);
+  const acceptedAnswers = [];
+  for (const candidate of source) {
+    const answer = safeText(candidate, 4e3);
+    const normalizedAnswer = normalizeGrammarTextAnswer(answer);
+    if (!normalizedAnswer || seen.has(normalizedAnswer)) continue;
+    seen.add(normalizedAnswer);
+    acceptedAnswers.push(answer);
+    if (acceptedAnswers.length >= 20) break;
+  }
+  return acceptedAnswers;
+}
 function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choice") {
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
   const questionType = getGrammarQuestionType(question.questionType, fallbackType);
@@ -5991,6 +6025,10 @@ function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choi
   if (questionType === "rewrite") {
     normalized.correctOptionId = "";
     normalized.correctAnswer = safeText(question.correctAnswer || question.answer, 4e3);
+    normalized.acceptedAnswers = normalizeAcceptedGrammarAnswers(
+      question.acceptedAnswers,
+      normalized.correctAnswer
+    );
   } else {
     normalized.correctOptionId = String(question.correctOptionId || "");
   }

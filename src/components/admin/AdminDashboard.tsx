@@ -420,11 +420,17 @@ function parseBulkRewriteText(input: string): { questions: GrammarQuestion[]; er
     lines.forEach(rawLine => {
       const line = rawLine.trim();
       if (!line) return;
-      const match = line.match(/^(question|answer|explanation)\s*:\s*(.*)$/i);
+      const match = line.match(/^(question|answer|accepted(?:_answers)?|alternatives|explanation)\s*:\s*(.*)$/i);
       if (match) {
-        currentKey = match[1].toUpperCase();
-        data[currentKey] = match[2].trim();
-      } else if (currentKey === 'QUESTION' || currentKey === 'ANSWER' || currentKey === 'EXPLANATION') {
+        const parsedKey = match[1].toUpperCase();
+        currentKey = parsedKey === 'ACCEPTED' || parsedKey === 'ACCEPTED_ANSWERS' || parsedKey === 'ALTERNATIVES'
+          ? 'ACCEPTED'
+          : parsedKey;
+        const value = match[2].trim();
+        data[currentKey] = currentKey === 'ACCEPTED' && data[currentKey]
+          ? `${data[currentKey]}\n${value}`.trim()
+          : value;
+      } else if (currentKey === 'QUESTION' || currentKey === 'ANSWER' || currentKey === 'ACCEPTED' || currentKey === 'EXPLANATION') {
         data[currentKey] = `${data[currentKey] || ''}\n${line}`.trim();
       }
     });
@@ -442,6 +448,10 @@ function parseBulkRewriteText(input: string): { questions: GrammarQuestion[]; er
       options: [],
       correctOptionId: '',
       correctAnswer: data.ANSWER.trim(),
+      acceptedAnswers: (data.ACCEPTED || '')
+        .split(/\r?\n/)
+        .map(answer => answer.trim())
+        .filter(Boolean),
       explanation: data.EXPLANATION.trim(),
       score: 1,
       position: questions.length + 1
@@ -796,6 +806,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           options: [],
           correctOptionId: '',
           correctAnswer: '',
+          acceptedAnswers: [],
           explanation: '',
           score: 1,
           position: prev.length + 1
@@ -3124,7 +3135,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                 <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
                 <p className="text-xs text-gray-500">
                   {grammarQuestionType === 'rewrite'
-                    ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION và cách nhau bằng một dòng trống.'
+                    ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION; ACCEPTED là tùy chọn và mỗi đáp án thay thế nằm trên một dòng.'
                     : 'Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.'}
                 </p>
               </div>
@@ -3133,7 +3144,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                 onChange={e => setGrammarBulkText(e.target.value)}
                 className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"
                 placeholder={grammarQuestionType === 'rewrite'
-                  ? `QUESTION: Viết lại câu ở thì quá khứ: I go to school every day.\nANSWER: I went to school every day.\nEXPLANATION: Động từ go chuyển thành went ở thì quá khứ đơn.\n\nQUESTION: Hoàn thành câu: She _____ a teacher.\nANSWER: is\nEXPLANATION: Chủ ngữ She đi với động từ to be là is.`
+                  ? `QUESTION: Viết dạng đầy đủ của: It's Monday.\nANSWER: It is Monday.\nACCEPTED: It's Monday.\nEXPLANATION: It's là dạng viết tắt của It is.\n\nQUESTION: Hoàn thành câu: She _____ a teacher.\nANSWER: is\nEXPLANATION: Chủ ngữ She đi với động từ to be là is.`
                   : `QUESTION: She is a teacher, _____?\nA: is she\nB: isn't she\nANSWER: B\nEXPLANATION: Câu khẳng định dùng đuôi phủ định.\n\nQUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nANSWER: B\nEXPLANATION: Chủ ngữ They dùng động từ nguyên mẫu play.`}
               />
               <button onClick={handleParseGrammarBulk} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
@@ -3158,12 +3169,23 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     </div>
                     <textarea value={question.questionText} onChange={e => updateGrammarQuestion(question.id, { questionText: e.target.value })} className="w-full p-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-900" placeholder="Câu hỏi" />
                     {grammarQuestionType === 'rewrite' ? (
-                      <textarea
-                        value={question.correctAnswer || ''}
-                        onChange={e => updateGrammarQuestion(question.id, { correctAnswer: e.target.value })}
-                        className="w-full p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm font-bold text-gray-900"
-                        placeholder="Đáp án đúng"
-                      />
+                      <div className="space-y-2">
+                        <textarea
+                          value={question.correctAnswer || ''}
+                          onChange={e => updateGrammarQuestion(question.id, { correctAnswer: e.target.value })}
+                          className="w-full p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm font-bold text-gray-900"
+                          placeholder="Đáp án đúng"
+                        />
+                        <textarea
+                          value={(question.acceptedAnswers || []).join('\n')}
+                          onChange={e => updateGrammarQuestion(question.id, { acceptedAnswers: e.target.value.split(/\r?\n/) })}
+                          className="w-full p-3 rounded-xl border border-blue-200 bg-blue-50 text-sm font-bold text-gray-900"
+                          placeholder="Các đáp án chấp nhận khác - mỗi dòng một đáp án (tùy chọn)"
+                        />
+                        <p className="text-xs text-gray-500">
+                          Chỉ thêm các cách trả lời thực sự tương đương, ví dụ: it is cho đáp án chính it&apos;s.
+                        </p>
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {question.options.map((option, index) => (
