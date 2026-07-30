@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Users, Award, Play, ShieldAlert, Sparkles, UserCheck, 
-  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield, FileText
+  ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield, FileText, History
 } from 'lucide-react';
 import { VocabSet, Class, Assignment, GameSession, GrammarSet } from './types';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentLearningArea from './components/games/StudentLearningArea';
 import GrammarLearningArea from './components/grammar/GrammarLearningArea';
+import StudentHistoryPage from './components/history/StudentHistoryPage';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import { buildLeaderboard, LeaderboardPeriod } from './lib/leaderboard';
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
+const LEARNING_HISTORY_UI_ENABLED = import.meta.env.VITE_LEARNING_HISTORY_ENABLED === 'true';
 
 function formatGradeLabel(value?: string) {
   return (value || '')
@@ -68,6 +70,10 @@ function getWeeklyLearningQuote() {
 export default function App() {
   const { user, token, logout, loading } = useAuth();
   const [adminMode, setAdminMode] = useState(false);
+  const [studentHistoryOpen, setStudentHistoryOpen] = useState(() => (
+    LEARNING_HISTORY_UI_ENABLED
+    && (window.location.pathname.replace(/\/+$/, '') || '/') === '/history'
+  ));
   const privateAssignmentToken = React.useMemo(() => {
     const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
@@ -107,6 +113,37 @@ export default function App() {
   const [studentName, setStudentName] = useState('');
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | undefined>(undefined);
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!LEARNING_HISTORY_UI_ENABLED) {
+      const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+      if (pathname === '/history') {
+        window.history.replaceState({ studentScreen: 'home' }, '', '/');
+      }
+      return;
+    }
+    const syncStudentScreenFromPath = () => {
+      const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+      setStudentHistoryOpen(pathname === '/history');
+    };
+    window.addEventListener('popstate', syncStudentScreenFromPath);
+    return () => window.removeEventListener('popstate', syncStudentScreenFromPath);
+  }, []);
+
+  const navigateToStudentHistory = React.useCallback((open: boolean) => {
+    if (!LEARNING_HISTORY_UI_ENABLED) return;
+    const nextPath = open ? '/history' : '/';
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    if (currentPath !== nextPath) {
+      window.history.pushState(
+        open ? { studentScreen: 'history' } : { studentScreen: 'home' },
+        '',
+        nextPath
+      );
+    }
+    setStudentHistoryOpen(open);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
 
   const homeGradeOptions = React.useMemo(() => {
     return Array.from(new Set([
@@ -298,8 +335,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadHomeData();
-  }, [token, user]);
+    if (!studentHistoryOpen) {
+      void loadHomeData();
+    }
+  }, [token, user, studentHistoryOpen]);
 
   useEffect(() => {
     if (!privateAssignmentToken) return;
@@ -598,6 +637,15 @@ export default function App() {
     );
   }
 
+  if (LEARNING_HISTORY_UI_ENABLED && studentHistoryOpen) {
+    return (
+      <StudentHistoryPage
+        authToken={token}
+        onBack={() => navigateToStudentHistory(false)}
+      />
+    );
+  }
+
   // 5. ADMIN/TEACHER DASHBOARD SCREEN
   // If user is teacher/super_admin and NOT in student simulated view mode
   const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
@@ -654,17 +702,29 @@ export default function App() {
 
       {/* Main navigation header */}
       <nav className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 shadow-xs" id="navbar">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <span className="p-2.5 bg-indigo-600 text-white rounded-2xl shadow-md">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center space-x-3">
+            <span className="shrink-0 p-2.5 bg-indigo-600 text-white rounded-2xl shadow-md">
               <BookOpen size={20} />
             </span>
-            <div>
-              <span className="font-black text-gray-900 tracking-tight text-lg leading-none block">Tiếng Anh Cô Diệu</span>
+            <div className="min-w-0">
+              <span className="block truncate text-base font-black leading-none tracking-tight text-gray-900 sm:text-lg">Tiếng Anh Cô Diệu</span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+            {LEARNING_HISTORY_UI_ENABLED && (
+              <button
+                type="button"
+                onClick={() => navigateToStudentHistory(true)}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 text-xs font-black text-indigo-700 transition-colors hover:bg-indigo-100"
+                id="student-history-nav-btn"
+                aria-label="Mở lịch sử học tập"
+              >
+                <History size={16} aria-hidden="true" />
+                <span className="hidden sm:inline">Lịch sử học tập</span>
+              </button>
+            )}
             {user ? (
               <>
                 <div className="flex items-center space-x-2 text-right">

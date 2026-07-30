@@ -1,7 +1,9 @@
 # Kế hoạch chuyển better-sqlite3 + WAL và xây dựng Lịch sử học tập
 
-> Trạng thái: **Release A (gói 1–8) đã triển khai ở local; preflight/staging/production cPanel còn chờ xác minh**  
+> Trạng thái: **Release A đã cutover production; Release B đã hoàn tất triển khai và quality gate ở local, chưa deploy production**
 > Ngày khảo sát repository: 2026-07-30  
+> Ngày xác minh production: 2026-07-31
+> Ngày hoàn tất Release B local: 2026-07-31
 > Database production duy nhất trong phạm vi kế hoạch:
 > `/home/qzmivzbj/app-data/vhomework/app.sqlite`
 
@@ -9,16 +11,69 @@
 
 | Gói | Phạm vi | Trạng thái |
 | --- | --- | --- |
-| 1 | Production copy/baseline/dependency graph | Baseline repo đã khóa; còn thiếu production-shaped DB/cPanel runtime |
-| 2 | Rollback window/runbook | Công cụ và runbook đã có; còn thiếu lịch/cách stop Passenger và người vận hành |
-| 3 | cPanel preflight + exact pin | Host GCC 8.5/glibc 2.28 rejected candidate 12.4.1; compatibility pin `better-sqlite3@10.1.0` selected, host rebuild pending |
+| 1 | Production copy/baseline/dependency graph | Đã xác minh production DB 113 MiB, schema và table counts trước migration |
+| 2 | Rollback window/runbook | Đã stop toàn bộ orphan `lsnode` worker và tạo verified pre-migration backup |
+| 3 | cPanel preflight + exact pin | `better-sqlite3@10.1.0` build-from-source và isolated preflight pass trên Node 22.16/glibc 2.28/GCC 8.5 |
 | 4 | Path policy/factory/native primitives | Đã triển khai và typecheck |
 | 5 | Startup gate/migration runner | Đã triển khai; local empty/legacy/double-run pass |
 | 6 | SQL pushdown/atomic transaction | Đã triển khai normalized hot paths và rollback test |
-| 7 | Backup/checkpoint/rollback/diagnostics | Đã triển khai và kiểm tra trên database test |
-| 8 | Test/staging/production/gate | Local quality gate được ghi ở phần kết quả; staging/production pending |
+| 7 | Backup/checkpoint/rollback/diagnostics | Verified backup và offline/live production diagnostics đều pass |
+| 8 | Test/staging/production/gate | Production-shaped copy và production cutover pass; theo dõi soak sau triển khai |
 
-Các phần pending không được bỏ qua bằng suy đoán. Giai đoạn 2 chỉ bắt đầu sau khi gói 8 vượt qua cPanel/staging/production gate.
+Release A đã vượt qua gate cần thiết để bắt đầu Giai đoạn 2. Các backup của
+Release A vẫn phải được giữ nguyên trong suốt lần triển khai Release B đầu tiên.
+
+## Tiến độ triển khai Release B — local 2026-07-31
+
+| Step | Phạm vi | Trạng thái |
+| --- | --- | --- |
+| 2.1 | Guest migration policy | Hoàn tất: guest mới dùng capability; guest legacy không capability phải qua staff recovery |
+| 2.2 | Metric semantics | Hoàn tất: score/count/attempt number/study date/interrupted và assignment classification đã cố định |
+| 2.3 | Additive schema | Hoàn tất: `learning_attempts`, `attempt_details`, reserved `learning_history_backfill_state`, `pronunciation_attempts` và index |
+| 2.4 | Projector new writes | Hoàn tất: vocabulary, Speaking AI và grammar ghi source/projection/detail/leaderboard nguyên tử |
+| 2.5 | Backfill | Hoàn tất CLI dry-run/execute/resume/reconcile; execute bắt buộc verified backup |
+| 2.6 | Repository/API | Hoàn tất list/detail SQL, owner scope, pagination/filter, review-policy redaction và timing |
+| 2.7 | Frontend client/types | Hoàn tất auth/guest headers, AbortSignal và defensive response parsing |
+| 2.8 | UI | Hoàn tất `/history`, summary/filter/pagination/responsive/detail modal; đang nằm sau build flag |
+| 2.9 | Retention | Hoàn tất CLI dry-run mặc định; execute tự backup, chỉ xóa detail hết hạn và đo zero delta trên các bảng bảo vệ |
+| 2.10 | Compatibility | Hoàn tất: không thay nguồn Recent Activity, leaderboard và API kết quả cũ |
+| 2.11 | Test | Hoàn tất local trên Node `v22.16.0`: `npm run test:phase2` pass, gồm History `24/24` và legacy HTTP golden `4/4` |
+| 2.12 | Deploy API trước, UI sau | **Chưa chạy trên production**; artifact API-first đã sẵn sàng, UI-on artifact chỉ build sau khi API/backfill smoke pass |
+
+Runbook thực thi Step 2.12: `docs/release-b-cpanel-deployment.md`.
+
+Quality gate local Release B:
+
+- TypeScript typecheck, identity, grammar, learning-run và storage tests pass.
+- History unit/API/security tests pass `24/24`.
+- Legacy HTTP golden regression pass `4/4`, bao phủ public/auth results,
+  public/auth leaderboard, admin vocab/grammar results và grammar
+  review/my-attempts.
+- Golden fixture khóa response contract hiện tại sau thay đổi; không thay thế
+  archived pre-Release-B corpus hoặc smoke bằng Firebase/Passenger và dữ liệu
+  production thật ở Step 2.12.
+- Backfill/retention E2E trên database tạm pass; deterministic/reconcile mismatch đều
+  bằng `0`, source không bị sửa/xóa và `quick_check=ok`.
+- Production build và startup smoke pass bằng Node `v22.16.0`, ABI `127`.
+- `dist/server.cjs` hiện chứa History API/schema/projector; `dist/client` hiện
+  được build với `VITE_LEARNING_HISTORY_ENABLED=false` cho lượt deploy API-first.
+- Chưa thực hiện browser screenshot/visual interaction test vì phiên local không
+  có browser được kết nối; responsive/focus behavior đã được rà tĩnh và kiểm tra
+  qua type/build/unit test.
+
+## Kết quả cPanel/production — 2026-07-31
+
+- Host runtime: Node `v22.16.0`, ABI `127`, Linux x64, glibc `2.28`, GCC `8.5.0`.
+- Candidate `better-sqlite3@12.4.1` bị loại vì Linux prebuild cần `GLIBC_2.29` và source build cần tên cờ `-std=c++20` mà GCC 8.5 không nhận.
+- Compatibility pin `better-sqlite3@10.1.0` được build từ source bằng Python `3.11.13`; SQLite runtime là `3.46.0`.
+- Isolated host preflight pass: insert/select, WAL, close/reopen và `quick_check=ok`.
+- Production baseline trước migration: `journal_mode=delete`, `quick_check=ok`, database `118222848` bytes, không có WAL/SHM.
+- Verified pre-migration backup: `restore-backup/app-2026-07-30T16-41-59-140Z.sqlite`, `quick_check=ok`.
+- Production-shaped copy migration pass. Mọi business table count giữ nguyên; bảng `migrations` tăng từ `2` lên `5`.
+- Production migration pass dưới maintenance lock. Database sau migration là `121765888` bytes, `journal_mode=wal`, WAL `0` bytes và `quick_check=ok`.
+- Live HTTP diagnostics xác nhận `storageMode=sqlite`, driver `better-sqlite3`, basename `app.sqlite`, foreign keys bật, busy timeout `10000`, WAL autocheckpoint `1000`, migration cuối `native-hot-query-columns-v2`, `lastError=null`, `busyErrors=0`.
+- Public homepage trả HTTP `200`.
+- Hai slow-query log khoảng 295–378 ms là backfill một lần trong migration, không phải lỗi startup.
 
 Kết quả local Release A:
 
@@ -38,15 +93,21 @@ Kết quả local Release A:
   - Startup smoke: storage gate trước listen, protected diagnostics, graceful close và reopen.
 - Backup/checkpoint/TRUNCATE/prepare-sqljs-rollback CLI pass trên database test và backup `quick_check=ok`.
 - Vite build còn cảnh báo chunk size/dynamic import đã tồn tại; không phải storage gate failure.
-- Chưa có production-shaped DB và chưa chạy exact Passenger Node trên Linux/cPanel.
+- Ở quality gate local ban đầu chưa có production-shaped DB/exact Passenger
+  Node; điểm này sau đó đã được đóng bằng kết quả cPanel/production ở trên.
+
+Các phần 0–18 bên dưới giữ lại khảo sát và quyết định gốc để phục vụ audit.
+Những câu “hiện tại” trong phần khảo sát được hiểu tại baseline 2026-07-30; bảng
+tiến độ ở đầu tài liệu là trạng thái mới nhất.
 
 ## 0. Tóm tắt điều hành
 
 - Tài liệu yêu cầu có **45 đề mục chính**, đánh số liên tục từ 1 đến 45.
 - Phương án tổng thể đúng hướng: giữ một `app.sqlite`, chuyển từ `sql.js` sang `better-sqlite3`, bật WAL, sau đó mới triển khai lịch sử học tập.
 - Không được làm Giai đoạn 2 trước khi Giai đoạn 1 vượt qua toàn bộ quality gate.
-- Repository hiện dùng `sql.js@1.14.1`; chưa cài `better-sqlite3`.
-- Local hiện tại là Windows x64, Node `v24.15.0`, Node ABI `137`. Đây không phải môi trường cPanel/Passenger nên không chứng minh native module chạy được ở production.
+- Tại baseline, repository dùng `sql.js@1.14.1` và chưa cài `better-sqlite3`.
+- Tại baseline, local là Windows x64, Node `v24.15.0`, Node ABI `137`; dữ liệu
+  này không được dùng thay cho cPanel preflight.
 - Baseline tại thời điểm lập kế hoạch:
   - 12/12 test hiện có pass.
   - `tsc --noEmit` pass.
@@ -522,7 +583,8 @@ Tên `ACTIVITY_RETENTION_DAYS=30` dễ xung đột với constant Recent Activit
 
 - `RECENT_ACTIVITY_DAYS=7`.
 - `ATTEMPT_DETAIL_RETENTION_DAYS=30`.
-- `DRAFT_RETENTION_DAYS=3`.
+- `DRAFT_RETENTION_DAYS=3` chỉ là reserved config cho workflow draft/checkpoint
+  tương lai; Release B hiện tại chưa đọc biến này.
 
 History summary không hết hạn. Leaderboard event không bị xóa bởi command retention này.
 
@@ -806,13 +868,17 @@ Tách:
 - Schema migration nhanh, idempotent.
 - Backfill command explicit, resumable, có dry-run và reconciliation.
 
-Đề xuất:
+Lệnh đã triển khai:
 
 ```text
-npm run db:backfill-learning-history -- --dry-run
-npm run db:backfill-learning-history -- --execute
-npm run db:backfill-learning-history -- --resume
+npm run db:backfill-learning-history -- --db /home/qzmivzbj/app-data/vhomework/app.sqlite --dry-run
+npm run db:backfill-learning-history -- --db /home/qzmivzbj/app-data/vhomework/app.sqlite --verified-backup /path/to/verified-backup.sqlite --execute
+npm run db:backfill-learning-history -- --db /home/qzmivzbj/app-data/vhomework/app.sqlite --verified-backup /path/to/verified-backup.sqlite --resume
 ```
+
+`--execute` và `--resume` fail-fast nếu thiếu `--verified-backup`. Backup được
+mở read-only và phải có `PRAGMA quick_check=ok`; CLI cũng từ chối dùng chính
+database đang chạy làm “backup”.
 
 ### 7.2. Nguồn vocabulary
 
@@ -1453,6 +1519,9 @@ Chỉ khi migration/data integrity fail:
 - Không drop bảng mới.
 - Source game/grammar/leaderboard vẫn là fallback.
 - Additive schema được giữ lại cho forward recovery.
+- Backend flag cũng tắt projector. Source attempt vẫn được ghi; trước khi bật
+  lại phải tạo fresh backup và chạy backfill catch-up/reconcile cho khoảng
+  rollback.
 
 ## 15. Risk register
 
@@ -1510,6 +1579,11 @@ Không cần cho bước lập kế hoạch, nhưng bắt buộc trước khi b�
 - Old APIs still pass golden tests.
 - Feature-flag rollback tested.
 - No summary/source/leaderboard deletion.
+
+Trạng thái 2026-07-31: các tiêu chí code/test local đã đạt. Definition of Done
+toàn bộ Release B chỉ được đánh dấu đạt sau Step 2.12 trên production: fresh
+backup, migration, backfill reconcile, API smoke, UI smoke và rollback flag
+verification. Không dùng kết quả local để thay cho gate này.
 
 ## 18. Quyết định đề xuất cuối cùng
 

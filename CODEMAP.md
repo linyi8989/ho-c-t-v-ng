@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## 1. Project Overview
 
@@ -9,10 +9,11 @@ This project is a full-stack vocabulary learning web app for students, teachers,
 Core capabilities:
 
 - Student login/register and vocabulary learning portal.
+- Long-lived student learning history for vocabulary and grammar, behind Release B feature flags.
 - Teacher/admin dashboard for vocabulary sets, classes, assignments, results, and AI generation.
 - Game engine with flashcards, quiz, fill-blank, matching, and memory games.
 - Firebase Authentication plus Firestore data storage.
-- Express backend API with Firebase Admin and a local `db.json` fallback layer.
+- Express backend API with Firebase Admin and explicit Firebase, SQLite, or local JSON storage modes.
 - Gemini-powered IPA and vocabulary generation, with local fallback output when API key/service is unavailable.
 - Production hosting through bundled Node server and static Vite build.
 
@@ -65,6 +66,12 @@ Primary stack:
 - `src/components/games/*Game.tsx`: individual game implementations.
 - `src/components/games/GameControlPanel.tsx`: shared control panel for games.
 - `src/components/grammar/GrammarLearningArea.tsx`: student grammar practice and review screen.
+- `src/components/history/`: Release B student history page, filters, summary, list/cards, grouping, and detail modal.
+- `src/lib/api/learningHistory.ts`: defensive History API client and auth/guest capability headers.
+- `src/server/learning-history/`: actor resolution, validation, SQL repository, service, router, and atomic projectors.
+- `src/server/publicStudentIdentity.ts`: HMAC pseudonymization and public result/leaderboard identity sanitizer.
+- `scripts/db-backfill-learning-history.mjs`: explicit legacy projection backfill/reconcile CLI.
+- `scripts/activity-prune.mjs`: explicit detail-only retention CLI with verified online backup.
 
 ## 3. Runtime Architecture
 
@@ -913,7 +920,7 @@ SQLite notes:
 - `vocab_sets` are saved with nested `items`, and items are also upserted into `vocab_items`.
 - `game_sessions` include `guestId` through JSON/data fields and are used for leaderboard identity.
 - `leaderboard_events` stores compact completed-attempt summaries for longer-lived leaderboard calculations.
-- Primary SQLite driver: pinned `better-sqlite3@12.4.1`, one native connection per process, real transactions, and WAL.
+- Primary SQLite driver: pinned `better-sqlite3@10.1.0`, one native connection per process, real transactions, and WAL. This exact compatibility pin passed production Node 22.16/glibc 2.28/GCC 8.5 preflight.
 - `sql.js` is an explicit emergency rollback driver only. It refuses startup when a non-empty `app.sqlite-wal` exists.
 - Production must explicitly set the driver/path and deny implicit creation/import/seed. Storage integrity and migrations finish before `app.listen()`.
 - Additive migration `native-hot-query-columns-v2` backfills normalized game/grammar completion fields without rewriting `data_json`.
@@ -1491,4 +1498,94 @@ Data-safety boundaries:
 - Batch-mode actions are held client-side only while a short game is in progress; the completed result and leaderboard event are persisted atomically at submit.
 - Long games retain incremental progress writes.
 - Before deploying the additive grammar query migration, back up `/home/qzmivzbj/app-data/vhomework/app.sqlite` and test startup against a production-shaped copy.
-- Native `better-sqlite3`/WAL remains a separate staging task because cPanel native-binary compatibility must be verified before changing the production storage driver.
+- Native `better-sqlite3@10.1.0`/WAL passed cPanel preflight and Release A production cutover on 2026-07-31.
+
+## 22. Release B Learning History - 2026-07-31
+
+Release status:
+
+- Steps 2.1-2.11 are implemented and pass the local Node 22 quality gate.
+- Production step 2.12 is intentionally pending and must deploy API-first, UI-second.
+- The tracked `dist/client` artifact is currently built with
+  `VITE_LEARNING_HISTORY_ENABLED=false` for the API-first deploy.
+
+Data model:
+
+- `learning_attempts` is the long-lived, queryable summary projection.
+- `attempt_details` stores bounded review detail and review-policy snapshots.
+- `learning_history_backfill_state` is reserved in the additive schema; the
+  current CLI does not read/write it and resumes by scanning missing deterministic
+  source identities.
+- `pronunciation_attempts` stores new Speaking AI pronunciation events without
+  audio binary/base64.
+- Migration IDs are `learning-history-schema-v1` and
+  `guest-capability-physical-v1`; migrations are additive/idempotent and do not
+  run the legacy backfill at startup.
+- Vocabulary source remains physical `game_results`; grammar source remains
+  `grammar_attempts`. Initial compatibility APIs continue reading their existing
+  sources.
+
+Write and read flow:
+
+- Vocabulary completion and grammar submit persist source, deterministic
+  leaderboard event, summary, and detail in a short atomic transaction.
+- Grammar activation creates an `in_progress` summary; answer/submit update the
+  same immutable attempt. Speaking AI projects the parent session and stores
+  pronunciation events separately.
+- Attempt identity is deterministic from source type/record for backfill and
+  projector compatibility. Retry cannot change immutable owner/run/source fields.
+- `GET /api/my-learning-history` performs owner-scoped SQL filter/count/aggregate
+  and stable pagination by `activity_at DESC, attempt_id DESC`.
+- `GET /api/my-learning-history/:attemptId` verifies ownership before loading
+  detail. Cross-owner lookup returns 404.
+- An `in_progress` attempt older than 24 hours is exposed as `interrupted`
+  read-only; no cleanup/update occurs during list reads.
+
+Identity and security:
+
+- Authenticated ownership comes only from the verified Firebase actor.
+- Guest history requires both `X-Guest-Id` and `X-Guest-Access-Token`; SQLite
+  stores only the token hash/version/time in physical columns.
+- Legacy guest profiles without a capability require staff recovery through
+  `POST /api/admin/guest-profiles/:guestId/history-capability`.
+- Public result/leaderboard responses remove raw student/guest IDs and use an
+  HMAC pseudonymous key. Production must set a stable host-only
+  `GUEST_PUBLIC_ID_SECRET`.
+- Detail responses apply the snapshotted review policy and recursively redact
+  correct/accepted answers and explanations when review is not allowed.
+
+Frontend:
+
+- `src/App.tsx` exposes `/history` only when
+  `VITE_LEARNING_HISTORY_ENABLED=true` at build time.
+- The page supports summary, assignment/practice tabs, backend filters,
+  pagination 20/50, responsive desktop/mobile layouts, abortable requests, and
+  an accessible detail modal.
+- Opening History never creates a new guest identity. Vocabulary/grammar resolve
+  flows persist newly issued guest capability tokens.
+
+Operations:
+
+- Backend history flag: `LEARNING_HISTORY_ENABLED`; it gates both History API
+  and projector writes and is only effective with `STORAGE_MODE=sqlite`. If it
+  is disabled while learning continues, backfill must catch up missing
+  projections before re-enable.
+- Backfill is dry-run by default. Execute/resume require a distinct verified
+  pre-backfill backup and fail reconciliation on duplicate/deterministic/ordinal
+  mismatch.
+- Retention is dry-run by default. Execute creates and verifies an online backup,
+  deletes only expired `attempt_details`, updates matching summary status, and
+  never deletes source/summary/leaderboard rows or runs `VACUUM`.
+- Main gate: `npm run test:phase2`.
+- `src/server/legacyContracts.integration.test.ts` starts the real Express server
+  against a temporary native SQLite database and a minimal local Auth emulator.
+  It locks representative shapes/order/auth/scope for the eight legacy endpoint
+  groups in plan section 13.4.
+- Real Firebase/Passenger, production-shaped data, browser interaction, flag
+  rollback, super-admin, and exhaustive guest-token variants remain production
+  smoke/manual gates.
+- Contracts and runbooks:
+  `docs/student-learning-history.md`,
+  `docs/app-sqlite-data-structure.md`,
+  `docs/activity-retention-maintenance.md`, and
+  `docs/release-b-cpanel-deployment.md`.

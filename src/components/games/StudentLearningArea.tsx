@@ -18,7 +18,12 @@ import MillionaireGame from './MillionaireGame';
 import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
-import { identifyExistingGuest } from '../../lib/guestIdentity';
+import {
+  STUDENT_NAME_STORAGE_KEY,
+  getOrCreateGuestId,
+  identifyExistingGuest,
+  storeGuestAccessCredential
+} from '../../lib/guestIdentity';
 import {
   ClientLearningRun,
   PendingLearningSubmission,
@@ -41,8 +46,6 @@ interface StudentLearningAreaProps {
   onBack: () => void;
 }
 
-const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
-const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const ACTIVITY_TTL_DAYS = 7;
 const LAZY_SESSION_V3_ENABLED = import.meta.env.VITE_LAZY_SESSION_V3 !== 'false';
 type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
@@ -57,29 +60,6 @@ const GAME_CATEGORY_TITLES: Record<string, string> = {
   millionaire: 'Ai là triệu phú',
   speaking: 'Luyện nói'
 };
-
-function createGuestId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getStoredGuestId() {
-  if (typeof window === 'undefined') return '';
-
-  try {
-    const existing = window.localStorage.getItem(GUEST_ID_STORAGE_KEY);
-    if (existing) return existing;
-
-    const newGuestId = createGuestId();
-    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, newGuestId);
-    return newGuestId;
-  } catch {
-    return createGuestId();
-  }
-}
 
 function getStoredStudentName() {
   if (typeof window === 'undefined') return '';
@@ -151,7 +131,7 @@ export default function StudentLearningArea({
   onBack 
 }: StudentLearningAreaProps) {
   const { token, user, loading: authLoading } = useAuth();
-  const [guestId] = useState(() => getStoredGuestId());
+  const [guestId] = useState(() => getOrCreateGuestId());
   const [studentName, setStudentName] = useState(() => propStudentName || user?.name || '');
   const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => (propStudentName || user?.name) ? 'ready' : 'checking');
   const nameSubmitted = identityStatus === 'ready';
@@ -356,6 +336,13 @@ export default function StudentLearningArea({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Không thể lưu hồ sơ học sinh.');
         normalizedName = data.displayName || normalizedName;
+        if (data.guestAccessToken) {
+          storeGuestAccessCredential(
+            data.guestId || guestId,
+            data.guestAccessToken,
+            data.guestAccessTokenVersion
+          );
+        }
       } catch (err: any) {
         setNameError(err.message || 'Không thể lưu hồ sơ học sinh.');
         return;

@@ -50,7 +50,22 @@ The script:
 
 Review the JSON output and retain it with the deployment record. Remove the test file and its `-wal`/`-shm` sidecars manually only after review.
 
-## 4. Failure rule
+## 4. Verified production result
+
+The production validation completed on 2026-07-31:
+
+- Node `v22.16.0`, ABI `127`, Linux x64, glibc `2.28`;
+- `better-sqlite3@10.1.0`, SQLite `3.46.0`;
+- isolated preflight passed with WAL, reopen, and `quick_check=ok`;
+- a verified pre-migration backup was created before touching `app.sqlite`;
+- a production-shaped copy retained every business table count and advanced
+  migrations from `2` to `5`;
+- production startup migration completed with `journal_mode=wal`,
+  `quick_check=ok`, zero WAL bytes, and no busy errors;
+- the live protected diagnostics endpoint reported the expected persistent
+  `vhomework/app.sqlite` database and the public homepage returned HTTP `200`.
+
+## 5. Failure rule
 
 If native load, WAL, reopen, or `quick_check` fails:
 

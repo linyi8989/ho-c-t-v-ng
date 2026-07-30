@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express = __toESM(require("express"), 1);
+var import_express2 = __toESM(require("express"), 1);
 var import_path3 = __toESM(require("path"), 1);
 var import_crypto = __toESM(require("crypto"), 1);
 
@@ -460,6 +460,8 @@ var BASE_SCHEMA_MIGRATION_ID = "base-schema-v1";
 var ACTIVITY_EXPIRY_MIGRATION_ID = "activity-expiry-columns-v1";
 var GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = "grammar-attempt-query-columns-v1";
 var NATIVE_HOT_QUERY_MIGRATION_ID = "native-hot-query-columns-v2";
+var LEARNING_HISTORY_SCHEMA_MIGRATION_ID = "learning-history-schema-v1";
+var GUEST_CAPABILITY_STORAGE_MIGRATION_ID = "guest-capability-physical-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -487,8 +489,12 @@ var collectionTableMap = {
   gameresults: "game_results",
   leaderboard_events: "leaderboard_events",
   leaderboardevents: "leaderboard_events",
-  pronunciation_attempts: "game_results",
-  pronunciationattempts: "game_results",
+  pronunciation_attempts: "pronunciation_attempts",
+  pronunciationattempts: "pronunciation_attempts",
+  learning_attempts: "learning_attempts",
+  learningattempts: "learning_attempts",
+  attempt_details: "attempt_details",
+  attemptdetails: "attempt_details",
   grammar_sets: "grammar_sets",
   grammarsets: "grammar_sets",
   grammar_questions: "grammar_questions",
@@ -577,6 +583,56 @@ var sqlQueryFieldMap = {
     completedAt: "completed_at",
     expiresAt: "expires_at"
   },
+  pronunciation_attempts: {
+    id: "id",
+    ownerKey: "owner_key",
+    userId: "user_id",
+    studentId: "student_id",
+    guestId: "guest_id",
+    vocabularySetId: "vocabulary_set_id",
+    wordId: "word_id",
+    gameSessionId: "game_session_id",
+    gameId: "game_id",
+    score: "score",
+    playedAt: "played_at",
+    createdAt: "created_at"
+  },
+  learning_attempts: {
+    id: "attempt_id",
+    attemptId: "attempt_id",
+    sourceRecordId: "source_record_id",
+    clientRunId: "client_run_id",
+    sourceType: "source_type",
+    studentType: "student_type",
+    userId: "user_id",
+    guestId: "guest_id",
+    ownerKey: "owner_key",
+    ownershipStatus: "ownership_status",
+    classId: "class_id",
+    assignmentId: "assignment_id",
+    lessonId: "lesson_id",
+    lessonType: "lesson_type",
+    gameId: "game_id",
+    score: "score",
+    activityAt: "activity_at",
+    studyDate: "study_date",
+    completedAt: "completed_at",
+    attemptStatus: "attempt_status",
+    attemptNumber: "attempt_number",
+    detailStatus: "detail_status",
+    normalizationStatus: "normalization_status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  attempt_details: {
+    id: "attempt_id",
+    attemptId: "attempt_id",
+    clientRunId: "client_run_id",
+    sourceType: "source_type",
+    expiresAt: "expires_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
   grammar_attempts: {
     id: "id",
     grammarSetId: "grammar_set_id",
@@ -607,6 +663,135 @@ function parseJson(raw) {
   } catch {
     return {};
   }
+}
+function parseNullableJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function toJsonColumn(value) {
+  if (value === void 0 || value === null || value === "") return null;
+  if (typeof value === "string") {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify(value);
+    }
+  }
+  return JSON.stringify(value);
+}
+function firstDefined(data, ...keys) {
+  for (const key of keys) {
+    if (data?.[key] !== void 0) return data[key];
+  }
+  return void 0;
+}
+function optionalText(value) {
+  if (value === void 0 || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+function finiteNumber(value, fallback = 0) {
+  const number2 = Number(value);
+  return Number.isFinite(number2) ? number2 : fallback;
+}
+function nonNegativeNumber(value, fallback = 0) {
+  return Math.max(0, finiteNumber(value, fallback));
+}
+function nonNegativeInteger(value, fallback = 0) {
+  return Math.floor(nonNegativeNumber(value, fallback));
+}
+var GUEST_CAPABILITY_FIELDS = [
+  "accessToken",
+  "access_token",
+  "guestAccessToken",
+  "guest_access_token",
+  "guestAccessTokenHash",
+  "guest_access_token_hash",
+  "accessTokenHash",
+  "access_token_hash",
+  "accessTokenVersion",
+  "access_token_version",
+  "accessTokenCreatedAt",
+  "access_token_created_at"
+];
+function withoutGuestCapabilityFields(data) {
+  const sanitized = data && typeof data === "object" && !Array.isArray(data) ? { ...data } : {};
+  for (const field of GUEST_CAPABILITY_FIELDS) delete sanitized[field];
+  return sanitized;
+}
+function guestProfileFromRow(row) {
+  const data = withoutGuestCapabilityFields(parseJson(row.data_json));
+  return {
+    ...data,
+    id: row.id
+  };
+}
+function learningAttemptFromRow(row) {
+  return {
+    id: row.attempt_id,
+    attemptId: row.attempt_id,
+    sourceRecordId: row.source_record_id,
+    clientRunId: row.client_run_id,
+    sourceType: row.source_type,
+    studentType: row.student_type,
+    userId: row.user_id,
+    guestId: row.guest_id,
+    ownerKey: row.owner_key,
+    ownershipStatus: row.ownership_status,
+    studentNameSnapshot: row.student_name_snapshot,
+    classId: row.class_id,
+    classNameSnapshot: row.class_name_snapshot,
+    assignmentId: row.assignment_id,
+    assignmentTitleSnapshot: row.assignment_title_snapshot,
+    assignmentDueAtSnapshot: row.assignment_due_at_snapshot,
+    lessonId: row.lesson_id,
+    lessonTitleSnapshot: row.lesson_title_snapshot,
+    lessonType: row.lesson_type,
+    gameId: row.game_id,
+    gameTitleSnapshot: row.game_title_snapshot,
+    score: Number(row.score || 0),
+    rawScore: Number(row.raw_score || 0),
+    maxScore: Number(row.max_score || 0),
+    correctCount: Number(row.correct_count || 0),
+    incorrectCount: Number(row.incorrect_count || 0),
+    unansweredCount: Number(row.unanswered_count || 0),
+    mistakeCount: Number(row.mistake_count || 0),
+    totalQuestions: Number(row.total_questions || 0),
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    activityAt: row.activity_at,
+    studyDate: row.study_date,
+    durationSeconds: Number(row.duration_seconds || 0),
+    attemptStatus: row.attempt_status,
+    attemptNumber: Number(row.attempt_number || 0),
+    schemaVersion: Number(row.schema_version || 0),
+    detailStatus: row.detail_status,
+    normalizationStatus: row.normalization_status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+function attemptDetailFromRow(row) {
+  return {
+    id: row.attempt_id,
+    attemptId: row.attempt_id,
+    clientRunId: row.client_run_id,
+    sourceType: row.source_type,
+    answerDetails: parseNullableJson(row.answer_details_json),
+    questionSnapshots: parseNullableJson(row.question_snapshots_json),
+    optionSnapshots: parseNullableJson(row.option_snapshots_json),
+    extraDetails: parseNullableJson(row.extra_details_json),
+    reviewPolicy: parseNullableJson(row.review_policy_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    schemaVersion: Number(row.schema_version || 0)
+  };
 }
 function redactSQLiteError(error) {
   let message = String(error?.message || error || "Unknown SQLite error");
@@ -650,8 +835,9 @@ function persistDb() {
   }
 }
 function run(sql, params = [], shouldPersist = true) {
-  getDb().run(sql, params);
+  const result = getDb().run(sql, params);
   if (shouldPersist) persistDb();
+  return result;
 }
 function all(sql, params = []) {
   return getDb().all(sql, params);
@@ -682,6 +868,15 @@ function readRows(table) {
       updatedAt: row.updated_at
     }));
   }
+  if (table === "learning_attempts") {
+    return all("SELECT * FROM learning_attempts").map(learningAttemptFromRow);
+  }
+  if (table === "attempt_details") {
+    return all("SELECT * FROM attempt_details").map(attemptDetailFromRow);
+  }
+  if (table === "guest_profiles") {
+    return all("SELECT id, data_json FROM guest_profiles").map(guestProfileFromRow);
+  }
   return all(`SELECT id, data_json FROM ${table}`).map((row) => ({
     id: row.id,
     ...parseJson(row.data_json)
@@ -700,14 +895,19 @@ function readRowsWithSqlQuery(table, filters, orderField, orderDir = "asc", limi
     params.push(filter.val);
     return `${column} ${operator} ?`;
   });
-  let sql = `SELECT id, data_json FROM ${table}`;
+  const structuredTable = table === "learning_attempts" || table === "attempt_details";
+  let sql = structuredTable ? `SELECT * FROM ${table}` : `SELECT id, data_json FROM ${table}`;
   if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
   if (orderField) sql += ` ORDER BY ${fieldMap[orderField]} ${orderDir === "desc" ? "DESC" : "ASC"}`;
   if (limitVal !== void 0) {
     sql += " LIMIT ?";
     params.push(Math.max(0, Math.floor(limitVal)));
   }
-  return all(sql, params).map((row) => ({
+  const rows = all(sql, params);
+  if (table === "learning_attempts") return rows.map(learningAttemptFromRow);
+  if (table === "attempt_details") return rows.map(attemptDetailFromRow);
+  if (table === "guest_profiles") return rows.map(guestProfileFromRow);
+  return rows.map((row) => ({
     id: row.id,
     ...parseJson(row.data_json)
   }));
@@ -722,6 +922,18 @@ function readRow(table, id) {
       value: parseJson(row2.value_json),
       updatedAt: row2.updated_at
     };
+  }
+  if (table === "learning_attempts") {
+    const row2 = one("SELECT * FROM learning_attempts WHERE attempt_id = ?", [id]);
+    return row2 ? learningAttemptFromRow(row2) : void 0;
+  }
+  if (table === "attempt_details") {
+    const row2 = one("SELECT * FROM attempt_details WHERE attempt_id = ?", [id]);
+    return row2 ? attemptDetailFromRow(row2) : void 0;
+  }
+  if (table === "guest_profiles") {
+    const row2 = one("SELECT id, data_json FROM guest_profiles WHERE id = ?", [id]);
+    return row2 ? guestProfileFromRow(row2) : void 0;
   }
   const row = one(`SELECT id, data_json FROM ${table} WHERE id = ?`, [id]);
   if (!row) return void 0;
@@ -758,12 +970,223 @@ function applyOrder(items, orderField, orderDir = "asc") {
 function getTimestamp(data, camelName, snakeName) {
   return data?.[camelName] || data?.[snakeName] || nowIso();
 }
+function upsertLearningAttempt(id, data) {
+  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id;
+  const sourceRecordId = optionalText(firstDefined(data, "sourceRecordId", "source_record_id"));
+  const sourceType = optionalText(firstDefined(data, "sourceType", "source_type")) || "";
+  const ownerKey = optionalText(firstDefined(data, "ownerKey", "owner_key"));
+  const clientRunId = optionalText(firstDefined(data, "clientRunId", "client_run_id"));
+  const userId = optionalText(firstDefined(data, "userId", "user_id"));
+  const guestId = optionalText(firstDefined(data, "guestId", "guest_id"));
+  const studentType = optionalText(firstDefined(data, "studentType", "student_type")) || (ownerKey?.startsWith("guest:") ? "guest" : ownerKey ? "authenticated" : "legacy");
+  const ownershipStatus = optionalText(firstDefined(data, "ownershipStatus", "ownership_status")) || (ownerKey ? "linked" : "legacy_unlinked");
+  const lessonId = optionalText(firstDefined(data, "lessonId", "lesson_id")) || "";
+  const lessonType = optionalText(firstDefined(data, "lessonType", "lesson_type")) || (sourceType === "grammar" ? "grammar_set" : "vocab_set");
+  const gameId = optionalText(firstDefined(data, "gameId", "game_id")) || "";
+  const requestedAttemptNumber = nonNegativeInteger(
+    firstDefined(data, "attemptNumber", "attempt_number"),
+    0
+  );
+  return withTransaction(() => {
+    const existing = one(
+      `SELECT attempt_id, source_record_id, client_run_id, source_type, student_type,
+              user_id, guest_id, owner_key, ownership_status, lesson_id, lesson_type,
+              game_id, attempt_number
+       FROM learning_attempts
+       WHERE attempt_id = ?`,
+      [attemptId]
+    );
+    if (existing) {
+      const immutablePairs = [
+        ["source_record_id", existing.source_record_id, sourceRecordId],
+        ["client_run_id", existing.client_run_id, clientRunId],
+        ["source_type", existing.source_type, sourceType],
+        ["student_type", existing.student_type, studentType],
+        ["user_id", existing.user_id, userId],
+        ["guest_id", existing.guest_id, guestId],
+        ["owner_key", existing.owner_key, ownerKey],
+        ["ownership_status", existing.ownership_status, ownershipStatus],
+        ["lesson_id", existing.lesson_id, lessonId],
+        ["lesson_type", existing.lesson_type, lessonType],
+        ["game_id", existing.game_id, gameId]
+      ];
+      const mismatch = immutablePairs.find(([, current, incoming]) => (current ?? null) !== (incoming ?? null));
+      if (mismatch) {
+        throw new Error(`Learning attempt immutable field mismatch: ${mismatch[0]}.`);
+      }
+    }
+    let attemptNumber = requestedAttemptNumber;
+    if (existing?.attempt_number) {
+      attemptNumber = Number(existing.attempt_number);
+    } else if (attemptNumber <= 0) {
+      if (!ownerKey) {
+        attemptNumber = 1;
+      } else {
+        const row = one(
+          `SELECT COALESCE(MAX(attempt_number), 0) AS max_attempt_number
+           FROM learning_attempts
+           WHERE owner_key = ? AND source_type = ? AND lesson_id = ? AND game_id = ?`,
+          [ownerKey, sourceType, lessonId, gameId]
+        );
+        attemptNumber = Number(row?.max_attempt_number || 0) + 1;
+      }
+    }
+    const timestamp = nowIso();
+    const score = Math.max(0, Math.min(100, finiteNumber(firstDefined(data, "score"), 0)));
+    const completedAt = optionalText(firstDefined(data, "completedAt", "completed_at"));
+    const startedAt = optionalText(firstDefined(data, "startedAt", "started_at"));
+    const activityAt = optionalText(firstDefined(data, "activityAt", "activity_at")) || completedAt || startedAt || timestamp;
+    const sourceRecord = sourceRecordId || "";
+    const createdAt = optionalText(firstDefined(data, "createdAt", "created_at")) || timestamp;
+    const updatedAt = optionalText(firstDefined(data, "updatedAt", "updated_at")) || timestamp;
+    const record = {
+      attempt_id: attemptId,
+      source_record_id: sourceRecord,
+      client_run_id: clientRunId,
+      source_type: sourceType,
+      student_type: studentType,
+      user_id: userId,
+      guest_id: guestId,
+      owner_key: ownerKey,
+      ownership_status: ownershipStatus,
+      student_name_snapshot: optionalText(firstDefined(data, "studentNameSnapshot", "student_name_snapshot")),
+      class_id: optionalText(firstDefined(data, "classId", "class_id")),
+      class_name_snapshot: optionalText(firstDefined(data, "classNameSnapshot", "class_name_snapshot")),
+      assignment_id: optionalText(firstDefined(data, "assignmentId", "assignment_id")),
+      assignment_title_snapshot: optionalText(firstDefined(data, "assignmentTitleSnapshot", "assignment_title_snapshot")),
+      assignment_due_at_snapshot: optionalText(firstDefined(data, "assignmentDueAtSnapshot", "assignment_due_at_snapshot")),
+      lesson_id: lessonId,
+      lesson_title_snapshot: optionalText(firstDefined(data, "lessonTitleSnapshot", "lesson_title_snapshot")),
+      lesson_type: lessonType,
+      game_id: gameId,
+      game_title_snapshot: optionalText(firstDefined(data, "gameTitleSnapshot", "game_title_snapshot")),
+      score,
+      raw_score: nonNegativeNumber(firstDefined(data, "rawScore", "raw_score"), score),
+      max_score: nonNegativeNumber(firstDefined(data, "maxScore", "max_score"), 100),
+      correct_count: nonNegativeInteger(firstDefined(data, "correctCount", "correct_count"), 0),
+      incorrect_count: nonNegativeInteger(firstDefined(data, "incorrectCount", "incorrect_count"), 0),
+      unanswered_count: nonNegativeInteger(firstDefined(data, "unansweredCount", "unanswered_count"), 0),
+      mistake_count: nonNegativeInteger(firstDefined(data, "mistakeCount", "mistake_count"), 0),
+      total_questions: nonNegativeInteger(firstDefined(data, "totalQuestions", "total_questions"), 0),
+      started_at: startedAt,
+      completed_at: completedAt,
+      activity_at: activityAt,
+      study_date: optionalText(firstDefined(data, "studyDate", "study_date")),
+      duration_seconds: nonNegativeInteger(firstDefined(data, "durationSeconds", "duration_seconds"), 0),
+      attempt_status: optionalText(firstDefined(data, "attemptStatus", "attempt_status")) || "completed",
+      attempt_number: Math.max(1, attemptNumber),
+      schema_version: Math.max(1, nonNegativeInteger(firstDefined(data, "schemaVersion", "schema_version"), 1)),
+      detail_status: optionalText(firstDefined(data, "detailStatus", "detail_status")) || "missing",
+      normalization_status: optionalText(firstDefined(data, "normalizationStatus", "normalization_status")) || "canonical",
+      created_at: createdAt,
+      updated_at: updatedAt
+    };
+    const immutableColumns = /* @__PURE__ */ new Set([
+      "attempt_id",
+      "source_record_id",
+      "client_run_id",
+      "source_type",
+      "student_type",
+      "user_id",
+      "guest_id",
+      "owner_key",
+      "ownership_status",
+      "lesson_id",
+      "lesson_type",
+      "game_id",
+      "attempt_number",
+      "created_at"
+    ]);
+    const columns = Object.keys(record);
+    const updateColumns = columns.filter((column) => !immutableColumns.has(column));
+    run(
+      `INSERT INTO learning_attempts (${columns.join(", ")})
+       VALUES (${columns.map(() => "?").join(", ")})
+       ON CONFLICT(attempt_id) DO UPDATE SET
+       ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
+      Object.values(record)
+    );
+  }, "immediate");
+}
+function upsertAttemptDetail(id, data) {
+  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id;
+  const timestamp = nowIso();
+  const record = {
+    attempt_id: attemptId,
+    client_run_id: optionalText(firstDefined(data, "clientRunId", "client_run_id")),
+    source_type: optionalText(firstDefined(data, "sourceType", "source_type")) || "",
+    answer_details_json: toJsonColumn(firstDefined(data, "answerDetails", "answer_details", "answerDetailsJson", "answer_details_json")),
+    question_snapshots_json: toJsonColumn(firstDefined(data, "questionSnapshots", "question_snapshots", "questionSnapshotsJson", "question_snapshots_json")),
+    option_snapshots_json: toJsonColumn(firstDefined(data, "optionSnapshots", "option_snapshots", "optionSnapshotsJson", "option_snapshots_json")),
+    extra_details_json: toJsonColumn(firstDefined(data, "extraDetails", "extra_details", "extraDetailsJson", "extra_details_json")),
+    review_policy_json: toJsonColumn(firstDefined(data, "reviewPolicy", "review_policy", "reviewPolicyJson", "review_policy_json")),
+    created_at: optionalText(firstDefined(data, "createdAt", "created_at")) || timestamp,
+    updated_at: optionalText(firstDefined(data, "updatedAt", "updated_at")) || timestamp,
+    expires_at: optionalText(firstDefined(data, "expiresAt", "expires_at")),
+    schema_version: Math.max(1, nonNegativeInteger(firstDefined(data, "schemaVersion", "schema_version"), 1))
+  };
+  const columns = Object.keys(record);
+  const updateColumns = columns.filter((column) => column !== "attempt_id" && column !== "created_at");
+  run(
+    `INSERT INTO attempt_details (${columns.join(", ")})
+     VALUES (${columns.map(() => "?").join(", ")})
+     ON CONFLICT(attempt_id) DO UPDATE SET
+     ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
+    Object.values(record)
+  );
+}
+function upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt) {
+  const record = {
+    id,
+    owner_key: optionalText(firstDefined(data, "ownerKey", "owner_key")),
+    owner_type: optionalText(firstDefined(data, "ownerType", "owner_type")),
+    user_id: optionalText(firstDefined(data, "userId", "user_id")),
+    student_id: optionalText(firstDefined(data, "studentId", "student_id")),
+    guest_id: optionalText(firstDefined(data, "guestId", "guest_id")),
+    student_name: optionalText(firstDefined(data, "studentName", "student_name")),
+    vocabulary_set_id: optionalText(firstDefined(data, "vocabularySetId", "vocabulary_set_id", "vocabSetId", "vocab_set_id")),
+    word_id: optionalText(firstDefined(data, "wordId", "word_id")),
+    target_text: optionalText(firstDefined(data, "targetText", "target_text")),
+    recognized_text: optionalText(firstDefined(data, "recognizedText", "recognized_text")),
+    score: Math.max(0, Math.min(100, finiteNumber(firstDefined(data, "score"), 0))),
+    correct_words: nonNegativeInteger(firstDefined(data, "correctWords", "correct_words"), 0),
+    total_words: nonNegativeInteger(firstDefined(data, "totalWords", "total_words"), 0),
+    attempt_count: Math.max(1, nonNegativeInteger(firstDefined(data, "attemptCount", "attempt_count"), 1)),
+    game_session_id: optionalText(firstDefined(data, "gameSessionId", "game_session_id")),
+    game_id: optionalText(firstDefined(data, "gameId", "game_id")) || "speaking-ai",
+    played_at: optionalText(firstDefined(data, "playedAt", "played_at")) || createdAt,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    data_json: dataJson
+  };
+  const columns = Object.keys(record);
+  const updateColumns = columns.filter((column) => column !== "id" && column !== "created_at");
+  run(
+    `INSERT INTO pronunciation_attempts (${columns.join(", ")})
+     VALUES (${columns.map(() => "?").join(", ")})
+     ON CONFLICT(id) DO UPDATE SET
+     ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
+    Object.values(record)
+  );
+}
 function upsertDoc(collectionName, id, inputData) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
   const dataJson = JSON.stringify(data);
   const createdAt = getTimestamp(data, "createdAt", "created_at");
   const updatedAt = data.updatedAt || data.updated_at || nowIso();
+  if (table === "learning_attempts") {
+    upsertLearningAttempt(id, data);
+    return;
+  }
+  if (table === "attempt_details") {
+    upsertAttemptDetail(id, data);
+    return;
+  }
+  if (table === "pronunciation_attempts") {
+    upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
   if (table === "users") {
     run(
       `INSERT INTO users (id, firebase_uid, email, display_name, role, created_at, updated_at, data_json)
@@ -789,15 +1212,26 @@ function upsertDoc(collectionName, id, inputData) {
     return;
   }
   if (table === "guest_profiles") {
+    const accessTokenHash = optionalText(firstDefined(data, "accessTokenHash", "access_token_hash"));
+    const accessTokenVersionValue = firstDefined(data, "accessTokenVersion", "access_token_version");
+    const accessTokenVersion = accessTokenHash ? Math.max(1, nonNegativeInteger(accessTokenVersionValue, 1)) : null;
+    const accessTokenCreatedAt = accessTokenHash ? optionalText(firstDefined(data, "accessTokenCreatedAt", "access_token_created_at")) || updatedAt : null;
+    const publicDataJson = JSON.stringify(withoutGuestCapabilityFields(data));
     run(
-      `INSERT INTO guest_profiles (id, display_name, normalized_name, status, created_at, updated_at, last_active_at, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO guest_profiles (
+        id, display_name, normalized_name, status, created_at, updated_at, last_active_at,
+        access_token_hash, access_token_version, access_token_created_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         display_name = excluded.display_name,
         normalized_name = excluded.normalized_name,
         status = excluded.status,
         updated_at = excluded.updated_at,
         last_active_at = excluded.last_active_at,
+        access_token_hash = COALESCE(excluded.access_token_hash, guest_profiles.access_token_hash),
+        access_token_version = COALESCE(excluded.access_token_version, guest_profiles.access_token_version),
+        access_token_created_at = COALESCE(excluded.access_token_created_at, guest_profiles.access_token_created_at),
         data_json = excluded.data_json`,
       [
         id,
@@ -807,7 +1241,10 @@ function upsertDoc(collectionName, id, inputData) {
         createdAt,
         updatedAt,
         data.lastActiveAt || data.last_active_at || updatedAt,
-        dataJson
+        accessTokenHash,
+        accessTokenVersion,
+        accessTokenCreatedAt,
+        publicDataJson
       ]
     );
     return;
@@ -1118,6 +1555,10 @@ function deleteDoc(collectionName, id) {
   const table = tableForCollection(collectionName);
   if (table === "settings") {
     run("DELETE FROM settings WHERE key = ?", [id]);
+    return;
+  }
+  if (table === "learning_attempts" || table === "attempt_details") {
+    run(`DELETE FROM ${table} WHERE attempt_id = ?`, [id]);
     return;
   }
   withTransaction(() => {
@@ -1534,6 +1975,202 @@ function migrateNativeHotQueryColumns() {
   );
   sqliteLastMigration = NATIVE_HOT_QUERY_MIGRATION_ID;
 }
+function migrateLearningHistorySchema() {
+  if (hasMigration(LEARNING_HISTORY_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = LEARNING_HISTORY_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  const guestCapabilityColumns = [
+    ["access_token_hash", "TEXT"],
+    ["access_token_version", "INTEGER"],
+    ["access_token_created_at", "TEXT"]
+  ];
+  for (const [column, type] of guestCapabilityColumns) {
+    if (!tableHasColumn("guest_profiles", column)) {
+      run(`ALTER TABLE guest_profiles ADD COLUMN ${column} ${type}`, [], false);
+    }
+  }
+  run(`
+    CREATE TABLE IF NOT EXISTS learning_attempts (
+      attempt_id TEXT PRIMARY KEY,
+      source_record_id TEXT NOT NULL CHECK(length(trim(source_record_id)) > 0),
+      client_run_id TEXT,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      student_type TEXT NOT NULL CHECK(student_type IN ('authenticated', 'guest', 'legacy')),
+      user_id TEXT,
+      guest_id TEXT,
+      owner_key TEXT,
+      ownership_status TEXT NOT NULL,
+      student_name_snapshot TEXT,
+      class_id TEXT,
+      class_name_snapshot TEXT,
+      assignment_id TEXT,
+      assignment_title_snapshot TEXT,
+      assignment_due_at_snapshot TEXT,
+      lesson_id TEXT NOT NULL CHECK(length(trim(lesson_id)) > 0),
+      lesson_title_snapshot TEXT,
+      lesson_type TEXT NOT NULL CHECK(lesson_type IN ('vocab_set', 'grammar_set')),
+      game_id TEXT NOT NULL CHECK(length(trim(game_id)) > 0),
+      game_title_snapshot TEXT,
+      score REAL NOT NULL DEFAULT 0 CHECK(score >= 0 AND score <= 100),
+      raw_score REAL NOT NULL DEFAULT 0 CHECK(raw_score >= 0),
+      max_score REAL NOT NULL DEFAULT 0 CHECK(max_score >= 0),
+      correct_count INTEGER NOT NULL DEFAULT 0 CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL DEFAULT 0 CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL DEFAULT 0 CHECK(unanswered_count >= 0),
+      mistake_count INTEGER NOT NULL DEFAULT 0 CHECK(mistake_count >= 0),
+      total_questions INTEGER NOT NULL DEFAULT 0 CHECK(total_questions >= 0),
+      started_at TEXT,
+      completed_at TEXT,
+      activity_at TEXT NOT NULL,
+      study_date TEXT,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      attempt_status TEXT NOT NULL CHECK(attempt_status IN ('completed', 'in_progress', 'interrupted')),
+      attempt_number INTEGER NOT NULL DEFAULT 1 CHECK(attempt_number >= 1),
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version >= 1),
+      detail_status TEXT NOT NULL CHECK(detail_status IN ('available', 'missing', 'expired', 'legacy')),
+      normalization_status TEXT NOT NULL CHECK(normalization_status IN ('canonical', 'legacy_partial')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK(owner_key IS NOT NULL OR ownership_status = 'legacy_unlinked')
+    );
+
+    CREATE TABLE IF NOT EXISTS attempt_details (
+      attempt_id TEXT PRIMARY KEY,
+      client_run_id TEXT,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      answer_details_json TEXT,
+      question_snapshots_json TEXT,
+      option_snapshots_json TEXT,
+      extra_details_json TEXT,
+      review_policy_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT,
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version >= 1),
+      FOREIGN KEY(attempt_id) REFERENCES learning_attempts(attempt_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS learning_history_backfill_state (
+      job_name TEXT NOT NULL,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      last_source_record_id TEXT,
+      processed_count INTEGER NOT NULL DEFAULT 0 CHECK(processed_count >= 0),
+      inserted_count INTEGER NOT NULL DEFAULT 0 CHECK(inserted_count >= 0),
+      skipped_count INTEGER NOT NULL DEFAULT 0 CHECK(skipped_count >= 0),
+      legacy_unlinked_count INTEGER NOT NULL DEFAULT 0 CHECK(legacy_unlinked_count >= 0),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+      started_at TEXT,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      error_message TEXT,
+      PRIMARY KEY(job_name, source_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS pronunciation_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT,
+      owner_type TEXT,
+      user_id TEXT,
+      student_id TEXT,
+      guest_id TEXT,
+      student_name TEXT,
+      vocabulary_set_id TEXT,
+      word_id TEXT,
+      target_text TEXT,
+      recognized_text TEXT,
+      score REAL NOT NULL DEFAULT 0 CHECK(score >= 0 AND score <= 100),
+      correct_words INTEGER NOT NULL DEFAULT 0 CHECK(correct_words >= 0),
+      total_words INTEGER NOT NULL DEFAULT 0 CHECK(total_words >= 0),
+      attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count >= 1),
+      game_session_id TEXT,
+      game_id TEXT NOT NULL DEFAULT 'speaking-ai',
+      played_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_attempts_source_record
+      ON learning_attempts(source_type, source_record_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_attempts_client_run
+      ON learning_attempts(owner_key, source_type, lesson_id, game_id, client_run_id)
+      WHERE client_run_id IS NOT NULL AND owner_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_activity
+      ON learning_attempts(owner_key, activity_at DESC, attempt_id DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_source_activity
+      ON learning_attempts(owner_key, source_type, activity_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_assignment_activity
+      ON learning_attempts(owner_key, assignment_id, activity_at DESC)
+      WHERE assignment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_lesson_activity
+      ON learning_attempts(lesson_id, activity_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_attempt_details_expires
+      ON attempt_details(expires_at)
+      WHERE expires_at IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_pronunciation_attempts_session_played
+      ON pronunciation_attempts(game_session_id, played_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pronunciation_attempts_owner_played
+      ON pronunciation_attempts(owner_key, played_at DESC);
+  `, [], false);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [LEARNING_HISTORY_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = LEARNING_HISTORY_SCHEMA_MIGRATION_ID;
+}
+function migrateGuestCapabilitiesToPhysicalColumns() {
+  if (hasMigration(GUEST_CAPABILITY_STORAGE_MIGRATION_ID)) {
+    sqliteLastMigration = GUEST_CAPABILITY_STORAGE_MIGRATION_ID;
+    return;
+  }
+  const rows = all(
+    "SELECT id, data_json, updated_at FROM guest_profiles"
+  );
+  for (const row of rows) {
+    const data = parseJson(row.data_json);
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const containsCapabilityData = GUEST_CAPABILITY_FIELDS.some(
+      (field) => Object.prototype.hasOwnProperty.call(data, field)
+    );
+    if (!containsCapabilityData) continue;
+    const accessTokenHash = optionalText(firstDefined(
+      data,
+      "accessTokenHash",
+      "access_token_hash",
+      "guestAccessTokenHash",
+      "guest_access_token_hash"
+    ));
+    const accessTokenVersion = accessTokenHash ? Math.max(1, nonNegativeInteger(
+      firstDefined(data, "accessTokenVersion", "access_token_version"),
+      1
+    )) : null;
+    const accessTokenCreatedAt = accessTokenHash ? optionalText(firstDefined(data, "accessTokenCreatedAt", "access_token_created_at")) || optionalText(row.updated_at) || nowIso() : null;
+    run(
+      `UPDATE guest_profiles
+       SET access_token_hash = COALESCE(access_token_hash, ?),
+           access_token_version = COALESCE(access_token_version, ?),
+           access_token_created_at = COALESCE(access_token_created_at, ?),
+           data_json = ?
+       WHERE id = ?`,
+      [
+        accessTokenHash,
+        accessTokenVersion,
+        accessTokenCreatedAt,
+        JSON.stringify(withoutGuestCapabilityFields(data)),
+        row.id
+      ],
+      false
+    );
+  }
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [GUEST_CAPABILITY_STORAGE_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = GUEST_CAPABILITY_STORAGE_MIGRATION_ID;
+}
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -1619,6 +2256,8 @@ async function initializeSQLiteStorage() {
         migrateActivityExpiryColumns();
         migrateGrammarAttemptQueryColumns();
         migrateNativeHotQueryColumns();
+        migrateLearningHistorySchema();
+        migrateGuestCapabilitiesToPhysicalColumns();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
@@ -1643,6 +2282,14 @@ async function initializeSQLiteStorage() {
     }
   })();
   return initPromise;
+}
+async function sqliteQueryAll(sql, params = []) {
+  await initializeSQLiteStorage();
+  return all(sql, params);
+}
+async function sqliteQueryOne(sql, params = []) {
+  await initializeSQLiteStorage();
+  return one(sql, params);
 }
 function readPragmaValue(name) {
   const row = one(`PRAGMA ${name}`) || {};
@@ -1813,7 +2460,7 @@ var SQLiteBatch = class {
         if (op.type === "update") updateDoc(op.doc.collectionName, op.doc.id, op.data);
         if (op.type === "delete") deleteDoc(op.doc.collectionName, op.doc.id);
       }
-    });
+    }, "immediate");
   }
 };
 var SQLiteFirestore = class {
@@ -1838,7 +2485,9 @@ async function tableCount(table) {
 }
 async function getSQLiteDiagnostics() {
   await initializeSQLiteStorage();
-  const lastMigration = one("SELECT id, applied_at FROM migrations ORDER BY applied_at DESC LIMIT 1") || null;
+  const lastMigration = one(
+    "SELECT id, applied_at FROM migrations ORDER BY applied_at DESC, rowid DESC LIMIT 1"
+  ) || null;
   const dbSizeBytes = sqliteDbPath && import_fs.default.existsSync(sqliteDbPath) ? import_fs.default.statSync(sqliteDbPath).size : 0;
   const walPath = `${sqliteDbPath}-wal`;
   const shmPath = `${sqliteDbPath}-shm`;
@@ -1892,7 +2541,11 @@ async function getSQLiteDiagnostics() {
       game_results: await tableCount("game_results"),
       leaderboard_events: await tableCount("leaderboard_events"),
       grammar_sets: await tableCount("grammar_sets"),
-      grammar_attempts: await tableCount("grammar_attempts")
+      grammar_attempts: await tableCount("grammar_attempts"),
+      learning_attempts: await tableCount("learning_attempts"),
+      attempt_details: await tableCount("attempt_details"),
+      pronunciation_attempts: await tableCount("pronunciation_attempts"),
+      learning_history_backfill_state: await tableCount("learning_history_backfill_state")
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,
@@ -2436,14 +3089,1231 @@ function normalizeClientStartedAt(value, fallback = (/* @__PURE__ */ new Date())
   return new Date(clamped).toISOString();
 }
 
+// src/server/learning-history/learningHistoryRouter.ts
+var import_express = __toESM(require("express"), 1);
+
+// src/server/learning-history/learningHistoryAuth.ts
+var import_node_crypto2 = __toESM(require("node:crypto"), 1);
+
+// src/server/learning-history/learningHistoryRepository.ts
+var EFFECTIVE_ATTEMPT_STATUS_SQL = `CASE
+  WHEN attempt_status = 'in_progress'
+   AND datetime(activity_at) < datetime('now', '-24 hours')
+  THEN 'interrupted'
+  ELSE attempt_status
+END`;
+function number(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function nullableNumber(value) {
+  if (value === null || value === void 0) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function mapItem(row) {
+  return {
+    attemptId: String(row.attempt_id || ""),
+    sourceType: row.source_type === "grammar" ? "grammar" : "vocabulary",
+    studentType: String(row.student_type || ""),
+    studentName: String(row.student_name_snapshot || ""),
+    classId: row.class_id || null,
+    className: String(row.class_name_snapshot || ""),
+    assignmentId: row.assignment_id || null,
+    assignmentTitle: String(row.assignment_title_snapshot || ""),
+    assignmentDueAt: row.assignment_due_at_snapshot || null,
+    lessonId: String(row.lesson_id || ""),
+    lessonTitle: String(row.lesson_title_snapshot || ""),
+    lessonType: String(row.lesson_type || ""),
+    gameId: String(row.game_id || ""),
+    gameTitle: String(row.game_title_snapshot || ""),
+    score: number(row.score),
+    rawScore: nullableNumber(row.raw_score),
+    maxScore: nullableNumber(row.max_score),
+    correctCount: number(row.correct_count),
+    incorrectCount: number(row.incorrect_count),
+    unansweredCount: number(row.unanswered_count),
+    mistakeCount: number(row.mistake_count),
+    totalQuestions: number(row.total_questions),
+    startedAt: row.started_at || null,
+    completedAt: row.completed_at || null,
+    activityAt: String(row.activity_at || ""),
+    durationSeconds: number(row.duration_seconds),
+    status: row.attempt_status === "completed" ? "completed" : row.attempt_status === "interrupted" ? "interrupted" : "in_progress",
+    attemptNumber: Math.max(1, number(row.attempt_number)),
+    detailStatus: ["available", "missing", "expired", "legacy"].includes(row.detail_status) ? row.detail_status : "missing",
+    normalizationStatus: String(row.normalization_status || "legacy_partial")
+  };
+}
+var ITEM_COLUMNS = `
+  attempt_id, source_record_id, source_type, student_type, owner_key,
+  student_name_snapshot, class_id, class_name_snapshot,
+  assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
+  lesson_id, lesson_title_snapshot, lesson_type, game_id, game_title_snapshot,
+  score, raw_score, max_score, correct_count, incorrect_count,
+  unanswered_count, mistake_count, total_questions, started_at, completed_at,
+  activity_at, duration_seconds, ${EFFECTIVE_ATTEMPT_STATUS_SQL} AS attempt_status,
+  attempt_number, detail_status,
+  normalization_status
+`;
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+function buildWhere(ownerKey, filters) {
+  const clauses = ["owner_key = ?"];
+  const params = [ownerKey];
+  const add = (sql, value) => {
+    clauses.push(sql);
+    params.push(value);
+  };
+  if (filters.sourceType) add("source_type = ?", filters.sourceType);
+  if (filters.historyType === "assignment") clauses.push("assignment_id IS NOT NULL");
+  if (filters.historyType === "practice") clauses.push("assignment_id IS NULL");
+  if (filters.status === "interrupted") {
+    clauses.push(`(${EFFECTIVE_ATTEMPT_STATUS_SQL}) = 'interrupted'`);
+  } else if (filters.status === "in_progress") {
+    clauses.push(`(${EFFECTIVE_ATTEMPT_STATUS_SQL}) = 'in_progress'`);
+  } else if (filters.status === "completed") {
+    clauses.push("attempt_status = 'completed'");
+  }
+  if (filters.classId) add("class_id = ?", filters.classId);
+  if (filters.lessonId) add("lesson_id = ?", filters.lessonId);
+  if (filters.assignmentId) add("assignment_id = ?", filters.assignmentId);
+  if (filters.gameId) add("game_id = ?", filters.gameId);
+  if (filters.scoreFrom !== void 0) add("score >= ?", filters.scoreFrom);
+  if (filters.scoreTo !== void 0) add("score <= ?", filters.scoreTo);
+  if (filters.from) add("activity_at >= ?", filters.from);
+  if (filters.toExclusive) add("activity_at < ?", filters.toExclusive);
+  if (filters.search) {
+    clauses.push(`(
+      LOWER(COALESCE(lesson_title_snapshot, '')) LIKE ? ESCAPE '\\'
+      OR LOWER(COALESCE(game_title_snapshot, '')) LIKE ? ESCAPE '\\'
+      OR LOWER(COALESCE(assignment_title_snapshot, '')) LIKE ? ESCAPE '\\'
+    )`);
+    const search = `%${escapeLike(filters.search.toLocaleLowerCase("vi"))}%`;
+    params.push(search, search, search);
+  }
+  return {
+    sql: clauses.join(" AND "),
+    params
+  };
+}
+function mapSummary(row) {
+  return {
+    totalAttempts: number(row?.total_attempts),
+    completedAttempts: number(row?.completed_attempts),
+    averageScore: Math.round(number(row?.average_score) * 100) / 100,
+    bestScore: number(row?.best_score),
+    totalCorrect: number(row?.total_correct),
+    totalIncorrect: number(row?.total_incorrect),
+    totalUnanswered: number(row?.total_unanswered),
+    totalDurationSeconds: number(row?.total_duration_seconds),
+    studyDays: number(row?.study_days)
+  };
+}
+async function filterOptions(ownerKey) {
+  const queries = [
+    sqliteQueryAll(
+      `SELECT DISTINCT class_id AS id, COALESCE(NULLIF(class_name_snapshot, ''), class_id) AS label
+       FROM learning_attempts
+       WHERE owner_key = ? AND class_id IS NOT NULL AND class_id <> ''
+       ORDER BY label COLLATE NOCASE, id`,
+      [ownerKey]
+    ),
+    sqliteQueryAll(
+      `SELECT DISTINCT lesson_id AS id, COALESCE(NULLIF(lesson_title_snapshot, ''), lesson_id) AS label
+       FROM learning_attempts
+       WHERE owner_key = ? AND lesson_id <> ''
+       ORDER BY label COLLATE NOCASE, id`,
+      [ownerKey]
+    ),
+    sqliteQueryAll(
+      `SELECT DISTINCT assignment_id AS id,
+              COALESCE(NULLIF(assignment_title_snapshot, ''), assignment_id) AS label
+       FROM learning_attempts
+       WHERE owner_key = ? AND assignment_id IS NOT NULL AND assignment_id <> ''
+       ORDER BY label COLLATE NOCASE, id`,
+      [ownerKey]
+    ),
+    sqliteQueryAll(
+      `SELECT DISTINCT game_id AS id, COALESCE(NULLIF(game_title_snapshot, ''), game_id) AS label
+       FROM learning_attempts
+       WHERE owner_key = ? AND game_id <> ''
+       ORDER BY label COLLATE NOCASE, id`,
+      [ownerKey]
+    )
+  ];
+  const [classes, lessons, assignments, games] = await Promise.all(queries);
+  const clean = (items) => items.filter((item) => item.id).map((item) => ({ id: String(item.id), label: String(item.label || item.id) }));
+  return {
+    classes: clean(classes),
+    lessons: clean(lessons),
+    assignments: clean(assignments),
+    games: clean(games)
+  };
+}
+async function assignmentGroups(whereSql, params) {
+  const rows = await sqliteQueryAll(
+    `WITH filtered AS (
+       SELECT assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
+              class_id, class_name_snapshot, score,
+              ${EFFECTIVE_ATTEMPT_STATUS_SQL} AS attempt_status,
+              activity_at, attempt_id
+       FROM learning_attempts
+       WHERE ${whereSql} AND assignment_id IS NOT NULL
+     ),
+     ranked AS (
+       SELECT *,
+              ROW_NUMBER() OVER (
+                PARTITION BY assignment_id
+                ORDER BY activity_at DESC, attempt_id DESC
+              ) AS activity_rank
+       FROM filtered
+     )
+     SELECT assignment_id,
+            MAX(assignment_title_snapshot) AS assignment_title,
+            MAX(assignment_due_at_snapshot) AS due_at,
+            MAX(class_id) AS class_id,
+            MAX(class_name_snapshot) AS class_name,
+            COUNT(*) AS attempts,
+            COALESCE(MAX(CASE WHEN activity_rank = 1 THEN score END), 0) AS latest_score,
+            COALESCE(MAX(CASE WHEN attempt_status = 'completed' THEN score END), 0) AS best_score,
+            COALESCE(AVG(CASE WHEN attempt_status = 'completed' THEN score END), 0) AS average_score
+     FROM ranked
+     GROUP BY assignment_id
+     ORDER BY MAX(activity_at) DESC, assignment_id DESC`,
+    params
+  );
+  return rows.map((row) => ({
+    assignmentId: String(row.assignment_id),
+    assignmentTitle: String(row.assignment_title || row.assignment_id),
+    classId: row.class_id || null,
+    className: String(row.class_name || ""),
+    dueAt: row.due_at || null,
+    attempts: number(row.attempts),
+    latestScore: number(row.latest_score),
+    bestScore: number(row.best_score),
+    averageScore: Math.round(number(row.average_score) * 100) / 100
+  }));
+}
+async function listLearningHistory(ownerKey, filters) {
+  const where = buildWhere(ownerKey, filters);
+  const offset = (filters.page - 1) * filters.pageSize;
+  const [countRow, summaryRow, itemRows, options, groups] = await Promise.all([
+    sqliteQueryOne(
+      `SELECT COUNT(*) AS count FROM learning_attempts WHERE ${where.sql}`,
+      where.params
+    ),
+    sqliteQueryOne(
+      `SELECT
+         COUNT(*) AS total_attempts,
+         COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN 1 ELSE 0 END), 0)
+           AS completed_attempts,
+         COALESCE(AVG(CASE WHEN attempt_status = 'completed' THEN score END), 0)
+           AS average_score,
+         COALESCE(MAX(CASE WHEN attempt_status = 'completed' THEN score END), 0)
+           AS best_score,
+         COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN correct_count ELSE 0 END), 0)
+           AS total_correct,
+         COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN incorrect_count ELSE 0 END), 0)
+           AS total_incorrect,
+         COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN unanswered_count ELSE 0 END), 0)
+           AS total_unanswered,
+         COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN duration_seconds ELSE 0 END), 0)
+           AS total_duration_seconds,
+         COUNT(DISTINCT CASE WHEN attempt_status = 'completed' THEN study_date END)
+           AS study_days
+       FROM learning_attempts
+       WHERE ${where.sql}`,
+      where.params
+    ),
+    sqliteQueryAll(
+      `SELECT ${ITEM_COLUMNS}
+       FROM learning_attempts
+       WHERE ${where.sql}
+       ORDER BY activity_at DESC, attempt_id DESC
+       LIMIT ? OFFSET ?`,
+      [...where.params, filters.pageSize, offset]
+    ),
+    filterOptions(ownerKey),
+    filters.groupByAssignment ? assignmentGroups(where.sql, where.params) : Promise.resolve(void 0)
+  ]);
+  const totalItems = number(countRow?.count);
+  return {
+    items: itemRows.map(mapItem),
+    summary: mapSummary(summaryRow),
+    pagination: {
+      page: filters.page,
+      pageSize: filters.pageSize,
+      totalItems,
+      totalPages: totalItems ? Math.ceil(totalItems / filters.pageSize) : 0
+    },
+    filterOptions: options,
+    ...groups ? { assignmentGroups: groups } : {}
+  };
+}
+async function findLearningAttempt(attemptId) {
+  const row = await sqliteQueryOne(
+    `SELECT ${ITEM_COLUMNS}
+     FROM learning_attempts
+     WHERE attempt_id = ?`,
+    [attemptId]
+  );
+  if (!row) return null;
+  return {
+    item: mapItem(row),
+    ownerKey: row.owner_key || null,
+    sourceRecordId: String(row.source_record_id || ""),
+    storedDetailStatus: String(row.detail_status || "missing")
+  };
+}
+async function findAttemptDetail(attemptId) {
+  return sqliteQueryOne(
+    `SELECT attempt_id, client_run_id, source_type, answer_details_json,
+            question_snapshots_json, option_snapshots_json, extra_details_json,
+            review_policy_json, created_at, updated_at, expires_at, schema_version
+     FROM attempt_details
+     WHERE attempt_id = ?`,
+    [attemptId]
+  );
+}
+async function findLegacySource(sourceType, sourceRecordId) {
+  const table = sourceType === "grammar" ? "grammar_attempts" : "game_results";
+  const row = await sqliteQueryOne(
+    `SELECT data_json FROM ${table} WHERE id = ?`,
+    [sourceRecordId]
+  );
+  if (!row?.data_json) return null;
+  try {
+    const parsed = JSON.parse(row.data_json);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+async function findGuestHistoryCapability(guestId) {
+  return sqliteQueryOne(
+    `SELECT id, status, access_token_hash, access_token_version
+     FROM guest_profiles
+     WHERE id = ?`,
+    [guestId]
+  );
+}
+
+// src/server/learning-history/learningHistoryAuth.ts
+var LearningHistoryAuthError = class extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.name = "LearningHistoryAuthError";
+    this.status = status;
+    this.code = code;
+  }
+};
+function header(req, name) {
+  const value = req.headers[name.toLowerCase()];
+  return Array.isArray(value) ? "" : String(value || "").trim();
+}
+function safeGuestId(value) {
+  const normalized = value.normalize("NFKC").trim();
+  if (!normalized || normalized.length > 120 || !/^[A-Za-z0-9._:-]+$/.test(normalized)) {
+    throw new LearningHistoryAuthError(401, "GUEST_CAPABILITY_REQUIRED", "C\u1EA7n x\xE1c minh quy\u1EC1n xem l\u1ECBch s\u1EED.");
+  }
+  return normalized;
+}
+function tokenMatches(token, expectedHash) {
+  if (!token || token.length < 32 || token.length > 512) return false;
+  if (!/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
+  const actual = import_node_crypto2.default.createHash("sha256").update(token).digest();
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && import_node_crypto2.default.timingSafeEqual(actual, expected);
+}
+async function resolveLearningHistoryActor(req) {
+  const user = req.user;
+  if (user?.id) {
+    return {
+      id: String(user.id),
+      ownerKey: `user:${user.id}`,
+      kind: "user",
+      role: user.role === "super_admin" || user.role === "teacher" ? user.role : "student",
+      userProfile: user
+    };
+  }
+  const guestId = safeGuestId(header(req, "x-guest-id"));
+  const accessToken = header(req, "x-guest-access-token");
+  const capability = await findGuestHistoryCapability(guestId);
+  if (!capability || capability.status === "blocked") {
+    throw new LearningHistoryAuthError(401, "GUEST_CAPABILITY_REQUIRED", "C\u1EA7n x\xE1c minh quy\u1EC1n xem l\u1ECBch s\u1EED.");
+  }
+  if (!capability.access_token_hash) {
+    throw new LearningHistoryAuthError(
+      403,
+      "GUEST_HISTORY_RECOVERY_REQUIRED",
+      "H\u1ED3 s\u01A1 c\u0169 c\u1EA7n gi\xE1o vi\xEAn x\xE1c minh \u0111\u1EC3 kh\xF4i ph\u1EE5c quy\u1EC1n xem l\u1ECBch s\u1EED."
+    );
+  }
+  if (!tokenMatches(accessToken, capability.access_token_hash)) {
+    throw new LearningHistoryAuthError(401, "GUEST_CAPABILITY_INVALID", "C\u1EA7n x\xE1c minh quy\u1EC1n xem l\u1ECBch s\u1EED.");
+  }
+  return {
+    id: guestId,
+    ownerKey: `guest:${guestId}`,
+    kind: "guest",
+    role: "student"
+  };
+}
+
+// src/server/learning-history/learningDetailNormalizer.ts
+function parseJson2(value, fallback, warnings, field) {
+  if (value === null || value === void 0 || value === "") return fallback;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    warnings.push(`${field}:malformed_json`);
+    return fallback;
+  }
+}
+function arrayValue(value, warnings, field) {
+  const parsed = parseJson2(value, [], warnings, field);
+  if (!Array.isArray(parsed)) {
+    warnings.push(`${field}:not_array`);
+    return [];
+  }
+  return parsed;
+}
+function objectValue(value, warnings, field) {
+  const parsed = parseJson2(value, {}, warnings, field);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    warnings.push(`${field}:not_object`);
+    return {};
+  }
+  return parsed;
+}
+function stripReviewSecrets(value) {
+  if (Array.isArray(value)) return value.map(stripReviewSecrets);
+  if (!value || typeof value !== "object") return value;
+  const blocked = /* @__PURE__ */ new Set([
+    "correctanswer",
+    "correctanswersnapshot",
+    "correctoptionid",
+    "acceptedanswers",
+    "acceptedanswerssnapshot",
+    "explanation",
+    "explanationsnapshot",
+    "answerkey",
+    "expectedanswer",
+    "modelanswer",
+    "referenceanswer",
+    "solution"
+  ]);
+  const safe = {};
+  for (const [key, child] of Object.entries(value)) {
+    const normalizedKey = key.toLocaleLowerCase("en").replace(/[^a-z0-9]/g, "");
+    if (blocked.has(normalizedKey)) continue;
+    safe[key] = stripReviewSecrets(child);
+  }
+  return safe;
+}
+function reviewAllowed(actor, attempt, reviewPolicy, staffAuthorized) {
+  if (staffAuthorized && (actor.role === "teacher" || actor.role === "super_admin")) return true;
+  if (attempt.status !== "completed") return false;
+  return reviewPolicy.showReviewAfterSubmit === true;
+}
+function normalizeStoredDetail(actor, attempt, row, staffAuthorized = false) {
+  const warnings = [];
+  const reviewPolicy = objectValue(
+    row.review_policy_json ?? row.reviewPolicy,
+    warnings,
+    "reviewPolicy"
+  );
+  const canReview = reviewAllowed(actor, attempt, reviewPolicy, staffAuthorized);
+  const payload = {
+    sourceType: row.source_type || row.sourceType || attempt.sourceType,
+    answerDetails: arrayValue(
+      row.answer_details_json ?? row.answerDetails,
+      warnings,
+      "answerDetails"
+    ),
+    questionSnapshots: arrayValue(
+      row.question_snapshots_json ?? row.questionSnapshots,
+      warnings,
+      "questionSnapshots"
+    ),
+    optionSnapshots: arrayValue(
+      row.option_snapshots_json ?? row.optionSnapshots,
+      warnings,
+      "optionSnapshots"
+    ),
+    extraDetails: objectValue(
+      row.extra_details_json ?? row.extraDetails,
+      warnings,
+      "extraDetails"
+    ),
+    reviewPolicy: {
+      showReviewAfterSubmit: reviewPolicy.showReviewAfterSubmit === true,
+      showExplanationImmediately: reviewPolicy.showExplanationImmediately === true,
+      policyVersion: Number(reviewPolicy.policyVersion || 1)
+    },
+    warnings
+  };
+  if (canReview) return payload;
+  return {
+    ...payload,
+    answerDetails: stripReviewSecrets(payload.answerDetails),
+    questionSnapshots: stripReviewSecrets(payload.questionSnapshots),
+    optionSnapshots: stripReviewSecrets(payload.optionSnapshots),
+    extraDetails: stripReviewSecrets(payload.extraDetails)
+  };
+}
+function normalizeLegacyDetail(actor, attempt, source, staffAuthorized = false) {
+  const warnings = ["legacy_fallback"];
+  const isGrammar = attempt.sourceType === "grammar";
+  const sourcePolicy = source.reviewPolicySnapshot;
+  const reviewPolicy = sourcePolicy && typeof sourcePolicy === "object" ? {
+    showReviewAfterSubmit: sourcePolicy.showReviewAfterSubmit === true,
+    showExplanationImmediately: sourcePolicy.showExplanationImmediately === true,
+    policyVersion: Number(sourcePolicy.policyVersion || 1),
+    legacyFallback: false
+  } : {
+    // A legacy set's current policy is not proof of the policy at submission time.
+    showReviewAfterSubmit: false,
+    showExplanationImmediately: false,
+    policyVersion: 0,
+    legacyFallback: true
+  };
+  const row = isGrammar ? {
+    sourceType: "grammar",
+    answerDetails: Array.isArray(source.answers) ? source.answers : [],
+    questionSnapshots: Array.isArray(source.questions) ? source.questions : [],
+    optionSnapshots: Array.isArray(source.questions) ? source.questions.map((question) => ({
+      attemptQuestionId: question?.id,
+      options: Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : []
+    })) : [],
+    extraDetails: {
+      grammarSetVersion: source.grammarSetVersion || ""
+    },
+    reviewPolicy
+  } : {
+    sourceType: "vocabulary",
+    answerDetails: Array.isArray(source.answerDetails) ? source.answerDetails : [],
+    questionSnapshots: Array.isArray(source.privateSnapshot?.items) ? source.privateSnapshot.items : [],
+    optionSnapshots: [],
+    extraDetails: {
+      gameId: source.gameId || attempt.gameId,
+      gradingMode: source.gradingMode || ""
+    },
+    reviewPolicy
+  };
+  const normalized = normalizeStoredDetail(actor, attempt, row, staffAuthorized);
+  return {
+    ...normalized,
+    warnings: [...warnings, ...normalized.warnings]
+  };
+}
+
+// src/server/learning-history/learningHistoryService.ts
+var LearningHistoryNotFoundError = class extends Error {
+  constructor() {
+    super("Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t h\u1ECDc.");
+    this.status = 404;
+    this.code = "HISTORY_ATTEMPT_NOT_FOUND";
+    this.name = "LearningHistoryNotFoundError";
+  }
+};
+async function getLearningHistory(actor, filters) {
+  return listLearningHistory(actor.ownerKey, filters);
+}
+async function getLearningHistoryDetail(actor, attemptId, options = {}) {
+  const record = await findLearningAttempt(attemptId);
+  if (!record) throw new LearningHistoryNotFoundError();
+  const isOwner = Boolean(record.ownerKey && record.ownerKey === actor.ownerKey);
+  let staffAuthorized = isOwner && (actor.role === "teacher" || actor.role === "super_admin");
+  if (!isOwner && (actor.role === "teacher" || actor.role === "super_admin")) {
+    staffAuthorized = Boolean(
+      options.canStaffViewAttempt && await options.canStaffViewAttempt(actor, record.item)
+    );
+  }
+  if (!isOwner && !staffAuthorized) {
+    throw new LearningHistoryNotFoundError();
+  }
+  const storedDetail = await findAttemptDetail(attemptId);
+  if (storedDetail) {
+    return {
+      attempt: record.item,
+      detailStatus: "available",
+      detail: normalizeStoredDetail(actor, record.item, storedDetail, staffAuthorized)
+    };
+  }
+  if (record.storedDetailStatus === "legacy") {
+    const legacy = await findLegacySource(record.item.sourceType, record.sourceRecordId);
+    if (legacy) {
+      return {
+        attempt: record.item,
+        detailStatus: "available",
+        detail: normalizeLegacyDetail(actor, record.item, legacy, staffAuthorized)
+      };
+    }
+    return {
+      attempt: record.item,
+      detailStatus: "legacy_unavailable",
+      detail: null
+    };
+  }
+  const status = record.storedDetailStatus === "expired" ? "expired" : "missing";
+  return {
+    attempt: record.item,
+    detailStatus: status,
+    detail: null
+  };
+}
+
+// src/server/learning-history/learningHistoryValidation.ts
+var LearningHistoryValidationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.status = 400;
+    this.code = "INVALID_HISTORY_QUERY";
+    this.name = "LearningHistoryValidationError";
+  }
+};
+function scalar(value, name) {
+  if (Array.isArray(value)) {
+    throw new LearningHistoryValidationError(`${name} kh\xF4ng \u0111\u01B0\u1EE3c l\u1EB7p l\u1EA1i.`);
+  }
+  return value === void 0 || value === null ? "" : String(value).trim();
+}
+function boundedText(value, name, max) {
+  const result = scalar(value, name).normalize("NFKC");
+  if (result.length > max) {
+    throw new LearningHistoryValidationError(`${name} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  }
+  if (/[\u0000-\u001F\u007F]/.test(result)) {
+    throw new LearningHistoryValidationError(`${name} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
+  }
+  return result;
+}
+function integerParam(value, name, fallback) {
+  const raw = scalar(value, name);
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new LearningHistoryValidationError(`${name} ph\u1EA3i l\xE0 s\u1ED1 nguy\xEAn.`);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new LearningHistoryValidationError(`${name} kh\xF4ng h\u1EE3p l\u1EC7.`);
+  }
+  return parsed;
+}
+function optionalScore(value, name) {
+  const raw = scalar(value, name);
+  if (!raw) return void 0;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+    throw new LearningHistoryValidationError(`${name} ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u2013100.`);
+  }
+  return parsed;
+}
+function validDate(value, name) {
+  const raw = scalar(value, name);
+  if (!raw) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new LearningHistoryValidationError(`${name} ph\u1EA3i c\xF3 d\u1EA1ng YYYY-MM-DD.`);
+  }
+  const [year, month, day] = raw.split("-").map(Number);
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) {
+    throw new LearningHistoryValidationError(`${name} kh\xF4ng ph\u1EA3i ng\xE0y h\u1EE3p l\u1EC7.`);
+  }
+  return raw;
+}
+function bangkokStartIso(date) {
+  return (/* @__PURE__ */ new Date(`${date}T00:00:00.000+07:00`)).toISOString();
+}
+function nextBangkokDayIso(date) {
+  const start2 = /* @__PURE__ */ new Date(`${date}T00:00:00.000+07:00`);
+  return new Date(start2.getTime() + 864e5).toISOString();
+}
+function allowlisted(value, name, allowed) {
+  const raw = scalar(value, name);
+  if (!raw) return void 0;
+  if (!allowed.includes(raw)) {
+    throw new LearningHistoryValidationError(`${name} kh\xF4ng h\u1EE3p l\u1EC7.`);
+  }
+  return raw;
+}
+function parseLearningHistoryFilters(query) {
+  const page = integerParam(query.page, "page", 1);
+  if (page < 1 || page > 1e6) {
+    throw new LearningHistoryValidationError("page ph\u1EA3i n\u1EB1m trong kho\u1EA3ng h\u1EE3p l\u1EC7.");
+  }
+  const requestedPageSize = integerParam(query.pageSize, "pageSize", 20);
+  if (requestedPageSize !== 20 && requestedPageSize !== 50) {
+    throw new LearningHistoryValidationError("pageSize ch\u1EC9 nh\u1EADn 20 ho\u1EB7c 50.");
+  }
+  const sourceType = allowlisted(
+    query.sourceType,
+    "sourceType",
+    ["vocabulary", "grammar"]
+  );
+  const historyType = allowlisted(
+    query.historyType,
+    "historyType",
+    ["all", "assignment", "practice"]
+  ) || "all";
+  const status = allowlisted(
+    query.status,
+    "status",
+    ["completed", "in_progress", "interrupted"]
+  );
+  const scoreFrom = optionalScore(query.scoreFrom, "scoreFrom");
+  const scoreTo = optionalScore(query.scoreTo, "scoreTo");
+  if (scoreFrom !== void 0 && scoreTo !== void 0 && scoreFrom > scoreTo) {
+    throw new LearningHistoryValidationError("scoreFrom kh\xF4ng \u0111\u01B0\u1EE3c l\u1EDBn h\u01A1n scoreTo.");
+  }
+  const fromDate = validDate(query.from, "from");
+  const toDate = validDate(query.to, "to");
+  if (fromDate && toDate && fromDate > toDate) {
+    throw new LearningHistoryValidationError("from kh\xF4ng \u0111\u01B0\u1EE3c sau to.");
+  }
+  const groupRaw = scalar(query.groupByAssignment, "groupByAssignment").toLowerCase();
+  if (groupRaw && !["true", "false", "1", "0"].includes(groupRaw)) {
+    throw new LearningHistoryValidationError("groupByAssignment kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  return {
+    page,
+    pageSize: requestedPageSize,
+    sourceType,
+    historyType,
+    status,
+    classId: boundedText(query.classId, "classId", 180) || void 0,
+    lessonId: boundedText(query.lessonId, "lessonId", 200) || void 0,
+    assignmentId: boundedText(query.assignmentId, "assignmentId", 180) || void 0,
+    gameId: boundedText(query.gameId, "gameId", 160) || void 0,
+    scoreFrom,
+    scoreTo,
+    from: fromDate ? bangkokStartIso(fromDate) : void 0,
+    toExclusive: toDate ? nextBangkokDayIso(toDate) : void 0,
+    search: boundedText(query.search, "search", 100) || void 0,
+    groupByAssignment: groupRaw === "true" || groupRaw === "1"
+  };
+}
+function validateAttemptId(value) {
+  const attemptId = boundedText(value, "attemptId", 200);
+  if (!attemptId || !/^[A-Za-z0-9._:-]+$/.test(attemptId)) {
+    throw new LearningHistoryValidationError("attemptId kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  return attemptId;
+}
+
+// src/server/learning-history/learningHistoryRouter.ts
+function errorStatus(error) {
+  const status = Number(error?.status || error?.statusCode || 500);
+  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500;
+}
+function errorBody(error, status) {
+  if (status >= 500) {
+    return { error: "Kh\xF4ng th\u1EC3 t\u1EA3i l\u1ECBch s\u1EED h\u1ECDc t\u1EADp.", code: "HISTORY_INTERNAL_ERROR" };
+  }
+  return {
+    error: String(error?.message || "Y\xEAu c\u1EA7u kh\xF4ng h\u1EE3p l\u1EC7."),
+    code: String(error?.code || "HISTORY_REQUEST_FAILED")
+  };
+}
+function withHistoryTiming(label, slowRequestMs, handler) {
+  return async (req, res, next) => {
+    const startedAt = performance.now();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      const durationMs = Math.max(0, performance.now() - startedAt);
+      if (!res.headersSent) {
+        res.setHeader("Server-Timing", `history;dur=${durationMs.toFixed(1)}`);
+      }
+      if (durationMs >= slowRequestMs) {
+        console.warn(`[PERF] ${label} total=${durationMs.toFixed(1)}ms`);
+      }
+    };
+    const sendJson = res.json.bind(res);
+    res.json = ((body) => {
+      finish();
+      return sendJson(body);
+    });
+    try {
+      await handler(req, res, next);
+    } finally {
+      finish();
+    }
+  };
+}
+function createLearningHistoryRouter(options) {
+  const router = import_express.default.Router();
+  const slowRequestMs = Math.max(0, Number(options.slowRequestMs || 500));
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!options.enabled) {
+      return res.status(404).json({
+        error: "L\u1ECBch s\u1EED h\u1ECDc t\u1EADp ch\u01B0a \u0111\u01B0\u1EE3c b\u1EADt.",
+        code: "LEARNING_HISTORY_DISABLED"
+      });
+    }
+    next();
+  });
+  if (options.authenticateOptionalUser) {
+    router.use(options.authenticateOptionalUser);
+  }
+  router.get("/", withHistoryTiming(
+    "GET /api/my-learning-history",
+    slowRequestMs,
+    async (req, res) => {
+      try {
+        const actor = await resolveLearningHistoryActor(req);
+        const filters = parseLearningHistoryFilters(req.query);
+        const response = await getLearningHistory(actor, filters);
+        res.json(response);
+      } catch (error) {
+        const status = errorStatus(error);
+        res.status(status).json(errorBody(error, status));
+      }
+    }
+  ));
+  router.get("/:attemptId", withHistoryTiming(
+    "GET /api/my-learning-history/:attemptId",
+    slowRequestMs,
+    async (req, res) => {
+      try {
+        const actor = await resolveLearningHistoryActor(req);
+        const attemptId = validateAttemptId(req.params.attemptId);
+        const response = await getLearningHistoryDetail(actor, attemptId, options);
+        res.json(response);
+      } catch (error) {
+        const status = errorStatus(error);
+        res.status(status).json(errorBody(error, status));
+      }
+    }
+  ));
+  return router;
+}
+
+// src/server/learning-history/learningAttemptProjector.ts
+var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var HISTORY_SCHEMA_VERSION = 1;
+var DEFAULT_DETAIL_RETENTION_DAYS = 30;
+var BANGKOK_TIME_ZONE = "Asia/Bangkok";
+function text(value, max = 500) {
+  return String(value ?? "").normalize("NFKC").trim().slice(0, max);
+}
+function nonNegative(value) {
+  const number2 = Number(value);
+  return Number.isFinite(number2) ? Math.max(0, number2) : 0;
+}
+function integer(value) {
+  return Math.round(nonNegative(value));
+}
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 0));
+}
+function isoOrNull(value) {
+  const raw = text(value, 80);
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+function activityStatus(value, completedAt) {
+  if (completedAt || value === "completed") return "completed";
+  if (value === "interrupted" || value === "abandoned") return "interrupted";
+  return "in_progress";
+}
+function addDaysIso(base, days) {
+  return new Date(new Date(base).getTime() + days * 864e5).toISOString();
+}
+function studyDateInBangkok(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BANGKOK_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+function deterministicLearningAttemptId(sourceType, sourceRecordId) {
+  const digest = import_node_crypto3.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
+  return `attempt-${digest.slice(0, 40)}`;
+}
+function resolveOwnership(source) {
+  const declaredOwnerKey = text(source?.ownerKey || source?.owner_key, 260);
+  const userId = text(source?.userId || source?.user_id, 180);
+  const guestId = text(source?.guestId || source?.guest_id, 180);
+  if (declaredOwnerKey.startsWith("user:") && userId) {
+    return {
+      studentType: "authenticated",
+      userId,
+      guestId: null,
+      ownerKey: `user:${userId}`,
+      ownershipStatus: "linked"
+    };
+  }
+  if (declaredOwnerKey.startsWith("guest:") && guestId) {
+    return {
+      studentType: "guest",
+      userId: null,
+      guestId,
+      ownerKey: `guest:${guestId}`,
+      ownershipStatus: "linked"
+    };
+  }
+  if (userId && (!guestId || source?.ownerType !== "guest")) {
+    return {
+      studentType: "authenticated",
+      userId,
+      guestId: null,
+      ownerKey: `user:${userId}`,
+      ownershipStatus: "linked"
+    };
+  }
+  if (guestId) {
+    return {
+      studentType: "guest",
+      userId: null,
+      guestId,
+      ownerKey: `guest:${guestId}`,
+      ownershipStatus: "linked"
+    };
+  }
+  return {
+    studentType: "legacy",
+    userId: null,
+    guestId: null,
+    ownerKey: null,
+    ownershipStatus: "legacy_unlinked"
+  };
+}
+function vocabularyCounts(session) {
+  const gameId = text(session?.gameId, 120);
+  const sourceCorrect = integer(session?.correctAnswers ?? session?.correct);
+  const sourceIncorrect = integer(session?.incorrectAnswers ?? session?.incorrect);
+  let total = integer(session?.totalQuestions);
+  let correct = sourceCorrect;
+  let incorrect = sourceIncorrect;
+  let unanswered = integer(session?.unansweredCount);
+  let mistakeCount = integer(session?.mistakeCount);
+  let normalizationStatus = "canonical";
+  if (gameId === "matching-word-meaning" || gameId === "memory-match") {
+    const itemLimit = gameId === "matching-word-meaning" ? 8 : 6;
+    const snapshotItems = Array.isArray(session?.privateSnapshot?.items) ? session.privateSnapshot.items.length : 0;
+    const logicalTotal = Math.min(itemLimit, snapshotItems || total || sourceCorrect + sourceIncorrect);
+    total = logicalTotal;
+    correct = Math.min(sourceCorrect, total);
+    incorrect = Math.max(0, total - correct);
+    unanswered = 0;
+    mistakeCount = Math.max(0, sourceIncorrect - incorrect);
+    if (!snapshotItems) normalizationStatus = "legacy_partial";
+  } else {
+    if (!total) total = sourceCorrect + sourceIncorrect + unanswered;
+    correct = Math.min(sourceCorrect, total || sourceCorrect);
+    incorrect = Math.min(sourceIncorrect, Math.max(0, total - correct));
+    unanswered = Math.max(0, total - correct - incorrect);
+    if (!session?.totalQuestions) normalizationStatus = "legacy_partial";
+  }
+  const rawScore = Number.isFinite(Number(session?.rawScore ?? session?.gameScore)) ? Number(session.rawScore ?? session.gameScore) : null;
+  const maxScore = Number.isFinite(Number(session?.maxScore)) ? Number(session.maxScore) : rawScore === null ? null : 100;
+  const scoreCandidate = Number.isFinite(Number(session?.score)) ? Number(session.score) : total > 0 ? correct / total * 100 : 0;
+  return {
+    score: clampScore(scoreCandidate),
+    rawScore,
+    maxScore,
+    correct,
+    incorrect,
+    unanswered,
+    mistakeCount,
+    total,
+    normalizationStatus
+  };
+}
+function createDetail(sourceType, attemptId, clientRunId, completedAt, values, detailRetentionDays) {
+  return {
+    attemptId,
+    clientRunId,
+    sourceType,
+    answerDetails: Array.isArray(values.answerDetails) ? values.answerDetails : [],
+    questionSnapshots: Array.isArray(values.questionSnapshots) ? values.questionSnapshots : [],
+    optionSnapshots: Array.isArray(values.optionSnapshots) ? values.optionSnapshots : [],
+    extraDetails: values.extraDetails && typeof values.extraDetails === "object" ? values.extraDetails : {},
+    reviewPolicy: values.reviewPolicy && typeof values.reviewPolicy === "object" ? values.reviewPolicy : {},
+    createdAt: values.createdAt || completedAt,
+    updatedAt: values.updatedAt || completedAt,
+    expiresAt: addDaysIso(completedAt, detailRetentionDays),
+    schemaVersion: HISTORY_SCHEMA_VERSION
+  };
+}
+function projectVocabularyAttempt(session, options = {}) {
+  const sourceRecordId = text(session?.id || session?.sourceId, 200);
+  if (!sourceRecordId) throw new Error("Vocabulary projection requires a source record id.");
+  const attemptId = deterministicLearningAttemptId("vocabulary", sourceRecordId);
+  const ownership = resolveOwnership(session);
+  const completedAt = isoOrNull(session?.completedAt || session?.endedAt);
+  const startedAt = isoOrNull(session?.startedAt || session?.createdAt);
+  const activityAt = completedAt || isoOrNull(session?.lastSavedAt || session?.updatedAt) || startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const status = activityStatus(session?.status, completedAt);
+  const counts = vocabularyCounts(session);
+  const now = isoOrNull(session?.updatedAt) || activityAt;
+  const assignmentVerified = Boolean(session?.assignmentVerified || session?.assignmentAccessVerified);
+  const assignmentId = assignmentVerified ? text(session?.assignmentId, 180) || null : null;
+  const includeDetail = options.includeDetail !== false && status === "completed";
+  const answerDetails = Array.isArray(session?.answerDetails) ? session.answerDetails : [];
+  const snapshotItems = Array.isArray(session?.privateSnapshot?.items) ? session.privateSnapshot.items : [];
+  const detailStatus = includeDetail ? "available" : status === "completed" ? "legacy" : "missing";
+  const attempt = {
+    attemptId,
+    sourceRecordId,
+    clientRunId: text(session?.clientRunId, 180) || null,
+    sourceType: "vocabulary",
+    ...ownership,
+    studentNameSnapshot: text(session?.studentName, 240),
+    classId: text(session?.classId, 180) || null,
+    classNameSnapshot: text(session?.className, 240),
+    assignmentId,
+    assignmentTitleSnapshot: assignmentId ? text(session?.assignmentTitle || session?.assignmentName, 300) : "",
+    assignmentDueAtSnapshot: assignmentId ? isoOrNull(session?.assignmentDueAt || session?.dueDate) : null,
+    lessonId: text(session?.vocabSetId || session?.vocabularySetId, 200),
+    lessonTitleSnapshot: text(session?.vocabSetTitle || session?.lessonTitle, 300),
+    lessonType: "vocab_set",
+    gameId: text(session?.gameId, 160) || "vocabulary-practice",
+    gameTitleSnapshot: text(session?.gameName || session?.gameTitle || session?.gameId, 240),
+    score: counts.score,
+    rawScore: counts.rawScore,
+    maxScore: counts.maxScore,
+    correctCount: counts.correct,
+    incorrectCount: counts.incorrect,
+    unansweredCount: counts.unanswered,
+    mistakeCount: counts.mistakeCount,
+    totalQuestions: counts.total,
+    startedAt,
+    completedAt,
+    activityAt,
+    studyDate: studyDateInBangkok(activityAt),
+    durationSeconds: integer(
+      session?.durationSeconds ?? (Number.isFinite(Number(session?.durationMs)) ? Number(session.durationMs) / 1e3 : 0)
+    ),
+    attemptStatus: status,
+    attemptNumber: integer(session?.attemptNumber),
+    schemaVersion: HISTORY_SCHEMA_VERSION,
+    detailStatus,
+    normalizationStatus: counts.normalizationStatus,
+    createdAt: isoOrNull(session?.createdAt) || startedAt || activityAt,
+    updatedAt: now
+  };
+  const detail = includeDetail && completedAt ? createDetail("vocabulary", attemptId, attempt.clientRunId, completedAt, {
+    answerDetails,
+    questionSnapshots: snapshotItems.map((item, index) => ({
+      questionIndex: index,
+      wordId: text(item?.id, 180),
+      term: text(item?.term, 500),
+      meaning: text(item?.meaning, 1e3),
+      ipa: text(item?.ipa, 180),
+      example: text(item?.example, 1500)
+    })),
+    extraDetails: {
+      gameId: attempt.gameId,
+      gradingMode: text(session?.gradingMode, 80)
+    },
+    reviewPolicy: {
+      showReviewAfterSubmit: true,
+      showExplanationImmediately: true,
+      policyVersion: 1,
+      capturedAt: completedAt
+    },
+    createdAt: completedAt,
+    updatedAt: completedAt
+  }, Math.max(1, options.detailRetentionDays || DEFAULT_DETAIL_RETENTION_DAYS)) : null;
+  return { attempt, detail };
+}
+function grammarReviewPolicy(attempt, set, capturedAt) {
+  const snapshot = attempt?.reviewPolicySnapshot;
+  if (snapshot && typeof snapshot === "object") {
+    return {
+      showReviewAfterSubmit: snapshot.showReviewAfterSubmit === true,
+      showExplanationImmediately: snapshot.showExplanationImmediately === true,
+      policyVersion: Number(snapshot.policyVersion || 1),
+      capturedAt: isoOrNull(snapshot.capturedAt) || capturedAt,
+      legacyFallback: false
+    };
+  }
+  return {
+    showReviewAfterSubmit: set?.showReviewAfterSubmit === true,
+    showExplanationImmediately: set?.showExplanationImmediately === true,
+    policyVersion: 1,
+    capturedAt,
+    legacyFallback: !set
+  };
+}
+function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
+  const sourceRecordId = text(grammarAttempt?.id, 200);
+  if (!sourceRecordId) throw new Error("Grammar projection requires a source record id.");
+  const attemptId = deterministicLearningAttemptId("grammar", sourceRecordId);
+  const ownership = resolveOwnership(grammarAttempt);
+  const completedAt = isoOrNull(grammarAttempt?.completedAt);
+  const startedAt = isoOrNull(grammarAttempt?.startedAt || grammarAttempt?.createdAt);
+  const activityAt = completedAt || isoOrNull(grammarAttempt?.lastSavedAt || grammarAttempt?.updatedAt || grammarAttempt?.activatedAt) || startedAt || (/* @__PURE__ */ new Date()).toISOString();
+  const status = activityStatus(grammarAttempt?.status, completedAt);
+  const correct = integer(grammarAttempt?.correctCount);
+  const incorrect = integer(grammarAttempt?.wrongCount ?? grammarAttempt?.incorrectCount);
+  const unanswered = integer(grammarAttempt?.unansweredCount);
+  const questionCount = Array.isArray(grammarAttempt?.questions) ? grammarAttempt.questions.length : correct + incorrect + unanswered;
+  const total = Math.max(questionCount, correct + incorrect + unanswered);
+  const rawScore = nonNegative(grammarAttempt?.score);
+  const maxScore = nonNegative(grammarAttempt?.maxScore);
+  const canonicalScore = maxScore > 0 ? clampScore(rawScore / maxScore * 100) : 0;
+  const includeDetail = options.includeDetail !== false && status === "completed";
+  const reviewPolicy = grammarReviewPolicy(grammarAttempt, grammarSet, completedAt || activityAt);
+  const questions = Array.isArray(grammarAttempt?.questions) ? grammarAttempt.questions : [];
+  const answers = Array.isArray(grammarAttempt?.answers) ? grammarAttempt.answers : [];
+  const answerByQuestion = new Map(answers.map((answer) => [answer?.attemptQuestionId, answer]));
+  const attempt = {
+    attemptId,
+    sourceRecordId,
+    clientRunId: text(grammarAttempt?.clientRunId, 180) || null,
+    sourceType: "grammar",
+    ...ownership,
+    studentNameSnapshot: text(grammarAttempt?.studentName, 240),
+    classId: text(grammarAttempt?.classId, 180) || null,
+    classNameSnapshot: text(grammarAttempt?.className, 240),
+    assignmentId: grammarAttempt?.assignmentVerified ? text(grammarAttempt?.assignmentId, 180) || null : null,
+    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text(grammarAttempt?.assignmentTitle, 300) : "",
+    assignmentDueAtSnapshot: grammarAttempt?.assignmentVerified ? isoOrNull(grammarAttempt?.assignmentDueAt) : null,
+    lessonId: text(grammarAttempt?.grammarSetId, 200),
+    lessonTitleSnapshot: text(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
+    lessonType: "grammar_set",
+    gameId: "grammar-practice",
+    gameTitleSnapshot: text(
+      grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
+      240
+    ),
+    score: canonicalScore,
+    rawScore,
+    maxScore,
+    correctCount: correct,
+    incorrectCount: incorrect,
+    unansweredCount: unanswered,
+    mistakeCount: 0,
+    totalQuestions: total,
+    startedAt,
+    completedAt,
+    activityAt,
+    studyDate: studyDateInBangkok(activityAt),
+    durationSeconds: integer(grammarAttempt?.durationSeconds),
+    attemptStatus: status,
+    attemptNumber: integer(grammarAttempt?.attemptNumber),
+    schemaVersion: HISTORY_SCHEMA_VERSION,
+    detailStatus: includeDetail ? "available" : status === "completed" ? "legacy" : "missing",
+    normalizationStatus: questions.length ? "canonical" : "legacy_partial",
+    createdAt: isoOrNull(grammarAttempt?.createdAt) || startedAt || activityAt,
+    updatedAt: isoOrNull(grammarAttempt?.updatedAt) || activityAt
+  };
+  const detail = includeDetail && completedAt ? createDetail("grammar", attemptId, attempt.clientRunId, completedAt, {
+    answerDetails: questions.map((question, index) => {
+      const answer = answerByQuestion.get(question?.id);
+      return {
+        questionIndex: Number(question?.displayPosition || index + 1) - 1,
+        attemptQuestionId: text(question?.id, 200),
+        questionId: text(question?.questionId, 200),
+        questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
+        selectedOptionId: text(answer?.selectedOptionId, 200),
+        textAnswer: text(answer?.textAnswer, 4e3),
+        isCorrect: Boolean(answer?.isCorrect),
+        scoreAwarded: nonNegative(answer?.scoreAwarded),
+        answeredAt: isoOrNull(answer?.answeredAt),
+        correctOptionId: text(question?.correctOptionId || answer?.correctOptionId, 200),
+        correctAnswer: text(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3),
+        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text(value, 4e3)) : [],
+        explanation: text(question?.explanationSnapshot, 4e3)
+      };
+    }),
+    questionSnapshots: questions.map((question, index) => ({
+      questionIndex: Number(question?.displayPosition || index + 1) - 1,
+      attemptQuestionId: text(question?.id, 200),
+      questionId: text(question?.questionId, 200),
+      questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
+      questionText: text(question?.questionSnapshot, 4e3),
+      explanation: text(question?.explanationSnapshot, 4e3),
+      correctOptionId: text(question?.correctOptionId, 200),
+      correctAnswer: text(question?.correctAnswerSnapshot, 4e3),
+      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text(value, 4e3)) : []
+    })),
+    optionSnapshots: questions.map((question, index) => ({
+      questionIndex: Number(question?.displayPosition || index + 1) - 1,
+      attemptQuestionId: text(question?.id, 200),
+      options: Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot.map((option) => ({
+        id: text(option?.id, 200),
+        text: text(option?.text, 2e3)
+      })) : []
+    })),
+    extraDetails: {
+      grammarSetVersion: text(grammarAttempt?.grammarSetVersion, 180),
+      gradingVersion: text(
+        answers.find((answer) => answer?.gradingVersion)?.gradingVersion,
+        120
+      )
+    },
+    reviewPolicy,
+    createdAt: completedAt,
+    updatedAt: completedAt
+  }, Math.max(1, options.detailRetentionDays || DEFAULT_DETAIL_RETENTION_DAYS)) : null;
+  return { attempt, detail };
+}
+
+// src/server/publicStudentIdentity.ts
+var import_node_crypto4 = __toESM(require("node:crypto"), 1);
+function normalizedName(value) {
+  return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").slice(0, 300);
+}
+function createPublicStudentKey(data, secret) {
+  const identity = String(
+    data?.ownerKey || (data?.userId ? `user:${data.userId}` : "") || (data?.guestId ? `guest:${data.guestId}` : "") || (data?.studentId ? `student:${data.studentId}` : "") || `name:${normalizedName(data?.studentName || "H\u1ECDc sinh")}`
+  ).normalize("NFKC").trim().slice(0, 300);
+  return `student-${import_node_crypto4.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
+}
+function sanitizePublicStudentRecord(value, secret) {
+  const {
+    ownerKey: _ownerKey,
+    userId: _userId,
+    studentId: _studentId,
+    guestId: _guestId,
+    ...safe
+  } = value;
+  const pseudonymousKey = createPublicStudentKey(value, secret);
+  return {
+    ...safe,
+    publicStudentKey: pseudonymousKey,
+    studentKey: pseudonymousKey
+  };
+}
+
 // server.ts
 import_dotenv.default.config();
-var app2 = (0, import_express.default)();
+var app2 = (0, import_express2.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 var AUDIO_PUBLIC_PREFIX = "/audio";
 var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
-app2.use(import_express.default.json());
+var LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
+var LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
+var requestedAttemptDetailRetentionDays = Number(process.env.ATTEMPT_DETAIL_RETENTION_DAYS || 30);
+var ATTEMPT_DETAIL_RETENTION_DAYS = Number.isFinite(requestedAttemptDetailRetentionDays) ? Math.max(1, Math.floor(requestedAttemptDetailRetentionDays)) : 30;
+var CONFIGURED_PUBLIC_IDENTITY_SECRET = process.env.GUEST_PUBLIC_ID_SECRET?.trim();
+if (process.env.NODE_ENV === "production" && LEARNING_HISTORY_ENABLED && !CONFIGURED_PUBLIC_IDENTITY_SECRET) {
+  throw new Error(
+    "GUEST_PUBLIC_ID_SECRET is required when Learning History is enabled in production."
+  );
+}
+var PUBLIC_IDENTITY_SECRET = CONFIGURED_PUBLIC_IDENTITY_SECRET || process.env.DIAGNOSTIC_SECRET || `${process.env.FIREBASE_PROJECT_ID || "vhomework"}:public-identity-v1`;
+if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
+  console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
+}
+app2.use(import_express2.default.json());
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -2452,7 +4322,7 @@ app2.use((req, _res, next) => {
   });
 });
 import_fs3.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express.default.static(AUDIO_DIR));
+app2.use(AUDIO_PUBLIC_PREFIX, import_express2.default.static(AUDIO_DIR));
 function sendApiError(res, err) {
   const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
   res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
@@ -2665,11 +4535,12 @@ var authenticateOptionalUser = async (req, _res, next) => {
   }
   next();
 };
-var ACTIVITY_TTL_DAYS = 7;
+var requestedRecentActivityDays = Number(process.env.RECENT_ACTIVITY_DAYS || 7);
+var ACTIVITY_TTL_DAYS = Number.isFinite(requestedRecentActivityDays) ? Math.max(1, Math.floor(requestedRecentActivityDays)) : 7;
 var ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1e3;
 var LEADERBOARD_RETENTION_DAYS = 62;
 var LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
-function addDaysIso(baseIso, days) {
+function addDaysIso2(baseIso, days) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1e3).toISOString();
 }
 function getActivityTime(data) {
@@ -2685,6 +4556,32 @@ function createSessionToken() {
 }
 function hashSessionToken(token) {
   return import_crypto.default.createHash("sha256").update(token).digest("hex");
+}
+function sanitizePublicStudentRecord2(data) {
+  return sanitizePublicStudentRecord(data || {}, PUBLIC_IDENTITY_SECRET);
+}
+function omitGuestCapabilitySecrets(profile) {
+  if (!profile || typeof profile !== "object") return profile;
+  const {
+    accessTokenHash: _accessTokenHash,
+    access_token_hash: _accessTokenHashSnake,
+    guestAccessToken: _guestAccessToken,
+    ...safe
+  } = profile;
+  return safe;
+}
+function appendLearningHistoryProjection(batch, projection) {
+  if (!LEARNING_HISTORY_ENABLED) return;
+  batch.set(
+    adminDb.collection("learning_attempts").doc(projection.attempt.attemptId),
+    projection.attempt
+  );
+  if (projection.detail) {
+    batch.set(
+      adminDb.collection("attempt_details").doc(projection.detail.attemptId),
+      projection.detail
+    );
+  }
 }
 function getRequestSessionToken(req) {
   return safeText(req.body?.sessionToken || req.body?.runSecret || req.headers["x-session-token"], 200);
@@ -2880,7 +4777,7 @@ function gradeGameSessionV2(session, actions) {
       const result = speakingScore(target, action?.recognizedText || "", action?.responseMs || 0);
       totalScore += result.score;
       result.score >= 70 ? correct++ : incorrect++;
-      details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", isCorrect: result.score >= 70 });
+      details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", recognizedText: action?.recognizedText || "", pronunciationScore: result.score, correctWords: result.correctWords, totalWords: result.totalWords, responseMs: Math.max(0, Number(action?.responseMs || 0)), isCorrect: result.score >= 70 });
     });
     gameScore = items.length ? Math.round(totalScore / items.length) : 0;
   }
@@ -2986,8 +4883,8 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
       await profileRef.set(repaired);
       return repaired;
     }
-    const classId = safeText(classInfo.classId, 160);
-    const className = safeText(classInfo.className, 240);
+    const classId = classInfo.verified ? safeText(classInfo.classId, 160) : "";
+    const className = classInfo.verified ? safeText(classInfo.className, 240) : "";
     const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
     const shouldTouchActivity = Boolean(
       touchActivity && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
@@ -3014,6 +4911,8 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
   if (legacyIdentity) return legacyIdentity;
   const validation = validateStudentDisplayName(studentNameValue);
   if (!validation.valid) throw createHttpError(400, validation.error);
+  const guestAccessToken = createSessionToken();
+  const guestAccessTokenVersion = 1;
   const profile = {
     id: guestId,
     guestId,
@@ -3023,15 +4922,22 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     normalizedName: normalizePersonName(validation.value),
     role: "student",
     status: "active",
-    classId: safeText(classInfo.classId, 160),
-    className: safeText(classInfo.className, 240),
+    classId: classInfo.verified ? safeText(classInfo.classId, 160) : "",
+    className: classInfo.verified ? safeText(classInfo.className, 240) : "",
     createdAt: now,
     updatedAt: now,
     lastActiveAt: now,
-    needsReview: false
+    needsReview: false,
+    accessTokenHash: hashSessionToken(guestAccessToken),
+    accessTokenVersion: guestAccessTokenVersion,
+    accessTokenCreatedAt: now
   };
   await profileRef.set(profile);
-  return profile;
+  return {
+    ...omitGuestCapabilitySecrets(profile),
+    guestAccessToken,
+    guestAccessTokenVersion
+  };
 }
 async function ensureLegacyGuestProfiles() {
   const [profilesSnapshot, sessionsSnapshot, attemptsSnapshot] = await Promise.all([
@@ -3199,25 +5105,64 @@ async function canManageGuestProfile(user, profile) {
   if (isSuperAdmin(user)) return true;
   if (!isTeacher(user)) return false;
   const guestId = getGuestProfileId(profile?.guestId || profile?.id);
-  const classIds = /* @__PURE__ */ new Set();
-  const addClassId = (value) => {
-    const classId = safeText(value, 160);
-    if (classId) classIds.add(classId);
-  };
-  addClassId(profile?.classId);
-  if (guestId) {
-    const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
-      adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
-      adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
-    ]);
-    sessionsSnapshot.forEach((doc) => addClassId(doc.data()?.classId));
-    attemptsSnapshot.forEach((doc) => addClassId(doc.data()?.classId));
+  if (!guestId) return false;
+  const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+    adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
+    adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
+  ]);
+  for (const doc of sessionsSnapshot.docs || []) {
+    const session = doc.data();
+    const assignmentId = safeText(session?.assignmentId, 160);
+    if (assignmentId) {
+      const assignmentDoc = await adminDb.collection("assignments").doc(assignmentId).get();
+      if (assignmentDoc.exists) {
+        const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+        const classDoc = assignment.classId ? await adminDb.collection("classes").doc(assignment.classId).get() : null;
+        const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : void 0;
+        if (canManageAssignment(user, assignment, classData)) return true;
+      }
+    }
+    const vocabSetId = safeText(session?.vocabSetId, 160);
+    if (vocabSetId) {
+      const setDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+      if (setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() })) {
+        return true;
+      }
+    }
   }
-  for (const classId of classIds) {
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (classDoc.exists && canManageClass(user, classDoc.data())) return true;
+  for (const doc of attemptsSnapshot.docs || []) {
+    const attempt = doc.data();
+    const grammarSetId = safeText(attempt?.grammarSetId, 160);
+    if (!grammarSetId) continue;
+    const setDoc = await adminDb.collection("grammar_sets").doc(grammarSetId).get();
+    if (setDoc.exists && canManageGrammarSet(user, { id: setDoc.id, ...setDoc.data() })) {
+      return true;
+    }
   }
   return false;
+}
+async function canStaffViewLearningAttempt(actor, attempt) {
+  const user = actor.userProfile || {
+    id: actor.id,
+    role: actor.role
+  };
+  if (isSuperAdmin(user)) return true;
+  if (!isTeacher(user)) return false;
+  if (attempt.assignmentId) {
+    const assignmentDoc = await adminDb.collection("assignments").doc(attempt.assignmentId).get();
+    if (assignmentDoc.exists) {
+      const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+      const classDoc = assignment.classId ? await adminDb.collection("classes").doc(assignment.classId).get() : null;
+      const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : void 0;
+      if (canManageAssignment(user, assignment, classData)) return true;
+    }
+  }
+  if (attempt.sourceType === "grammar") {
+    const setDoc2 = await adminDb.collection("grammar_sets").doc(attempt.lessonId).get();
+    return Boolean(setDoc2.exists && canManageGrammarSet(user, { id: setDoc2.id, ...setDoc2.data() }));
+  }
+  const setDoc = await adminDb.collection("vocab_sets").doc(attempt.lessonId).get();
+  return Boolean(setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() }));
 }
 function getAssignmentShareToken(assignment) {
   return String(assignment?.shareToken || assignment?.assignmentSlug || "").trim();
@@ -3458,7 +5403,7 @@ function sanitizeLeaderboardEvent(event) {
     incorrectAnswers: Math.max(0, Number(event.incorrectAnswers || 0)),
     accuracy: Math.max(0, Math.min(100, Number(event.accuracy || 0))),
     status: "completed",
-    expiresAt: event.expiresAt || addDaysIso(completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
+    expiresAt: event.expiresAt || addDaysIso2(completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
   };
 }
 function gameSessionToLeaderboardEvent(session) {
@@ -3469,7 +5414,7 @@ function gameSessionToLeaderboardEvent(session) {
     sourceType: "vocabulary",
     sourceId,
     completedAt: session.completedAt || session.endedAt,
-    expiresAt: addDaysIso(session.completedAt || session.endedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
+    expiresAt: addDaysIso2(session.completedAt || session.endedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
   });
 }
 function grammarAttemptToLeaderboardEvent(attempt, set = {}) {
@@ -3482,7 +5427,7 @@ function grammarAttemptToLeaderboardEvent(attempt, set = {}) {
     sourceType: "grammar",
     sourceId,
     grammarSetId: attempt.grammarSetId,
-    expiresAt: addDaysIso(activity.completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
+    expiresAt: addDaysIso2(activity.completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
   });
 }
 function mergeLeaderboardEvents(events) {
@@ -3573,35 +5518,35 @@ var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENC
 var ttsQueue = [];
 var ttsInFlight = /* @__PURE__ */ new Map();
 var isProcessingTtsQueue = false;
-function normalizeTtsText(text) {
-  return text.normalize("NFKC").trim().replace(/\s+/g, " ");
+function normalizeTtsText(text2) {
+  return text2.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 function sanitizeTtsInput(input) {
   const warnings = [];
-  let text = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
-  if (!text) return { text: "", warnings };
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  let text2 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text2) return { text: "", warnings };
+  const lines = text2.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 1) {
     warnings.push("Only the first non-empty line was used for TTS.");
-    text = lines[0];
+    text2 = lines[0];
   }
-  const dashSplit = text.split(/\s+[–—-]\s+/);
+  const dashSplit = text2.split(/\s+[–—-]\s+/);
   if (dashSplit.length > 1) {
     warnings.push("Text after the separator was removed before TTS.");
-    text = dashSplit[0];
+    text2 = dashSplit[0];
   }
-  const beforeNotes = text;
-  text = text.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
-  if (text !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
-  const beforeIpa = text;
-  text = text.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
-  if (text !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
-  text = normalizeTtsText(text).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
-  if (text.length > 120) {
+  const beforeNotes = text2;
+  text2 = text2.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text2 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text2;
+  text2 = text2.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text2 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text2 = normalizeTtsText(text2).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text2.length > 120) {
     warnings.push("TTS text was shortened to 120 characters.");
-    text = text.slice(0, 120).trim();
+    text2 = text2.slice(0, 120).trim();
   }
-  return { text, warnings };
+  return { text: text2, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
@@ -3618,8 +5563,8 @@ function normalizeTtsSettings(settings = {}) {
     speed
   };
 }
-function createAudioHash(text, settings) {
-  const normalizedText = normalizeTtsText(text);
+function createAudioHash(text2, settings) {
+  const normalizedText = normalizeTtsText(text2);
   return import_crypto.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${settings.speed}|${normalizedText}`).digest("hex");
 }
 function audioFileName(audioHash) {
@@ -3715,11 +5660,11 @@ async function runWithConcurrency(items, limit, worker) {
   }));
   return results;
 }
-async function requestAi33TtsTask(text, settings, fileName) {
+async function requestAi33TtsTask(text2, settings, fileName) {
   const apiKey = getAi33ApiKey();
   if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
   const form = new FormData();
-  form.set("text", text);
+  form.set("text", text2);
   form.set("voice_id", settings.voice);
   form.set("speed", String(settings.speed));
   form.set("with_transcript", "false");
@@ -4150,11 +6095,11 @@ async function generateWithOpenAI(prompt) {
     throw error;
   }
   const data = await response.json();
-  const text = extractOpenAIText(data);
-  if (!text) {
+  const text2 = extractOpenAIText(data);
+  if (!text2) {
     throw new Error("OpenAI response did not include text output.");
   }
-  return text;
+  return text2;
 }
 async function generateAiText(prompt, geminiConfig) {
   const errors = [];
@@ -4180,10 +6125,10 @@ async function generateAiText(prompt, geminiConfig) {
     errors.push("Gemini: GEMINI_API_KEY is not configured.");
   }
   try {
-    const text = await generateWithOpenAI(prompt);
-    if (text) {
+    const text2 = await generateWithOpenAI(prompt);
+    if (text2) {
       return {
-        text: text.trim(),
+        text: text2.trim(),
         provider: "openai",
         errors
       };
@@ -4200,8 +6145,8 @@ async function generateAiText(prompt, geminiConfig) {
     errors
   };
 }
-function parseAiJson(text) {
-  const trimmed = String(text || "").trim();
+function parseAiJson(text2) {
+  const trimmed = String(text2 || "").trim();
   if (!trimmed) throw new Error("AI returned empty text.");
   try {
     return JSON.parse(trimmed);
@@ -4462,7 +6407,11 @@ app2.post("/api/guest-profiles/resolve", async (req, res) => {
       id: profile.id,
       guestId: profile.guestId || profile.id,
       displayName: profile.displayName || profile.name,
-      status: profile.status
+      status: profile.status,
+      ...profile.guestAccessToken ? {
+        guestAccessToken: profile.guestAccessToken,
+        guestAccessTokenVersion: profile.guestAccessTokenVersion || 1
+      } : {}
     });
   } catch (err) {
     sendApiError(res, err);
@@ -4488,6 +6437,15 @@ app2.post("/api/guest-profiles/identify", async (req, res) => {
     sendApiError(res, err);
   }
 });
+app2.use(
+  "/api/my-learning-history",
+  createLearningHistoryRouter({
+    enabled: LEARNING_HISTORY_ENABLED,
+    authenticateOptionalUser,
+    slowRequestMs: SLOW_API_LOG_MS,
+    canStaffViewAttempt: canStaffViewLearningAttempt
+  })
+);
 var ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
   "Pronoun",
@@ -4501,18 +6459,18 @@ var ALLOWED_PARTS_OF_SPEECH = [
   "Determiner"
 ];
 function normalizePartOfSpeech(value) {
-  const text = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text);
+  const text2 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text2);
   if (match) return match;
-  if (text.includes("pronoun")) return "Pronoun";
-  if (text.includes("adjective")) return "Adjective";
-  if (text.includes("adverb")) return "Adverb";
-  if (text.includes("preposition")) return "Preposition";
-  if (text.includes("conjunction")) return "Conjunction";
-  if (text.includes("interjection")) return "Interjection";
-  if (text.includes("article")) return "Article";
-  if (text.includes("determiner")) return "Determiner";
-  if (text.includes("verb")) return "Verb";
+  if (text2.includes("pronoun")) return "Pronoun";
+  if (text2.includes("adjective")) return "Adjective";
+  if (text2.includes("adverb")) return "Adverb";
+  if (text2.includes("preposition")) return "Preposition";
+  if (text2.includes("conjunction")) return "Conjunction";
+  if (text2.includes("interjection")) return "Interjection";
+  if (text2.includes("article")) return "Article";
+  if (text2.includes("determiner")) return "Determiner";
+  if (text2.includes("verb")) return "Verb";
   return "Noun";
 }
 function normalizeForExampleCheck(value) {
@@ -4855,7 +6813,8 @@ app2.get("/api/public/results", async (req, res) => {
       list.push(activity);
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(await enrichStudentNames(list));
+    const named = await enrichStudentNames(list);
+    res.json(named.map(sanitizePublicStudentRecord2));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4863,7 +6822,7 @@ app2.get("/api/public/results", async (req, res) => {
 app2.get("/api/public/leaderboard-results", async (req, res) => {
   try {
     const list = await loadLeaderboardEventsFromSources();
-    res.json(list);
+    res.json(list.map(sanitizePublicStudentRecord2));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -4964,10 +6923,10 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
 app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text = String(req.body?.text || "apple").trim();
+    const text2 = String(req.body?.text || "apple").trim();
     const force = Boolean(req.body?.force);
-    if (!text) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text, settings, force);
+    if (!text2) return res.status(400).json({ error: "Missing preview text." });
+    const result = await generateCachedTtsAudio(text2, settings, force);
     res.json({
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
@@ -4986,12 +6945,12 @@ app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "s
     const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
     if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
     const prepared = rawItems.map((item, index) => {
-      const text = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text);
+      const text2 = String(item?.text || item?.term || "").trim();
+      const sanitized = sanitizeTtsInput(text2);
       const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
       return {
         id: String(item?.id || `item-${index + 1}`),
-        text,
+        text: text2,
         sanitized,
         audioHash
       };
@@ -5647,8 +7606,18 @@ app2.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, a
       }
       const { answer: answer2, feedback: feedback2 } = buildGrammarAttemptAnswer(existingAttempt, set, payload);
       const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
-      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: (/* @__PURE__ */ new Date()).toISOString() };
-      await docRef.set(updatedAttempt);
+      const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
+      const batch2 = adminDb.batch();
+      batch2.set(docRef, updatedAttempt);
+      appendLearningHistoryProjection(
+        batch2,
+        projectGrammarAttempt(updatedAttempt, set, {
+          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+          includeDetail: false
+        })
+      );
+      await batch2.commit();
       timing.mark("persist");
       timing.finish(res);
       return res.json({
@@ -5676,9 +7645,19 @@ app2.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, a
       status: "in_progress",
       activatedAt: now,
       lastSavedAt: now,
+      updatedAt: now,
       answers: [answer]
     };
-    await docRef.set(activated);
+    const batch = adminDb.batch();
+    batch.set(docRef, activated);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(activated, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json({
@@ -5753,9 +7732,24 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
       createdAt: now,
       questions: attemptQuestions,
       answers: [],
+      reviewPolicySnapshot: {
+        showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
+        showExplanationImmediately: Boolean(set.showExplanationImmediately),
+        policyVersion: 1,
+        capturedAt: now
+      },
       attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
     };
-    await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attemptId), attempt);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(attempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
@@ -5812,8 +7806,18 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     }
     const answers = (attempt.answers || []).filter((item) => item.attemptQuestionId !== attemptQuestion.id);
     answers.push(answer);
-    const updatedAttempt = { ...attempt, answers };
-    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+    const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(updatedAttempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     const feedback = set?.showExplanationImmediately ? {
       isCorrect,
@@ -5876,12 +7880,19 @@ app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, a
       wrongCount,
       unansweredCount,
       completedAt,
-      durationSeconds
+      durationSeconds,
+      updatedAt: completedAt
     };
     const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
     const batch = adminDb.batch();
     batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(updatedAttempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -6025,7 +8036,7 @@ async function resolveGameSessionStartContext(req, payload, timing) {
     throw createHttpError(403, "Ban khong co quyen bat dau game voi bo tu nay.");
   }
   let inferredClass = null;
-  if (!payload.classId && !assignment && payload.vocabSetId) {
+  if (!assignment && payload.vocabSetId) {
     const assignmentsSnapshot = await adminDb.collection("assignments").where("vocabSetId", "==", payload.vocabSetId).get();
     const uniqueBySet = /* @__PURE__ */ new Map();
     assignmentsSnapshot.forEach((doc) => {
@@ -6053,14 +8064,17 @@ function buildGameSessionRecord(context, payload, options) {
     studentId: actor.studentId,
     guestId: actor.guestId,
     assignmentId: safeText(assignment?.id || "", 160),
+    assignmentVerified: Boolean(assignment?.id),
+    assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+    assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
     vocabSetId,
     vocabSetTitle: safeText(payload.vocabSetTitle || vocabSet.title, 240),
     gameId,
     gameName: safeText(payload.gameName, 160),
     gameType: safeText(payload.gameType, 80),
     studentName: actor.studentName,
-    classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-    className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+    classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+    className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
     startedAt,
     createdAt: now,
     activatedAt: options.schemaVersion === 3 ? now : void 0,
@@ -6081,6 +8095,10 @@ function buildGameSessionRecord(context, payload, options) {
 }
 function canResumeClientRun(req, session, runSecret) {
   return canUpdateGameSession(req, session, { sessionToken: runSecret, guestId: session.guestId });
+}
+function supportsIncrementalGameSession(session) {
+  const schemaVersion = Number(session?.schemaVersion || 1);
+  return schemaVersion === 2 || schemaVersion === 3 && session?.gameId === "speaking-ai";
 }
 app2.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, res) => {
   const timing = createApiTiming(req, "POST /api/game-sessions/activate");
@@ -6116,7 +8134,16 @@ app2.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, r
       clientRunId: credentials.clientRunId,
       startedAt: payload.startedAt
     });
-    await docRef.set(session);
+    const batch = adminDb.batch();
+    batch.set(docRef, session);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(session, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret });
@@ -6176,12 +8203,18 @@ app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (r
       lastSavedAt: completedAt,
       durationMs,
       durationSeconds: Math.round(durationMs / 1e3),
-      expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS)
+      expiresAt: addDaysIso2(completedAt, ACTIVITY_TTL_DAYS)
     };
     const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id });
     const batch = adminDb.batch();
     batch.set(docRef, completed);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(completed, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -6264,7 +8297,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n b\u1EAFt \u0111\u1EA7u game v\u1EDBi b\u1ED9 t\u1EEB n\xE0y." });
     }
     let inferredClass = null;
-    if (!payload.classId && !assignment && payload.vocabSetId) {
+    if (!assignment && payload.vocabSetId) {
       const assignmentsSnapshot = await adminDb.collection("assignments").where("vocabSetId", "==", payload.vocabSetId).get();
       const uniqueBySet = /* @__PURE__ */ new Map();
       assignmentsSnapshot.forEach((doc) => {
@@ -6286,14 +8319,17 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       studentId: actor.studentId,
       guestId: actor.guestId,
       assignmentId: safeText(assignment?.id || "", 160),
+      assignmentVerified: Boolean(assignment?.id),
+      assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+      assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
       vocabSetId,
       vocabSetTitle: safeText(payload.vocabSetTitle, 240),
       gameId,
       gameName: safeText(payload.gameName, 160),
       gameType: safeText(payload.gameType, 80),
       studentName: actor.studentName,
-      classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-      className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+      classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+      className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
       startedAt: now,
       createdAt: now,
       status: "started",
@@ -6364,12 +8400,18 @@ app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) =>
       submissionStatus: "completed",
       endedAt,
       completedAt: endedAt,
-      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
+      expiresAt: addDaysIso2(endedAt, ACTIVITY_TTL_DAYS)
     };
     const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id });
     const batch = adminDb.batch();
     batch.set(docRef, updatedSession);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(updatedSession, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err) {
@@ -6384,7 +8426,7 @@ app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, a
     if (!sessionDoc.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
     const session = sessionDoc.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
-    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session c\u0169 kh\xF4ng h\u1ED7 tr\u1EE3 l\u01B0u ti\u1EBFn \u0111\u1ED9." });
+    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session c\u0169 kh\xF4ng h\u1ED7 tr\u1EE3 l\u01B0u ti\u1EBFn \u0111\u1ED9." });
     if (session.status === "completed") return res.json({ saved: true, completed: true });
     const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
     if (!action.actionId) return res.status(400).json({ error: "Thi\u1EBFu actionId." });
@@ -6417,8 +8459,19 @@ app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, a
     });
     batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
       status: "in_progress",
-      lastSavedAt: now
+      lastSavedAt: now,
+      updatedAt: now
     });
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(
+        { ...session, id: req.params.id, status: "in_progress", lastSavedAt: now, updatedAt: now },
+        {
+          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+          includeDetail: false
+        }
+      )
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -6438,7 +8491,7 @@ app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req,
     const session = existing.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
     if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
-    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169." });
+    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169." });
     let actions;
     const submittedActionsProvided = Array.isArray(req.body?.actions);
     if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
@@ -6453,11 +8506,17 @@ app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req,
     const result = gradeGameSessionV2(session, actions);
     const completedAt = (/* @__PURE__ */ new Date()).toISOString();
     const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
-    const completed = { ...session, ...result, status: "completed", submissionStatus: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1e3), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
+    const completed = { ...session, ...result, status: "completed", submissionStatus: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1e3), expiresAt: addDaysIso2(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
     const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
     const batch = adminDb.batch();
     batch.set(docRef, completed);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(completed, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -6640,7 +8699,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super
     guestsSnapshot.forEach((doc) => {
       const data = doc.data();
       guestProfiles.push({
-        ...data,
+        ...omitGuestCapabilitySecrets(data),
         id: data.id || doc.id,
         guestId: data.guestId || doc.id
       });
@@ -6748,6 +8807,48 @@ app2.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireR
     sendApiError(res, err);
   }
 });
+app2.post(
+  "/api/admin/guest-profiles/:guestId/history-capability",
+  authenticateUser,
+  requireRole(["teacher", "super_admin"]),
+  async (req, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+      const guestId = getGuestProfileId(req.params.guestId);
+      const profileRef = adminDb.collection("guest_profiles").doc(guestId);
+      const profileDoc = await profileRef.get();
+      if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
+      const profile = { id: profileDoc.id, ...profileDoc.data() };
+      if (!await canManageGuestProfile(req.user, profile)) {
+        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n c\u1EA5p l\u1EA1i quy\u1EC1n l\u1ECBch s\u1EED cho h\u1ECDc sinh n\xE0y." });
+      }
+      const guestAccessToken = createSessionToken();
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const guestAccessTokenVersion = Date.now();
+      await profileRef.update({
+        accessTokenHash: hashSessionToken(guestAccessToken),
+        accessTokenVersion: guestAccessTokenVersion,
+        accessTokenCreatedAt: now,
+        updatedAt: now
+      });
+      await logAuditAction(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "ROTATE_GUEST_HISTORY_CAPABILITY",
+        `C\u1EA5p l\u1EA1i quy\u1EC1n xem l\u1ECBch s\u1EED cho h\u1ED3 s\u01A1 kh\xE1ch ${guestId}`
+      );
+      res.json({
+        guestId,
+        guestAccessToken,
+        guestAccessTokenVersion,
+        createdAt: now
+      });
+    } catch (err) {
+      sendApiError(res, err);
+    }
+  }
+);
 app2.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
@@ -6839,7 +8940,7 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path3.default.join(process.cwd(), "dist", "client");
-    app2.use(import_express.default.static(distPath));
+    app2.use(import_express2.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path3.default.join(distPath, "index.html"));
     });
@@ -7104,6 +9205,7 @@ function getGrammarSetVersion(set) {
 }
 function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret) {
   const grammarSetVersion = getGrammarSetVersion(set);
+  const isAssignment = getGrammarVisibility(set) === "assignment";
   const questionSeed = `${clientRunId}:${set.id}:${grammarSetVersion}:questions`;
   const questions = set.shuffleQuestions ? deterministicShuffle(set.questions || [], questionSeed) : [...set.questions || []];
   const attemptQuestions = questions.map((question, index) => {
@@ -7133,13 +9235,16 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
     grammarSetId: set.id,
     grammarSetTitle: set.title,
     grammarSetVersion,
-    assignmentId: safeText(payload.assignmentId, 160),
+    assignmentId: isAssignment ? safeText(set.id, 160) : "",
+    assignmentVerified: isAssignment,
+    assignmentTitle: isAssignment ? safeText(set.title, 300) : "",
+    assignmentDueAt: isAssignment ? set.dueDate || set.dueAt || "" : "",
     userId: actor.id,
     studentId: actor.id,
     guestId: actor.isGuest ? actor.id : "",
     studentName: actor.name,
-    classId: payload.classId || set.classId || getLessonGradeClass(set).classId || "",
-    className: payload.className || set.className || getLessonGradeClass(set).className || "",
+    classId: set.classId || getLessonGradeClass(set).classId || "",
+    className: set.className || getLessonGradeClass(set).className || "",
     status: "prepared",
     submissionStatus: "pending",
     schemaVersion: 2,
@@ -7153,6 +9258,12 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
     createdAt: now,
     questions: attemptQuestions,
     answers: [],
+    reviewPolicySnapshot: {
+      showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
+      showExplanationImmediately: Boolean(set.showExplanationImmediately),
+      policyVersion: 1,
+      capturedAt: now
+    },
     attemptTokenHash: hashSessionToken(runSecret)
   };
 }

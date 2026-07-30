@@ -3,7 +3,13 @@ import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'luc
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
-import { identifyExistingGuest } from '../../lib/guestIdentity';
+import {
+  GUEST_ID_STORAGE_KEY,
+  STUDENT_NAME_STORAGE_KEY,
+  getOrCreateGuestId,
+  identifyExistingGuest,
+  storeGuestAccessCredential
+} from '../../lib/guestIdentity';
 import { ClientLearningRun, createClientLearningRun } from '../../lib/learningRuns';
 
 interface GrammarLearningAreaProps {
@@ -22,33 +28,8 @@ interface GrammarQuestionFeedback {
 
 type StudentIdentityStatus = 'checking' | 'ready' | 'needs_name';
 
-const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
-const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 const GRAMMAR_ATTEMPT_TOKEN_STORAGE_KEY = 'msdieu_grammar_attempt_tokens';
 const LAZY_SESSION_V3_ENABLED = import.meta.env.VITE_LAZY_SESSION_V3 !== 'false';
-
-function createGuestId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getStoredGuestId() {
-  if (typeof window === 'undefined') return '';
-
-  try {
-    const existing = window.localStorage.getItem(GUEST_ID_STORAGE_KEY);
-    if (existing) return existing;
-
-    const newGuestId = createGuestId();
-    window.localStorage.setItem(GUEST_ID_STORAGE_KEY, newGuestId);
-    return newGuestId;
-  } catch {
-    return createGuestId();
-  }
-}
 
 function getStoredStudentName() {
   if (typeof window === 'undefined') return '';
@@ -120,7 +101,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const clientRunRef = useRef<ClientLearningRun>(createClientLearningRun());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [guestId] = useState(() => getStoredGuestId());
+  const [guestId] = useState(() => getOrCreateGuestId());
   const [studentName, setStudentName] = useState(() => user?.name || '');
   const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => user?.name ? 'ready' : 'checking');
   const nameSubmitted = identityStatus === 'ready';
@@ -217,6 +198,13 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Không thể lưu hồ sơ học sinh.');
         normalizedName = data.displayName || normalizedName;
+        if (data.guestAccessToken) {
+          storeGuestAccessCredential(
+            data.guestId || guestId,
+            data.guestAccessToken,
+            data.guestAccessTokenVersion
+          );
+        }
       } catch (err: any) {
         setError(err.message || 'Không thể lưu hồ sơ học sinh.');
         return;

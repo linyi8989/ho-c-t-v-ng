@@ -22,6 +22,19 @@ import {
 } from "./src/lib/firebaseAdmin.js";
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 import { deterministicRunDocumentId, normalizeClientStartedAt } from "./src/lib/serverLearningRuns.js";
+import { createLearningHistoryRouter } from "./src/server/learning-history/learningHistoryRouter.js";
+import {
+  projectGrammarAttempt,
+  projectVocabularyAttempt
+} from "./src/server/learning-history/learningAttemptProjector.js";
+import type {
+  LearningAttemptProjection,
+  LearningHistoryActor,
+  LearningHistoryItem
+} from "./src/server/learning-history/learningHistoryTypes.js";
+import {
+  sanitizePublicStudentRecord as sanitizePublicStudentRecordWithSecret
+} from "./src/server/publicStudentIdentity.js";
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +44,29 @@ const PORT = Number(process.env.PORT) || 3000;
 const AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 const AUDIO_PUBLIC_PREFIX = "/audio";
 const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
+const LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
+const LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
+const requestedAttemptDetailRetentionDays = Number(process.env.ATTEMPT_DETAIL_RETENTION_DAYS || 30);
+const ATTEMPT_DETAIL_RETENTION_DAYS = Number.isFinite(requestedAttemptDetailRetentionDays)
+  ? Math.max(1, Math.floor(requestedAttemptDetailRetentionDays))
+  : 30;
+const CONFIGURED_PUBLIC_IDENTITY_SECRET = process.env.GUEST_PUBLIC_ID_SECRET?.trim();
+if (
+  process.env.NODE_ENV === "production"
+  && LEARNING_HISTORY_ENABLED
+  && !CONFIGURED_PUBLIC_IDENTITY_SECRET
+) {
+  throw new Error(
+    "GUEST_PUBLIC_ID_SECRET is required when Learning History is enabled in production."
+  );
+}
+const PUBLIC_IDENTITY_SECRET = CONFIGURED_PUBLIC_IDENTITY_SECRET
+  || process.env.DIAGNOSTIC_SECRET
+  || `${process.env.FIREBASE_PROJECT_ID || "vhomework"}:public-identity-v1`;
+
+if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
+  console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
+}
 
 app.use(express.json());
 app.use((req, _res, next) => {
@@ -341,7 +377,10 @@ const authenticateOptionalUser = async (req: express.Request, _res: express.Resp
   next();
 };
 
-const ACTIVITY_TTL_DAYS = 7;
+const requestedRecentActivityDays = Number(process.env.RECENT_ACTIVITY_DAYS || 7);
+const ACTIVITY_TTL_DAYS = Number.isFinite(requestedRecentActivityDays)
+  ? Math.max(1, Math.floor(requestedRecentActivityDays))
+  : 7;
 const ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1000;
 const LEADERBOARD_RETENTION_DAYS = 62;
 const LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -366,6 +405,35 @@ function createSessionToken() {
 
 function hashSessionToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function sanitizePublicStudentRecord(data: any) {
+  return sanitizePublicStudentRecordWithSecret(data || {}, PUBLIC_IDENTITY_SECRET);
+}
+
+function omitGuestCapabilitySecrets(profile: any) {
+  if (!profile || typeof profile !== "object") return profile;
+  const {
+    accessTokenHash: _accessTokenHash,
+    access_token_hash: _accessTokenHashSnake,
+    guestAccessToken: _guestAccessToken,
+    ...safe
+  } = profile;
+  return safe;
+}
+
+function appendLearningHistoryProjection(batch: any, projection: LearningAttemptProjection) {
+  if (!LEARNING_HISTORY_ENABLED) return;
+  batch.set(
+    adminDb.collection("learning_attempts").doc(projection.attempt.attemptId),
+    projection.attempt
+  );
+  if (projection.detail) {
+    batch.set(
+      adminDb.collection("attempt_details").doc(projection.detail.attemptId),
+      projection.detail
+    );
+  }
 }
 
 function getRequestSessionToken(req: express.Request) {
@@ -515,7 +583,7 @@ function gradeGameSessionV2(session: any, actions: any[]) {
     incorrect = active.length - correct; const ladder = [100,200,300,500,1000,2000,4000,8000,16000,32000,64000,125000,250000,500000,1000000]; gameScore = correct ? ladder[Math.min(correct, ladder.length) - 1] : 0;
   } else if (session.gameId === "speaking-ai") {
     const latest = new Map<string, any>(); ordered.filter(a => a.type === "speaking.attempt" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a)); let totalScore = 0;
-    items.forEach((item: any, index: number) => { const action = latest.get(item.id); const target = item.example || item.term; const result = speakingScore(target, action?.recognizedText || "", action?.responseMs || 0); totalScore += result.score; result.score >= 70 ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", isCorrect: result.score >= 70 }); }); gameScore = items.length ? Math.round(totalScore / items.length) : 0;
+    items.forEach((item: any, index: number) => { const action = latest.get(item.id); const target = item.example || item.term; const result = speakingScore(target, action?.recognizedText || "", action?.responseMs || 0); totalScore += result.score; result.score >= 70 ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, questionText: target, correctAnswer: target, userAnswer: action?.recognizedText || "", recognizedText: action?.recognizedText || "", pronunciationScore: result.score, correctWords: result.correctWords, totalWords: result.totalWords, responseMs: Math.max(0, Number(action?.responseMs || 0)), isCorrect: result.score >= 70 }); }); gameScore = items.length ? Math.round(totalScore / items.length) : 0;
   }
   const total = correct + incorrect; const score = gameScore !== undefined && session.gameId !== "millionaire-vocab" ? gameScore : total ? Math.round(correct / total * 100) : 0;
   return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, rawScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, maxScore: session.gameId === "millionaire-vocab" ? 1000000 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
@@ -604,7 +672,7 @@ async function resolveGuestProfile(
   guestIdValue: any,
   studentNameValue: any,
   touchActivity = true,
-  classInfo: { classId?: any; className?: any } = {}
+  classInfo: { classId?: any; className?: any; verified?: boolean } = {}
 ) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) throw createHttpError(400, "Thiếu mã nhận diện học sinh.");
@@ -639,8 +707,8 @@ async function resolveGuestProfile(
       return repaired;
     }
 
-    const classId = safeText(classInfo.classId, 160);
-    const className = safeText(classInfo.className, 240);
+    const classId = classInfo.verified ? safeText(classInfo.classId, 160) : "";
+    const className = classInfo.verified ? safeText(classInfo.className, 240) : "";
     const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
     const shouldTouchActivity = Boolean(
       touchActivity
@@ -670,6 +738,8 @@ async function resolveGuestProfile(
 
   const validation = validateStudentDisplayName(studentNameValue);
   if (!validation.valid) throw createHttpError(400, validation.error);
+  const guestAccessToken = createSessionToken();
+  const guestAccessTokenVersion = 1;
   const profile = {
     id: guestId,
     guestId,
@@ -679,15 +749,22 @@ async function resolveGuestProfile(
     normalizedName: normalizePersonName(validation.value),
     role: "student",
     status: "active",
-    classId: safeText(classInfo.classId, 160),
-    className: safeText(classInfo.className, 240),
+    classId: classInfo.verified ? safeText(classInfo.classId, 160) : "",
+    className: classInfo.verified ? safeText(classInfo.className, 240) : "",
     createdAt: now,
     updatedAt: now,
     lastActiveAt: now,
-    needsReview: false
+    needsReview: false,
+    accessTokenHash: hashSessionToken(guestAccessToken),
+    accessTokenVersion: guestAccessTokenVersion,
+    accessTokenCreatedAt: now
   };
   await profileRef.set(profile);
-  return profile;
+  return {
+    ...omitGuestCapabilitySecrets(profile),
+    guestAccessToken,
+    guestAccessTokenVersion
+  };
 }
 
 async function ensureLegacyGuestProfiles() {
@@ -883,27 +960,77 @@ async function canManageGuestProfile(user: any, profile: any) {
   if (!isTeacher(user)) return false;
 
   const guestId = getGuestProfileId(profile?.guestId || profile?.id);
-  const classIds = new Set<string>();
-  const addClassId = (value: any) => {
-    const classId = safeText(value, 160);
-    if (classId) classIds.add(classId);
-  };
-  addClassId(profile?.classId);
+  if (!guestId) return false;
 
-  if (guestId) {
-    const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
-      adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
-      adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
-    ]);
-    sessionsSnapshot.forEach((doc: any) => addClassId(doc.data()?.classId));
-    attemptsSnapshot.forEach((doc: any) => addClassId(doc.data()?.classId));
+  const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
+    adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
+    adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
+  ]);
+
+  for (const doc of sessionsSnapshot.docs || []) {
+    const session = doc.data();
+    const assignmentId = safeText(session?.assignmentId, 160);
+    if (assignmentId) {
+      const assignmentDoc = await adminDb.collection("assignments").doc(assignmentId).get();
+      if (assignmentDoc.exists) {
+        const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+        const classDoc = assignment.classId
+          ? await adminDb.collection("classes").doc(assignment.classId).get()
+          : null;
+        const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : undefined;
+        if (canManageAssignment(user, assignment, classData)) return true;
+      }
+    }
+    const vocabSetId = safeText(session?.vocabSetId, 160);
+    if (vocabSetId) {
+      const setDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+      if (setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() })) {
+        return true;
+      }
+    }
   }
 
-  for (const classId of classIds) {
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (classDoc.exists && canManageClass(user, classDoc.data())) return true;
+  for (const doc of attemptsSnapshot.docs || []) {
+    const attempt = doc.data();
+    const grammarSetId = safeText(attempt?.grammarSetId, 160);
+    if (!grammarSetId) continue;
+    const setDoc = await adminDb.collection("grammar_sets").doc(grammarSetId).get();
+    if (setDoc.exists && canManageGrammarSet(user, { id: setDoc.id, ...setDoc.data() })) {
+      return true;
+    }
   }
   return false;
+}
+
+async function canStaffViewLearningAttempt(
+  actor: LearningHistoryActor,
+  attempt: LearningHistoryItem
+) {
+  const user = actor.userProfile || {
+    id: actor.id,
+    role: actor.role
+  };
+  if (isSuperAdmin(user)) return true;
+  if (!isTeacher(user)) return false;
+
+  if (attempt.assignmentId) {
+    const assignmentDoc = await adminDb.collection("assignments").doc(attempt.assignmentId).get();
+    if (assignmentDoc.exists) {
+      const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+      const classDoc = assignment.classId
+        ? await adminDb.collection("classes").doc(assignment.classId).get()
+        : null;
+      const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : undefined;
+      if (canManageAssignment(user, assignment, classData)) return true;
+    }
+  }
+
+  if (attempt.sourceType === "grammar") {
+    const setDoc = await adminDb.collection("grammar_sets").doc(attempt.lessonId).get();
+    return Boolean(setDoc.exists && canManageGrammarSet(user, { id: setDoc.id, ...setDoc.data() }));
+  }
+  const setDoc = await adminDb.collection("vocab_sets").doc(attempt.lessonId).get();
+  return Boolean(setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() }));
 }
 
 function getAssignmentShareToken(assignment: any) {
@@ -2391,7 +2518,13 @@ app.post("/api/guest-profiles/resolve", async (req, res) => {
       id: profile.id,
       guestId: profile.guestId || profile.id,
       displayName: profile.displayName || profile.name,
-      status: profile.status
+      status: profile.status,
+      ...(profile.guestAccessToken
+        ? {
+            guestAccessToken: profile.guestAccessToken,
+            guestAccessTokenVersion: profile.guestAccessTokenVersion || 1
+          }
+        : {})
     });
   } catch (err: any) {
     sendApiError(res, err);
@@ -2419,6 +2552,16 @@ app.post("/api/guest-profiles/identify", async (req, res) => {
     sendApiError(res, err);
   }
 });
+
+app.use(
+  "/api/my-learning-history",
+  createLearningHistoryRouter({
+    enabled: LEARNING_HISTORY_ENABLED,
+    authenticateOptionalUser,
+    slowRequestMs: SLOW_API_LOG_MS,
+    canStaffViewAttempt: canStaffViewLearningAttempt
+  })
+);
 
 const ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
@@ -2856,7 +2999,8 @@ app.get("/api/public/results", async (req, res) => {
     });
 
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(await enrichStudentNames(list));
+    const named = await enrichStudentNames(list);
+    res.json(named.map(sanitizePublicStudentRecord));
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -2865,7 +3009,7 @@ app.get("/api/public/results", async (req, res) => {
 app.get("/api/public/leaderboard-results", async (req, res) => {
   try {
     const list = await loadLeaderboardEventsFromSources();
-    res.json(list);
+    res.json(list.map(sanitizePublicStudentRecord));
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3787,8 +3931,18 @@ app.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, as
       }
       const { answer, feedback } = buildGrammarAttemptAnswer(existingAttempt, set, payload);
       const answers = [...(existingAttempt.answers || []).filter((item: any) => item.attemptQuestionId !== answer.attemptQuestionId), answer];
-      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: new Date().toISOString() };
-      await docRef.set(updatedAttempt);
+      const updatedAt = new Date().toISOString();
+      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
+      const batch = adminDb.batch();
+      batch.set(docRef, updatedAttempt);
+      appendLearningHistoryProjection(
+        batch,
+        projectGrammarAttempt(updatedAttempt, set, {
+          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+          includeDetail: false
+        })
+      );
+      await batch.commit();
       timing.mark("persist");
       timing.finish(res);
       return res.json({
@@ -3823,9 +3977,19 @@ app.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, as
       status: "in_progress",
       activatedAt: now,
       lastSavedAt: now,
+      updatedAt: now,
       answers: [answer]
     };
-    await docRef.set(activated);
+    const batch = adminDb.batch();
+    batch.set(docRef, activated);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(activated, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json({
@@ -3913,10 +4077,25 @@ app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req,
       createdAt: now,
       questions: attemptQuestions,
       answers: [],
+      reviewPolicySnapshot: {
+        showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
+        showExplanationImmediately: Boolean(set.showExplanationImmediately),
+        policyVersion: 1,
+        capturedAt: now
+      },
       attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
     };
 
-    await adminDb.collection("grammar_attempts").doc(attemptId).set(attempt);
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attemptId), attempt);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(attempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
@@ -3979,8 +4158,18 @@ app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, a
     }
     const answers = (attempt.answers || []).filter((item: any) => item.attemptQuestionId !== attemptQuestion.id);
     answers.push(answer);
-    const updatedAttempt = { ...attempt, answers };
-    await adminDb.collection("grammar_attempts").doc(attempt.id).set(updatedAttempt);
+    const updatedAt = new Date().toISOString();
+    const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(updatedAttempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
 
     const feedback = set?.showExplanationImmediately
@@ -4049,12 +4238,19 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
       wrongCount,
       unansweredCount,
       completedAt,
-      durationSeconds
+      durationSeconds,
+      updatedAt: completedAt
     };
     const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
     const batch = adminDb.batch();
     batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectGrammarAttempt(updatedAttempt, set, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -4217,7 +4413,7 @@ async function resolveGameSessionStartContext(req: express.Request, payload: any
   }
 
   let inferredClass: any = null;
-  if (!payload.classId && !assignment && payload.vocabSetId) {
+  if (!assignment && payload.vocabSetId) {
     const assignmentsSnapshot = await adminDb.collection("assignments")
       .where("vocabSetId", "==", payload.vocabSetId)
       .get();
@@ -4255,14 +4451,17 @@ function buildGameSessionRecord(context: any, payload: any, options: {
     studentId: actor.studentId,
     guestId: actor.guestId,
     assignmentId: safeText(assignment?.id || "", 160),
+    assignmentVerified: Boolean(assignment?.id),
+    assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+    assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
     vocabSetId,
     vocabSetTitle: safeText(payload.vocabSetTitle || vocabSet.title, 240),
     gameId,
     gameName: safeText(payload.gameName, 160),
     gameType: safeText(payload.gameType, 80),
     studentName: actor.studentName,
-    classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-    className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+    classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+    className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
     startedAt,
     createdAt: now,
     activatedAt: options.schemaVersion === 3 ? now : undefined,
@@ -4286,6 +4485,11 @@ function buildGameSessionRecord(context: any, payload: any, options: {
 
 function canResumeClientRun(req: express.Request, session: any, runSecret: string) {
   return canUpdateGameSession(req, session, { sessionToken: runSecret, guestId: session.guestId });
+}
+
+function supportsIncrementalGameSession(session: any) {
+  const schemaVersion = Number(session?.schemaVersion || 1);
+  return schemaVersion === 2 || (schemaVersion === 3 && session?.gameId === "speaking-ai");
 }
 
 app.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, res) => {
@@ -4324,7 +4528,16 @@ app.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, re
       clientRunId: credentials.clientRunId,
       startedAt: payload.startedAt
     });
-    await docRef.set(session);
+    const batch = adminDb.batch();
+    batch.set(docRef, session);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(session, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+        includeDetail: false
+      })
+    );
+    await batch.commit();
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret });
@@ -4395,6 +4608,12 @@ app.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (re
     const batch = adminDb.batch();
     batch.set(docRef, completed);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(completed, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -4481,7 +4700,7 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     }
 
     let inferredClass: any = null;
-    if (!payload.classId && !assignment && payload.vocabSetId) {
+    if (!assignment && payload.vocabSetId) {
       const assignmentsSnapshot = await adminDb.collection("assignments")
         .where("vocabSetId", "==", payload.vocabSetId)
         .get();
@@ -4505,14 +4724,17 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       studentId: actor.studentId,
       guestId: actor.guestId,
       assignmentId: safeText(assignment?.id || "", 160),
+      assignmentVerified: Boolean(assignment?.id),
+      assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+      assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
       vocabSetId,
       vocabSetTitle: safeText(payload.vocabSetTitle, 240),
       gameId,
       gameName: safeText(payload.gameName, 160),
       gameType: safeText(payload.gameType, 80),
       studentName: actor.studentName,
-      classId: safeText(assignment?.classId || (access?.accessType === "vocab_set" ? vocabSet.classId : payload.classId) || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-      className: safeText(assignment?.className || (access?.accessType === "vocab_set" ? vocabSet.className : payload.className) || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+      classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+      className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
       startedAt: now,
       createdAt: now,
       status: "started",
@@ -4599,6 +4821,12 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
     const batch = adminDb.batch();
     batch.set(docRef, updatedSession);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(updatedSession, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err: any) {
@@ -4614,7 +4842,7 @@ app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, as
     if (!sessionDoc.exists) return res.status(404).json({ error: "Session không tồn tại." });
     const session = sessionDoc.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền lưu lượt chơi này." });
-    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session cũ không hỗ trợ lưu tiến độ." });
+    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session cũ không hỗ trợ lưu tiến độ." });
     if (session.status === "completed") return res.json({ saved: true, completed: true });
     const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
     if (!action.actionId) return res.status(400).json({ error: "Thiếu actionId." });
@@ -4648,8 +4876,19 @@ app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, as
     });
     batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
       status: "in_progress",
-      lastSavedAt: now
+      lastSavedAt: now,
+      updatedAt: now
     });
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(
+        { ...session, id: req.params.id, status: "in_progress", lastSavedAt: now, updatedAt: now },
+        {
+          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
+          includeDetail: false
+        }
+      )
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -4670,7 +4909,7 @@ app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, 
     const session = existing.data();
     if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền nộp lượt chơi này." });
     if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
-    if (Number(session.schemaVersion || 1) !== 2) return res.status(400).json({ error: "Session cũ phải dùng endpoint hoàn thành cũ." });
+    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session cũ phải dùng endpoint hoàn thành cũ." });
     let actions: any[];
     const submittedActionsProvided = Array.isArray(req.body?.actions);
     if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
@@ -4692,6 +4931,12 @@ app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, 
     const batch = adminDb.batch();
     batch.set(docRef, completed);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+    appendLearningHistoryProjection(
+      batch,
+      projectVocabularyAttempt(completed, {
+        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+      })
+    );
     await batch.commit();
     timing.mark("persist");
     timing.finish(res);
@@ -4900,7 +5145,7 @@ app.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_
     guestsSnapshot.forEach((doc: any) => {
       const data = doc.data();
       guestProfiles.push({
-        ...data,
+        ...omitGuestCapabilitySecrets(data),
         id: data.id || doc.id,
         guestId: data.guestId || doc.id
       });
@@ -4999,6 +5244,50 @@ app.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireRo
     sendApiError(res, err);
   }
 });
+
+app.post(
+  "/api/admin/guest-profiles/:guestId/history-capability",
+  authenticateUser,
+  requireRole(["teacher", "super_admin"]),
+  async (req, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
+      const guestId = getGuestProfileId(req.params.guestId);
+      const profileRef = adminDb.collection("guest_profiles").doc(guestId);
+      const profileDoc = await profileRef.get();
+      if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
+      const profile = { id: profileDoc.id, ...profileDoc.data() };
+      if (!(await canManageGuestProfile(req.user, profile))) {
+        return res.status(403).json({ error: "Bạn không có quyền cấp lại quyền lịch sử cho học sinh này." });
+      }
+
+      const guestAccessToken = createSessionToken();
+      const now = new Date().toISOString();
+      const guestAccessTokenVersion = Date.now();
+      await profileRef.update({
+        accessTokenHash: hashSessionToken(guestAccessToken),
+        accessTokenVersion: guestAccessTokenVersion,
+        accessTokenCreatedAt: now,
+        updatedAt: now
+      });
+      await logAuditAction(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "ROTATE_GUEST_HISTORY_CAPABILITY",
+        `Cấp lại quyền xem lịch sử cho hồ sơ khách ${guestId}`
+      );
+      res.json({
+        guestId,
+        guestAccessToken,
+        guestAccessTokenVersion,
+        createdAt: now
+      });
+    } catch (err: any) {
+      sendApiError(res, err);
+    }
+  }
+);
 
 // 23. ADMIN: Change role of user
 app.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
@@ -5452,6 +5741,7 @@ function getGrammarSetVersion(set: any) {
 
 function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientRunId: string, runSecret: string) {
   const grammarSetVersion = getGrammarSetVersion(set);
+  const isAssignment = getGrammarVisibility(set) === "assignment";
   const questionSeed = `${clientRunId}:${set.id}:${grammarSetVersion}:questions`;
   const questions = set.shuffleQuestions
     ? deterministicShuffle(set.questions || [], questionSeed)
@@ -5487,13 +5777,16 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     grammarSetId: set.id,
     grammarSetTitle: set.title,
     grammarSetVersion,
-    assignmentId: safeText(payload.assignmentId, 160),
+    assignmentId: isAssignment ? safeText(set.id, 160) : "",
+    assignmentVerified: isAssignment,
+    assignmentTitle: isAssignment ? safeText(set.title, 300) : "",
+    assignmentDueAt: isAssignment ? (set.dueDate || set.dueAt || "") : "",
     userId: actor.id,
     studentId: actor.id,
     guestId: actor.isGuest ? actor.id : "",
     studentName: actor.name,
-    classId: payload.classId || set.classId || getLessonGradeClass(set).classId || "",
-    className: payload.className || set.className || getLessonGradeClass(set).className || "",
+    classId: set.classId || getLessonGradeClass(set).classId || "",
+    className: set.className || getLessonGradeClass(set).className || "",
     status: "prepared",
     submissionStatus: "pending",
     schemaVersion: 2,
@@ -5507,6 +5800,12 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     createdAt: now,
     questions: attemptQuestions,
     answers: [],
+    reviewPolicySnapshot: {
+      showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
+      showExplanationImmediately: Boolean(set.showExplanationImmediately),
+      policyVersion: 1,
+      capturedAt: now
+    },
     attemptTokenHash: hashSessionToken(runSecret)
   };
 }

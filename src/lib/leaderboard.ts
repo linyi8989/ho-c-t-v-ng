@@ -34,6 +34,8 @@ function normalizeStudentName(name: string) {
 
 function getStudentIdentity(session: GameSession) {
   const source = session as any;
+  if (source.publicStudentKey) return String(source.publicStudentKey);
+  if (source.studentKey) return String(source.studentKey);
   if (source.userId) return `user:${source.userId}`;
   if (source.ownerKey) return source.ownerKey;
   if (source.guestId) return `guest:${source.guestId}`;

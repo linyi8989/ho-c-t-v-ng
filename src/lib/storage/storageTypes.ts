@@ -28,6 +28,12 @@ export interface SQLiteDriverAdapter {
   close(): void;
 }
 
+export interface SQLiteSynchronousGateway {
+  run(sql: string, params?: readonly unknown[]): SQLiteRunResult;
+  all<T = any>(sql: string, params?: readonly unknown[]): T[];
+  one<T = any>(sql: string, params?: readonly unknown[]): T | undefined;
+}
+
 export interface SQLiteRequestMetrics {
   queryCount: number;
   queryDurationMs: number;

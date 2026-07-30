@@ -9,7 +9,9 @@ import {
 import { openSQLiteDriver } from './storage/sqliteStorageFactory';
 import type {
   SQLiteDriverAdapter,
+  SQLiteRunResult,
   SQLiteStorageConfig,
+  SQLiteSynchronousGateway,
 } from './storage/storageTypes';
 
 type Filter = { field: string; op: string; val: any };
@@ -20,6 +22,8 @@ const BASE_SCHEMA_MIGRATION_ID = 'base-schema-v1';
 const ACTIVITY_EXPIRY_MIGRATION_ID = 'activity-expiry-columns-v1';
 const GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = 'grammar-attempt-query-columns-v1';
 const NATIVE_HOT_QUERY_MIGRATION_ID = 'native-hot-query-columns-v2';
+const LEARNING_HISTORY_SCHEMA_MIGRATION_ID = 'learning-history-schema-v1';
+const GUEST_CAPABILITY_STORAGE_MIGRATION_ID = 'guest-capability-physical-v1';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -49,8 +53,12 @@ const collectionTableMap: Record<string, string> = {
   gameresults: 'game_results',
   leaderboard_events: 'leaderboard_events',
   leaderboardevents: 'leaderboard_events',
-  pronunciation_attempts: 'game_results',
-  pronunciationattempts: 'game_results',
+  pronunciation_attempts: 'pronunciation_attempts',
+  pronunciationattempts: 'pronunciation_attempts',
+  learning_attempts: 'learning_attempts',
+  learningattempts: 'learning_attempts',
+  attempt_details: 'attempt_details',
+  attemptdetails: 'attempt_details',
   grammar_sets: 'grammar_sets',
   grammarsets: 'grammar_sets',
   grammar_questions: 'grammar_questions',
@@ -140,6 +148,56 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     completedAt: 'completed_at',
     expiresAt: 'expires_at',
   },
+  pronunciation_attempts: {
+    id: 'id',
+    ownerKey: 'owner_key',
+    userId: 'user_id',
+    studentId: 'student_id',
+    guestId: 'guest_id',
+    vocabularySetId: 'vocabulary_set_id',
+    wordId: 'word_id',
+    gameSessionId: 'game_session_id',
+    gameId: 'game_id',
+    score: 'score',
+    playedAt: 'played_at',
+    createdAt: 'created_at',
+  },
+  learning_attempts: {
+    id: 'attempt_id',
+    attemptId: 'attempt_id',
+    sourceRecordId: 'source_record_id',
+    clientRunId: 'client_run_id',
+    sourceType: 'source_type',
+    studentType: 'student_type',
+    userId: 'user_id',
+    guestId: 'guest_id',
+    ownerKey: 'owner_key',
+    ownershipStatus: 'ownership_status',
+    classId: 'class_id',
+    assignmentId: 'assignment_id',
+    lessonId: 'lesson_id',
+    lessonType: 'lesson_type',
+    gameId: 'game_id',
+    score: 'score',
+    activityAt: 'activity_at',
+    studyDate: 'study_date',
+    completedAt: 'completed_at',
+    attemptStatus: 'attempt_status',
+    attemptNumber: 'attempt_number',
+    detailStatus: 'detail_status',
+    normalizationStatus: 'normalization_status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  attempt_details: {
+    id: 'attempt_id',
+    attemptId: 'attempt_id',
+    clientRunId: 'client_run_id',
+    sourceType: 'source_type',
+    expiresAt: 'expires_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
   grammar_attempts: {
     id: 'id',
     grammarSetId: 'grammar_set_id',
@@ -173,6 +231,149 @@ function parseJson(raw: string | null | undefined) {
   } catch {
     return {};
   }
+}
+
+function parseNullableJson(raw: string | null | undefined) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function toJsonColumn(value: any) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string') {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify(value);
+    }
+  }
+  return JSON.stringify(value);
+}
+
+function firstDefined(data: any, ...keys: string[]) {
+  for (const key of keys) {
+    if (data?.[key] !== undefined) return data[key];
+  }
+  return undefined;
+}
+
+function optionalText(value: any) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function finiteNumber(value: any, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function nonNegativeNumber(value: any, fallback = 0) {
+  return Math.max(0, finiteNumber(value, fallback));
+}
+
+function nonNegativeInteger(value: any, fallback = 0) {
+  return Math.floor(nonNegativeNumber(value, fallback));
+}
+
+const GUEST_CAPABILITY_FIELDS = [
+  'accessToken',
+  'access_token',
+  'guestAccessToken',
+  'guest_access_token',
+  'guestAccessTokenHash',
+  'guest_access_token_hash',
+  'accessTokenHash',
+  'access_token_hash',
+  'accessTokenVersion',
+  'access_token_version',
+  'accessTokenCreatedAt',
+  'access_token_created_at',
+];
+
+function withoutGuestCapabilityFields(data: any) {
+  const sanitized = data && typeof data === 'object' && !Array.isArray(data)
+    ? { ...data }
+    : {};
+  for (const field of GUEST_CAPABILITY_FIELDS) delete sanitized[field];
+  return sanitized;
+}
+
+function guestProfileFromRow(row: any) {
+  const data = withoutGuestCapabilityFields(parseJson(row.data_json));
+  return {
+    ...data,
+    id: row.id,
+  };
+}
+
+function learningAttemptFromRow(row: any) {
+  return {
+    id: row.attempt_id,
+    attemptId: row.attempt_id,
+    sourceRecordId: row.source_record_id,
+    clientRunId: row.client_run_id,
+    sourceType: row.source_type,
+    studentType: row.student_type,
+    userId: row.user_id,
+    guestId: row.guest_id,
+    ownerKey: row.owner_key,
+    ownershipStatus: row.ownership_status,
+    studentNameSnapshot: row.student_name_snapshot,
+    classId: row.class_id,
+    classNameSnapshot: row.class_name_snapshot,
+    assignmentId: row.assignment_id,
+    assignmentTitleSnapshot: row.assignment_title_snapshot,
+    assignmentDueAtSnapshot: row.assignment_due_at_snapshot,
+    lessonId: row.lesson_id,
+    lessonTitleSnapshot: row.lesson_title_snapshot,
+    lessonType: row.lesson_type,
+    gameId: row.game_id,
+    gameTitleSnapshot: row.game_title_snapshot,
+    score: Number(row.score || 0),
+    rawScore: Number(row.raw_score || 0),
+    maxScore: Number(row.max_score || 0),
+    correctCount: Number(row.correct_count || 0),
+    incorrectCount: Number(row.incorrect_count || 0),
+    unansweredCount: Number(row.unanswered_count || 0),
+    mistakeCount: Number(row.mistake_count || 0),
+    totalQuestions: Number(row.total_questions || 0),
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    activityAt: row.activity_at,
+    studyDate: row.study_date,
+    durationSeconds: Number(row.duration_seconds || 0),
+    attemptStatus: row.attempt_status,
+    attemptNumber: Number(row.attempt_number || 0),
+    schemaVersion: Number(row.schema_version || 0),
+    detailStatus: row.detail_status,
+    normalizationStatus: row.normalization_status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function attemptDetailFromRow(row: any) {
+  return {
+    id: row.attempt_id,
+    attemptId: row.attempt_id,
+    clientRunId: row.client_run_id,
+    sourceType: row.source_type,
+    answerDetails: parseNullableJson(row.answer_details_json),
+    questionSnapshots: parseNullableJson(row.question_snapshots_json),
+    optionSnapshots: parseNullableJson(row.option_snapshots_json),
+    extraDetails: parseNullableJson(row.extra_details_json),
+    reviewPolicy: parseNullableJson(row.review_policy_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at,
+    schemaVersion: Number(row.schema_version || 0),
+  };
 }
 
 function redactSQLiteError(error: unknown) {
@@ -224,17 +425,18 @@ function persistDb() {
   }
 }
 
-function run(sql: string, params: any[] = [], shouldPersist = true) {
-  getDb().run(sql, params);
+function run(sql: string, params: readonly unknown[] = [], shouldPersist = true): SQLiteRunResult {
+  const result = getDb().run(sql, params);
   if (shouldPersist) persistDb();
+  return result;
 }
 
-function all(sql: string, params: any[] = []) {
-  return getDb().all(sql, params);
+function all<T = any>(sql: string, params: readonly unknown[] = []): T[] {
+  return getDb().all<T>(sql, params);
 }
 
-function one(sql: string, params: any[] = []) {
-  return getDb().one(sql, params);
+function one<T = any>(sql: string, params: readonly unknown[] = []): T | undefined {
+  return getDb().one<T>(sql, params);
 }
 
 function withTransaction<T>(action: () => T, mode: 'deferred' | 'immediate' = 'deferred'): T {
@@ -261,6 +463,15 @@ function readRows(table: string): any[] {
       value: parseJson(row.value_json),
       updatedAt: row.updated_at,
     }));
+  }
+  if (table === 'learning_attempts') {
+    return all('SELECT * FROM learning_attempts').map(learningAttemptFromRow);
+  }
+  if (table === 'attempt_details') {
+    return all('SELECT * FROM attempt_details').map(attemptDetailFromRow);
+  }
+  if (table === 'guest_profiles') {
+    return all('SELECT id, data_json FROM guest_profiles').map(guestProfileFromRow);
   }
 
   return all(`SELECT id, data_json FROM ${table}`).map((row) => ({
@@ -291,7 +502,8 @@ function readRowsWithSqlQuery(
     return `${column} ${operator} ?`;
   });
 
-  let sql = `SELECT id, data_json FROM ${table}`;
+  const structuredTable = table === 'learning_attempts' || table === 'attempt_details';
+  let sql = structuredTable ? `SELECT * FROM ${table}` : `SELECT id, data_json FROM ${table}`;
   if (whereParts.length) sql += ` WHERE ${whereParts.join(' AND ')}`;
   if (orderField) sql += ` ORDER BY ${fieldMap[orderField]} ${orderDir === 'desc' ? 'DESC' : 'ASC'}`;
   if (limitVal !== undefined) {
@@ -299,7 +511,11 @@ function readRowsWithSqlQuery(
     params.push(Math.max(0, Math.floor(limitVal)));
   }
 
-  return all(sql, params).map(row => ({
+  const rows = all(sql, params);
+  if (table === 'learning_attempts') return rows.map(learningAttemptFromRow);
+  if (table === 'attempt_details') return rows.map(attemptDetailFromRow);
+  if (table === 'guest_profiles') return rows.map(guestProfileFromRow);
+  return rows.map(row => ({
     id: row.id,
     ...parseJson(row.data_json),
   }));
@@ -315,6 +531,18 @@ function readRow(table: string, id: string): any | undefined {
       value: parseJson(row.value_json),
       updatedAt: row.updated_at,
     };
+  }
+  if (table === 'learning_attempts') {
+    const row = one('SELECT * FROM learning_attempts WHERE attempt_id = ?', [id]);
+    return row ? learningAttemptFromRow(row) : undefined;
+  }
+  if (table === 'attempt_details') {
+    const row = one('SELECT * FROM attempt_details WHERE attempt_id = ?', [id]);
+    return row ? attemptDetailFromRow(row) : undefined;
+  }
+  if (table === 'guest_profiles') {
+    const row = one('SELECT id, data_json FROM guest_profiles WHERE id = ?', [id]);
+    return row ? guestProfileFromRow(row) : undefined;
   }
 
   const row = one(`SELECT id, data_json FROM ${table} WHERE id = ?`, [id]);
@@ -356,12 +584,238 @@ function getTimestamp(data: any, camelName: string, snakeName: string) {
   return data?.[camelName] || data?.[snakeName] || nowIso();
 }
 
+function upsertLearningAttempt(id: string, data: any) {
+  const attemptId = optionalText(firstDefined(data, 'attemptId', 'attempt_id', 'id')) || id;
+  const sourceRecordId = optionalText(firstDefined(data, 'sourceRecordId', 'source_record_id'));
+  const sourceType = optionalText(firstDefined(data, 'sourceType', 'source_type')) || '';
+  const ownerKey = optionalText(firstDefined(data, 'ownerKey', 'owner_key'));
+  const clientRunId = optionalText(firstDefined(data, 'clientRunId', 'client_run_id'));
+  const userId = optionalText(firstDefined(data, 'userId', 'user_id'));
+  const guestId = optionalText(firstDefined(data, 'guestId', 'guest_id'));
+  const studentType = optionalText(firstDefined(data, 'studentType', 'student_type'))
+    || (ownerKey?.startsWith('guest:') ? 'guest' : ownerKey ? 'authenticated' : 'legacy');
+  const ownershipStatus = optionalText(firstDefined(data, 'ownershipStatus', 'ownership_status'))
+    || (ownerKey ? 'linked' : 'legacy_unlinked');
+  const lessonId = optionalText(firstDefined(data, 'lessonId', 'lesson_id')) || '';
+  const lessonType = optionalText(firstDefined(data, 'lessonType', 'lesson_type'))
+    || (sourceType === 'grammar' ? 'grammar_set' : 'vocab_set');
+  const gameId = optionalText(firstDefined(data, 'gameId', 'game_id')) || '';
+  const requestedAttemptNumber = nonNegativeInteger(
+    firstDefined(data, 'attemptNumber', 'attempt_number'),
+    0
+  );
+
+  return withTransaction(() => {
+    const existing = one<any>(
+      `SELECT attempt_id, source_record_id, client_run_id, source_type, student_type,
+              user_id, guest_id, owner_key, ownership_status, lesson_id, lesson_type,
+              game_id, attempt_number
+       FROM learning_attempts
+       WHERE attempt_id = ?`,
+      [attemptId]
+    );
+    if (existing) {
+      const immutablePairs: Array<[string, any, any]> = [
+        ['source_record_id', existing.source_record_id, sourceRecordId],
+        ['client_run_id', existing.client_run_id, clientRunId],
+        ['source_type', existing.source_type, sourceType],
+        ['student_type', existing.student_type, studentType],
+        ['user_id', existing.user_id, userId],
+        ['guest_id', existing.guest_id, guestId],
+        ['owner_key', existing.owner_key, ownerKey],
+        ['ownership_status', existing.ownership_status, ownershipStatus],
+        ['lesson_id', existing.lesson_id, lessonId],
+        ['lesson_type', existing.lesson_type, lessonType],
+        ['game_id', existing.game_id, gameId],
+      ];
+      const mismatch = immutablePairs.find(([, current, incoming]) => (current ?? null) !== (incoming ?? null));
+      if (mismatch) {
+        throw new Error(`Learning attempt immutable field mismatch: ${mismatch[0]}.`);
+      }
+    }
+
+    let attemptNumber = requestedAttemptNumber;
+    if (existing?.attempt_number) {
+      attemptNumber = Number(existing.attempt_number);
+    } else if (attemptNumber <= 0) {
+      if (!ownerKey) {
+        attemptNumber = 1;
+      } else {
+        const row = one<any>(
+          `SELECT COALESCE(MAX(attempt_number), 0) AS max_attempt_number
+           FROM learning_attempts
+           WHERE owner_key = ? AND source_type = ? AND lesson_id = ? AND game_id = ?`,
+          [ownerKey, sourceType, lessonId, gameId]
+        );
+        attemptNumber = Number(row?.max_attempt_number || 0) + 1;
+      }
+    }
+
+    const timestamp = nowIso();
+    const score = Math.max(0, Math.min(100, finiteNumber(firstDefined(data, 'score'), 0)));
+    const completedAt = optionalText(firstDefined(data, 'completedAt', 'completed_at'));
+    const startedAt = optionalText(firstDefined(data, 'startedAt', 'started_at'));
+    const activityAt = optionalText(firstDefined(data, 'activityAt', 'activity_at'))
+      || completedAt
+      || startedAt
+      || timestamp;
+    const sourceRecord = sourceRecordId || '';
+    const createdAt = optionalText(firstDefined(data, 'createdAt', 'created_at')) || timestamp;
+    const updatedAt = optionalText(firstDefined(data, 'updatedAt', 'updated_at')) || timestamp;
+    const record: Record<string, unknown> = {
+      attempt_id: attemptId,
+      source_record_id: sourceRecord,
+      client_run_id: clientRunId,
+      source_type: sourceType,
+      student_type: studentType,
+      user_id: userId,
+      guest_id: guestId,
+      owner_key: ownerKey,
+      ownership_status: ownershipStatus,
+      student_name_snapshot: optionalText(firstDefined(data, 'studentNameSnapshot', 'student_name_snapshot')),
+      class_id: optionalText(firstDefined(data, 'classId', 'class_id')),
+      class_name_snapshot: optionalText(firstDefined(data, 'classNameSnapshot', 'class_name_snapshot')),
+      assignment_id: optionalText(firstDefined(data, 'assignmentId', 'assignment_id')),
+      assignment_title_snapshot: optionalText(firstDefined(data, 'assignmentTitleSnapshot', 'assignment_title_snapshot')),
+      assignment_due_at_snapshot: optionalText(firstDefined(data, 'assignmentDueAtSnapshot', 'assignment_due_at_snapshot')),
+      lesson_id: lessonId,
+      lesson_title_snapshot: optionalText(firstDefined(data, 'lessonTitleSnapshot', 'lesson_title_snapshot')),
+      lesson_type: lessonType,
+      game_id: gameId,
+      game_title_snapshot: optionalText(firstDefined(data, 'gameTitleSnapshot', 'game_title_snapshot')),
+      score,
+      raw_score: nonNegativeNumber(firstDefined(data, 'rawScore', 'raw_score'), score),
+      max_score: nonNegativeNumber(firstDefined(data, 'maxScore', 'max_score'), 100),
+      correct_count: nonNegativeInteger(firstDefined(data, 'correctCount', 'correct_count'), 0),
+      incorrect_count: nonNegativeInteger(firstDefined(data, 'incorrectCount', 'incorrect_count'), 0),
+      unanswered_count: nonNegativeInteger(firstDefined(data, 'unansweredCount', 'unanswered_count'), 0),
+      mistake_count: nonNegativeInteger(firstDefined(data, 'mistakeCount', 'mistake_count'), 0),
+      total_questions: nonNegativeInteger(firstDefined(data, 'totalQuestions', 'total_questions'), 0),
+      started_at: startedAt,
+      completed_at: completedAt,
+      activity_at: activityAt,
+      study_date: optionalText(firstDefined(data, 'studyDate', 'study_date')),
+      duration_seconds: nonNegativeInteger(firstDefined(data, 'durationSeconds', 'duration_seconds'), 0),
+      attempt_status: optionalText(firstDefined(data, 'attemptStatus', 'attempt_status')) || 'completed',
+      attempt_number: Math.max(1, attemptNumber),
+      schema_version: Math.max(1, nonNegativeInteger(firstDefined(data, 'schemaVersion', 'schema_version'), 1)),
+      detail_status: optionalText(firstDefined(data, 'detailStatus', 'detail_status')) || 'missing',
+      normalization_status: optionalText(firstDefined(data, 'normalizationStatus', 'normalization_status')) || 'canonical',
+      created_at: createdAt,
+      updated_at: updatedAt,
+    };
+    const immutableColumns = new Set([
+      'attempt_id',
+      'source_record_id',
+      'client_run_id',
+      'source_type',
+      'student_type',
+      'user_id',
+      'guest_id',
+      'owner_key',
+      'ownership_status',
+      'lesson_id',
+      'lesson_type',
+      'game_id',
+      'attempt_number',
+      'created_at',
+    ]);
+    const columns = Object.keys(record);
+    const updateColumns = columns.filter(column => !immutableColumns.has(column));
+    run(
+      `INSERT INTO learning_attempts (${columns.join(', ')})
+       VALUES (${columns.map(() => '?').join(', ')})
+       ON CONFLICT(attempt_id) DO UPDATE SET
+       ${updateColumns.map(column => `${column} = excluded.${column}`).join(', ')}`,
+      Object.values(record)
+    );
+  }, 'immediate');
+}
+
+function upsertAttemptDetail(id: string, data: any) {
+  const attemptId = optionalText(firstDefined(data, 'attemptId', 'attempt_id', 'id')) || id;
+  const timestamp = nowIso();
+  const record: Record<string, unknown> = {
+    attempt_id: attemptId,
+    client_run_id: optionalText(firstDefined(data, 'clientRunId', 'client_run_id')),
+    source_type: optionalText(firstDefined(data, 'sourceType', 'source_type')) || '',
+    answer_details_json: toJsonColumn(firstDefined(data, 'answerDetails', 'answer_details', 'answerDetailsJson', 'answer_details_json')),
+    question_snapshots_json: toJsonColumn(firstDefined(data, 'questionSnapshots', 'question_snapshots', 'questionSnapshotsJson', 'question_snapshots_json')),
+    option_snapshots_json: toJsonColumn(firstDefined(data, 'optionSnapshots', 'option_snapshots', 'optionSnapshotsJson', 'option_snapshots_json')),
+    extra_details_json: toJsonColumn(firstDefined(data, 'extraDetails', 'extra_details', 'extraDetailsJson', 'extra_details_json')),
+    review_policy_json: toJsonColumn(firstDefined(data, 'reviewPolicy', 'review_policy', 'reviewPolicyJson', 'review_policy_json')),
+    created_at: optionalText(firstDefined(data, 'createdAt', 'created_at')) || timestamp,
+    updated_at: optionalText(firstDefined(data, 'updatedAt', 'updated_at')) || timestamp,
+    expires_at: optionalText(firstDefined(data, 'expiresAt', 'expires_at')),
+    schema_version: Math.max(1, nonNegativeInteger(firstDefined(data, 'schemaVersion', 'schema_version'), 1)),
+  };
+  const columns = Object.keys(record);
+  const updateColumns = columns.filter(column => column !== 'attempt_id' && column !== 'created_at');
+  run(
+    `INSERT INTO attempt_details (${columns.join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})
+     ON CONFLICT(attempt_id) DO UPDATE SET
+     ${updateColumns.map(column => `${column} = excluded.${column}`).join(', ')}`,
+    Object.values(record)
+  );
+}
+
+function upsertPronunciationAttempt(id: string, data: any, dataJson: string, createdAt: string, updatedAt: string) {
+  const record: Record<string, unknown> = {
+    id,
+    owner_key: optionalText(firstDefined(data, 'ownerKey', 'owner_key')),
+    owner_type: optionalText(firstDefined(data, 'ownerType', 'owner_type')),
+    user_id: optionalText(firstDefined(data, 'userId', 'user_id')),
+    student_id: optionalText(firstDefined(data, 'studentId', 'student_id')),
+    guest_id: optionalText(firstDefined(data, 'guestId', 'guest_id')),
+    student_name: optionalText(firstDefined(data, 'studentName', 'student_name')),
+    vocabulary_set_id: optionalText(firstDefined(data, 'vocabularySetId', 'vocabulary_set_id', 'vocabSetId', 'vocab_set_id')),
+    word_id: optionalText(firstDefined(data, 'wordId', 'word_id')),
+    target_text: optionalText(firstDefined(data, 'targetText', 'target_text')),
+    recognized_text: optionalText(firstDefined(data, 'recognizedText', 'recognized_text')),
+    score: Math.max(0, Math.min(100, finiteNumber(firstDefined(data, 'score'), 0))),
+    correct_words: nonNegativeInteger(firstDefined(data, 'correctWords', 'correct_words'), 0),
+    total_words: nonNegativeInteger(firstDefined(data, 'totalWords', 'total_words'), 0),
+    attempt_count: Math.max(1, nonNegativeInteger(firstDefined(data, 'attemptCount', 'attempt_count'), 1)),
+    game_session_id: optionalText(firstDefined(data, 'gameSessionId', 'game_session_id')),
+    game_id: optionalText(firstDefined(data, 'gameId', 'game_id')) || 'speaking-ai',
+    played_at: optionalText(firstDefined(data, 'playedAt', 'played_at')) || createdAt,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    data_json: dataJson,
+  };
+  const columns = Object.keys(record);
+  const updateColumns = columns.filter(column => column !== 'id' && column !== 'created_at');
+  run(
+    `INSERT INTO pronunciation_attempts (${columns.join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})
+     ON CONFLICT(id) DO UPDATE SET
+     ${updateColumns.map(column => `${column} = excluded.${column}`).join(', ')}`,
+    Object.values(record)
+  );
+}
+
 function upsertDoc(collectionName: string, id: string, inputData: any) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
   const dataJson = JSON.stringify(data);
   const createdAt = getTimestamp(data, 'createdAt', 'created_at');
   const updatedAt = data.updatedAt || data.updated_at || nowIso();
+
+  if (table === 'learning_attempts') {
+    upsertLearningAttempt(id, data);
+    return;
+  }
+
+  if (table === 'attempt_details') {
+    upsertAttemptDetail(id, data);
+    return;
+  }
+
+  if (table === 'pronunciation_attempts') {
+    upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
 
   if (table === 'users') {
     run(
@@ -389,15 +843,30 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
   }
 
   if (table === 'guest_profiles') {
+    const accessTokenHash = optionalText(firstDefined(data, 'accessTokenHash', 'access_token_hash'));
+    const accessTokenVersionValue = firstDefined(data, 'accessTokenVersion', 'access_token_version');
+    const accessTokenVersion = accessTokenHash
+      ? Math.max(1, nonNegativeInteger(accessTokenVersionValue, 1))
+      : null;
+    const accessTokenCreatedAt = accessTokenHash
+      ? optionalText(firstDefined(data, 'accessTokenCreatedAt', 'access_token_created_at')) || updatedAt
+      : null;
+    const publicDataJson = JSON.stringify(withoutGuestCapabilityFields(data));
     run(
-      `INSERT INTO guest_profiles (id, display_name, normalized_name, status, created_at, updated_at, last_active_at, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO guest_profiles (
+        id, display_name, normalized_name, status, created_at, updated_at, last_active_at,
+        access_token_hash, access_token_version, access_token_created_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         display_name = excluded.display_name,
         normalized_name = excluded.normalized_name,
         status = excluded.status,
         updated_at = excluded.updated_at,
         last_active_at = excluded.last_active_at,
+        access_token_hash = COALESCE(excluded.access_token_hash, guest_profiles.access_token_hash),
+        access_token_version = COALESCE(excluded.access_token_version, guest_profiles.access_token_version),
+        access_token_created_at = COALESCE(excluded.access_token_created_at, guest_profiles.access_token_created_at),
         data_json = excluded.data_json`,
       [
         id,
@@ -407,7 +876,10 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         createdAt,
         updatedAt,
         data.lastActiveAt || data.last_active_at || updatedAt,
-        dataJson,
+        accessTokenHash,
+        accessTokenVersion,
+        accessTokenCreatedAt,
+        publicDataJson,
       ]
     );
     return;
@@ -734,6 +1206,10 @@ function deleteDoc(collectionName: string, id: string) {
   const table = tableForCollection(collectionName);
   if (table === 'settings') {
     run('DELETE FROM settings WHERE key = ?', [id]);
+    return;
+  }
+  if (table === 'learning_attempts' || table === 'attempt_details') {
+    run(`DELETE FROM ${table} WHERE attempt_id = ?`, [id]);
     return;
   }
   withTransaction(() => {
@@ -1167,6 +1643,217 @@ function migrateNativeHotQueryColumns() {
   sqliteLastMigration = NATIVE_HOT_QUERY_MIGRATION_ID;
 }
 
+function migrateLearningHistorySchema() {
+  if (hasMigration(LEARNING_HISTORY_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = LEARNING_HISTORY_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  const guestCapabilityColumns = [
+    ['access_token_hash', 'TEXT'],
+    ['access_token_version', 'INTEGER'],
+    ['access_token_created_at', 'TEXT'],
+  ];
+  for (const [column, type] of guestCapabilityColumns) {
+    if (!tableHasColumn('guest_profiles', column)) {
+      run(`ALTER TABLE guest_profiles ADD COLUMN ${column} ${type}`, [], false);
+    }
+  }
+
+  run(`
+    CREATE TABLE IF NOT EXISTS learning_attempts (
+      attempt_id TEXT PRIMARY KEY,
+      source_record_id TEXT NOT NULL CHECK(length(trim(source_record_id)) > 0),
+      client_run_id TEXT,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      student_type TEXT NOT NULL CHECK(student_type IN ('authenticated', 'guest', 'legacy')),
+      user_id TEXT,
+      guest_id TEXT,
+      owner_key TEXT,
+      ownership_status TEXT NOT NULL,
+      student_name_snapshot TEXT,
+      class_id TEXT,
+      class_name_snapshot TEXT,
+      assignment_id TEXT,
+      assignment_title_snapshot TEXT,
+      assignment_due_at_snapshot TEXT,
+      lesson_id TEXT NOT NULL CHECK(length(trim(lesson_id)) > 0),
+      lesson_title_snapshot TEXT,
+      lesson_type TEXT NOT NULL CHECK(lesson_type IN ('vocab_set', 'grammar_set')),
+      game_id TEXT NOT NULL CHECK(length(trim(game_id)) > 0),
+      game_title_snapshot TEXT,
+      score REAL NOT NULL DEFAULT 0 CHECK(score >= 0 AND score <= 100),
+      raw_score REAL NOT NULL DEFAULT 0 CHECK(raw_score >= 0),
+      max_score REAL NOT NULL DEFAULT 0 CHECK(max_score >= 0),
+      correct_count INTEGER NOT NULL DEFAULT 0 CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL DEFAULT 0 CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL DEFAULT 0 CHECK(unanswered_count >= 0),
+      mistake_count INTEGER NOT NULL DEFAULT 0 CHECK(mistake_count >= 0),
+      total_questions INTEGER NOT NULL DEFAULT 0 CHECK(total_questions >= 0),
+      started_at TEXT,
+      completed_at TEXT,
+      activity_at TEXT NOT NULL,
+      study_date TEXT,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      attempt_status TEXT NOT NULL CHECK(attempt_status IN ('completed', 'in_progress', 'interrupted')),
+      attempt_number INTEGER NOT NULL DEFAULT 1 CHECK(attempt_number >= 1),
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version >= 1),
+      detail_status TEXT NOT NULL CHECK(detail_status IN ('available', 'missing', 'expired', 'legacy')),
+      normalization_status TEXT NOT NULL CHECK(normalization_status IN ('canonical', 'legacy_partial')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK(owner_key IS NOT NULL OR ownership_status = 'legacy_unlinked')
+    );
+
+    CREATE TABLE IF NOT EXISTS attempt_details (
+      attempt_id TEXT PRIMARY KEY,
+      client_run_id TEXT,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      answer_details_json TEXT,
+      question_snapshots_json TEXT,
+      option_snapshots_json TEXT,
+      extra_details_json TEXT,
+      review_policy_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT,
+      schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version >= 1),
+      FOREIGN KEY(attempt_id) REFERENCES learning_attempts(attempt_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS learning_history_backfill_state (
+      job_name TEXT NOT NULL,
+      source_type TEXT NOT NULL CHECK(source_type IN ('vocabulary', 'grammar')),
+      last_source_record_id TEXT,
+      processed_count INTEGER NOT NULL DEFAULT 0 CHECK(processed_count >= 0),
+      inserted_count INTEGER NOT NULL DEFAULT 0 CHECK(inserted_count >= 0),
+      skipped_count INTEGER NOT NULL DEFAULT 0 CHECK(skipped_count >= 0),
+      legacy_unlinked_count INTEGER NOT NULL DEFAULT 0 CHECK(legacy_unlinked_count >= 0),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+      started_at TEXT,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      error_message TEXT,
+      PRIMARY KEY(job_name, source_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS pronunciation_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT,
+      owner_type TEXT,
+      user_id TEXT,
+      student_id TEXT,
+      guest_id TEXT,
+      student_name TEXT,
+      vocabulary_set_id TEXT,
+      word_id TEXT,
+      target_text TEXT,
+      recognized_text TEXT,
+      score REAL NOT NULL DEFAULT 0 CHECK(score >= 0 AND score <= 100),
+      correct_words INTEGER NOT NULL DEFAULT 0 CHECK(correct_words >= 0),
+      total_words INTEGER NOT NULL DEFAULT 0 CHECK(total_words >= 0),
+      attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count >= 1),
+      game_session_id TEXT,
+      game_id TEXT NOT NULL DEFAULT 'speaking-ai',
+      played_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_attempts_source_record
+      ON learning_attempts(source_type, source_record_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_attempts_client_run
+      ON learning_attempts(owner_key, source_type, lesson_id, game_id, client_run_id)
+      WHERE client_run_id IS NOT NULL AND owner_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_activity
+      ON learning_attempts(owner_key, activity_at DESC, attempt_id DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_source_activity
+      ON learning_attempts(owner_key, source_type, activity_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_owner_assignment_activity
+      ON learning_attempts(owner_key, assignment_id, activity_at DESC)
+      WHERE assignment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_learning_attempts_lesson_activity
+      ON learning_attempts(lesson_id, activity_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_attempt_details_expires
+      ON attempt_details(expires_at)
+      WHERE expires_at IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_pronunciation_attempts_session_played
+      ON pronunciation_attempts(game_session_id, played_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pronunciation_attempts_owner_played
+      ON pronunciation_attempts(owner_key, played_at DESC);
+  `, [], false);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [LEARNING_HISTORY_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = LEARNING_HISTORY_SCHEMA_MIGRATION_ID;
+}
+
+function migrateGuestCapabilitiesToPhysicalColumns() {
+  if (hasMigration(GUEST_CAPABILITY_STORAGE_MIGRATION_ID)) {
+    sqliteLastMigration = GUEST_CAPABILITY_STORAGE_MIGRATION_ID;
+    return;
+  }
+
+  const rows = all<{ id: string; data_json: string; updated_at: string | null }>(
+    'SELECT id, data_json, updated_at FROM guest_profiles'
+  );
+  for (const row of rows) {
+    const data = parseJson(row.data_json);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+    const containsCapabilityData = GUEST_CAPABILITY_FIELDS.some(field =>
+      Object.prototype.hasOwnProperty.call(data, field)
+    );
+    if (!containsCapabilityData) continue;
+
+    const accessTokenHash = optionalText(firstDefined(
+      data,
+      'accessTokenHash',
+      'access_token_hash',
+      'guestAccessTokenHash',
+      'guest_access_token_hash'
+    ));
+    const accessTokenVersion = accessTokenHash
+      ? Math.max(1, nonNegativeInteger(
+          firstDefined(data, 'accessTokenVersion', 'access_token_version'),
+          1
+        ))
+      : null;
+    const accessTokenCreatedAt = accessTokenHash
+      ? optionalText(firstDefined(data, 'accessTokenCreatedAt', 'access_token_created_at'))
+        || optionalText(row.updated_at)
+        || nowIso()
+      : null;
+
+    run(
+      `UPDATE guest_profiles
+       SET access_token_hash = COALESCE(access_token_hash, ?),
+           access_token_version = COALESCE(access_token_version, ?),
+           access_token_created_at = COALESCE(access_token_created_at, ?),
+           data_json = ?
+       WHERE id = ?`,
+      [
+        accessTokenHash,
+        accessTokenVersion,
+        accessTokenCreatedAt,
+        JSON.stringify(withoutGuestCapabilityFields(data)),
+        row.id,
+      ],
+      false
+    );
+  }
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [GUEST_CAPABILITY_STORAGE_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = GUEST_CAPABILITY_STORAGE_MIGRATION_ID;
+}
+
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -1262,6 +1949,8 @@ export async function initializeSQLiteStorage() {
         migrateActivityExpiryColumns();
         migrateGrammarAttemptQueryColumns();
         migrateNativeHotQueryColumns();
+        migrateLearningHistorySchema();
+        migrateGuestCapabilitiesToPhysicalColumns();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, 'immediate');
       configureSQLiteConnection(sqliteConfig);
@@ -1289,6 +1978,48 @@ export async function initializeSQLiteStorage() {
   })();
 
   return initPromise;
+}
+
+export async function sqliteQueryAll<T = any>(
+  sql: string,
+  params: readonly unknown[] = []
+): Promise<T[]> {
+  await initializeSQLiteStorage();
+  return all<T>(sql, params);
+}
+
+export async function sqliteQueryOne<T = any>(
+  sql: string,
+  params: readonly unknown[] = []
+): Promise<T | undefined> {
+  await initializeSQLiteStorage();
+  return one<T>(sql, params);
+}
+
+export async function sqliteExecute(
+  sql: string,
+  params: readonly unknown[] = []
+): Promise<SQLiteRunResult> {
+  await initializeSQLiteStorage();
+  return run(sql, params);
+}
+
+export async function sqliteImmediateTransaction<T>(
+  action: (gateway: SQLiteSynchronousGateway) => T
+): Promise<T> {
+  await initializeSQLiteStorage();
+  const gateway: SQLiteSynchronousGateway = {
+    run: (sql, params = []) => run(sql, params),
+    all: <Row = any>(sql: string, params: readonly unknown[] = []) => all<Row>(sql, params),
+    one: <Row = any>(sql: string, params: readonly unknown[] = []) => one<Row>(sql, params),
+  };
+  return withTransaction(() => {
+    const result = action(gateway);
+    if (result && typeof (result as any).then === 'function') {
+      throw new Error('SQLite transaction callbacks must be synchronous.');
+    }
+    return result;
+  }, 'immediate');
 }
 
 function readPragmaValue(name: string) {
@@ -1503,7 +2234,7 @@ export class SQLiteBatch {
         if (op.type === 'update') updateDoc(op.doc.collectionName, op.doc.id, op.data);
         if (op.type === 'delete') deleteDoc(op.doc.collectionName, op.doc.id);
       }
-    });
+    }, 'immediate');
   }
 }
 
@@ -1531,7 +2262,9 @@ async function tableCount(table: string) {
 
 export async function getSQLiteDiagnostics() {
   await initializeSQLiteStorage();
-  const lastMigration = one('SELECT id, applied_at FROM migrations ORDER BY applied_at DESC LIMIT 1') || null;
+  const lastMigration = one(
+    'SELECT id, applied_at FROM migrations ORDER BY applied_at DESC, rowid DESC LIMIT 1'
+  ) || null;
   const dbSizeBytes = sqliteDbPath && fs.existsSync(sqliteDbPath) ? fs.statSync(sqliteDbPath).size : 0;
   const walPath = `${sqliteDbPath}-wal`;
   const shmPath = `${sqliteDbPath}-shm`;
@@ -1587,6 +2320,10 @@ export async function getSQLiteDiagnostics() {
       leaderboard_events: await tableCount('leaderboard_events'),
       grammar_sets: await tableCount('grammar_sets'),
       grammar_attempts: await tableCount('grammar_attempts'),
+      learning_attempts: await tableCount('learning_attempts'),
+      attempt_details: await tableCount('attempt_details'),
+      pronunciation_attempts: await tableCount('pronunciation_attempts'),
+      learning_history_backfill_state: await tableCount('learning_history_backfill_state'),
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,
