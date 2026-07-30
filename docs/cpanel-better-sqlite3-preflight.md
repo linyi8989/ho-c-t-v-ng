@@ -9,9 +9,27 @@ node -p "JSON.stringify({node:process.version,abi:process.versions.modules,execP
 npm ls better-sqlite3
 ```
 
-`better-sqlite3@12.4.1` declares support for Node 20, 22, 23, and 24. The host must still load its native binary successfully.
+The production compatibility pin is `better-sqlite3@10.1.0` on Node 22.x. This
+version is built from source on the current cPanel host because its prebuilt
+Linux binary requires a newer glibc than the host provides. The host build uses
+Python 3.11 and the available GCC 8.5 C++17 toolchain.
 
-## 2. Run an isolated preflight
+Keep this compatibility pin exact. Do not install a different package version
+directly on the host or patch files under `node_modules`.
+
+## 2. Install production dependencies
+
+Stop the cPanel Web Application before installing. From the application root:
+
+```bash
+export PATH="/opt/alt/alt-nodejs22/root/usr/bin:$PATH"
+export npm_config_python=/opt/alt/python311/bin/python3.11
+export PYTHON=/opt/alt/python311/bin/python3.11
+export npm_config_build_from_source=true
+npm ci --omit=dev
+```
+
+## 3. Run an isolated preflight
 
 ```bash
 cd /home/qzmivzbj/app.msdieu.com
@@ -32,7 +50,7 @@ The script:
 
 Review the JSON output and retain it with the deployment record. Remove the test file and its `-wal`/`-shm` sidecars manually only after review.
 
-## 3. Failure rule
+## 4. Failure rule
 
 If native load, WAL, reopen, or `quick_check` fails:
 

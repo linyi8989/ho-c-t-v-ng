@@ -12,7 +12,9 @@ No learning-history schema/UI is included. `app.sqlite-wal` and `app.sqlite-shm`
 
 ## Implemented design
 
-- Candidate dependency is pinned exactly to `better-sqlite3@12.4.1`.
+- Production compatibility dependency is pinned exactly to `better-sqlite3@10.1.0`.
+- Node is pinned to the 22.x release line used by cPanel.
+- The cPanel host builds the native module from source with Python 3.11 and GCC 8.5/C++17 because its glibc 2.28 cannot load the published Linux prebuild.
 - `SQLITE_DRIVER=better-sqlite3` is the primary driver.
 - `sql.js` remains only as an explicit rollback driver and refuses a non-empty WAL.
 - Production requires explicit `SQLITE_DRIVER` and `SQLITE_DB_PATH`.
@@ -51,4 +53,4 @@ npm run storage:preflight -- --db /tmp/better-sqlite3-test.sqlite
 npm run test:phase1
 ```
 
-Local success does not prove cPanel compatibility. Release A is production-ready only after the exact Passenger Node runtime passes the host preflight and a production-shaped database copy passes migration/smoke checks.
+Local success does not prove cPanel compatibility. Release A is production-ready only after the exact Passenger Node runtime compiles the compatibility pin, passes the host preflight, and a production-shaped database copy passes migration/smoke checks.

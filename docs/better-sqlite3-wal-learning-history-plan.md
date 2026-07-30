@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | 1 | Production copy/baseline/dependency graph | Baseline repo đã khóa; còn thiếu production-shaped DB/cPanel runtime |
 | 2 | Rollback window/runbook | Công cụ và runbook đã có; còn thiếu lịch/cách stop Passenger và người vận hành |
-| 3 | cPanel preflight + exact pin | Pin candidate `better-sqlite3@12.4.1`, local preflight pass; cPanel preflight pending |
+| 3 | cPanel preflight + exact pin | Host GCC 8.5/glibc 2.28 rejected candidate 12.4.1; compatibility pin `better-sqlite3@10.1.0` selected, host rebuild pending |
 | 4 | Path policy/factory/native primitives | Đã triển khai và typecheck |
 | 5 | Startup gate/migration runner | Đã triển khai; local empty/legacy/double-run pass |
 | 6 | SQL pushdown/atomic transaction | Đã triển khai normalized hot paths và rollback test |
@@ -22,6 +22,7 @@ Các phần pending không được bỏ qua bằng suy đoán. Giai đoạn 2 c
 
 Kết quả local Release A:
 
+- Compatibility pin `better-sqlite3@10.1.0` đã được xác minh lại trên Windows x64, Node `v22.16.0`, ABI `127`, SQLite `3.46.0`; isolated WAL preflight và toàn bộ `npm run test:phase1` pass.
 - `better-sqlite3@12.4.1` load thành công trên Windows x64, Node `v24.15.0`, ABI `137`.
 - Isolated preflight: insert/select, WAL, close/reopen và `quick_check` đều pass.
 - `npm run test:phase1` pass:
