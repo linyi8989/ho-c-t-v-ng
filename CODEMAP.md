@@ -1558,9 +1558,13 @@ Frontend:
 
 - `src/App.tsx` exposes `/history` only when
   `VITE_LEARNING_HISTORY_ENABLED=true` at build time.
-- The page supports summary, assignment/practice tabs, backend filters,
-  pagination 20/50, responsive desktop/mobile layouts, abortable requests, and
-  an accessible detail modal.
+- The page supports summary, responsive desktop/mobile layouts, abortable
+  pagination, and an accessible detail modal. The API retains owner-scoped
+  backend filters, but the advanced filter panel is intentionally hidden from
+  the current student UI; this is presentation-only and does not mutate history.
+- Grammar detail resolves stored selected/correct option IDs against the
+  snapshotted option list, so existing backfilled attempts show lettered answer
+  text while correct-answer visibility still follows the captured review policy.
 - Opening History never creates a new guest identity. Vocabulary/grammar resolve
   flows persist newly issued guest capability tokens.
 

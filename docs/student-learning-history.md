@@ -166,14 +166,18 @@ Entry `Lịch sử học tập` nằm trong student portal, không nằm trong
 
 Trang phải có:
 
-- Tổng quan thống kê.
-- Tab Tất cả, Bài được giao và Tự luyện.
-- Filter chạy ở backend.
-- Pagination 20/50; đổi filter reset về trang 1.
+- Tổng quan thống kê và danh sách đầy đủ theo thứ tự mới nhất trước.
+- API vẫn hỗ trợ filter ở backend, nhưng panel filter nâng cao được chủ động ẩn
+  khỏi giao diện học sinh để màn hình gọn hơn; thay đổi này không xóa hoặc sửa dữ
+  liệu lịch sử.
+- Giao diện phân trang mặc định 20 bản ghi; API vẫn hỗ trợ `pageSize` 20/50.
 - Desktop table/list và mobile card, không tràn ngang.
 - Loading, empty, error và retry state.
-- Abort request cũ khi filter đổi nhanh.
+- Abort request cũ khi phân trang hoặc tải lại.
 - Detail modal có focus management, Escape/close và vùng scroll riêng.
+- Detail ngữ pháp ánh xạ `selectedOptionId`/`correctOptionId` qua option snapshot
+  để hiển thị nội dung như `D. go` thay vì ID kỹ thuật. Đáp án đúng chỉ xuất hiện
+  khi review policy của lượt làm cho phép.
 
 Empty state:
 

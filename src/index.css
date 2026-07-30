@@ -2214,3 +2214,95 @@ textarea::placeholder {
 #results-tab-content #activity-results-sheet {
   display: none !important;
 }
+
+/* Keep Learning History controls readable despite the legacy global glass
+   button overrides above. Scope every override to this feature only. */
+#student-history-nav-btn {
+  background: #1d4ed8 !important;
+  border: 1px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.2) !important;
+}
+
+#student-history-nav-btn:hover {
+  background: #1e40af !important;
+  border-color: #1e40af !important;
+}
+
+#student-history-nav-btn *,
+#student-history-nav-btn svg {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#student-history-page #student-history-back-btn,
+#student-history-recovery-back-btn {
+  background: #ffffff !important;
+  border: 1px solid #93c5fd !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+}
+
+#student-history-page #student-history-back-btn:hover,
+#student-history-recovery-back-btn:hover {
+  background: #eff6ff !important;
+  border-color: #60a5fa !important;
+  color: #1e40af !important;
+}
+
+#student-history-page #student-history-back-btn *,
+#student-history-page #student-history-back-btn svg,
+#student-history-recovery-back-btn *,
+#student-history-recovery-back-btn svg {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#student-history-page button.history-detail-button:not(:disabled) {
+  background: #2563eb !important;
+  border: 1px solid #2563eb !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2) !important;
+}
+
+#student-history-page button.history-detail-button:not(:disabled):hover {
+  background: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+}
+
+#student-history-page button.history-detail-button:not(:disabled) *,
+#student-history-page button.history-detail-button:not(:disabled) svg {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#student-history-modal-close-btn {
+  background: #ffffff !important;
+  border: 1px solid #94a3b8 !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08) !important;
+}
+
+#student-history-modal-close-btn:hover {
+  background: #fee2e2 !important;
+  border-color: #f87171 !important;
+  color: #b91c1c !important;
+}
+
+#student-history-modal-close-btn svg {
+  color: currentColor !important;
+  opacity: 1 !important;
+  stroke-width: 2.5;
+}
+
+#student-history-nav-btn:focus-visible,
+#student-history-page #student-history-back-btn:focus-visible,
+#student-history-recovery-back-btn:focus-visible,
+#student-history-page button.history-detail-button:focus-visible,
+#student-history-modal-close-btn:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.45) !important;
+  outline-offset: 2px !important;
+}

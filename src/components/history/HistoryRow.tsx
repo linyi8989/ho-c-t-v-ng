@@ -94,7 +94,7 @@ function DetailButton({
       type="button"
       disabled={unavailable}
       onClick={event => onViewDetail(item, event.currentTarget)}
-      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-indigo-600 bg-indigo-600 px-3 text-xs font-black text-white disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+      className="history-detail-button inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-indigo-600 bg-indigo-600 px-3 text-xs font-black text-white disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
       aria-label={`Xem chi tiết ${item.lessonTitle}`}
     >
       <Eye size={15} aria-hidden="true" />

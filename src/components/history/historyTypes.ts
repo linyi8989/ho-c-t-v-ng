@@ -154,6 +154,50 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * Resolves a stored option id (or option text) to the same lettered label the
+ * detail modal shows in its option list. This keeps already-backfilled grammar
+ * attempts readable without rewriting their immutable source rows.
+ */
+export function resolveHistoryOptionAnswer(value: unknown, options: unknown): string | undefined {
+  if (
+    !Array.isArray(options)
+    || (typeof value !== 'string' && typeof value !== 'number')
+  ) {
+    return undefined;
+  }
+
+  const answer = String(value).trim();
+  if (!answer) return undefined;
+
+  const optionIndex = options.findIndex(option => {
+    if (typeof option === 'string' || typeof option === 'number') {
+      return String(option).trim() === answer;
+    }
+    const optionRecord = asRecord(option);
+    if (!optionRecord) return false;
+    const optionId = firstDefined(optionRecord, ['id', 'optionId', 'option_id', 'key']);
+    const optionText = firstDefined(optionRecord, ['text', 'label', 'answer', 'content']);
+    return (
+      (optionId !== undefined && String(optionId).trim() === answer)
+      || (optionText !== undefined && String(optionText).trim() === answer)
+    );
+  });
+
+  if (optionIndex < 0) return undefined;
+  const matchedOption = options[optionIndex];
+  const optionRecord = asRecord(matchedOption);
+  const optionText = optionRecord
+    ? firstDefined(optionRecord, ['text', 'label', 'answer', 'content'])
+    : matchedOption;
+  if (optionText === undefined || optionText === null || String(optionText).trim() === '') {
+    return undefined;
+  }
+
+  const optionLetter = String.fromCharCode(65 + optionIndex);
+  return `${optionLetter}. ${String(optionText).trim()}`;
+}
+
 function firstDefined(record: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     if (record[key] !== undefined && record[key] !== null) return record[key];

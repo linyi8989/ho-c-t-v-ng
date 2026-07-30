@@ -402,18 +402,40 @@ export function projectGrammarAttempt(
     ? createDetail('grammar', attemptId, attempt.clientRunId, completedAt, {
         answerDetails: questions.map((question: any, index: number) => {
           const answer: any = answerByQuestion.get(question?.id);
+          const questionType = question?.questionType === 'rewrite'
+            ? 'rewrite'
+            : 'multiple_choice';
+          const optionSnapshots = Array.isArray(question?.optionsSnapshot)
+            ? question.optionsSnapshot
+            : [];
+          const selectedOptionId = text(answer?.selectedOptionId, 200);
+          const correctOptionId = text(question?.correctOptionId || answer?.correctOptionId, 200);
+          const selectedOption = optionSnapshots.find(
+            (option: any) => text(option?.id, 200) === selectedOptionId,
+          );
+          const correctOption = optionSnapshots.find(
+            (option: any) => text(option?.id, 200) === correctOptionId,
+          );
+          const userAnswer = questionType === 'rewrite'
+            ? text(answer?.textAnswer, 4_000)
+            : text(selectedOption?.text, 2_000);
+          const correctAnswer = questionType === 'rewrite'
+            ? text(question?.correctAnswerSnapshot || answer?.correctAnswer, 4_000)
+            : text(correctOption?.text, 2_000);
           return {
             questionIndex: Number(question?.displayPosition || index + 1) - 1,
             attemptQuestionId: text(question?.id, 200),
             questionId: text(question?.questionId, 200),
-            questionType: question?.questionType === 'rewrite' ? 'rewrite' : 'multiple_choice',
-            selectedOptionId: text(answer?.selectedOptionId, 200),
+            questionType,
+            selectedOptionId,
             textAnswer: text(answer?.textAnswer, 4_000),
+            selectedAnswer: userAnswer,
+            userAnswer,
             isCorrect: Boolean(answer?.isCorrect),
             scoreAwarded: nonNegative(answer?.scoreAwarded),
             answeredAt: isoOrNull(answer?.answeredAt),
-            correctOptionId: text(question?.correctOptionId || answer?.correctOptionId, 200),
-            correctAnswer: text(question?.correctAnswerSnapshot || answer?.correctAnswer, 4_000),
+            correctOptionId,
+            correctAnswer,
             acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot)
               ? question.acceptedAnswersSnapshot.map((value: unknown) => text(value, 4_000))
               : [],

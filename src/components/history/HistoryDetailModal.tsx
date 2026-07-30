@@ -14,7 +14,8 @@ import {
   NormalizedHistoryDetailEntry,
   formatHistoryDateTime,
   formatHistoryDuration,
-  normalizeHistoryDetailEntries
+  normalizeHistoryDetailEntries,
+  resolveHistoryOptionAnswer
 } from './historyTypes';
 
 interface HistoryDetailModalProps {
@@ -115,14 +116,23 @@ function DetailEntry({
     'recognizedText',
     'transcript'
   ]);
-  const correctAnswer = firstValue(data, [
+  const explicitCorrectAnswer = firstValue(data, [
     'correctAnswer',
     'correctAnswerSnapshot',
     'acceptedAnswers',
     'acceptedAnswersSnapshot'
   ]);
+  const correctOptionId = firstValue(data, [
+    'correctOptionId',
+    'correct_option_id'
+  ]);
   const correctness = firstValue(data, ['isCorrect', 'correct', 'passed']);
   const options = firstValue(data, ['optionsSnapshot', 'options']);
+  const displayedStudentAnswer = resolveHistoryOptionAnswer(studentAnswer, options)
+    || readableValue(studentAnswer);
+  const correctAnswer = explicitCorrectAnswer ?? correctOptionId;
+  const displayedCorrectAnswer = resolveHistoryOptionAnswer(correctAnswer, options)
+    || readableValue(correctAnswer);
   const ipa = firstValue(data, ['ipa', 'phonetic', 'ipaSnapshot']);
   const meaning = firstValue(data, ['meaning', 'definition', 'meaningSnapshot']);
   const explanation = firstValue(data, ['explanation', 'explanationSnapshot']);
@@ -202,13 +212,13 @@ function DetailEntry({
           <dt className="text-xs font-bold text-slate-500">
             {sourceType === 'grammar' ? 'Câu trả lời của bạn' : 'Đáp án của bạn'}
           </dt>
-          <dd className="mt-1 break-words text-slate-800">{readableValue(studentAnswer)}</dd>
+          <dd className="mt-1 break-words text-slate-800">{displayedStudentAnswer}</dd>
         </div>
         {correctAnswer !== undefined && (
           <div>
             <dt className="text-xs font-bold text-slate-500">Đáp án đúng</dt>
             <dd className="mt-1 break-words font-bold text-emerald-700">
-              {readableValue(correctAnswer)}
+              {displayedCorrectAnswer}
             </dd>
           </div>
         )}
@@ -375,6 +385,7 @@ export default function HistoryDetailModal({
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
+            id="student-history-modal-close-btn"
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
             aria-label="Đóng chi tiết lượt làm"
           >

@@ -34,7 +34,7 @@ Release A vẫn phải được giữ nguyên trong suốt lần triển khai Re
 | 2.5 | Backfill | Hoàn tất CLI dry-run/execute/resume/reconcile; execute bắt buộc verified backup |
 | 2.6 | Repository/API | Hoàn tất list/detail SQL, owner scope, pagination/filter, review-policy redaction và timing |
 | 2.7 | Frontend client/types | Hoàn tất auth/guest headers, AbortSignal và defensive response parsing |
-| 2.8 | UI | Hoàn tất `/history`, summary/filter/pagination/responsive/detail modal; đang nằm sau build flag |
+| 2.8 | UI | Hoàn tất `/history`, summary/pagination/responsive/detail modal; panel filter nâng cao được ẩn sau rà soát UX, backend filter vẫn giữ nguyên; đang nằm sau build flag |
 | 2.9 | Retention | Hoàn tất CLI dry-run mặc định; execute tự backup, chỉ xóa detail hết hạn và đo zero delta trên các bảng bảo vệ |
 | 2.10 | Compatibility | Hoàn tất: không thay nguồn Recent Activity, leaderboard và API kết quả cũ |
 | 2.11 | Test | Hoàn tất local trên Node `v22.16.0`: `npm run test:phase2` pass, gồm History `24/24` và legacy HTTP golden `4/4` |

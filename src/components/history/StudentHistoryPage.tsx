@@ -22,12 +22,10 @@ import {
 } from '../../lib/guestIdentity';
 import AssignmentHistoryGroup from './AssignmentHistoryGroup';
 import HistoryDetailModal from './HistoryDetailModal';
-import HistoryFilters, { resetHistoryFilters } from './HistoryFilters';
 import HistoryList from './HistoryList';
 import HistorySummary from './HistorySummary';
 import {
   DEFAULT_HISTORY_FILTERS,
-  EMPTY_HISTORY_FILTER_OPTIONS,
   EMPTY_HISTORY_SUMMARY,
   LearningHistoryDetailResponse,
   LearningHistoryFilters,
@@ -75,6 +73,7 @@ function GuestRecoveryState({
           <button
             type="button"
             onClick={onBack}
+            id="student-history-recovery-back-btn"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-700"
           >
             <ArrowLeft size={17} aria-hidden="true" />
@@ -261,18 +260,6 @@ export default function StudentHistoryPage({
 
   useEffect(() => () => detailAbortRef.current?.abort(), []);
 
-  const changeFilters = useCallback((changes: Partial<LearningHistoryFilters>) => {
-    setFilters(current => ({
-      ...current,
-      ...changes,
-      page: 1
-    }));
-  }, []);
-
-  const resetFilters = useCallback(() => {
-    setFilters(current => resetHistoryFilters(current.pageSize));
-  }, []);
-
   const loadDetail = useCallback((item: LearningHistoryItem) => {
     detailAbortRef.current?.abort();
     const controller = new AbortController();
@@ -316,7 +303,6 @@ export default function StudentHistoryPage({
   }
 
   const summary = data?.summary || EMPTY_HISTORY_SUMMARY;
-  const options = data?.filterOptions || EMPTY_HISTORY_FILTER_OPTIONS;
   const pagination = data?.pagination || {
     page: filters.page,
     pageSize: filters.pageSize,
@@ -325,12 +311,13 @@ export default function StudentHistoryPage({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div id="student-history-page" className="min-h-screen bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <button
             type="button"
             onClick={onBack}
+            id="student-history-back-btn"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-black text-slate-700"
           >
             <ArrowLeft size={18} aria-hidden="true" />
@@ -366,13 +353,6 @@ export default function StudentHistoryPage({
         </section>
 
         <HistorySummary summary={summary} />
-        <HistoryFilters
-          filters={filters}
-          options={options}
-          disabled={loading}
-          onChange={changeFilters}
-          onReset={resetFilters}
-        />
 
         {loading && !data ? (
           <LoadingState />

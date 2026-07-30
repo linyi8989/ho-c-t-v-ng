@@ -112,6 +112,49 @@ test('grammar projector stores canonical percent and review-policy snapshot', ()
   assert.equal(projection.detail?.reviewPolicy.showReviewAfterSubmit, false);
 });
 
+test('grammar projector stores readable selected and correct option text', () => {
+  const selectedOptionId = 'grammar-question-1-option-3';
+  const correctOptionId = 'grammar-question-1-option-2';
+  const projection = projectGrammarAttempt({
+    id: 'grammar-attempt-multiple-choice',
+    userId: 'user-a',
+    grammarSetId: 'grammar-1',
+    grammarSetTitle: 'Present simple',
+    status: 'completed',
+    score: 0,
+    maxScore: 1,
+    correctCount: 0,
+    wrongCount: 1,
+    unansweredCount: 0,
+    completedAt: '2026-01-01T00:03:00.000Z',
+    questions: [{
+      id: 'attempt-question-1',
+      questionId: 'grammar-question-1',
+      questionType: 'multiple_choice',
+      questionSnapshot: 'My brother ____ to school.',
+      correctOptionId,
+      optionsSnapshot: [
+        { id: 'grammar-question-1-option-0', text: 'gone' },
+        { id: 'grammar-question-1-option-1', text: 'going' },
+        { id: correctOptionId, text: 'goes' },
+        { id: selectedOptionId, text: 'go' },
+      ],
+    }],
+    answers: [{
+      attemptQuestionId: 'attempt-question-1',
+      selectedOptionId,
+      correctOptionId,
+      isCorrect: false,
+      scoreAwarded: 0,
+    }],
+  });
+
+  const answer = projection.detail?.answerDetails[0] as Record<string, unknown>;
+  assert.equal(answer.selectedAnswer, 'go');
+  assert.equal(answer.userAnswer, 'go');
+  assert.equal(answer.correctAnswer, 'goes');
+});
+
 test('detail normalizer strips answer keys and explanations when snapshot denies review', () => {
   const actor: LearningHistoryActor = {
     id: 'student-1',

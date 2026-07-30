@@ -10,7 +10,8 @@ import {
 import {
   DEFAULT_HISTORY_FILTERS,
   normalizeHistoryDetailEntries,
-  parseLearningHistoryResponse
+  parseLearningHistoryResponse,
+  resolveHistoryOptionAnswer
 } from '../../components/history/historyTypes';
 
 test('history query only sends allowlisted filters and normalizes pagination', () => {
@@ -178,6 +179,25 @@ test('defensive detail normalization merges option envelopes and isolates malfor
   assert.deepEqual(entries[0].data.optionsSnapshot, ['A', 'B']);
   assert.equal(entries[0].data.userAnswer, 'B');
   assert.equal(entries[1].malformed, true);
+});
+
+test('grammar option ids resolve to the same lettered answer text shown in the modal', () => {
+  const options = [
+    { id: 'question-1-option-0', text: 'gone' },
+    { id: 'question-1-option-1', text: 'going' },
+    { id: 'question-1-option-2', text: 'goes' },
+    { id: 'question-1-option-3', text: 'go' }
+  ];
+
+  assert.equal(
+    resolveHistoryOptionAnswer('question-1-option-3', options),
+    'D. go'
+  );
+  assert.equal(
+    resolveHistoryOptionAnswer('question-1-option-2', options),
+    'C. goes'
+  );
+  assert.equal(resolveHistoryOptionAnswer('unknown-option', options), undefined);
 });
 
 test('response parser supplies safe defaults for a non-object payload', () => {
