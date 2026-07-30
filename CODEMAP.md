@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ## 1. Project Overview
 
@@ -113,7 +113,8 @@ In production, `server.ts` serves `dist/client` statically and returns `index.ht
 
 - `dist/client/*` to `/home/qzmivzbj/app.msdieu.com`.
 - full `dist` folder.
-- `app.js`, `package.json`, `package-lock.json`, `db.json`.
+- `app.js`, `package.json`, `package-lock.json`.
+- `scripts/*.mjs` maintenance/preflight tools.
 
 The host must have production env vars available to Node. Static-only hosting will show the React app, but API-backed features need the Node server running.
 
@@ -902,7 +903,7 @@ The backend now supports multiple storage modes:
 
 - `firebase`: use Firebase/Firestore. This is the default when `STORAGE_MODE` is omitted.
 - `local-json`: use local JSON storage only when explicitly configured. It is not an automatic fallback.
-- SQLite mode through `src/lib/sqliteStorage.ts` when `STORAGE_MODE=sqlite`.
+- SQLite mode through the facade in `src/lib/sqliteStorage.ts` and driver modules in `src/lib/storage/` when `STORAGE_MODE=sqlite`.
 - Legacy `firebase-first` is normalized to `firebase`; Firestore read/write failure returns a storage-unavailable API error instead of switching to local data.
 
 SQLite notes:
@@ -912,7 +913,11 @@ SQLite notes:
 - `vocab_sets` are saved with nested `items`, and items are also upserted into `vocab_items`.
 - `game_sessions` include `guestId` through JSON/data fields and are used for leaderboard identity.
 - `leaderboard_events` stores compact completed-attempt summaries for longer-lived leaderboard calculations.
-- sql.js persistence writes to a temporary DB file, fsyncs it, then renames it over the active SQLite file. This reduces corruption risk from interrupted writes but does not make sql.js a multi-worker database.
+- Primary SQLite driver: pinned `better-sqlite3@12.4.1`, one native connection per process, real transactions, and WAL.
+- `sql.js` is an explicit emergency rollback driver only. It refuses startup when a non-empty `app.sqlite-wal` exists.
+- Production must explicitly set the driver/path and deny implicit creation/import/seed. Storage integrity and migrations finish before `app.listen()`.
+- Additive migration `native-hot-query-columns-v2` backfills normalized game/grammar completion fields without rewriting `data_json`.
+- Host maintenance commands live in `scripts/*.mjs`: preflight, diagnostics, online backup, checkpoint, and WAL-to-DELETE rollback preparation.
 
 ### Data Loss Incident Note - 2026-07-08
 
@@ -937,7 +942,11 @@ Fixes applied:
 - Phase 4 storage hardening removed automatic fallback from Firestore mode. If Firestore is configured and unavailable, backend APIs return 503 instead of writing to local JSON.
 - Production should use these environment variables when SQLite is the data source:
   - `STORAGE_MODE=sqlite`
+  - `SQLITE_DRIVER=better-sqlite3`
   - `SQLITE_DB_PATH=/home/qzmivzbj/app-data/vhomework/app.sqlite`
+  - `SQLITE_ALLOW_CREATE=false`
+  - `SQLITE_ALLOW_JSON_IMPORT=false`
+  - `SEED_DATA_ENABLED=false`
   - `LOCAL_DB_PATH=/home/qzmivzbj/app-data/vhomework/db.json`
   - `DIAGNOSTIC_SECRET=<host-only secret>`
 
@@ -1444,9 +1453,9 @@ Phase 4 - optimization:
 
 ## 16. Game And Grammar Performance Hardening - 2026-07-24
 
-Observed bottlenecks:
+Original bottlenecks:
 
-- Production SQLite uses `sql.js`. Every standalone write exports the whole database, writes a temporary file, calls `fsync`, and renames it over the active file.
+- The previous production SQLite path used `sql.js`. Every standalone write exported the whole database, wrote a temporary file, called `fsync`, and renamed it over the active file.
 - The old `SQLiteQuery.get()` always loaded a full table and filtered in JavaScript, so SQL indexes were not used.
 - Grammar attempt creation/history scanned all `grammar_attempts`.
 - Each incremental game action scanned all `game_session_actions`, wrote the action, then persisted the session separately.
@@ -1454,7 +1463,8 @@ Observed bottlenecks:
 
 Implemented behavior:
 
-- Slow game/grammar APIs return a `Server-Timing` header and log `[PERF]` when total duration exceeds `SLOW_API_LOG_MS` (default 500 ms). In SQLite mode, each log also reports `persists` and `persistMs`, measured from the real `persistDb()` calls, so export/fsync cost can be verified instead of inferred.
+- Release A uses `better-sqlite3` + WAL; native writes no longer export/replace the full database.
+- Slow game/grammar APIs return a `Server-Timing` header and log `[PERF]` when total duration exceeds `SLOW_API_LOG_MS` (default 500 ms). SQLite metrics now come from request-scoped `AsyncLocalStorage` context and include query time/count, rows read/written, transaction time, and busy errors.
 - `SQLiteQuery.get()` now pushes supported filters/order/limit into real SQL for normalized fields. Unsupported fields retain the compatibility in-memory fallback.
 - Additive migration `grammar-attempt-query-columns-v1` adds/backfills `grammar_set_id`, `user_id`, `guest_id`, and `status` without changing `data_json`, then creates composite indexes for attempt limits/history.
 - Grammar attempt limits, personal history, and admin result lists query only the relevant set/student rows.

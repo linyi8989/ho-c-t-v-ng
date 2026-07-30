@@ -10,7 +10,16 @@ import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { adminDb, adminAuth, firebaseDiagnosticReady, getStorageDiagnostics, getStoragePersistStats, isStorageUnavailableError } from "./src/lib/firebaseAdmin.js";
+import {
+  adminDb,
+  adminAuth,
+  firebaseDiagnosticReady,
+  getStorageDiagnostics,
+  getStorageRequestMetrics,
+  isStorageUnavailableError,
+  shutdownStorage,
+  withStorageRequestMetrics,
+} from "./src/lib/firebaseAdmin.js";
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 import { deterministicRunDocumentId, normalizeClientStartedAt } from "./src/lib/serverLearningRuns.js";
 
@@ -25,9 +34,11 @@ const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 
 app.use(express.json());
 app.use((req, _res, next) => {
-  (req as any).__requestStartedAt = performance.now();
-  (req as any).__storagePersistStartedAt = getStoragePersistStats();
-  next();
+  withStorageRequestMetrics(() => {
+    (req as any).__requestStartedAt = performance.now();
+    (req as any).__storageRequestMetrics = getStorageRequestMetrics();
+    next();
+  });
 });
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use(AUDIO_PUBLIC_PREFIX, express.static(AUDIO_DIR));
@@ -39,7 +50,6 @@ function sendApiError(res: express.Response, err: any) {
 
 function createApiTiming(req: express.Request, label: string) {
   const requestStartedAt = Number((req as any).__requestStartedAt || performance.now());
-  const persistStartedAt = (req as any).__storagePersistStartedAt || getStoragePersistStats();
   let checkpoint = performance.now();
   const entries: Array<{ name: string; durationMs: number }> = [];
   const authDurationMs = Math.max(0, checkpoint - requestStartedAt);
@@ -59,16 +69,15 @@ function createApiTiming(req: express.Request, label: string) {
       if (finished) return;
       finished = true;
       const totalMs = Math.max(0, performance.now() - requestStartedAt);
-      const persistFinishedAt = getStoragePersistStats();
-      const persistCount = persistStartedAt && persistFinishedAt
-        ? Math.max(0, Number(persistFinishedAt.attempts) - Number(persistStartedAt.attempts))
-        : 0;
-      const persistMs = persistStartedAt && persistFinishedAt
-        ? Math.max(0, Number(persistFinishedAt.totalMs) - Number(persistStartedAt.totalMs))
-        : 0;
+      const storageMetrics = (req as any).__storageRequestMetrics || getStorageRequestMetrics();
       const timingEntries = [
         ...entries,
-        ...(persistCount > 0 ? [{ name: "sqlite_persist", durationMs: persistMs }] : []),
+        ...(storageMetrics?.queryCount > 0
+          ? [{ name: "sqlite_query", durationMs: Number(storageMetrics.queryDurationMs || 0) }]
+          : []),
+        ...(storageMetrics?.transactionCount > 0
+          ? [{ name: "sqlite_tx", durationMs: Number(storageMetrics.transactionDurationMs || 0) }]
+          : []),
         { name: "total", durationMs: totalMs }
       ];
       const serverTiming = timingEntries
@@ -78,7 +87,7 @@ function createApiTiming(req: express.Request, label: string) {
       if (totalMs >= SLOW_API_LOG_MS) {
         const detail = entries.map(entry => `${entry.name}=${entry.durationMs.toFixed(1)}ms`).join(" ");
         console.warn(
-          `[PERF] ${label} total=${totalMs.toFixed(1)}ms persists=${persistCount} persistMs=${persistMs.toFixed(1)} ${detail}`
+          `[PERF] ${label} total=${totalMs.toFixed(1)}ms sqliteQueries=${Number(storageMetrics?.queryCount || 0)} sqliteMs=${Number(storageMetrics?.queryDurationMs || 0).toFixed(1)} rowsRead=${Number(storageMetrics?.rowsRead || 0)} rowsWritten=${Number(storageMetrics?.rowsWritten || 0)} busyErrors=${Number(storageMetrics?.busyErrors || 0)} ${detail}`
         );
       }
     }
@@ -1231,14 +1240,21 @@ function mergeLeaderboardEvents(events: any[]) {
 
 async function loadLeaderboardEventsFromSources() {
   const events: any[] = [];
-  const storedSnapshot = await adminDb.collection("leaderboard_events").get();
+  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const storedSnapshot = await adminDb.collection("leaderboard_events")
+    .where("completedAt", ">=", leaderboardCutoff)
+    .get();
   storedSnapshot.forEach(doc => {
     const data = sanitizeLeaderboardEvent({ id: doc.id, ...doc.data() });
     if (!isExpiredStoredLeaderboardEvent(data)) events.push(data);
   });
 
-  const gameSnapshot = await adminDb.collection("game_sessions").get();
-  const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+  const gameSnapshot = await adminDb.collection("game_sessions")
+    .where("completedAt", ">=", leaderboardCutoff)
+    .get();
+  const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts")
+    .where("completedAt", ">=", leaderboardCutoff)
+    .get();
   const grammarSetsById = await getGrammarSetMap();
   const vocabSetsById = await getVocabSetMap();
 
@@ -2732,8 +2748,13 @@ app.get("/api/public/vocab-sets", async (req, res) => {
 // 7. PUBLIC GAME RESULTS: Minimal completed sessions for the student golden board
 app.get("/api/public/results", async (req, res) => {
   try {
-    const snapshot = await adminDb.collection("game_sessions").get();
-    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
+    const snapshot = await adminDb.collection("game_sessions")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
+    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
@@ -4751,8 +4772,13 @@ app.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, re
 // 22. GAME RESULTS: Get all finished game sessions
 app.get("/api/results", authenticateUser, async (req, res) => {
   try {
-    const snapshot = await adminDb.collection("game_sessions").get();
-    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").get();
+    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
+    const snapshot = await adminDb.collection("game_sessions")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
+    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
@@ -5073,6 +5099,18 @@ app.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]),
 // ============================================================================
 
 async function start() {
+  await firebaseDiagnosticReady;
+
+  const seedDataEnabled = String(process.env.SEED_DATA_ENABLED || "").toLowerCase() === "true";
+  if (process.env.NODE_ENV === "production" && seedDataEnabled) {
+    throw new Error("SEED_DATA_ENABLED must be false in production.");
+  }
+  if (seedDataEnabled) {
+    await preSeedDb();
+  } else {
+    console.log("[Startup] Seed data disabled.");
+  }
+
   if (process.env.NODE_ENV !== "production") {
     // Start Vite in middleware mode
     const vite = await createViteServer({
@@ -5091,17 +5129,28 @@ async function start() {
     console.log("Production static build routing active.");
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
 
-  firebaseDiagnosticReady
-    .then(async () => {
-      await preSeedDb();
-    })
-    .catch((err) => {
-      console.error("Background Firebase startup tasks failed", err);
+  let shuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] ${signal} received; closing HTTP and storage.`);
+    httpServer.close(async (error) => {
+      try {
+        await shutdownStorage();
+      } finally {
+        if (error) {
+          console.error("[Shutdown] HTTP close failed", error);
+          process.exitCode = 1;
+        }
+      }
     });
+  };
+  process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.once("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 type VocabVisibility = "public" | "assignment" | "draft";
@@ -5764,6 +5813,8 @@ async function getGrammarAttemptOr404(id: string) {
   return { id: doc.id, ...doc.data() };
 }
 
-start().catch((err) => {
+start().catch(async (err) => {
   console.error("Failed to start fullstack server", err);
+  await shutdownStorage().catch(() => undefined);
+  process.exit(1);
 });

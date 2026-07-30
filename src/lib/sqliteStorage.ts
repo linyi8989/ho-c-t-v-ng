@@ -1,28 +1,34 @@
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
+import { resolveSQLiteStorageConfig, redactSQLitePath } from './storage/sqliteConfig';
+import {
+  getSQLiteProcessMetrics,
+  getSQLiteRequestMetrics,
+  runWithSQLiteRequestMetrics,
+} from './storage/sqliteInstrumentation';
+import { openSQLiteDriver } from './storage/sqliteStorageFactory';
+import type {
+  SQLiteDriverAdapter,
+  SQLiteStorageConfig,
+} from './storage/storageTypes';
 
 type Filter = { field: string; op: string; val: any };
 type BatchOp = { type: 'set' | 'update' | 'delete'; doc: SQLiteDoc; data?: any };
 
-const require = createRequire(path.join(process.cwd(), 'package.json'));
-const initSqlJs = require('sql.js');
-
-const DEFAULT_SQLITE_PATH = '/home/qzmivzbj/app-data/vhomework/app.sqlite';
 const MIGRATION_ID = 'import-db-json-v1';
+const BASE_SCHEMA_MIGRATION_ID = 'base-schema-v1';
+const ACTIVITY_EXPIRY_MIGRATION_ID = 'activity-expiry-columns-v1';
 const GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = 'grammar-attempt-query-columns-v1';
+const NATIVE_HOT_QUERY_MIGRATION_ID = 'native-hot-query-columns-v2';
 
-let sqliteDb: any = null;
+let sqliteDb: SQLiteDriverAdapter | null = null;
+let sqliteConfig: SQLiteStorageConfig | null = null;
 let sqliteDbPath = '';
 let sqliteReady = false;
 let sqliteLastError: string | null = null;
 let sqliteLastMigration: string | null = null;
 let initPromise: Promise<void> | null = null;
 let transactionDepth = 0;
-let sqlitePersistAttempts = 0;
-let sqlitePersistSuccesses = 0;
-let sqlitePersistTotalMs = 0;
-let sqlitePersistLastMs = 0;
 
 const collectionTableMap: Record<string, string> = {
   users: 'users',
@@ -65,6 +71,28 @@ const collectionTableMap: Record<string, string> = {
 };
 
 const sqlQueryFieldMap: Record<string, Record<string, string>> = {
+  users: {
+    id: 'id',
+    email: 'email',
+    role: 'role',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  guest_profiles: {
+    id: 'id',
+    normalizedName: 'normalized_name',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    lastActiveAt: 'last_active_at',
+  },
+  class_members: {
+    id: 'id',
+    classId: 'class_id',
+    userId: 'user_id',
+    role: 'role',
+    createdAt: 'created_at',
+  },
   assignments: {
     id: 'id',
     classId: 'class_id',
@@ -83,7 +111,14 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     gameId: 'game_id',
     vocabSetId: 'vocab_set_id',
     score: 'score',
+    guestId: 'guest_id',
+    ownerKey: 'owner_key',
+    status: 'status',
+    clientRunId: 'client_run_id',
+    sourceType: 'source_type',
+    sourceId: 'source_id',
     createdAt: 'created_at',
+    completedAt: 'completed_at',
     expiresAt: 'expires_at',
   },
   game_session_actions: {
@@ -94,6 +129,17 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   },
+  leaderboard_events: {
+    id: 'id',
+    sourceType: 'source_type',
+    sourceId: 'source_id',
+    studentKey: 'student_key',
+    classId: 'class_id',
+    vocabSetId: 'vocab_set_id',
+    score: 'score',
+    completedAt: 'completed_at',
+    expiresAt: 'expires_at',
+  },
   grammar_attempts: {
     id: 'id',
     grammarSetId: 'grammar_set_id',
@@ -101,7 +147,14 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     guestId: 'guest_id',
     status: 'status',
     createdAt: 'created_at',
+    completedAt: 'completed_at',
     updatedAt: 'updated_at',
+  },
+  audit_logs: {
+    id: 'id',
+    userId: 'user_id',
+    action: 'action',
+    timestamp: 'timestamp',
   },
 };
 
@@ -122,15 +175,21 @@ function parseJson(raw: string | null | undefined) {
   }
 }
 
-function getDbPath() {
-  return process.env.SQLITE_DB_PATH || DEFAULT_SQLITE_PATH;
+function redactSQLiteError(error: unknown) {
+  let message = String((error as any)?.message || error || 'Unknown SQLite error');
+  if (sqliteDbPath) {
+    message = message
+      .split(sqliteDbPath).join('<sqlite-db>')
+      .split(sqliteDbPath.replaceAll('\\', '/')).join('<sqlite-db>');
+  }
+  return message;
 }
 
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
-function getDb() {
+function getDb(): SQLiteDriverAdapter {
   if (!sqliteDb) {
     throw new Error('SQLite database is not initialized.');
   }
@@ -138,10 +197,8 @@ function getDb() {
 }
 
 function persistDb() {
-  if (!sqliteDb || !sqliteDbPath || transactionDepth > 0) return;
-  const startedAt = performance.now();
-  sqlitePersistAttempts++;
-  const exported = sqliteDb.export();
+  if (!sqliteDb?.exportBytes || !sqliteDbPath || transactionDepth > 0) return;
+  const exported = sqliteDb.exportBytes();
   ensureParentDir(sqliteDbPath);
   const tempPath = path.join(
     path.dirname(sqliteDbPath),
@@ -157,7 +214,6 @@ function persistDb() {
       fs.closeSync(fd);
     }
     fs.renameSync(tempPath, sqliteDbPath);
-    sqlitePersistSuccesses++;
   } catch (err) {
     try {
       if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
@@ -165,9 +221,6 @@ function persistDb() {
       // Keep the original persistence error.
     }
     throw err;
-  } finally {
-    sqlitePersistLastMs = Math.max(0, performance.now() - startedAt);
-    sqlitePersistTotalMs += sqlitePersistLastMs;
   }
 }
 
@@ -177,50 +230,27 @@ function run(sql: string, params: any[] = [], shouldPersist = true) {
 }
 
 function all(sql: string, params: any[] = []) {
-  const stmt = getDb().prepare(sql);
-  const rows: any[] = [];
-  try {
-    stmt.bind(params);
-    while (stmt.step()) {
-      rows.push(stmt.getAsObject());
-    }
-    return rows;
-  } finally {
-    stmt.free();
-  }
+  return getDb().all(sql, params);
 }
 
 function one(sql: string, params: any[] = []) {
-  return all(sql, params)[0];
+  return getDb().one(sql, params);
 }
 
-function withTransaction(action: () => void) {
+function withTransaction<T>(action: () => T, mode: 'deferred' | 'immediate' = 'deferred'): T {
   if (transactionDepth > 0) {
-    action();
-    return;
+    return action();
   }
 
   transactionDepth++;
-  let committed = false;
+  let result: T;
   try {
-    getDb().run('BEGIN TRANSACTION');
-    action();
-    getDb().run('COMMIT');
-    committed = true;
-  } catch (err) {
-    if (!committed) {
-      try {
-        getDb().run('ROLLBACK');
-      } catch {
-        // Ignore rollback errors; the original error is more useful.
-      }
-    }
-    throw err;
+    result = getDb().transaction(action, mode);
   } finally {
     transactionDepth--;
   }
-
   persistDb();
+  return result;
 }
 
 function readRows(table: string): any[] {
@@ -507,9 +537,9 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
-  if (table === 'results' || table === 'game_results') {
+  if (table === 'results') {
     run(
-      `INSERT INTO ${table} (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, expires_at, data_json)
+      `INSERT INTO results (id, assignment_id, user_id, game_id, vocab_set_id, score, correct, incorrect, created_at, expires_at, data_json)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         assignment_id = excluded.assignment_id,
@@ -538,6 +568,56 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'game_results') {
+    const completedAt = data.completedAt || data.endedAt || data.createdAt || createdAt;
+    run(
+      `INSERT INTO game_results (
+        id, assignment_id, user_id, guest_id, owner_key, game_id, vocab_set_id,
+        score, correct, incorrect, status, client_run_id, source_type, source_id,
+        created_at, completed_at, expires_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        assignment_id = excluded.assignment_id,
+        user_id = excluded.user_id,
+        guest_id = excluded.guest_id,
+        owner_key = excluded.owner_key,
+        game_id = excluded.game_id,
+        vocab_set_id = excluded.vocab_set_id,
+        score = excluded.score,
+        correct = excluded.correct,
+        incorrect = excluded.incorrect,
+        status = excluded.status,
+        client_run_id = excluded.client_run_id,
+        source_type = excluded.source_type,
+        source_id = excluded.source_id,
+        completed_at = excluded.completed_at,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        data.assignment_id || data.assignmentId || null,
+        data.user_id || data.userId || data.studentId || null,
+        data.guest_id || data.guestId || null,
+        data.owner_key || data.ownerKey || null,
+        data.game_id || data.gameId || null,
+        data.vocab_set_id || data.vocabSetId || null,
+        Number(data.score || 0),
+        Number(data.correct || data.correctAnswers || 0),
+        Number(data.incorrect || data.incorrectAnswers || 0),
+        data.status || null,
+        data.client_run_id || data.clientRunId || null,
+        data.source_type || data.sourceType || null,
+        data.source_id || data.sourceId || null,
+        data.startedAt || data.createdAt || createdAt,
+        completedAt,
+        data.expiresAt || data.expires_at || null,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (table === 'game_session_actions') {
     run(
       `INSERT INTO game_session_actions (id, session_id, sequence, action_type, created_at, updated_at, data_json)
@@ -551,14 +631,15 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
   if (table === 'grammar_attempts') {
     run(
       `INSERT INTO grammar_attempts (
-        id, grammar_set_id, user_id, guest_id, status, created_at, updated_at, data_json
+        id, grammar_set_id, user_id, guest_id, status, created_at, completed_at, updated_at, data_json
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         grammar_set_id = excluded.grammar_set_id,
         user_id = excluded.user_id,
         guest_id = excluded.guest_id,
         status = excluded.status,
+        completed_at = excluded.completed_at,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
@@ -568,6 +649,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         data.guestId || data.guest_id || null,
         data.status || null,
         createdAt,
+        data.completedAt || data.completed_at || null,
         updatedAt,
         dataJson,
       ]
@@ -764,12 +846,19 @@ function runSchemaMigration() {
       id TEXT PRIMARY KEY,
       assignment_id TEXT,
       user_id TEXT,
+      guest_id TEXT,
+      owner_key TEXT,
       game_id TEXT,
       vocab_set_id TEXT,
       score INTEGER,
       correct INTEGER,
       incorrect INTEGER,
+      status TEXT,
+      client_run_id TEXT,
+      source_type TEXT,
+      source_id TEXT,
       created_at TEXT,
+      completed_at TEXT,
       expires_at TEXT,
       data_json TEXT NOT NULL
     );
@@ -846,6 +935,7 @@ function runSchemaMigration() {
       guest_id TEXT,
       status TEXT,
       created_at TEXT,
+      completed_at TEXT,
       updated_at TEXT,
       data_json TEXT NOT NULL
     );
@@ -888,6 +978,10 @@ function runSchemaMigration() {
     CREATE INDEX IF NOT EXISTS idx_grammar_sets_created_at ON grammar_sets(created_at);
     CREATE INDEX IF NOT EXISTS idx_grammar_attempts_created_at ON grammar_attempts(created_at);
   `);
+  getDb().run(
+    'INSERT OR IGNORE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [BASE_SCHEMA_MIGRATION_ID, nowIso()]
+  );
   persistDb();
 }
 
@@ -905,6 +999,11 @@ function tableHasColumn(table: string, column: string) {
 }
 
 function migrateActivityExpiryColumns() {
+  if (hasMigration(ACTIVITY_EXPIRY_MIGRATION_ID)) {
+    sqliteLastMigration = ACTIVITY_EXPIRY_MIGRATION_ID;
+    return;
+  }
+
   for (const table of ['results', 'game_results']) {
     if (!tableHasColumn(table, 'expires_at')) {
       run(`ALTER TABLE ${table} ADD COLUMN expires_at TEXT`);
@@ -917,6 +1016,11 @@ function migrateActivityExpiryColumns() {
     CREATE INDEX IF NOT EXISTS idx_game_results_created_at ON game_results(created_at);
     CREATE INDEX IF NOT EXISTS idx_game_results_expires_at ON game_results(expires_at);
   `);
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [ACTIVITY_EXPIRY_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = ACTIVITY_EXPIRY_MIGRATION_ID;
 }
 
 function migrateGrammarAttemptQueryColumns() {
@@ -942,24 +1046,21 @@ function migrateGrammarAttemptQueryColumns() {
       `SELECT id, grammar_set_id, user_id, guest_id, status, data_json
        FROM grammar_attempts`
     );
-    const update = getDb().prepare(
-      `UPDATE grammar_attempts
-       SET grammar_set_id = ?, user_id = ?, guest_id = ?, status = ?
-       WHERE id = ?`
-    );
-    try {
-      for (const row of rows) {
-        const data = parseJson(row.data_json);
-        update.run([
+    for (const row of rows) {
+      const data = parseJson(row.data_json);
+      run(
+        `UPDATE grammar_attempts
+         SET grammar_set_id = ?, user_id = ?, guest_id = ?, status = ?
+         WHERE id = ?`,
+        [
           row.grammar_set_id || data.grammarSetId || data.grammar_set_id || null,
           row.user_id || data.userId || data.user_id || null,
           row.guest_id || data.guestId || data.guest_id || null,
           row.status || data.status || null,
           row.id,
-        ]);
-      }
-    } finally {
-      update.free();
+        ],
+        false
+      );
     }
 
     getDb().run(`
@@ -980,6 +1081,92 @@ function migrateGrammarAttemptQueryColumns() {
   sqliteLastMigration = GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID;
 }
 
+function migrateNativeHotQueryColumns() {
+  if (hasMigration(NATIVE_HOT_QUERY_MIGRATION_ID)) {
+    sqliteLastMigration = NATIVE_HOT_QUERY_MIGRATION_ID;
+    return;
+  }
+
+  const gameResultColumns = [
+    ['guest_id', 'TEXT'],
+    ['owner_key', 'TEXT'],
+    ['status', 'TEXT'],
+    ['client_run_id', 'TEXT'],
+    ['source_type', 'TEXT'],
+    ['source_id', 'TEXT'],
+    ['completed_at', 'TEXT'],
+  ];
+  for (const [column, type] of gameResultColumns) {
+    if (!tableHasColumn('game_results', column)) {
+      run(`ALTER TABLE game_results ADD COLUMN ${column} ${type}`, [], false);
+    }
+  }
+  if (!tableHasColumn('grammar_attempts', 'completed_at')) {
+    run('ALTER TABLE grammar_attempts ADD COLUMN completed_at TEXT', [], false);
+  }
+
+  const rows = all(
+    `SELECT id, guest_id, owner_key, status, client_run_id, source_type, source_id,
+            completed_at, created_at, data_json
+     FROM game_results`
+  );
+  for (const row of rows) {
+    const data = parseJson(row.data_json);
+    run(
+      `UPDATE game_results
+       SET guest_id = ?, owner_key = ?, status = ?, client_run_id = ?,
+           source_type = ?, source_id = ?, completed_at = ?
+       WHERE id = ?`,
+      [
+        row.guest_id || data.guestId || data.guest_id || null,
+        row.owner_key || data.ownerKey || data.owner_key || null,
+        row.status || data.status || (data.completedAt ? 'completed' : null),
+        row.client_run_id || data.clientRunId || data.client_run_id || null,
+        row.source_type || data.sourceType || data.source_type || null,
+        row.source_id || data.sourceId || data.source_id || null,
+        row.completed_at || data.completedAt || data.endedAt || row.created_at || null,
+        row.id,
+      ],
+      false
+    );
+  }
+
+  const grammarRows = all(
+    `SELECT id, completed_at, data_json
+     FROM grammar_attempts`
+  );
+  for (const row of grammarRows) {
+    const data = parseJson(row.data_json);
+    run(
+      'UPDATE grammar_attempts SET completed_at = ? WHERE id = ?',
+      [row.completed_at || data.completedAt || data.completed_at || null, row.id],
+      false
+    );
+  }
+
+  getDb().run(`
+    CREATE INDEX IF NOT EXISTS idx_game_results_guest_id
+      ON game_results(guest_id);
+    CREATE INDEX IF NOT EXISTS idx_game_results_owner_client_run
+      ON game_results(owner_key, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_game_results_vocab_status_completed
+      ON game_results(vocab_set_id, status, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_game_results_status_completed
+      ON game_results(status, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_leaderboard_events_class_completed
+      ON leaderboard_events(class_id, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_leaderboard_events_student_completed
+      ON leaderboard_events(student_key, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_grammar_attempts_status_completed
+      ON grammar_attempts(status, completed_at);
+  `);
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [NATIVE_HOT_QUERY_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = NATIVE_HOT_QUERY_MIGRATION_ID;
+}
+
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -997,7 +1184,7 @@ function backupJsonFile(sourcePath: string) {
       fs.copyFileSync(sourcePath, backupPath);
     }
   } catch (err: any) {
-    sqliteLastError = `Failed to backup db.json: ${err.message}`;
+    sqliteLastError = `Failed to backup db.json: ${redactSQLiteError(err)}`;
   }
 }
 
@@ -1065,32 +1252,90 @@ export async function initializeSQLiteStorage() {
 
   initPromise = (async () => {
     try {
-      sqliteDbPath = getDbPath();
-      ensureParentDir(sqliteDbPath);
-      const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
-      const SQL = await initSqlJs({
-        locateFile: () => wasmPath,
-      });
-      const existing = fs.existsSync(sqliteDbPath) ? fs.readFileSync(sqliteDbPath) : undefined;
-      sqliteDb = existing ? new SQL.Database(existing) : new SQL.Database();
-      runSchemaMigration();
-      migrateActivityExpiryColumns();
-      migrateGrammarAttemptQueryColumns();
-      migrateFromJsonIfNeeded();
+      sqliteConfig = resolveSQLiteStorageConfig();
+      sqliteDbPath = sqliteConfig.dbPath;
+      sqliteDb = await openSQLiteDriver(sqliteConfig);
+
+      assertQuickCheck('pre-migration');
+      withTransaction(() => {
+        runSchemaMigration();
+        migrateActivityExpiryColumns();
+        migrateGrammarAttemptQueryColumns();
+        migrateNativeHotQueryColumns();
+        if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
+      }, 'immediate');
+      configureSQLiteConnection(sqliteConfig);
+      assertQuickCheck('post-migration');
+
       sqliteReady = true;
       sqliteLastError = null;
-      console.log('[Storage] Mode: sqlite');
-      console.log(`[Storage] SQLite path: ${sqliteDbPath}`);
-      console.log('[Storage] SQLite ready: true');
+      console.log(
+        `[Storage] SQLite ready: driver=${sqliteConfig.driver} db=${redactSQLitePath(sqliteDbPath)} journal=${readPragmaValue('journal_mode')}`
+      );
     } catch (err: any) {
       sqliteReady = false;
-      sqliteLastError = err.message;
-      console.error('[Storage] SQLite ready: false', err);
+      sqliteLastError = redactSQLiteError(err);
+      console.error(
+        `[Storage] SQLite ready: false db=${sqliteDbPath ? redactSQLitePath(sqliteDbPath) : 'unresolved'} error=${sqliteLastError}`
+      );
+      try {
+        sqliteDb?.close();
+      } catch {
+        // Preserve the startup error.
+      }
+      sqliteDb = null;
       throw err;
     }
   })();
 
   return initPromise;
+}
+
+function readPragmaValue(name: string) {
+  const row = one(`PRAGMA ${name}`) || {};
+  return Object.values(row)[0];
+}
+
+function assertQuickCheck(stage: string) {
+  const rows = all('PRAGMA quick_check');
+  const values = rows.map(row => String(Object.values(row)[0] || '').toLowerCase());
+  if (values.length !== 1 || values[0] !== 'ok') {
+    throw new Error(`SQLite ${stage} quick_check failed: ${values.join(', ') || 'no result'}`);
+  }
+}
+
+function configureSQLiteConnection(config: SQLiteStorageConfig) {
+  run('PRAGMA foreign_keys = ON', [], false);
+  run(`PRAGMA busy_timeout = ${config.busyTimeoutMs}`, [], false);
+
+  if (config.driver === 'better-sqlite3') {
+    run('PRAGMA journal_mode = WAL', [], false);
+    run(`PRAGMA synchronous = ${config.synchronous}`, [], false);
+    run(`PRAGMA wal_autocheckpoint = ${config.walAutoCheckpointPages}`, [], false);
+  } else {
+    const journalMode = String(readPragmaValue('journal_mode') || '').toLowerCase();
+    if (journalMode === 'wal') {
+      throw new Error('sql.js startup refused while journal_mode is WAL.');
+    }
+  }
+
+  const foreignKeys = Number(readPragmaValue('foreign_keys'));
+  const busyTimeout = Number(readPragmaValue('busy_timeout'));
+  if (foreignKeys !== 1) throw new Error('SQLite foreign_keys verification failed.');
+  if (busyTimeout !== config.busyTimeoutMs) {
+    throw new Error(`SQLite busy_timeout verification failed: ${busyTimeout}.`);
+  }
+
+  if (config.driver === 'better-sqlite3') {
+    const journalMode = String(readPragmaValue('journal_mode') || '').toLowerCase();
+    const walAutoCheckpoint = Number(readPragmaValue('wal_autocheckpoint'));
+    if (journalMode !== 'wal') {
+      throw new Error(`SQLite WAL verification failed: journal_mode=${journalMode || 'unknown'}.`);
+    }
+    if (walAutoCheckpoint !== config.walAutoCheckpointPages) {
+      throw new Error(`SQLite wal_autocheckpoint verification failed: ${walAutoCheckpoint}.`);
+    }
+  }
 }
 
 export class SQLiteDocSnapshot {
@@ -1287,13 +1532,50 @@ async function tableCount(table: string) {
 export async function getSQLiteDiagnostics() {
   await initializeSQLiteStorage();
   const lastMigration = one('SELECT id, applied_at FROM migrations ORDER BY applied_at DESC LIMIT 1') || null;
+  const dbSizeBytes = sqliteDbPath && fs.existsSync(sqliteDbPath) ? fs.statSync(sqliteDbPath).size : 0;
+  const walPath = `${sqliteDbPath}-wal`;
+  const shmPath = `${sqliteDbPath}-shm`;
+  const walSizeBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  const sqliteVersion = one('SELECT sqlite_version() AS version') as any;
+  const quickCheck = one('PRAGMA quick_check') as any;
 
   return {
     storageMode: process.env.STORAGE_MODE || 'firebase-first',
     sqliteEnabled: process.env.STORAGE_MODE === 'sqlite',
-    sqliteDbPath,
+    sqliteDriver: sqliteDb?.kind || sqliteConfig?.driver || null,
+    sqliteDbPath: sqliteDbPath ? redactSQLitePath(sqliteDbPath) : null,
+    sqliteDbBasename: sqliteDbPath ? path.basename(sqliteDbPath) : null,
     sqliteFileExists: Boolean(sqliteDbPath && fs.existsSync(sqliteDbPath)),
+    databaseExists: Boolean(sqliteDbPath && fs.existsSync(sqliteDbPath)),
     sqliteReady,
+    sqliteVersion: sqliteVersion?.version || null,
+    quickCheck: quickCheck ? Object.values(quickCheck)[0] : null,
+    nodeVersion: process.version,
+    nodeAbi: process.versions.modules,
+    platform: process.platform,
+    architecture: process.arch,
+    pragmas: {
+      journalMode: readPragmaValue('journal_mode'),
+      foreignKeys: Number(readPragmaValue('foreign_keys')),
+      synchronous: readPragmaValue('synchronous'),
+      busyTimeoutMs: Number(readPragmaValue('busy_timeout')),
+      walAutoCheckpointPages: Number(readPragmaValue('wal_autocheckpoint')),
+    },
+    files: {
+      databaseBytes: dbSizeBytes,
+      walExists: fs.existsSync(walPath),
+      shmExists: fs.existsSync(shmPath),
+      walBytes: walSizeBytes,
+    },
+    databaseSizeBytes: dbSizeBytes,
+    journalMode: readPragmaValue('journal_mode'),
+    synchronous: readPragmaValue('synchronous'),
+    foreignKeys: Number(readPragmaValue('foreign_keys')),
+    busyTimeoutMs: Number(readPragmaValue('busy_timeout')),
+    walAutoCheckpointPages: Number(readPragmaValue('wal_autocheckpoint')),
+    walFileExists: fs.existsSync(walPath),
+    shmFileExists: fs.existsSync(shmPath),
+    walFileSizeBytes: walSizeBytes,
     tableCounts: {
       users: await tableCount('users'),
       vocab_sets: await tableCount('vocab_sets'),
@@ -1308,14 +1590,51 @@ export async function getSQLiteDiagnostics() {
     },
     lastMigration: lastMigration || sqliteLastMigration,
     lastError: sqliteLastError,
+    processMetrics: getSQLiteProcessMetrics(),
   };
 }
 
 export function getSQLitePersistStats() {
+  const metrics = getSQLiteProcessMetrics();
   return {
-    attempts: sqlitePersistAttempts,
-    successes: sqlitePersistSuccesses,
-    totalMs: sqlitePersistTotalMs,
-    lastMs: sqlitePersistLastMs,
+    attempts: metrics.rowsWritten,
+    successes: metrics.successfulWrites,
+    totalMs: metrics.queryDurationMs,
+    lastMs: 0,
+    deprecated: true,
   };
+}
+
+export function getSQLiteCurrentRequestMetrics() {
+  return getSQLiteRequestMetrics();
+}
+
+export function withSQLiteRequestMetrics<T>(action: () => T) {
+  return runWithSQLiteRequestMetrics(sqliteDb?.kind || sqliteConfig?.driver || null, action);
+}
+
+export async function closeSQLiteStorage() {
+  if (!sqliteDb) {
+    sqliteReady = false;
+    initPromise = null;
+    transactionDepth = 0;
+    return;
+  }
+  try {
+    if (sqliteDb.kind === 'better-sqlite3') {
+      try {
+        one('PRAGMA wal_checkpoint(PASSIVE)');
+      } catch {
+        // Shutdown continues; a later worker can checkpoint WAL.
+      }
+    } else {
+      persistDb();
+    }
+  } finally {
+    sqliteDb.close();
+    sqliteDb = null;
+    sqliteReady = false;
+    initPromise = null;
+    transactionDepth = 0;
+  }
 }

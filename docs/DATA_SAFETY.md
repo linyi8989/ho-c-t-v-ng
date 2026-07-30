@@ -37,7 +37,11 @@ Required production environment variables when using SQLite:
 
 ```text
 STORAGE_MODE=sqlite
+SQLITE_DRIVER=better-sqlite3
 SQLITE_DB_PATH=/home/qzmivzbj/app-data/vhomework/app.sqlite
+SQLITE_ALLOW_CREATE=false
+SQLITE_ALLOW_JSON_IMPORT=false
+SEED_DATA_ENABLED=false
 LOCAL_DB_PATH=/home/qzmivzbj/app-data/vhomework/db.json
 DIAGNOSTIC_SECRET=<host-only secret>
 ```
@@ -64,14 +68,16 @@ Never use the deploy directory as the source of truth for production data.
 
 ## Backup Commands
 
-Run these on the host before risky deploys:
+With WAL enabled, do not copy only `app.sqlite` while app workers are writing. Use the online native backup command:
 
 ```bash
-mkdir -p /home/qzmivzbj/app-data/vhomework/restore-backup
-cp /home/qzmivzbj/app-data/vhomework/app.sqlite /home/qzmivzbj/app-data/vhomework/restore-backup/app.sqlite.$(date +%Y%m%d-%H%M%S).bak
-cp /home/qzmivzbj/app-data/vhomework/db.json /home/qzmivzbj/app-data/vhomework/restore-backup/db.json.$(date +%Y%m%d-%H%M%S).bak 2>/dev/null || true
-ls -lah /home/qzmivzbj/app-data/vhomework/restore-backup
+cd /home/qzmivzbj/app.msdieu.com
+npm run db:backup -- \
+  --db /home/qzmivzbj/app-data/vhomework/app.sqlite \
+  --output-dir /home/qzmivzbj/app-data/vhomework/restore-backup
 ```
+
+The command validates `quick_check` on both source and backup and never overwrites an existing backup. See `docs/sqlite-backup-restore.md`.
 
 ## Pre-Deploy Checklist
 
@@ -79,7 +85,9 @@ Before deploying storage-related changes, confirm:
 
 - The active database path is known.
 - A fresh backup exists.
+- The exact Passenger Node/ABI/platform passes `npm run db:preflight`.
 - No startup/read route performs physical cleanup.
 - No migration references a new column before adding it.
+- `SQLITE_ALLOW_CREATE=false`, `SQLITE_ALLOW_JSON_IMPORT=false`, and `SEED_DATA_ENABLED=false`.
 - The app still points to the persistent production database after restart.
-- Diagnostics confirm the expected storage mode.
+- Diagnostics confirm `better-sqlite3`, `quickCheck=ok`, `journalMode=wal`, and basename `app.sqlite`.

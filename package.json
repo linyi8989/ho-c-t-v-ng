@@ -11,12 +11,22 @@
     "lint": "tsc --noEmit",
     "test:identity": "tsx --test src/lib/guestIdentity.test.ts",
     "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts",
-    "test:runs": "tsx --test src/lib/learningRuns.test.ts src/lib/serverLearningRuns.test.ts"
+    "test:runs": "tsx --test src/lib/learningRuns.test.ts src/lib/serverLearningRuns.test.ts",
+    "test:storage": "tsx --test src/lib/sqliteStorage.test.ts",
+    "test:startup": "node scripts/smoke-storage-startup.mjs",
+    "test:phase1": "npm run lint && npm run test:identity && npm run test:grammar && npm run test:runs && npm run test:storage && npm run build && npm run test:startup",
+    "storage:preflight": "node scripts/sqlite-preflight.mjs",
+    "db:preflight": "node scripts/sqlite-preflight.mjs",
+    "db:diagnostics": "node scripts/sqlite-diagnostics.mjs",
+    "db:backup": "node scripts/sqlite-backup.mjs",
+    "db:checkpoint": "node scripts/sqlite-checkpoint.mjs",
+    "db:prepare-sqljs-rollback": "node scripts/sqlite-prepare-sqljs-rollback.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "better-sqlite3": "12.4.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.15.0",

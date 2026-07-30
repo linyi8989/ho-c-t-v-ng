@@ -5,10 +5,13 @@ import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 import {
+  closeSQLiteStorage,
+  getSQLiteCurrentRequestMetrics,
   getSQLiteDiagnostics,
   getSQLitePersistStats,
   initializeSQLiteStorage,
-  SQLiteFirestore
+  SQLiteFirestore,
+  withSQLiteRequestMetrics,
 } from './sqliteStorage';
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -41,10 +44,6 @@ const realDb = getFirestore(app);
 export const adminAuth = getAuth(app);
 
 console.log(`Firebase Admin initialized for project: ${projectId || '(not configured)'}, Database: (default)`);
-
-if (isSQLiteStorageMode) {
-  initializeSQLiteStorage();
-}
 
 export class StorageUnavailableError extends Error {
   public statusCode = 503;
@@ -271,10 +270,12 @@ class FallbackDocSnapshot {
 class FallbackQuerySnapshot {
   public docs: FallbackDocSnapshot[];
   public empty: boolean;
+  public size: number;
 
   constructor(docs: FallbackDocSnapshot[]) {
     this.docs = docs;
     this.empty = docs.length === 0;
+    this.size = docs.length;
   }
 
   public forEach(callback: (doc: FallbackDocSnapshot) => void) {
@@ -528,6 +529,18 @@ export function getStoragePersistStats() {
   return isSQLiteStorageMode ? getSQLitePersistStats() : null;
 }
 
+export function withStorageRequestMetrics<T>(action: () => T) {
+  return isSQLiteStorageMode ? withSQLiteRequestMetrics(action) : action();
+}
+
+export function getStorageRequestMetrics() {
+  return isSQLiteStorageMode ? getSQLiteCurrentRequestMetrics() : null;
+}
+
+export async function shutdownStorage() {
+  if (isSQLiteStorageMode) await closeSQLiteStorage();
+}
+
 export async function getStorageDiagnostics() {
   if (isSQLiteStorageMode) {
     return getSQLiteDiagnostics();
@@ -536,11 +549,32 @@ export async function getStorageDiagnostics() {
   return {
     storageMode,
     sqliteEnabled: false,
+    sqliteDriver: null,
     sqliteDbPath: null,
+    sqliteDbBasename: null,
     sqliteFileExists: false,
+    databaseExists: false,
     sqliteReady: false,
+    sqliteVersion: null,
+    quickCheck: null,
+    nodeVersion: process.version,
+    nodeAbi: process.versions.modules,
+    platform: process.platform,
+    architecture: process.arch,
+    pragmas: null,
+    files: null,
+    databaseSizeBytes: null,
+    journalMode: null,
+    synchronous: null,
+    foreignKeys: null,
+    busyTimeoutMs: null,
+    walAutoCheckpointPages: null,
+    walFileExists: false,
+    shmFileExists: false,
+    walFileSizeBytes: null,
     tableCounts: null,
     lastMigration: null,
     lastError: storageUnavailableError || (useLocalFallback ? "Using explicit local JSON storage for app data." : null),
+    processMetrics: null,
   };
 }
