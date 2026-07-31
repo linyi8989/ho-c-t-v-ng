@@ -22,9 +22,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express2 = __toESM(require("express"), 1);
-var import_path3 = __toESM(require("path"), 1);
-var import_crypto = __toESM(require("crypto"), 1);
+var import_express4 = __toESM(require("express"), 1);
+var import_path4 = __toESM(require("path"), 1);
+var import_crypto2 = __toESM(require("crypto"), 1);
 
 // src/lib/grammarAnswers.ts
 var GRAMMAR_TEXT_GRADING_VERSION = 2;
@@ -44,7 +44,7 @@ function isGrammarTextAnswerCorrect(studentAnswer, correctAnswer, acceptedAnswer
 }
 
 // server.ts
-var import_fs3 = __toESM(require("fs"), 1);
+var import_fs4 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
 var import_genai = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -462,6 +462,7 @@ var GRAMMAR_ATTEMPT_QUERY_MIGRATION_ID = "grammar-attempt-query-columns-v1";
 var NATIVE_HOT_QUERY_MIGRATION_ID = "native-hot-query-columns-v2";
 var LEARNING_HISTORY_SCHEMA_MIGRATION_ID = "learning-history-schema-v1";
 var GUEST_CAPABILITY_STORAGE_MIGRATION_ID = "guest-capability-physical-v1";
+var LISTENING_SCHEMA_MIGRATION_ID = "listening-five-part-schema-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -509,6 +510,18 @@ var collectionTableMap = {
   grammarattemptquestions: "grammar_attempt_questions",
   grammar_attempt_answers: "grammar_attempt_answers",
   grammarattemptanswers: "grammar_attempt_answers",
+  listening_sets: "listening_sets",
+  listeningsets: "listening_sets",
+  listening_set_versions: "listening_set_versions",
+  listeningsetversions: "listening_set_versions",
+  listening_assets: "listening_assets",
+  listeningassets: "listening_assets",
+  listening_asset_usages: "listening_asset_usages",
+  listeningassetusages: "listening_asset_usages",
+  listening_attempts: "listening_attempts",
+  listeningattempts: "listening_attempts",
+  listening_attempt_details: "listening_attempt_details",
+  listeningattemptdetails: "listening_attempt_details",
   audit_logs: "audit_logs",
   auditlogs: "audit_logs",
   settings: "settings"
@@ -542,6 +555,9 @@ var sqlQueryFieldMap = {
     userId: "user_id",
     vocabSetId: "vocab_set_id",
     gameId: "game_id",
+    resourceType: "resource_type",
+    resourceId: "resource_id",
+    resourceTitle: "resource_title",
     dueDate: "due_date",
     createdAt: "created_at",
     updatedAt: "updated_at"
@@ -641,6 +657,58 @@ var sqlQueryFieldMap = {
     status: "status",
     createdAt: "created_at",
     completedAt: "completed_at",
+    updatedAt: "updated_at"
+  },
+  listening_sets: {
+    id: "id",
+    ownerId: "owner_id",
+    status: "status",
+    visibility: "visibility",
+    publishedVersionId: "published_version_id",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  listening_set_versions: {
+    id: "id",
+    setId: "set_id",
+    versionNumber: "version_number",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  listening_assets: {
+    id: "id",
+    ownerId: "owner_id",
+    kind: "kind",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  listening_asset_usages: {
+    id: "id",
+    assetId: "asset_id",
+    setId: "set_id",
+    versionId: "version_id",
+    createdAt: "created_at"
+  },
+  listening_attempts: {
+    id: "id",
+    ownerKey: "owner_key",
+    userId: "user_id",
+    guestId: "guest_id",
+    setId: "set_id",
+    versionId: "version_id",
+    assignmentId: "assignment_id",
+    clientRunId: "client_run_id",
+    score: "score",
+    completedAt: "completed_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  listening_attempt_details: {
+    id: "id",
+    attemptId: "attempt_id",
+    createdAt: "created_at",
     updatedAt: "updated_at"
   },
   audit_logs: {
@@ -1169,6 +1237,175 @@ function upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt) {
     Object.values(record)
   );
 }
+function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt) {
+  if (table === "listening_sets") {
+    run(
+      `INSERT INTO listening_sets (
+        id, owner_id, title, status, visibility, published_version_id,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_id = excluded.owner_id,
+        title = excluded.title,
+        status = excluded.status,
+        visibility = excluded.visibility,
+        published_version_id = excluded.published_version_id,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "ownerId", "owner_id", "createdBy")),
+        optionalText(firstDefined(data, "title")),
+        optionalText(firstDefined(data, "status")) || "draft",
+        optionalText(firstDefined(data, "visibility")) || "draft",
+        optionalText(firstDefined(data, "publishedVersionId", "published_version_id")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "listening_set_versions") {
+    run(
+      `INSERT INTO listening_set_versions (
+        id, set_id, version_number, status, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        set_id = excluded.set_id,
+        version_number = excluded.version_number,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "setId", "set_id")),
+        Math.max(1, nonNegativeInteger(firstDefined(data, "versionNumber", "version_number"), 1)),
+        optionalText(firstDefined(data, "status")) || "draft",
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "listening_assets") {
+    run(
+      `INSERT INTO listening_assets (
+        id, owner_id, kind, mime_type, storage_key, public_url, status,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_id = excluded.owner_id,
+        kind = excluded.kind,
+        mime_type = excluded.mime_type,
+        storage_key = excluded.storage_key,
+        public_url = excluded.public_url,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "ownerId", "owner_id")),
+        optionalText(firstDefined(data, "kind")),
+        optionalText(firstDefined(data, "mimeType", "mime_type")),
+        optionalText(firstDefined(data, "storageKey", "storage_key")),
+        optionalText(firstDefined(data, "url", "publicUrl", "public_url")),
+        optionalText(firstDefined(data, "status")) || "active",
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "listening_asset_usages") {
+    run(
+      `INSERT INTO listening_asset_usages (
+        id, asset_id, set_id, version_id, entity_id, role, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        set_id = excluded.set_id,
+        version_id = excluded.version_id,
+        entity_id = excluded.entity_id,
+        role = excluded.role,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "assetId", "asset_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "entityId", "entity_id")),
+        optionalText(firstDefined(data, "role")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "listening_attempts") {
+    run(
+      `INSERT INTO listening_attempts (
+        id, owner_key, user_id, guest_id, set_id, version_id, assignment_id,
+        client_run_id, run_secret_hash, student_name, class_id, score,
+        correct_count, incorrect_count, unanswered_count, started_at, completed_at,
+        duration_seconds, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        assignment_id = excluded.assignment_id,
+        score = excluded.score,
+        correct_count = excluded.correct_count,
+        incorrect_count = excluded.incorrect_count,
+        unanswered_count = excluded.unanswered_count,
+        completed_at = excluded.completed_at,
+        duration_seconds = excluded.duration_seconds,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "ownerKey", "owner_key")),
+        optionalText(firstDefined(data, "userId", "user_id")),
+        optionalText(firstDefined(data, "guestId", "guest_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "assignmentId", "assignment_id")),
+        optionalText(firstDefined(data, "clientRunId", "client_run_id")),
+        optionalText(firstDefined(data, "runSecretHash", "run_secret_hash")),
+        optionalText(firstDefined(data, "studentName", "student_name")),
+        optionalText(firstDefined(data, "classId", "class_id")),
+        Math.max(0, Math.min(100, finiteNumber(firstDefined(data, "score"), 0))),
+        nonNegativeInteger(firstDefined(data, "correctCount", "correct_count"), 0),
+        nonNegativeInteger(firstDefined(data, "incorrectCount", "incorrect_count"), 0),
+        nonNegativeInteger(firstDefined(data, "unansweredCount", "unanswered_count"), 0),
+        optionalText(firstDefined(data, "startedAt", "started_at")) || createdAt,
+        optionalText(firstDefined(data, "completedAt", "completed_at")) || updatedAt,
+        nonNegativeInteger(firstDefined(data, "durationSeconds", "duration_seconds"), 0),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  run(
+    `INSERT INTO listening_attempt_details (id, attempt_id, created_at, updated_at, data_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      attempt_id = excluded.attempt_id,
+      updated_at = excluded.updated_at,
+      data_json = excluded.data_json`,
+    [
+      id,
+      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id,
+      createdAt,
+      updatedAt,
+      dataJson
+    ]
+  );
+}
 function upsertDoc(collectionName, id, inputData) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
@@ -1185,6 +1422,10 @@ function upsertDoc(collectionName, id, inputData) {
   }
   if (table === "pronunciation_attempts") {
     upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
+  if (table === "listening_sets" || table === "listening_set_versions" || table === "listening_assets" || table === "listening_asset_usages" || table === "listening_attempts" || table === "listening_attempt_details") {
+    upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt);
     return;
   }
   if (table === "users") {
@@ -1343,13 +1584,19 @@ function upsertDoc(collectionName, id, inputData) {
   }
   if (table === "assignments") {
     run(
-      `INSERT INTO assignments (id, class_id, user_id, vocab_set_id, game_id, due_date, created_at, updated_at, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO assignments (
+        id, class_id, user_id, vocab_set_id, game_id, resource_type, resource_id,
+        resource_title, due_date, created_at, updated_at, data_json
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         class_id = excluded.class_id,
         user_id = excluded.user_id,
         vocab_set_id = excluded.vocab_set_id,
         game_id = excluded.game_id,
+        resource_type = excluded.resource_type,
+        resource_id = excluded.resource_id,
+        resource_title = excluded.resource_title,
         due_date = excluded.due_date,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
@@ -1359,6 +1606,9 @@ function upsertDoc(collectionName, id, inputData) {
         data.user_id || data.userId || data.createdBy || null,
         data.vocab_set_id || data.vocabSetId || null,
         data.game_id || data.gameId || null,
+        data.resource_type || data.resourceType || "vocabulary",
+        data.resource_id || data.resourceId || data.vocab_set_id || data.vocabSetId || null,
+        data.resource_title || data.resourceTitle || data.vocabSetTitle || null,
         data.due_date || data.dueDate || null,
         createdAt,
         updatedAt,
@@ -2114,7 +2364,7 @@ function migrateLearningHistorySchema() {
       ON pronunciation_attempts(game_session_id, played_at DESC);
     CREATE INDEX IF NOT EXISTS idx_pronunciation_attempts_owner_played
       ON pronunciation_attempts(owner_key, played_at DESC);
-  `, [], false);
+  `);
   getDb().run(
     "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
     [LEARNING_HISTORY_SCHEMA_MIGRATION_ID, nowIso()]
@@ -2170,6 +2420,146 @@ function migrateGuestCapabilitiesToPhysicalColumns() {
     [GUEST_CAPABILITY_STORAGE_MIGRATION_ID, nowIso()]
   );
   sqliteLastMigration = GUEST_CAPABILITY_STORAGE_MIGRATION_ID;
+}
+function migrateListeningSchema() {
+  if (hasMigration(LISTENING_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  for (const [column, definition] of [
+    ["resource_type", "TEXT"],
+    ["resource_id", "TEXT"],
+    ["resource_title", "TEXT"]
+  ]) {
+    if (!tableHasColumn("assignments", column)) {
+      run(`ALTER TABLE assignments ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS listening_sets (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'archived')),
+      visibility TEXT NOT NULL DEFAULT 'draft'
+        CHECK(visibility IN ('draft', 'public', 'assignment')),
+      published_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_set_versions (
+      id TEXT PRIMARY KEY,
+      set_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL CHECK(version_number >= 1),
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'superseded')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES listening_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_assets (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('image', 'audio')),
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active', 'archived')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_asset_usages (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT,
+      entity_id TEXT,
+      role TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(asset_id) REFERENCES listening_assets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(set_id) REFERENCES listening_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      user_id TEXT,
+      guest_id TEXT,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      assignment_id TEXT,
+      client_run_id TEXT NOT NULL,
+      run_secret_hash TEXT NOT NULL,
+      student_name TEXT,
+      class_id TEXT,
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      correct_count INTEGER NOT NULL CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL CHECK(unanswered_count >= 0),
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES listening_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES listening_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS listening_attempt_details (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES listening_attempts(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_listening_versions_set_number
+      ON listening_set_versions(set_id, version_number);
+    CREATE INDEX IF NOT EXISTS idx_listening_sets_owner_status
+      ON listening_sets(owner_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_assets_owner_kind
+      ON listening_assets(owner_id, kind, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_assets_storage_key
+      ON listening_assets(storage_key);
+    CREATE INDEX IF NOT EXISTS idx_listening_asset_usages_asset
+      ON listening_asset_usages(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_listening_asset_usages_set
+      ON listening_asset_usages(set_id, version_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_listening_attempts_client_run
+      ON listening_attempts(owner_key, set_id, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_listening_attempts_owner_completed
+      ON listening_attempts(owner_key, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_attempts_set_completed
+      ON listening_attempts(set_id, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_attempts_assignment
+      ON listening_attempts(assignment_id, completed_at DESC)
+      WHERE assignment_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_assignments_resource
+      ON assignments(resource_type, resource_id);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [LISTENING_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
 }
 function getJsonImportCandidates() {
   return [
@@ -2258,6 +2648,7 @@ async function initializeSQLiteStorage() {
         migrateNativeHotQueryColumns();
         migrateLearningHistorySchema();
         migrateGuestCapabilitiesToPhysicalColumns();
+        migrateListeningSchema();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
@@ -2545,6 +2936,12 @@ async function getSQLiteDiagnostics() {
       learning_attempts: await tableCount("learning_attempts"),
       attempt_details: await tableCount("attempt_details"),
       pronunciation_attempts: await tableCount("pronunciation_attempts"),
+      listening_sets: await tableCount("listening_sets"),
+      listening_set_versions: await tableCount("listening_set_versions"),
+      listening_assets: await tableCount("listening_assets"),
+      listening_asset_usages: await tableCount("listening_asset_usages"),
+      listening_attempts: await tableCount("listening_attempts"),
+      listening_attempt_details: await tableCount("listening_attempt_details"),
       learning_history_backfill_state: await tableCount("learning_history_backfill_state")
     },
     lastMigration: lastMigration || sqliteLastMigration,
@@ -3114,7 +3511,7 @@ function nullableNumber(value) {
 function mapItem(row) {
   return {
     attemptId: String(row.attempt_id || ""),
-    sourceType: row.source_type === "grammar" ? "grammar" : "vocabulary",
+    sourceType: row.source_type === "grammar" ? "grammar" : row.source_type === "listening" ? "listening" : "vocabulary",
     studentType: String(row.student_type || ""),
     studentName: String(row.student_name_snapshot || ""),
     classId: row.class_id || null,
@@ -3156,6 +3553,55 @@ var ITEM_COLUMNS = `
   attempt_number, detail_status,
   normalization_status
 `;
+var HISTORY_ATTEMPTS_CTE = `
+history_attempts AS (
+  SELECT
+    attempt_id, source_record_id, source_type, student_type, owner_key,
+    student_name_snapshot, class_id, class_name_snapshot,
+    assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
+    lesson_id, lesson_title_snapshot, lesson_type, game_id, game_title_snapshot,
+    score, raw_score, max_score, correct_count, incorrect_count,
+    unanswered_count, mistake_count, total_questions, started_at, completed_at,
+    activity_at, study_date, duration_seconds, attempt_status, attempt_number, detail_status,
+    normalization_status
+  FROM learning_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'listening' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULL AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'listening_set' AS lesson_type,
+    'listening-five-part' AS game_id,
+    'Nghe 5 Part' AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    correct_count + incorrect_count + unanswered_count AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM listening_attempts
+)`;
 function escapeLike(value) {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -3214,30 +3660,34 @@ function mapSummary(row) {
 async function filterOptions(ownerKey) {
   const queries = [
     sqliteQueryAll(
-      `SELECT DISTINCT class_id AS id, COALESCE(NULLIF(class_name_snapshot, ''), class_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT class_id AS id, COALESCE(NULLIF(class_name_snapshot, ''), class_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND class_id IS NOT NULL AND class_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey]
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT lesson_id AS id, COALESCE(NULLIF(lesson_title_snapshot, ''), lesson_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT lesson_id AS id, COALESCE(NULLIF(lesson_title_snapshot, ''), lesson_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND lesson_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey]
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT assignment_id AS id,
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT assignment_id AS id,
               COALESCE(NULLIF(assignment_title_snapshot, ''), assignment_id) AS label
-       FROM learning_attempts
+       FROM history_attempts
        WHERE owner_key = ? AND assignment_id IS NOT NULL AND assignment_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey]
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT game_id AS id, COALESCE(NULLIF(game_title_snapshot, ''), game_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT game_id AS id, COALESCE(NULLIF(game_title_snapshot, ''), game_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND game_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey]
@@ -3254,12 +3704,13 @@ async function filterOptions(ownerKey) {
 }
 async function assignmentGroups(whereSql, params) {
   const rows = await sqliteQueryAll(
-    `WITH filtered AS (
+    `WITH ${HISTORY_ATTEMPTS_CTE},
+     filtered AS (
        SELECT assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
               class_id, class_name_snapshot, score,
               ${EFFECTIVE_ATTEMPT_STATUS_SQL} AS attempt_status,
               activity_at, attempt_id
-       FROM learning_attempts
+       FROM history_attempts
        WHERE ${whereSql} AND assignment_id IS NOT NULL
      ),
      ranked AS (
@@ -3301,11 +3752,13 @@ async function listLearningHistory(ownerKey, filters) {
   const offset = (filters.page - 1) * filters.pageSize;
   const [countRow, summaryRow, itemRows, options, groups] = await Promise.all([
     sqliteQueryOne(
-      `SELECT COUNT(*) AS count FROM learning_attempts WHERE ${where.sql}`,
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT COUNT(*) AS count FROM history_attempts WHERE ${where.sql}`,
       where.params
     ),
     sqliteQueryOne(
-      `SELECT
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT
          COUNT(*) AS total_attempts,
          COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN 1 ELSE 0 END), 0)
            AS completed_attempts,
@@ -3323,13 +3776,14 @@ async function listLearningHistory(ownerKey, filters) {
            AS total_duration_seconds,
          COUNT(DISTINCT CASE WHEN attempt_status = 'completed' THEN study_date END)
            AS study_days
-       FROM learning_attempts
+       FROM history_attempts
        WHERE ${where.sql}`,
       where.params
     ),
     sqliteQueryAll(
-      `SELECT ${ITEM_COLUMNS}
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT ${ITEM_COLUMNS}
+       FROM history_attempts
        WHERE ${where.sql}
        ORDER BY activity_at DESC, attempt_id DESC
        LIMIT ? OFFSET ?`,
@@ -3354,8 +3808,9 @@ async function listLearningHistory(ownerKey, filters) {
 }
 async function findLearningAttempt(attemptId) {
   const row = await sqliteQueryOne(
-    `SELECT ${ITEM_COLUMNS}
-     FROM learning_attempts
+    `WITH ${HISTORY_ATTEMPTS_CTE}
+     SELECT ${ITEM_COLUMNS}
+     FROM history_attempts
      WHERE attempt_id = ?`,
     [attemptId]
   );
@@ -3375,9 +3830,41 @@ async function findAttemptDetail(attemptId) {
      FROM attempt_details
      WHERE attempt_id = ?`,
     [attemptId]
+  ).then(
+    async (row) => {
+      if (row) return row;
+      const listeningRow = await sqliteQueryOne(
+        `SELECT attempt_id, data_json, created_at, updated_at
+       FROM listening_attempt_details
+       WHERE attempt_id = ?`,
+        [attemptId]
+      );
+      if (!listeningRow) return void 0;
+      let data = {};
+      try {
+        data = JSON.parse(String(listeningRow.data_json || "{}"));
+      } catch {
+        data = {};
+      }
+      return {
+        attempt_id: attemptId,
+        client_run_id: null,
+        source_type: "listening",
+        answer_details_json: JSON.stringify(data.answerDetails || []),
+        question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
+        option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
+        extra_details_json: JSON.stringify(data.extraDetails || {}),
+        review_policy_json: JSON.stringify(data.reviewPolicy || { revealCorrectAnswers: false }),
+        created_at: listeningRow.created_at,
+        updated_at: listeningRow.updated_at,
+        expires_at: null,
+        schema_version: 1
+      };
+    }
   );
 }
 async function findLegacySource(sourceType, sourceRecordId) {
+  if (sourceType === "listening") return null;
   const table = sourceType === "grammar" ? "grammar_attempts" : "game_results";
   const row = await sqliteQueryOne(
     `SELECT data_json FROM ${table} WHERE id = ?`,
@@ -3753,7 +4240,7 @@ function parseLearningHistoryFilters(query) {
   const sourceType = allowlisted(
     query.sourceType,
     "sourceType",
-    ["vocabulary", "grammar"]
+    ["vocabulary", "grammar", "listening"]
   );
   const historyType = allowlisted(
     query.historyType,
@@ -3895,12 +4382,1196 @@ function createLearningHistoryRouter(options) {
   return router;
 }
 
+// src/features/listening-library/registry.ts
+var DEFAULT_LISTENING_MODULE_ID = "mover";
+var LISTENING_LIBRARY_SCHEMA_VERSION = 1;
+var comingSoonCapabilities = {
+  student: false,
+  admin: false,
+  scoring: false,
+  assignments: false
+};
+var LISTENING_MODULES = [
+  {
+    id: "starter",
+    displayName: "Starter",
+    description: "Kho b\xE0i luy\u1EC7n nghe Starter \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  },
+  {
+    id: "mover",
+    displayName: "Mover",
+    description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
+    status: "active",
+    schemaVersion: 1,
+    partCount: 5,
+    questionsPerPart: 5,
+    parts: Array.from({ length: 5 }, (_, index) => ({
+      id: `part-${index + 1}`,
+      displayName: `Part ${index + 1}`,
+      schemaVersion: 1,
+      questionCount: 5
+    })),
+    capabilities: {
+      student: true,
+      admin: true,
+      scoring: true,
+      assignments: true
+    }
+  },
+  {
+    id: "flyer",
+    displayName: "Flyer",
+    description: "Kho b\xE0i luy\u1EC7n nghe Flyer \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  },
+  {
+    id: "ket",
+    displayName: "KET",
+    description: "Kho b\xE0i luy\u1EC7n nghe KET \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  }
+];
+var moduleMap = new Map(
+  LISTENING_MODULES.map((module2) => [module2.id, module2])
+);
+function isListeningModuleId(value) {
+  return typeof value === "string" && moduleMap.has(value);
+}
+function getListeningModule(moduleId) {
+  return moduleMap.get(moduleId);
+}
+function getVisibleListeningModules() {
+  return LISTENING_MODULES.filter((module2) => module2.status !== "hidden");
+}
+function resolveListeningModuleId(value) {
+  return isListeningModuleId(value) ? value : DEFAULT_LISTENING_MODULE_ID;
+}
+function publicListeningModuleManifest(module2) {
+  return {
+    id: module2.id,
+    displayName: module2.displayName,
+    description: module2.description,
+    status: module2.status,
+    schemaVersion: module2.schemaVersion,
+    partCount: module2.partCount,
+    questionsPerPart: module2.questionsPerPart,
+    parts: module2.parts,
+    capabilities: module2.capabilities
+  };
+}
+
+// src/server/listening-library/router.ts
+var import_express3 = __toESM(require("express"), 1);
+
+// src/server/listening/listeningGrader.ts
+var LISTENING_GRADING_VERSION = "listening-five-part-v1";
+function normalizeListeningTextAnswer(value) {
+  return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
+}
+function gradeTextQuestion(question, answer) {
+  let unanswered = true;
+  const correct = question.blanks.every((blank) => {
+    const actual = normalizeListeningTextAnswer(answer?.[blank.id]);
+    if (actual) unanswered = false;
+    return Boolean(actual) && blank.acceptedAnswers.some(
+      (accepted) => normalizeListeningTextAnswer(accepted) === actual
+    );
+  });
+  return { correct, unanswered };
+}
+function gradeListeningAttempt(content, answers) {
+  const questions = [];
+  const push = (part, questionId, correct, unanswered) => questions.push({ part, questionId, correct, unanswered });
+  for (const target of content.parts[0].targets) {
+    const actual = answers.part1?.[target.id] || "";
+    push(1, target.id, actual === target.choiceId, !actual);
+  }
+  for (const question of content.parts[1].questions) {
+    const result = gradeTextQuestion(question, answers.part2?.[question.id]);
+    push(2, question.id, result.correct, result.unanswered);
+  }
+  for (const item of content.parts[2].items) {
+    const actual = answers.part3?.[item.id] || "";
+    push(3, item.id, actual === item.correctOptionId, !actual);
+  }
+  for (const question of content.parts[3].questions) {
+    const actual = answers.part4?.[question.id] || "";
+    push(4, question.id, actual === question.correctOptionId, !actual);
+  }
+  for (const target of content.parts[4].targets) {
+    const actual = answers.part5?.[target.id] || "";
+    push(5, target.id, actual === target.correctColourId, !actual);
+  }
+  if (questions.length !== 25) {
+    throw new Error(`Published listening version must contain exactly 25 questions; received ${questions.length}.`);
+  }
+  const correctCount = questions.filter((question) => question.correct).length;
+  const unansweredCount = questions.filter((question) => question.unanswered).length;
+  const incorrectCount = questions.length - correctCount - unansweredCount;
+  return {
+    score: Math.round(correctCount / 25 * 100),
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    totalCount: 25,
+    questions
+  };
+}
+
+// src/server/listening/listeningRouter.ts
+var import_crypto = __toESM(require("crypto"), 1);
+var import_express2 = __toESM(require("express"), 1);
+var import_fs3 = __toESM(require("fs"), 1);
+var import_path3 = __toESM(require("path"), 1);
+
+// src/server/listening/listeningValidation.ts
+var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
+var unique = (values) => new Set(values).size === values.length;
+function validateRegion(region, path9, errors) {
+  if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
+    errors.push(`${path9}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    return;
+  }
+  for (const [key, value] of Object.entries({
+    x: region.x,
+    y: region.y,
+    width: region.width,
+    height: region.height
+  })) {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      errors.push(`${path9}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+    }
+  }
+  if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
+    errors.push(`${path9}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+  }
+  if (region.shape === "polygon") {
+    if (!Array.isArray(region.points) || region.points.length < 3) {
+      errors.push(`${path9}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+    } else {
+      region.points.forEach((point, index) => {
+        if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
+          errors.push(`${path9}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+        }
+      });
+    }
+  }
+}
+function regionsOverlap(a, b) {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right - left > 0.01 && bottom - top > 0.01;
+}
+function validateRegionCollection(items, path9, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path9}[${index}].region`, errors));
+  for (let first = 0; first < items.length; first += 1) {
+    for (let second = first + 1; second < items.length; second += 1) {
+      if (regionsOverlap(items[first].region, items[second].region)) {
+        errors.push(`${path9}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+      }
+    }
+  }
+}
+function validateBase(part, number2, errors) {
+  if (part?.schemaVersion !== void 0 && part.schemaVersion !== 1) {
+    errors.push(`Part ${number2}: phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.`);
+  }
+  if (part?.part !== number2) errors.push(`Part ${number2}: sai lo\u1EA1i Part.`);
+  if (!isText(part?.title, 160)) errors.push(`Part ${number2}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+  if (!isText(part?.instruction, 1e3)) errors.push(`Part ${number2}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
+  if (!isText(part?.audioAssetId, 160)) errors.push(`Part ${number2}: c\u1EA7n \u0111\xFAng m\u1ED9t file audio.`);
+}
+function validatePart1(part, errors) {
+  validateBase(part, 1, errors);
+  if (!isText(part.sceneAssetId, 160)) errors.push("Part 1: thi\u1EBFu h\xECnh t\xECnh hu\u1ED1ng.");
+  if (part.choices?.length !== 6) errors.push("Part 1: c\u1EA7n \u0111\xFAng 6 th\u1EBB t\xEAn (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
+  if (part.targets?.length !== 5) errors.push("Part 1: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
+  const choiceIds = (part.choices || []).map((choice) => choice.id);
+  if (!unique(choiceIds) || (part.choices || []).some((choice) => !isText(choice.id, 160) || !isText(choice.label, 120))) {
+    errors.push("Part 1: ID v\xE0 nh\xE3n th\u1EBB t\xEAn ph\u1EA3i \u0111\u1EA7y \u0111\u1EE7, kh\xF4ng tr\xF9ng.");
+  }
+  const targetIds = (part.targets || []).map((target) => target.id);
+  if (!unique(targetIds) || (part.targets || []).some((target) => !choiceIds.includes(target.choiceId))) {
+    errors.push("Part 1: v\xF9ng ho\u1EB7c \u0111\xE1p \xE1n v\xF9ng kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  validateRegionCollection(part.targets || [], "Part 1 targets", errors);
+  if (part.example) validateRegion(part.example.region, "Part 1 example.region", errors);
+}
+function validatePart2(part, errors) {
+  validateBase(part, 2, errors);
+  if (!isText(part.heading, 200)) errors.push("Part 2: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i.");
+  if (part.questions?.length !== 5) errors.push("Part 2: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  const ids = (part.questions || []).map((question) => question.id);
+  if (!unique(ids)) errors.push("Part 2: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+  (part.questions || []).forEach((question, index) => {
+    if (!isText(question.prompt, 1e3)) errors.push(`Part 2 c\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung.`);
+    if (!question.blanks?.length) errors.push(`Part 2 c\xE2u ${index + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t \xF4 tr\u1ED1ng.`);
+    const blankIds = (question.blanks || []).map((blank) => blank.id);
+    if (!unique(blankIds)) errors.push(`Part 2 c\xE2u ${index + 1}: ID \xF4 tr\u1ED1ng b\u1ECB tr\xF9ng.`);
+    (question.blanks || []).forEach((blank) => {
+      if (!question.prompt.includes(`{{${blank.id}}}`)) {
+        errors.push(`Part 2 c\xE2u ${index + 1}: n\u1ED9i dung thi\u1EBFu k\xFD hi\u1EC7u {{${blank.id}}}.`);
+      }
+      if (!blank.acceptedAnswers?.length || blank.acceptedAnswers.some((answer) => !isText(answer, 200))) {
+        errors.push(`Part 2 c\xE2u ${index + 1}: m\u1ED7i \xF4 tr\u1ED1ng c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t \u0111\xE1p \xE1n.`);
+      }
+    });
+  });
+}
+function validatePart3(part, errors) {
+  validateBase(part, 3, errors);
+  if (!["once", "multiple"].includes(part.reuseMode)) errors.push("Part 3: ch\u1EBF \u0111\u1ED9 d\xF9ng \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+  if ((part.options || []).length < 5) errors.push("Part 3: c\u1EA7n \xEDt nh\u1EA5t 5 l\u1EF1a ch\u1ECDn h\xECnh \u1EA3nh.");
+  if (part.items?.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  const optionIds = (part.options || []).map((option) => option.id);
+  if (!unique(optionIds)) errors.push("Part 3: ID l\u1EF1a ch\u1ECDn b\u1ECB tr\xF9ng.");
+  if ((part.options || []).some((option) => !isText(option.imageAssetId, 160))) {
+    errors.push("Part 3: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n h\xECnh \u1EA3nh.");
+  }
+  const answers = (part.items || []).map((item) => item.correctOptionId);
+  if ((part.items || []).some((item) => !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
+    errors.push("Part 3: c\xE2u h\u1ECFi ho\u1EB7c \u0111\xE1p \xE1n h\xECnh \u1EA3nh kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  if (part.reuseMode === "once" && !unique(answers)) {
+    errors.push("Part 3: m\u1ED7i l\u1EF1a ch\u1ECDn ch\u1EC9 \u0111\u01B0\u1EE3c d\xF9ng m\u1ED9t l\u1EA7n.");
+  }
+}
+function validatePart4(part, errors) {
+  validateBase(part, 4, errors);
+  if (part.questions?.length !== 5) errors.push("Part 4: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  (part.questions || []).forEach((question, index) => {
+    if (!isText(question.prompt, 1e3)) errors.push(`Part 4 c\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung.`);
+    if (question.options?.length !== 3) errors.push(`Part 4 c\xE2u ${index + 1}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
+    const optionIds = (question.options || []).map((option) => option.id);
+    if (!unique(optionIds) || !optionIds.includes(question.correctOptionId)) {
+      errors.push(`Part 4 c\xE2u ${index + 1}: l\u1EF1a ch\u1ECDn ho\u1EB7c \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
+    }
+    if ((question.options || []).some((option) => !isText(option.imageAssetId, 160))) {
+      errors.push(`Part 4 c\xE2u ${index + 1}: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n h\xECnh \u1EA3nh.`);
+    }
+  });
+}
+function validatePart5(part, errors) {
+  validateBase(part, 5, errors);
+  if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\xF4 m\xE0u.");
+  if (part.colours?.length !== 6) errors.push("Part 5: c\u1EA7n \u0111\xFAng 6 m\xE0u (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
+  if (part.targets?.length !== 5) errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
+  const colourIds = (part.colours || []).map((colour) => colour.id);
+  if (!unique(colourIds) || (part.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
+    errors.push("Part 5: m\xE0u ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 m\xE3 #RRGGBB h\u1EE3p l\u1EC7.");
+  }
+  if ((part.targets || []).some((target) => !colourIds.includes(target.correctColourId))) {
+    errors.push("Part 5: v\xF9ng c\xF3 \u0111\xE1p \xE1n m\xE0u kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  validateRegionCollection(part.targets || [], "Part 5 targets", errors);
+  if (part.example) validateRegion(part.example.region, "Part 5 example.region", errors);
+}
+function validateListeningSetContent(content) {
+  const errors = [];
+  if (content?.moduleId !== void 0 && content.moduleId !== "mover") {
+    errors.push("B\u1ED9 \u0111\u1EC1 kh\xF4ng thu\u1ED9c module Mover.");
+  }
+  if (!content || content.schemaVersion !== 1) errors.push("Phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+  if (!isText(content?.title, 160)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
+  if (!isText(content?.description, 2e3)) errors.push("Thi\u1EBFu m\xF4 t\u1EA3 b\u1ED9 \u0111\u1EC1.");
+  if (!isText(content?.level, 80)) errors.push("Thi\u1EBFu tr\xECnh \u0111\u1ED9.");
+  if (content?.timeLimitMinutes !== void 0 && (!Number.isInteger(content.timeLimitMinutes) || content.timeLimitMinutes < 1 || content.timeLimitMinutes > 180)) {
+    errors.push("Th\u1EDDi gian l\xE0m b\xE0i ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 180 ph\xFAt.");
+  }
+  if (!Array.isArray(content?.parts) || content.parts.length !== 5) {
+    errors.push("B\u1ED9 \u0111\u1EC1 ph\u1EA3i c\xF3 \u0111\xFAng 5 Part.");
+    return errors;
+  }
+  validatePart1(content.parts[0], errors);
+  validatePart2(content.parts[1], errors);
+  validatePart3(content.parts[2], errors);
+  validatePart4(content.parts[3], errors);
+  validatePart5(content.parts[4], errors);
+  return errors;
+}
+function sanitizeListeningAnswers(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const record = (input, nested = false) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+    const entries = Object.entries(input).slice(0, 100);
+    return Object.fromEntries(entries.filter(([key]) => /^[a-zA-Z0-9_-]{1,160}$/.test(key)).map(([key, answer]) => [
+      key,
+      nested ? record(answer, false) : String(answer ?? "").slice(0, 500)
+    ]));
+  };
+  return {
+    part1: record(source.part1),
+    part2: record(source.part2, true),
+    part3: record(source.part3),
+    part4: record(source.part4),
+    part5: record(source.part5)
+  };
+}
+function sanitizeListeningContentForStudent(content) {
+  const copy = structuredClone(content);
+  copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }) => target);
+  if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
+  copy.parts[1].questions = copy.parts[1].questions.map((question) => ({
+    ...question,
+    blanks: question.blanks.map(({ acceptedAnswers: _answers, ...blank }) => blank)
+  }));
+  copy.parts[2].items = copy.parts[2].items.map(({ correctOptionId: _answer, ...item }) => item);
+  if (copy.parts[2].example) delete copy.parts[2].example.correctOptionId;
+  copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }) => question);
+  if (copy.parts[3].example) delete copy.parts[3].example.correctOptionId;
+  copy.parts[4].targets = copy.parts[4].targets.map(({ correctColourId: _answer, ...target }) => target);
+  if (copy.parts[4].example) delete copy.parts[4].example.correctColourId;
+  return copy;
+}
+
+// src/server/listening/listeningRouter.ts
+var IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+var AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+var MIME_EXTENSIONS = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "audio/mpeg": ".mp3",
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/ogg": ".ogg",
+  "audio/mp4": ".m4a",
+  "audio/x-m4a": ".m4a"
+};
+var text = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+var nowIso2 = () => (/* @__PURE__ */ new Date()).toISOString();
+var identifier = (prefix) => `${prefix}-${import_crypto.default.randomUUID()}`;
+var sha256 = (value) => import_crypto.default.createHash("sha256").update(value).digest("hex");
+var timingSafeEqual = (first, second) => {
+  const a = Buffer.from(first);
+  const b = Buffer.from(second);
+  return a.length === b.length && import_crypto.default.timingSafeEqual(a, b);
+};
+function apiError(status, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  error.details = details;
+  return error;
+}
+function sendError(res, error) {
+  res.status(Number(error?.status || 500)).json({
+    error: error?.message || "Kh\xF4ng th\u1EC3 x\u1EED l\xFD y\xEAu c\u1EA7u Listening.",
+    ...error?.details ? { details: error.details } : {}
+  });
+}
+function isSuperAdmin(user) {
+  return user?.role === "super_admin";
+}
+function canManageSet(user, set) {
+  return isSuperAdmin(user) || user?.role === "teacher" && set?.ownerId === user.id;
+}
+function publicSetSummary(set) {
+  const {
+    draftContent: _draftContent,
+    shareToken: _shareToken,
+    assignmentSlug: _assignmentSlug,
+    ...summary
+  } = set || {};
+  return withListeningModuleMetadata(summary);
+}
+function withListeningModuleMetadata(record) {
+  return {
+    ...record,
+    moduleId: resolveListeningModuleId(record?.moduleId),
+    schemaVersion: Number(record?.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+    moduleSchemaVersion: Number(record?.moduleSchemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION)
+  };
+}
+function belongsToMoverModule(record) {
+  return resolveListeningModuleId(record?.moduleId) === DEFAULT_LISTENING_MODULE_ID;
+}
+function withMoverContentMetadata(content) {
+  return {
+    ...content,
+    moduleId: DEFAULT_LISTENING_MODULE_ID,
+    schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+    parts: content.parts.map((part) => ({
+      ...part,
+      schemaVersion: part.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION
+    }))
+  };
+}
+function encodeTicket(payload, secret) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = import_crypto.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+function decodeTicket(ticket, secret) {
+  const [encoded, providedSignature, extra] = String(ticket || "").split(".");
+  if (!encoded || !providedSignature || extra) throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  const expected = import_crypto.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  if (!timingSafeEqual(providedSignature, expected)) throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (Number(payload.ticketExpiresAt || 0) < Date.now()) {
+      throw apiError(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt th\u1EDDi gian g\u1EEDi l\u1EA1i.");
+    }
+    return payload;
+  } catch (error) {
+    if (error?.status) throw error;
+    throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+}
+function hasValidMagic(buffer, mimeType) {
+  if (mimeType === "image/jpeg") return buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
+  if (mimeType === "image/png") return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === "image/gif") return ["GIF87a", "GIF89a"].includes(buffer.subarray(0, 6).toString("ascii"));
+  if (mimeType === "image/webp") return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (mimeType === "audio/wav" || mimeType === "audio/x-wav") {
+    return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WAVE";
+  }
+  if (mimeType === "audio/ogg") return buffer.subarray(0, 4).toString("ascii") === "OggS";
+  if (mimeType === "audio/mp4" || mimeType === "audio/x-m4a") return buffer.subarray(4, 8).toString("ascii") === "ftyp";
+  if (mimeType === "audio/mpeg") {
+    return buffer.subarray(0, 3).toString("ascii") === "ID3" || buffer.length >= 2 && buffer[0] === 255 && (buffer[1] & 224) === 224;
+  }
+  return false;
+}
+function collectAssetReferences(content) {
+  const references = [];
+  const add = (id, kind, entityId, role) => {
+    const assetId = text(id, 160);
+    if (assetId) references.push({ id: assetId, kind, entityId, role });
+  };
+  add(content.coverAssetId, "image", "set", "cover");
+  add(content.backgroundAssetId, "image", "set", "background");
+  content.parts.forEach((part) => add(part.audioAssetId, "audio", `part-${part.part}`, "audio"));
+  add(content.parts[0].sceneAssetId, "image", "part-1", "scene");
+  add(content.parts[1].illustrationAssetId, "image", "part-2", "illustration");
+  content.parts[2].options.forEach((option) => add(option.imageAssetId, "image", option.id, "part3-option"));
+  content.parts[2].items.forEach((item) => add(item.imageAssetId, "image", item.id, "part3-item"));
+  if (content.parts[2].example) {
+    add(content.parts[2].example.item.imageAssetId, "image", content.parts[2].example.item.id, "part3-example");
+  }
+  content.parts[3].questions.forEach((question) => {
+    question.options.forEach((option) => add(option.imageAssetId, "image", `${question.id}:${option.id}`, "part4-option"));
+  });
+  if (content.parts[3].example) {
+    content.parts[3].example.options.forEach((option) => add(option.imageAssetId, "image", `example:${option.id}`, "part4-example"));
+  }
+  add(content.parts[4].sceneAssetId, "image", "part-5", "scene");
+  return references;
+}
+async function resolveContentAssets(db, content, user) {
+  const clone = structuredClone(content);
+  clone.parts[2].options.forEach((option, index) => {
+    option.label = String.fromCharCode(65 + index);
+  });
+  const references = collectAssetReferences(clone);
+  const assets = /* @__PURE__ */ new Map();
+  await Promise.all([...new Set(references.map((reference) => reference.id))].map(async (assetId) => {
+    const document = await db.collection("listening_assets").doc(assetId).get();
+    if (!document.exists) throw apiError(400, `Kh\xF4ng t\xECm th\u1EA5y media "${assetId}".`);
+    const asset = { id: document.id, ...document.data() };
+    if (asset.status !== "active") throw apiError(400, `Media "${asset.name || asset.id}" \u0111\xE3 l\u01B0u tr\u1EEF.`);
+    if (!isSuperAdmin(user) && asset.ownerId !== user.id) {
+      throw apiError(403, `B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng media "${asset.name || asset.id}".`);
+    }
+    assets.set(assetId, asset);
+  }));
+  for (const reference of references) {
+    const asset = assets.get(reference.id);
+    if (!asset || asset.kind !== reference.kind) {
+      throw apiError(400, `Media "${reference.id}" kh\xF4ng \u0111\xFAng lo\u1EA1i ${reference.kind}.`);
+    }
+  }
+  const url = (id) => id ? assets.get(id)?.url : void 0;
+  clone.coverUrl = url(clone.coverAssetId);
+  clone.backgroundUrl = url(clone.backgroundAssetId);
+  clone.parts.forEach((part) => {
+    part.audioUrl = url(part.audioAssetId);
+  });
+  clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
+  clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
+  clone.parts[2].options.forEach((option) => {
+    option.imageUrl = url(option.imageAssetId);
+  });
+  clone.parts[2].items.forEach((item) => {
+    item.imageUrl = url(item.imageAssetId);
+  });
+  if (clone.parts[2].example) {
+    clone.parts[2].example.item.imageUrl = url(clone.parts[2].example.item.imageAssetId);
+  }
+  clone.parts[3].questions.forEach((question) => {
+    question.options.forEach((option) => {
+      option.imageUrl = url(option.imageAssetId);
+    });
+  });
+  if (clone.parts[3].example) {
+    clone.parts[3].example.options.forEach((option) => {
+      option.imageUrl = url(option.imageAssetId);
+    });
+  }
+  clone.parts[4].sceneUrl = url(clone.parts[4].sceneAssetId);
+  return { content: clone, references };
+}
+async function getSet(db, id) {
+  const document = await db.collection("listening_sets").doc(id).get();
+  if (!document.exists) return null;
+  const record = { id: document.id, ...document.data() };
+  return belongsToMoverModule(record) ? withListeningModuleMetadata(record) : null;
+}
+async function getVersion(db, id) {
+  const document = await db.collection("listening_set_versions").doc(id).get();
+  if (!document.exists) return null;
+  const record = { id: document.id, ...document.data() };
+  return belongsToMoverModule(record) ? withListeningModuleMetadata(record) : null;
+}
+async function getAssignmentByToken(db, token) {
+  if (!token) return null;
+  const snapshot = await db.collection("assignments").where("shareToken", "==", token).get();
+  let match = null;
+  snapshot.forEach((document) => {
+    const data = { id: document.id, ...document.data() };
+    if (!match && (data.shareToken === token || data.assignmentSlug === token)) match = data;
+  });
+  return match;
+}
+async function resolveLearningAccess(db, set, req) {
+  if (!set || set.status !== "published" || !set.publishedVersionId) {
+    throw apiError(404, "B\u1ED9 \u0111\u1EC1 nghe ch\u01B0a \u0111\u01B0\u1EE3c xu\u1EA5t b\u1EA3n.");
+  }
+  if (req.user?.role === "super_admin" || canManageSet(req.user, set)) {
+    return { assignment: null };
+  }
+  if (set.visibility === "public") return { assignment: null };
+  const token = text(
+    req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.query?.accessToken || req.headers["x-listening-share-token"],
+    240
+  );
+  if (token && set.shareToken && timingSafeEqual(token, String(set.shareToken))) {
+    return { assignment: null };
+  }
+  const assignment = await getAssignmentByToken(db, token);
+  const resourceType = assignment?.resourceType || "vocabulary";
+  const resourceId = assignment?.resourceId || assignment?.vocabSetId;
+  if (assignment && resourceType === "listening" && resourceId === set.id) {
+    return { assignment };
+  }
+  throw apiError(403, "Link b\u1ED9 \u0111\u1EC1 nghe kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp.");
+}
+async function resolveActor(req, resolveGuestProfile2, classInfo = {}) {
+  if (req.authBlocked) throw apiError(403, "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB kh\xF3a.");
+  if (req.user) {
+    return {
+      ownerKey: `user:${req.user.id}`,
+      userId: req.user.id,
+      guestId: "",
+      studentName: req.user.name || "H\u1ECDc sinh"
+    };
+  }
+  const guestId = text(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const studentName = text(req.body?.studentName || req.query?.studentName, 120);
+  if (!guestId || !studentName) throw apiError(401, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh tr\u01B0\u1EDBc khi l\xE0m b\xE0i.");
+  const profile = await resolveGuestProfile2(guestId, studentName, true, classInfo);
+  return {
+    ownerKey: `guest:${guestId}`,
+    userId: "",
+    guestId,
+    studentName: profile.displayName || profile.name || studentName
+  };
+}
+function playableSet(set, version) {
+  const content = withMoverContentMetadata(sanitizeListeningContentForStudent(version.content));
+  return {
+    ...publicSetSummary(set),
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    content
+  };
+}
+function createListeningRouter(dependencies) {
+  const {
+    db,
+    authenticateUser: authenticateUser2,
+    authenticateOptionalUser: authenticateOptionalUser2,
+    requireStaff,
+    mediaDir,
+    mediaPublicPrefix,
+    ticketSecret,
+    resolveGuestProfile: resolveGuestProfile2,
+    logAudit
+  } = dependencies;
+  const router = import_express2.default.Router();
+  import_fs3.default.mkdirSync(mediaDir, { recursive: true });
+  router.get("/capabilities", authenticateUser2, requireStaff, (_req, res) => {
+    res.json({
+      imageGeneration: {
+        enabled: false,
+        reason: "Ch\u01B0a c\u1EA5u h\xECnh nh\xE0 cung c\u1EA5p t\u1EA1o \u1EA3nh \u1EDF backend. C\xF3 th\u1EC3 d\xF9ng t\u1EA3i l\xEAn ho\u1EB7c th\u01B0 vi\u1EC7n media."
+      },
+      upload: {
+        enabled: true,
+        imageMaxBytes: IMAGE_MAX_BYTES,
+        audioMaxBytes: AUDIO_MAX_BYTES,
+        mimeTypes: Object.keys(MIME_EXTENSIONS)
+      }
+    });
+  });
+  router.get("/admin/assets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const snapshot = isSuperAdmin(req.user) ? await db.collection("listening_assets").get() : await db.collection("listening_assets").where("ownerId", "==", req.user.id).get();
+      const assets = [];
+      snapshot.forEach((document) => {
+        const asset = { id: document.id, ...document.data() };
+        if (asset.status !== "archived") assets.push(asset);
+      });
+      assets.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      res.json(assets);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post(
+    "/admin/assets",
+    authenticateUser2,
+    requireStaff,
+    import_express2.default.raw({ type: Object.keys(MIME_EXTENSIONS), limit: AUDIO_MAX_BYTES }),
+    async (req, res) => {
+      let temporaryPath = "";
+      try {
+        if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+        const mimeType = text(req.headers["content-type"]?.split(";")[0], 100).toLowerCase();
+        const extension = MIME_EXTENSIONS[mimeType];
+        if (!extension) throw apiError(415, "\u0110\u1ECBnh d\u1EA1ng media kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+        const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        const kind = mimeType.startsWith("image/") ? "image" : "audio";
+        const sizeLimit = kind === "image" ? IMAGE_MAX_BYTES : AUDIO_MAX_BYTES;
+        if (!buffer.length || buffer.length > sizeLimit) throw apiError(413, "File r\u1ED7ng ho\u1EB7c v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n dung l\u01B0\u1EE3ng.");
+        if (!hasValidMagic(buffer, mimeType)) throw apiError(415, "N\u1ED9i dung file kh\xF4ng kh\u1EDBp \u0111\u1ECBnh d\u1EA1ng khai b\xE1o.");
+        const digest = sha256(buffer);
+        const storageKey = `${digest}${extension}`;
+        const finalPath = import_path3.default.join(mediaDir, storageKey);
+        temporaryPath = import_path3.default.join(mediaDir, `.${digest}.${import_crypto.default.randomUUID()}.tmp`);
+        import_fs3.default.writeFileSync(temporaryPath, buffer, { flag: "wx" });
+        if (import_fs3.default.existsSync(finalPath)) import_fs3.default.unlinkSync(temporaryPath);
+        else import_fs3.default.renameSync(temporaryPath, finalPath);
+        temporaryPath = "";
+        const existingSnapshot = await db.collection("listening_assets").where("storageKey", "==", storageKey).get();
+        let existing = null;
+        existingSnapshot.forEach((document) => {
+          const data = { id: document.id, ...document.data() };
+          if (!existing && (isSuperAdmin(req.user) || data.ownerId === req.user.id)) existing = data;
+        });
+        if (existing) return res.json(existing);
+        const now = nowIso2();
+        const asset = {
+          id: identifier("lasset"),
+          ownerId: req.user.id,
+          kind,
+          name: (() => {
+            const rawName = text(req.headers["x-file-name"], 240);
+            try {
+              return decodeURIComponent(rawName) || storageKey;
+            } catch {
+              return rawName || storageKey;
+            }
+          })(),
+          mimeType,
+          size: buffer.length,
+          storageKey,
+          url: `${mediaPublicPrefix}/${storageKey}`,
+          status: "active",
+          createdAt: now,
+          updatedAt: now
+        };
+        await db.collection("listening_assets").doc(asset.id).set(asset);
+        res.status(201).json(asset);
+      } catch (error) {
+        if (temporaryPath && import_fs3.default.existsSync(temporaryPath)) import_fs3.default.unlinkSync(temporaryPath);
+        sendError(res, error);
+      }
+    }
+  );
+  router.delete("/admin/assets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const document = await db.collection("listening_assets").doc(req.params.id).get();
+      if (!document.exists) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y media.");
+      const asset = { id: document.id, ...document.data() };
+      if (!isSuperAdmin(req.user) && asset.ownerId !== req.user.id) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u tr\u1EEF media n\xE0y.");
+      const usage = await db.collection("listening_asset_usages").where("assetId", "==", asset.id).get();
+      if (!usage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
+      await document.ref.update({ status: "archived", updatedAt: nowIso2() });
+      res.json({ success: true });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const snapshot = isSuperAdmin(req.user) ? await db.collection("listening_sets").get() : await db.collection("listening_sets").where("ownerId", "==", req.user.id).get();
+      const sets = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (belongsToMoverModule(set)) sets.push(withListeningModuleMetadata(set));
+      });
+      sets.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(sets);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const rawContent = req.body?.content;
+      if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+      const content = withMoverContentMetadata(rawContent);
+      const now = nowIso2();
+      const set = {
+        id: identifier("listen"),
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        ownerId: req.user.id,
+        createdBy: req.user.id,
+        title: text(content.title, 160) || "B\u1ED9 \u0111\u1EC1 nghe m\u1EDBi",
+        description: text(content.description, 2e3),
+        level: text(content.level, 80),
+        status: "draft",
+        visibility: "draft",
+        draftContent: content,
+        validationErrors: validateListeningSetContent(content),
+        createdAt: now,
+        updatedAt: now
+      };
+      await db.collection("listening_sets").doc(set.id).set(set);
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "CREATE_LISTENING_SET", `T\u1EA1o b\u1ED9 \u0111\u1EC1 nghe "${set.title}".`);
+      res.status(201).json(set);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      const versionsSnapshot = await db.collection("listening_set_versions").where("setId", "==", set.id).get();
+      const versions = [];
+      versionsSnapshot.forEach((document) => versions.push({ id: document.id, ...document.data() }));
+      versions.sort((a, b) => Number(b.versionNumber) - Number(a.versionNumber));
+      res.json({ ...set, versions });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.put("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      if (set.status === "archived") throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+      const rawContent = req.body?.content;
+      if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+      const content = withMoverContentMetadata(rawContent);
+      const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
+      const shareToken = visibility === "assignment" ? set.shareToken || import_crypto.default.randomBytes(18).toString("base64url") : void 0;
+      const updated = {
+        ...set,
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        title: text(content.title, 160),
+        description: text(content.description, 2e3),
+        level: text(content.level, 80),
+        visibility,
+        draftContent: content,
+        validationErrors: validateListeningSetContent(content),
+        updatedAt: nowIso2(),
+        ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
+      };
+      if (!shareToken) {
+        delete updated.shareToken;
+        delete updated.assignmentSlug;
+      }
+      await db.collection("listening_sets").doc(set.id).set(updated);
+      res.json(updated);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/admin/sets/:id/publish", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const set = await getSet(db, req.params.id);
+      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xu\u1EA5t b\u1EA3n b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      if (set.status === "archived") throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+      const draftContent = withMoverContentMetadata(set.draftContent);
+      const errors = validateListeningSetContent(draftContent);
+      if (errors.length) throw apiError(422, "B\u1ED9 \u0111\u1EC1 ch\u01B0a \u0111\u1EE7 \u0111i\u1EC1u ki\u1EC7n xu\u1EA5t b\u1EA3n.", errors);
+      const resolved = await resolveContentAssets(db, draftContent, req.user);
+      const versionsSnapshot = await db.collection("listening_set_versions").where("setId", "==", set.id).get();
+      let versionNumber = 1;
+      versionsSnapshot.forEach((document) => {
+        versionNumber = Math.max(versionNumber, Number(document.data()?.versionNumber || 0) + 1);
+      });
+      const now = nowIso2();
+      const version = {
+        id: identifier("listenver"),
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        schemaVersion: draftContent.schemaVersion,
+        setId: set.id,
+        versionNumber,
+        status: "published",
+        content: resolved.content,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt: now
+      };
+      const batch = db.batch();
+      batch.set(db.collection("listening_set_versions").doc(version.id), version);
+      if (set.publishedVersionId) {
+        const previous = await getVersion(db, set.publishedVersionId);
+        if (previous) {
+          batch.update(db.collection("listening_set_versions").doc(previous.id), {
+            status: "superseded",
+            updatedAt: now
+          });
+        }
+      }
+      const publishedSet = {
+        ...set,
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        draftContent,
+        title: resolved.content.title,
+        description: resolved.content.description,
+        level: resolved.content.level,
+        coverUrl: resolved.content.coverUrl || "",
+        backgroundUrl: resolved.content.backgroundUrl || "",
+        timeLimitMinutes: resolved.content.timeLimitMinutes,
+        status: "published",
+        publishedVersionId: version.id,
+        publishedVersionNumber: versionNumber,
+        validationErrors: [],
+        updatedAt: now
+      };
+      batch.set(db.collection("listening_sets").doc(set.id), publishedSet);
+      resolved.references.forEach((reference) => {
+        const usageId = `lusage-${sha256(`${version.id}:${reference.id}:${reference.entityId}:${reference.role}`).slice(0, 32)}`;
+        batch.set(db.collection("listening_asset_usages").doc(usageId), {
+          id: usageId,
+          assetId: reference.id,
+          setId: set.id,
+          versionId: version.id,
+          entityId: reference.entityId,
+          role: reference.role,
+          createdAt: now,
+          updatedAt: now
+        });
+      });
+      await batch.commit();
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "PUBLISH_LISTENING_SET", `Xu\u1EA5t b\u1EA3n "${publishedSet.title}" phi\xEAn b\u1EA3n ${versionNumber}.`);
+      res.json({ set: publishedSet, version });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.delete("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u tr\u1EEF b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      const updatedAt = nowIso2();
+      await db.collection("listening_sets").doc(set.id).update({ status: "archived", updatedAt });
+      res.json({ success: true, recoverable: true, status: "archived", updatedAt });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/admin/sets/:id/results", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem k\u1EBFt qu\u1EA3.");
+      const snapshot = await db.collection("listening_attempts").where("setId", "==", set.id).get();
+      const attempts = [];
+      snapshot.forEach((document) => {
+        const { runSecretHash: _secret, ...attempt } = { id: document.id, ...document.data() };
+        attempts.push(attempt);
+      });
+      attempts.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+      res.json({ set: publicSetSummary(set), attempts });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/sets", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const snapshot = await db.collection("listening_sets").get();
+      const sets = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (!belongsToMoverModule(set)) return;
+        const canSee = set.status === "published" && (set.visibility === "public" || req.user?.role === "super_admin" || canManageSet(req.user, set));
+        if (canSee) sets.push(publicSetSummary(set));
+      });
+      sets.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(sets);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/sets/:id", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      await resolveLearningAccess(db, set, req);
+      const version = await getVersion(db, set.publishedVersionId);
+      if (!version) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
+      res.json(playableSet(set, version));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/sets/:id/attempts/prepare", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const set = await getSet(db, req.params.id);
+      const access = await resolveLearningAccess(db, set, req);
+      const actor = await resolveActor(req, resolveGuestProfile2, {
+        classId: access.assignment?.classId,
+        className: access.assignment?.className,
+        verified: Boolean(access.assignment?.id)
+      });
+      const clientRunId = text(req.body?.clientRunId, 160);
+      const runSecret = text(req.body?.runSecret, 300);
+      if (!clientRunId || !runSecret) throw apiError(400, "Thi\u1EBFu m\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const version = await getVersion(db, set.publishedVersionId);
+      if (!version) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
+      const startedAt = nowIso2();
+      const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 6e4).toISOString() : void 0;
+      const ticketExpiresAt = Date.now() + (deadlineAt ? 24 * 60 * 6e4 : 7 * 24 * 60 * 6e4);
+      const payload = {
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        setId: set.id,
+        versionId: version.id,
+        ownerKey: actor.ownerKey,
+        assignmentId: access.assignment?.id || "",
+        classId: access.assignment?.classId || "",
+        className: access.assignment?.className || "",
+        assignmentTitle: access.assignment?.title || access.assignment?.resourceTitle || "",
+        clientRunId,
+        runSecretHash: sha256(runSecret),
+        startedAt,
+        deadlineAt,
+        ticketExpiresAt
+      };
+      res.json({
+        ticket: encodeTicket(payload, ticketSecret),
+        set: playableSet(set, version),
+        startedAt,
+        deadlineAt,
+        clientRunId
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/sets/:id/attempts/submit", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret);
+      if (ticket.setId !== req.params.id) throw apiError(400, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng thu\u1ED9c b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      const runSecret = text(req.body?.runSecret, 300);
+      if (!runSecret || !timingSafeEqual(sha256(runSecret), ticket.runSecretHash)) {
+        throw apiError(401, "M\xE3 x\xE1c nh\u1EADn l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+      }
+      const actor = await resolveActor(req, resolveGuestProfile2);
+      if (actor.ownerKey !== ticket.ownerKey) throw apiError(403, "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng thu\u1ED9c h\u1ECDc sinh n\xE0y.");
+      const attemptId = `lattempt-${sha256(`${ticket.ownerKey}:${ticket.setId}:${ticket.clientRunId}`).slice(0, 40)}`;
+      const existingDocument = await db.collection("listening_attempts").doc(attemptId).get();
+      if (existingDocument.exists) {
+        const existing = { id: existingDocument.id, ...existingDocument.data() };
+        if (!timingSafeEqual(String(existing.runSecretHash || ""), ticket.runSecretHash)) {
+          throw apiError(409, "M\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng.");
+        }
+        const { runSecretHash: _secret2, ...safeAttempt2 } = existing;
+        return res.json({ ...safeAttempt2, idempotentReplay: true });
+      }
+      const version = await getVersion(db, ticket.versionId);
+      if (!version || version.setId !== ticket.setId) throw apiError(404, "Phi\xEAn b\u1EA3n l\xE0m b\xE0i kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng.");
+      const answers = sanitizeListeningAnswers(req.body?.answers);
+      const grade = gradeListeningAttempt(version.content, answers);
+      const completedAt = nowIso2();
+      const startedAtMs = new Date(ticket.startedAt).getTime();
+      const durationSeconds = Math.max(0, Math.round((Date.now() - startedAtMs) / 1e3));
+      const timedOut = Boolean(ticket.deadlineAt && Date.now() >= new Date(ticket.deadlineAt).getTime());
+      const attempt = {
+        id: attemptId,
+        moduleId: resolveListeningModuleId(ticket.moduleId),
+        schemaVersion: Number(ticket.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+        ownerKey: ticket.ownerKey,
+        userId: actor.userId,
+        guestId: actor.guestId,
+        studentName: actor.studentName,
+        setId: ticket.setId,
+        versionId: ticket.versionId,
+        assignmentId: ticket.assignmentId || "",
+        classId: ticket.classId || "",
+        className: ticket.className || "",
+        assignmentTitle: ticket.assignmentTitle || "",
+        clientRunId: ticket.clientRunId,
+        runSecretHash: ticket.runSecretHash,
+        setTitle: version.content.title,
+        score: grade.score,
+        correctCount: grade.correctCount,
+        incorrectCount: grade.incorrectCount,
+        unansweredCount: grade.unansweredCount,
+        totalCount: grade.totalCount,
+        startedAt: ticket.startedAt,
+        completedAt,
+        durationSeconds,
+        timedOut,
+        status: "completed",
+        gradingVersion: LISTENING_GRADING_VERSION,
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const answerForQuestion = (part, questionId) => {
+        if (part === 1) return answers.part1[questionId] || "";
+        if (part === 2) return Object.values(answers.part2[questionId] || {}).filter(Boolean).join(" | ");
+        if (part === 3) return answers.part3[questionId] || "";
+        if (part === 4) return answers.part4[questionId] || "";
+        return answers.part5[questionId] || "";
+      };
+      const answerDetails = grade.questions.map((question) => ({
+        questionId: question.questionId,
+        questionText: `Part ${question.part} \u2022 ${question.questionId}`,
+        part: question.part,
+        userAnswer: answerForQuestion(question.part, question.questionId),
+        isCorrect: question.correct,
+        unanswered: question.unanswered
+      }));
+      const detail = {
+        id: attemptId,
+        attemptId,
+        answers,
+        questions: grade.questions,
+        answerDetails,
+        questionSnapshots: answerDetails.map((item) => ({
+          questionId: item.questionId,
+          questionText: item.questionText,
+          part: item.part
+        })),
+        optionSnapshots: [],
+        extraDetails: {
+          moduleId: resolveListeningModuleId(ticket.moduleId),
+          schemaVersion: Number(ticket.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+          setId: ticket.setId,
+          versionId: ticket.versionId,
+          gradingVersion: LISTENING_GRADING_VERSION
+        },
+        reviewPolicy: { revealCorrectAnswers: false },
+        gradingVersion: LISTENING_GRADING_VERSION,
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const batch = db.batch();
+      batch.set(db.collection("listening_attempts").doc(attemptId), attempt);
+      batch.set(db.collection("listening_attempt_details").doc(attemptId), detail);
+      await batch.commit();
+      const { runSecretHash: _secret, ...safeAttempt } = attempt;
+      res.status(201).json(safeAttempt);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.get("/sets/:id/my-attempts", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const actor = await resolveActor(req, resolveGuestProfile2);
+      const snapshot = await db.collection("listening_attempts").where("setId", "==", req.params.id).where("ownerKey", "==", actor.ownerKey).get();
+      const attempts = [];
+      snapshot.forEach((document) => {
+        const { runSecretHash: _secret, ...attempt } = { id: document.id, ...document.data() };
+        attempts.push(attempt);
+      });
+      attempts.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+      res.json(attempts);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  return router;
+}
+
+// src/server/listening-library/modules/mover/adapter.ts
+var manifest = getListeningModule("mover");
+if (!manifest) throw new Error("Missing Mover listening module manifest.");
+var moverServerModule = {
+  manifest,
+  createLegacyRouter: createListeningRouter,
+  validateContent: validateListeningSetContent,
+  sanitizeContentForStudent: sanitizeListeningContentForStudent,
+  gradeAttempt: gradeListeningAttempt,
+  gradingVersion: LISTENING_GRADING_VERSION
+};
+var createMoverLegacyRouter = createListeningRouter;
+
+// src/server/listening-library/registry.ts
+var serverModules = /* @__PURE__ */ new Map([
+  [moverServerModule.manifest.id, moverServerModule]
+]);
+function getListeningServerModule(moduleId) {
+  return serverModules.get(moduleId);
+}
+
+// src/server/listening-library/router.ts
+function createListeningLibraryRouter() {
+  const router = import_express3.default.Router();
+  router.get("/modules", (_req, res) => {
+    res.json(getVisibleListeningModules().map(publicListeningModuleManifest));
+  });
+  router.get("/modules/:moduleId", (req, res) => {
+    if (!isListeningModuleId(req.params.moduleId)) {
+      return res.status(404).json({ error: "Module b\xE0i nghe kh\xF4ng t\u1ED3n t\u1EA1i." });
+    }
+    const manifest2 = getListeningModule(req.params.moduleId);
+    if (!manifest2 || manifest2.status === "hidden") {
+      return res.status(404).json({ error: "Module b\xE0i nghe kh\xF4ng t\u1ED3n t\u1EA1i." });
+    }
+    const serverModule = getListeningServerModule(req.params.moduleId);
+    return res.json({
+      ...publicListeningModuleManifest(manifest2),
+      available: Boolean(serverModule && manifest2.status === "active"),
+      gradingVersion: serverModule?.gradingVersion
+    });
+  });
+  return router;
+}
+
 // src/server/learning-history/learningAttemptProjector.ts
 var import_node_crypto3 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
-function text(value, max = 500) {
+function text2(value, max = 500) {
   return String(value ?? "").normalize("NFKC").trim().slice(0, max);
 }
 function nonNegative(value) {
@@ -3914,7 +5585,7 @@ function clampScore(value) {
   return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 0));
 }
 function isoOrNull(value) {
-  const raw = text(value, 80);
+  const raw = text2(value, 80);
   if (!raw) return null;
   const date = new Date(raw);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
@@ -3944,9 +5615,9 @@ function deterministicLearningAttemptId(sourceType, sourceRecordId) {
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
-  const declaredOwnerKey = text(source?.ownerKey || source?.owner_key, 260);
-  const userId = text(source?.userId || source?.user_id, 180);
-  const guestId = text(source?.guestId || source?.guest_id, 180);
+  const declaredOwnerKey = text2(source?.ownerKey || source?.owner_key, 260);
+  const userId = text2(source?.userId || source?.user_id, 180);
+  const guestId = text2(source?.guestId || source?.guest_id, 180);
   if (declaredOwnerKey.startsWith("user:") && userId) {
     return {
       studentType: "authenticated",
@@ -3992,7 +5663,7 @@ function resolveOwnership(source) {
   };
 }
 function vocabularyCounts(session) {
-  const gameId = text(session?.gameId, 120);
+  const gameId = text2(session?.gameId, 120);
   const sourceCorrect = integer(session?.correctAnswers ?? session?.correct);
   const sourceIncorrect = integer(session?.incorrectAnswers ?? session?.incorrect);
   let total = integer(session?.totalQuestions);
@@ -4050,7 +5721,7 @@ function createDetail(sourceType, attemptId, clientRunId, completedAt, values, d
   };
 }
 function projectVocabularyAttempt(session, options = {}) {
-  const sourceRecordId = text(session?.id || session?.sourceId, 200);
+  const sourceRecordId = text2(session?.id || session?.sourceId, 200);
   if (!sourceRecordId) throw new Error("Vocabulary projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("vocabulary", sourceRecordId);
   const ownership = resolveOwnership(session);
@@ -4061,7 +5732,7 @@ function projectVocabularyAttempt(session, options = {}) {
   const counts = vocabularyCounts(session);
   const now = isoOrNull(session?.updatedAt) || activityAt;
   const assignmentVerified = Boolean(session?.assignmentVerified || session?.assignmentAccessVerified);
-  const assignmentId = assignmentVerified ? text(session?.assignmentId, 180) || null : null;
+  const assignmentId = assignmentVerified ? text2(session?.assignmentId, 180) || null : null;
   const includeDetail = options.includeDetail !== false && status === "completed";
   const answerDetails = Array.isArray(session?.answerDetails) ? session.answerDetails : [];
   const snapshotItems = Array.isArray(session?.privateSnapshot?.items) ? session.privateSnapshot.items : [];
@@ -4069,20 +5740,20 @@ function projectVocabularyAttempt(session, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text(session?.clientRunId, 180) || null,
+    clientRunId: text2(session?.clientRunId, 180) || null,
     sourceType: "vocabulary",
     ...ownership,
-    studentNameSnapshot: text(session?.studentName, 240),
-    classId: text(session?.classId, 180) || null,
-    classNameSnapshot: text(session?.className, 240),
+    studentNameSnapshot: text2(session?.studentName, 240),
+    classId: text2(session?.classId, 180) || null,
+    classNameSnapshot: text2(session?.className, 240),
     assignmentId,
-    assignmentTitleSnapshot: assignmentId ? text(session?.assignmentTitle || session?.assignmentName, 300) : "",
+    assignmentTitleSnapshot: assignmentId ? text2(session?.assignmentTitle || session?.assignmentName, 300) : "",
     assignmentDueAtSnapshot: assignmentId ? isoOrNull(session?.assignmentDueAt || session?.dueDate) : null,
-    lessonId: text(session?.vocabSetId || session?.vocabularySetId, 200),
-    lessonTitleSnapshot: text(session?.vocabSetTitle || session?.lessonTitle, 300),
+    lessonId: text2(session?.vocabSetId || session?.vocabularySetId, 200),
+    lessonTitleSnapshot: text2(session?.vocabSetTitle || session?.lessonTitle, 300),
     lessonType: "vocab_set",
-    gameId: text(session?.gameId, 160) || "vocabulary-practice",
-    gameTitleSnapshot: text(session?.gameName || session?.gameTitle || session?.gameId, 240),
+    gameId: text2(session?.gameId, 160) || "vocabulary-practice",
+    gameTitleSnapshot: text2(session?.gameName || session?.gameTitle || session?.gameId, 240),
     score: counts.score,
     rawScore: counts.rawScore,
     maxScore: counts.maxScore,
@@ -4110,15 +5781,15 @@ function projectVocabularyAttempt(session, options = {}) {
     answerDetails,
     questionSnapshots: snapshotItems.map((item, index) => ({
       questionIndex: index,
-      wordId: text(item?.id, 180),
-      term: text(item?.term, 500),
-      meaning: text(item?.meaning, 1e3),
-      ipa: text(item?.ipa, 180),
-      example: text(item?.example, 1500)
+      wordId: text2(item?.id, 180),
+      term: text2(item?.term, 500),
+      meaning: text2(item?.meaning, 1e3),
+      ipa: text2(item?.ipa, 180),
+      example: text2(item?.example, 1500)
     })),
     extraDetails: {
       gameId: attempt.gameId,
-      gradingMode: text(session?.gradingMode, 80)
+      gradingMode: text2(session?.gradingMode, 80)
     },
     reviewPolicy: {
       showReviewAfterSubmit: true,
@@ -4151,7 +5822,7 @@ function grammarReviewPolicy(attempt, set, capturedAt) {
   };
 }
 function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
-  const sourceRecordId = text(grammarAttempt?.id, 200);
+  const sourceRecordId = text2(grammarAttempt?.id, 200);
   if (!sourceRecordId) throw new Error("Grammar projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("grammar", sourceRecordId);
   const ownership = resolveOwnership(grammarAttempt);
@@ -4175,20 +5846,20 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text(grammarAttempt?.clientRunId, 180) || null,
+    clientRunId: text2(grammarAttempt?.clientRunId, 180) || null,
     sourceType: "grammar",
     ...ownership,
-    studentNameSnapshot: text(grammarAttempt?.studentName, 240),
-    classId: text(grammarAttempt?.classId, 180) || null,
-    classNameSnapshot: text(grammarAttempt?.className, 240),
-    assignmentId: grammarAttempt?.assignmentVerified ? text(grammarAttempt?.assignmentId, 180) || null : null,
-    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text(grammarAttempt?.assignmentTitle, 300) : "",
+    studentNameSnapshot: text2(grammarAttempt?.studentName, 240),
+    classId: text2(grammarAttempt?.classId, 180) || null,
+    classNameSnapshot: text2(grammarAttempt?.className, 240),
+    assignmentId: grammarAttempt?.assignmentVerified ? text2(grammarAttempt?.assignmentId, 180) || null : null,
+    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text2(grammarAttempt?.assignmentTitle, 300) : "",
     assignmentDueAtSnapshot: grammarAttempt?.assignmentVerified ? isoOrNull(grammarAttempt?.assignmentDueAt) : null,
-    lessonId: text(grammarAttempt?.grammarSetId, 200),
-    lessonTitleSnapshot: text(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
+    lessonId: text2(grammarAttempt?.grammarSetId, 200),
+    lessonTitleSnapshot: text2(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
     lessonType: "grammar_set",
     gameId: "grammar-practice",
-    gameTitleSnapshot: text(
+    gameTitleSnapshot: text2(
       grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
       240
     ),
@@ -4218,23 +5889,23 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
       const answer = answerByQuestion.get(question?.id);
       const questionType = question?.questionType === "rewrite" ? "rewrite" : "multiple_choice";
       const optionSnapshots = Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : [];
-      const selectedOptionId = text(answer?.selectedOptionId, 200);
-      const correctOptionId = text(question?.correctOptionId || answer?.correctOptionId, 200);
+      const selectedOptionId = text2(answer?.selectedOptionId, 200);
+      const correctOptionId = text2(question?.correctOptionId || answer?.correctOptionId, 200);
       const selectedOption = optionSnapshots.find(
-        (option) => text(option?.id, 200) === selectedOptionId
+        (option) => text2(option?.id, 200) === selectedOptionId
       );
       const correctOption = optionSnapshots.find(
-        (option) => text(option?.id, 200) === correctOptionId
+        (option) => text2(option?.id, 200) === correctOptionId
       );
-      const userAnswer = questionType === "rewrite" ? text(answer?.textAnswer, 4e3) : text(selectedOption?.text, 2e3);
-      const correctAnswer = questionType === "rewrite" ? text(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text(correctOption?.text, 2e3);
+      const userAnswer = questionType === "rewrite" ? text2(answer?.textAnswer, 4e3) : text2(selectedOption?.text, 2e3);
+      const correctAnswer = questionType === "rewrite" ? text2(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text2(correctOption?.text, 2e3);
       return {
         questionIndex: Number(question?.displayPosition || index + 1) - 1,
-        attemptQuestionId: text(question?.id, 200),
-        questionId: text(question?.questionId, 200),
+        attemptQuestionId: text2(question?.id, 200),
+        questionId: text2(question?.questionId, 200),
         questionType,
         selectedOptionId,
-        textAnswer: text(answer?.textAnswer, 4e3),
+        textAnswer: text2(answer?.textAnswer, 4e3),
         selectedAnswer: userAnswer,
         userAnswer,
         isCorrect: Boolean(answer?.isCorrect),
@@ -4242,32 +5913,32 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
         answeredAt: isoOrNull(answer?.answeredAt),
         correctOptionId,
         correctAnswer,
-        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text(value, 4e3)) : [],
-        explanation: text(question?.explanationSnapshot, 4e3)
+        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text2(value, 4e3)) : [],
+        explanation: text2(question?.explanationSnapshot, 4e3)
       };
     }),
     questionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text(question?.id, 200),
-      questionId: text(question?.questionId, 200),
+      attemptQuestionId: text2(question?.id, 200),
+      questionId: text2(question?.questionId, 200),
       questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
-      questionText: text(question?.questionSnapshot, 4e3),
-      explanation: text(question?.explanationSnapshot, 4e3),
-      correctOptionId: text(question?.correctOptionId, 200),
-      correctAnswer: text(question?.correctAnswerSnapshot, 4e3),
-      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text(value, 4e3)) : []
+      questionText: text2(question?.questionSnapshot, 4e3),
+      explanation: text2(question?.explanationSnapshot, 4e3),
+      correctOptionId: text2(question?.correctOptionId, 200),
+      correctAnswer: text2(question?.correctAnswerSnapshot, 4e3),
+      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text2(value, 4e3)) : []
     })),
     optionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text(question?.id, 200),
+      attemptQuestionId: text2(question?.id, 200),
       options: Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot.map((option) => ({
-        id: text(option?.id, 200),
-        text: text(option?.text, 2e3)
+        id: text2(option?.id, 200),
+        text: text2(option?.text, 2e3)
       })) : []
     })),
     extraDetails: {
-      grammarSetVersion: text(grammarAttempt?.grammarSetVersion, 180),
-      gradingVersion: text(
+      grammarSetVersion: text2(grammarAttempt?.grammarSetVersion, 180),
+      gradingVersion: text2(
         answers.find((answer) => answer?.gradingVersion)?.gradingVersion,
         120
       )
@@ -4308,10 +5979,12 @@ function sanitizePublicStudentRecord(value, secret) {
 
 // server.ts
 import_dotenv.default.config();
-var app2 = (0, import_express2.default)();
+var app2 = (0, import_express4.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 var AUDIO_PUBLIC_PREFIX = "/audio";
+var LISTENING_MEDIA_PUBLIC_PREFIX = "/listening-media";
+var LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR || (process.env.NODE_ENV === "production" ? "/home/qzmivzbj/app-data/vhomework/listening-media" : import_path4.default.join(process.cwd(), ".data", "listening-media"));
 var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 var LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
 var LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
@@ -4324,10 +5997,15 @@ if (process.env.NODE_ENV === "production" && LEARNING_HISTORY_ENABLED && !CONFIG
   );
 }
 var PUBLIC_IDENTITY_SECRET = CONFIGURED_PUBLIC_IDENTITY_SECRET || process.env.DIAGNOSTIC_SECRET || `${process.env.FIREBASE_PROJECT_ID || "vhomework"}:public-identity-v1`;
+var CONFIGURED_LISTENING_TICKET_SECRET = process.env.LISTENING_TICKET_SECRET?.trim() || CONFIGURED_PUBLIC_IDENTITY_SECRET || process.env.DIAGNOSTIC_SECRET?.trim();
+if (process.env.NODE_ENV === "production" && !CONFIGURED_LISTENING_TICKET_SECRET) {
+  throw new Error("LISTENING_TICKET_SECRET (or GUEST_PUBLIC_ID_SECRET) is required in production.");
+}
+var LISTENING_TICKET_SECRET = CONFIGURED_LISTENING_TICKET_SECRET || `${PUBLIC_IDENTITY_SECRET}:listening-ticket-v1`;
 if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
-app2.use(import_express2.default.json());
+app2.use(import_express4.default.json());
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -4335,8 +6013,13 @@ app2.use((req, _res, next) => {
     next();
   });
 });
-import_fs3.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express2.default.static(AUDIO_DIR));
+import_fs4.default.mkdirSync(AUDIO_DIR, { recursive: true });
+app2.use(AUDIO_PUBLIC_PREFIX, import_express4.default.static(AUDIO_DIR));
+import_fs4.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express4.default.static(LISTENING_MEDIA_DIR, {
+  immutable: true,
+  maxAge: "365d"
+}));
 function sendApiError(res, err) {
   const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
   res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
@@ -4566,10 +6249,10 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 function createSessionToken() {
-  return import_crypto.default.randomBytes(32).toString("hex");
+  return import_crypto2.default.randomBytes(32).toString("hex");
 }
 function hashSessionToken(token) {
-  return import_crypto.default.createHash("sha256").update(token).digest("hex");
+  return import_crypto2.default.createHash("sha256").update(token).digest("hex");
 }
 function sanitizePublicStudentRecord2(data) {
   return sanitizePublicStudentRecord(data || {}, PUBLIC_IDENTITY_SECRET);
@@ -5085,38 +6768,38 @@ function canUpdateGameSession(req, existing, payload) {
   }
   return false;
 }
-function isSuperAdmin(user) {
+function isSuperAdmin2(user) {
   return user?.role === "super_admin";
 }
 function isTeacher(user) {
   return user?.role === "teacher";
 }
 function canManageVocabSet(user, set) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   return isTeacher(user) && Boolean(set?.createdBy) && set.createdBy === user.id;
 }
 function canViewVocabSet(user, set) {
   if (!user) return getVocabVisibility(set) === "public";
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (isTeacher(user)) return canManageVocabSet(user, set) || getVocabVisibility(set) === "public";
   return getVocabVisibility(set) === "public";
 }
 function canManageClass(user, classData) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   return isTeacher(user) && Boolean(classData?.teacherId) && classData.teacherId === user.id;
 }
 function canViewClass(user, classData) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   return canManageClass(user, classData);
 }
 function canManageAssignment(user, assignment, classData) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (!isTeacher(user)) return false;
   if (assignment?.createdBy === user.id) return true;
   return Boolean(classData) && canManageClass(user, classData);
 }
 async function canManageGuestProfile(user, profile) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (!isTeacher(user)) return false;
   const guestId = getGuestProfileId(profile?.guestId || profile?.id);
   if (!guestId) return false;
@@ -5160,7 +6843,7 @@ async function canStaffViewLearningAttempt(actor, attempt) {
     id: actor.id,
     role: actor.role
   };
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (!isTeacher(user)) return false;
   if (attempt.assignmentId) {
     const assignmentDoc = await adminDb.collection("assignments").doc(attempt.assignmentId).get();
@@ -5262,7 +6945,7 @@ async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", e
   return null;
 }
 function canViewResultSession(user, session, vocabSetsById, assignmentsById, classesById) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (!user) return false;
   if (user.role === "student") {
     return session.userId === user.id || session.studentId === user.id || session.ownerKey === `user:${user.id}`;
@@ -5279,7 +6962,7 @@ function canViewResultSession(user, session, vocabSetsById, assignmentsById, cla
   return Boolean(classData && canManageClass(user, classData));
 }
 function canViewGrammarActivity(user, attempt, set) {
-  if (isSuperAdmin(user)) return true;
+  if (isSuperAdmin2(user)) return true;
   if (!user) return false;
   if (user.role === "student") return attempt.userId === user.id || attempt.studentId === user.id;
   return isTeacher(user) && canManageGrammarSet(user, set);
@@ -5366,7 +7049,7 @@ function grammarAttemptToActivity(attempt, set = {}) {
   };
 }
 function leaderboardEventId(sourceType, sourceId) {
-  const hash = import_crypto.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
+  const hash = import_crypto2.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
   return `leaderboard-${hash}`;
 }
 function getLeaderboardEventTime(data) {
@@ -5385,7 +7068,7 @@ function sanitizeLeaderboardEvent(event) {
   const sourceId = safeText(event.sourceId || event.id || "", 180);
   const completedAt = getLeaderboardEventTime(event);
   return {
-    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto.default.randomUUID()),
+    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto2.default.randomUUID()),
     sourceType,
     sourceId,
     assignmentId: safeText(event.assignmentId || "", 180),
@@ -5443,6 +7126,47 @@ function grammarAttemptToLeaderboardEvent(attempt, set = {}) {
     grammarSetId: attempt.grammarSetId,
     expiresAt: addDaysIso2(activity.completedAt || (/* @__PURE__ */ new Date()).toISOString(), LEADERBOARD_RETENTION_DAYS)
   });
+}
+function listeningAttemptToActivity(attempt) {
+  const totalQuestions = Math.max(
+    1,
+    Number(attempt.totalCount || 0) || Number(attempt.correctCount || 0) + Number(attempt.incorrectCount || 0) + Number(attempt.unansweredCount || 0)
+  );
+  return {
+    id: attempt.id,
+    sourceType: "listening",
+    sourceId: attempt.id,
+    moduleId: resolveListeningModuleId(attempt.moduleId),
+    moduleSchemaVersion: Number(attempt.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+    ownerKey: attempt.ownerKey,
+    ownerType: attempt.guestId ? "guest" : "user",
+    userId: attempt.userId || "",
+    studentId: attempt.userId || attempt.guestId || "",
+    guestId: attempt.guestId || "",
+    studentName: attempt.studentName || "H\u1ECDc sinh",
+    assignmentId: attempt.assignmentId || "",
+    classId: attempt.classId || "",
+    className: attempt.className || "",
+    vocabSetId: `listening:${attempt.setId}`,
+    vocabSetTitle: attempt.setTitle || "B\u1ED9 \u0111\u1EC1 nghe 5 Part",
+    gameId: "listening-five-part",
+    gameName: "Nghe 5 Part",
+    gameType: "listening",
+    startedAt: attempt.startedAt,
+    endedAt: attempt.completedAt,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt || attempt.completedAt,
+    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1e3,
+    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
+    score: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    rawScore: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    maxScore: 100,
+    totalQuestions,
+    correctAnswers: Math.max(0, Number(attempt.correctCount || 0)),
+    incorrectAnswers: Math.max(0, Number(attempt.incorrectCount || 0)) + Math.max(0, Number(attempt.unansweredCount || 0)),
+    accuracy: Math.round(Math.max(0, Number(attempt.correctCount || 0)) / totalQuestions * 100),
+    status: "completed"
+  };
 }
 function mergeLeaderboardEvents(events) {
   const bySource = /* @__PURE__ */ new Map();
@@ -5532,35 +7256,35 @@ var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENC
 var ttsQueue = [];
 var ttsInFlight = /* @__PURE__ */ new Map();
 var isProcessingTtsQueue = false;
-function normalizeTtsText(text2) {
-  return text2.normalize("NFKC").trim().replace(/\s+/g, " ");
+function normalizeTtsText(text3) {
+  return text3.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 function sanitizeTtsInput(input) {
   const warnings = [];
-  let text2 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
-  if (!text2) return { text: "", warnings };
-  const lines = text2.split("\n").map((line) => line.trim()).filter(Boolean);
+  let text3 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text3) return { text: "", warnings };
+  const lines = text3.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 1) {
     warnings.push("Only the first non-empty line was used for TTS.");
-    text2 = lines[0];
+    text3 = lines[0];
   }
-  const dashSplit = text2.split(/\s+[–—-]\s+/);
+  const dashSplit = text3.split(/\s+[–—-]\s+/);
   if (dashSplit.length > 1) {
     warnings.push("Text after the separator was removed before TTS.");
-    text2 = dashSplit[0];
+    text3 = dashSplit[0];
   }
-  const beforeNotes = text2;
-  text2 = text2.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
-  if (text2 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
-  const beforeIpa = text2;
-  text2 = text2.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
-  if (text2 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
-  text2 = normalizeTtsText(text2).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
-  if (text2.length > 120) {
+  const beforeNotes = text3;
+  text3 = text3.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text3 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text3;
+  text3 = text3.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text3 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text3 = normalizeTtsText(text3).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text3.length > 120) {
     warnings.push("TTS text was shortened to 120 characters.");
-    text2 = text2.slice(0, 120).trim();
+    text3 = text3.slice(0, 120).trim();
   }
-  return { text: text2, warnings };
+  return { text: text3, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
@@ -5577,15 +7301,15 @@ function normalizeTtsSettings(settings = {}) {
     speed
   };
 }
-function createAudioHash(text2, settings) {
-  const normalizedText = normalizeTtsText(text2);
-  return import_crypto.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${settings.speed}|${normalizedText}`).digest("hex");
+function createAudioHash(text3, settings) {
+  const normalizedText = normalizeTtsText(text3);
+  return import_crypto2.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${settings.speed}|${normalizedText}`).digest("hex");
 }
 function audioFileName(audioHash) {
   return `${audioHash}.mp3`;
 }
 function audioFilePath(audioHash) {
-  return import_path3.default.join(AUDIO_DIR, audioFileName(audioHash));
+  return import_path4.default.join(AUDIO_DIR, audioFileName(audioHash));
 }
 function audioPublicUrl(audioHash) {
   return `${AUDIO_PUBLIC_PREFIX}/${audioFileName(audioHash)}`;
@@ -5647,16 +7371,16 @@ async function responseBufferWithCap(res, maxBytes) {
   return buffer;
 }
 function writeFileAtomic(targetPath, buffer) {
-  const dir = import_path3.default.dirname(targetPath);
-  import_fs3.default.mkdirSync(dir, { recursive: true });
-  const tempPath = import_path3.default.join(dir, `.${import_path3.default.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
+  const dir = import_path4.default.dirname(targetPath);
+  import_fs4.default.mkdirSync(dir, { recursive: true });
+  const tempPath = import_path4.default.join(dir, `.${import_path4.default.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    import_fs3.default.writeFileSync(tempPath, buffer, { flag: "wx" });
-    import_fs3.default.renameSync(tempPath, targetPath);
+    import_fs4.default.writeFileSync(tempPath, buffer, { flag: "wx" });
+    import_fs4.default.renameSync(tempPath, targetPath);
   } finally {
-    if (import_fs3.default.existsSync(tempPath)) {
+    if (import_fs4.default.existsSync(tempPath)) {
       try {
-        import_fs3.default.unlinkSync(tempPath);
+        import_fs4.default.unlinkSync(tempPath);
       } catch {
       }
     }
@@ -5674,11 +7398,11 @@ async function runWithConcurrency(items, limit, worker) {
   }));
   return results;
 }
-async function requestAi33TtsTask(text2, settings, fileName) {
+async function requestAi33TtsTask(text3, settings, fileName) {
   const apiKey = getAi33ApiKey();
   if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
   const form = new FormData();
-  form.set("text", text2);
+  form.set("text", text3);
   form.set("voice_id", settings.voice);
   form.set("speed", String(settings.speed));
   form.set("with_transcript", "false");
@@ -5736,7 +7460,7 @@ async function generateCachedTtsAudio(inputText, settings, force = false) {
   const audioHash = createAudioHash(sanitized.text, settings);
   const targetPath = audioFilePath(audioHash);
   const targetUrl = audioPublicUrl(audioHash);
-  if (!force && import_fs3.default.existsSync(targetPath)) {
+  if (!force && import_fs4.default.existsSync(targetPath)) {
     return {
       audioHash,
       audioUrl: targetUrl,
@@ -5748,9 +7472,9 @@ async function generateCachedTtsAudio(inputText, settings, force = false) {
   const inFlight = ttsInFlight.get(audioHash);
   if (inFlight) return inFlight;
   const generation = (async () => {
-    if (force && import_fs3.default.existsSync(targetPath)) {
+    if (force && import_fs4.default.existsSync(targetPath)) {
       try {
-        import_fs3.default.unlinkSync(targetPath);
+        import_fs4.default.unlinkSync(targetPath);
       } catch (err) {
         console.warn("Could not remove old TTS cache before regeneration:", err);
       }
@@ -5826,9 +7550,9 @@ async function processVocabSetAudioJob(job) {
     if (!sanitized.text) continue;
     const audioHash = createAudioHash(sanitized.text, job.settings);
     const targetPath = audioFilePath(audioHash);
-    const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs3.default.existsSync(targetPath);
+    const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs4.default.existsSync(targetPath);
     if (existingReady) continue;
-    if (!job.force && import_fs3.default.existsSync(targetPath)) {
+    if (!job.force && import_fs4.default.existsSync(targetPath)) {
       hasInitialUpdates = true;
       items = items.map(
         (current) => current.id === item.id ? mergeItemAudioState(current, {
@@ -6109,11 +7833,11 @@ async function generateWithOpenAI(prompt) {
     throw error;
   }
   const data = await response.json();
-  const text2 = extractOpenAIText(data);
-  if (!text2) {
+  const text3 = extractOpenAIText(data);
+  if (!text3) {
     throw new Error("OpenAI response did not include text output.");
   }
-  return text2;
+  return text3;
 }
 async function generateAiText(prompt, geminiConfig) {
   const errors = [];
@@ -6139,10 +7863,10 @@ async function generateAiText(prompt, geminiConfig) {
     errors.push("Gemini: GEMINI_API_KEY is not configured.");
   }
   try {
-    const text2 = await generateWithOpenAI(prompt);
-    if (text2) {
+    const text3 = await generateWithOpenAI(prompt);
+    if (text3) {
       return {
-        text: text2.trim(),
+        text: text3.trim(),
         provider: "openai",
         errors
       };
@@ -6159,8 +7883,8 @@ async function generateAiText(prompt, geminiConfig) {
     errors
   };
 }
-function parseAiJson(text2) {
-  const trimmed = String(text2 || "").trim();
+function parseAiJson(text3) {
+  const trimmed = String(text3 || "").trim();
   if (!trimmed) throw new Error("AI returned empty text.");
   try {
     return JSON.parse(trimmed);
@@ -6460,6 +8184,24 @@ app2.use(
     canStaffViewAttempt: canStaffViewLearningAttempt
   })
 );
+app2.use(
+  "/api/listening-library",
+  createListeningLibraryRouter()
+);
+app2.use(
+  "/api/listening",
+  createMoverLegacyRouter({
+    db: adminDb,
+    authenticateUser,
+    authenticateOptionalUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    mediaDir: LISTENING_MEDIA_DIR,
+    mediaPublicPrefix: LISTENING_MEDIA_PUBLIC_PREFIX,
+    ticketSecret: LISTENING_TICKET_SECRET,
+    resolveGuestProfile,
+    logAudit: logAuditAction
+  })
+);
 var ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
   "Pronoun",
@@ -6473,18 +8215,18 @@ var ALLOWED_PARTS_OF_SPEECH = [
   "Determiner"
 ];
 function normalizePartOfSpeech(value) {
-  const text2 = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text2);
+  const text3 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text3);
   if (match) return match;
-  if (text2.includes("pronoun")) return "Pronoun";
-  if (text2.includes("adjective")) return "Adjective";
-  if (text2.includes("adverb")) return "Adverb";
-  if (text2.includes("preposition")) return "Preposition";
-  if (text2.includes("conjunction")) return "Conjunction";
-  if (text2.includes("interjection")) return "Interjection";
-  if (text2.includes("article")) return "Article";
-  if (text2.includes("determiner")) return "Determiner";
-  if (text2.includes("verb")) return "Verb";
+  if (text3.includes("pronoun")) return "Pronoun";
+  if (text3.includes("adjective")) return "Adjective";
+  if (text3.includes("adverb")) return "Adverb";
+  if (text3.includes("preposition")) return "Preposition";
+  if (text3.includes("conjunction")) return "Conjunction";
+  if (text3.includes("interjection")) return "Interjection";
+  if (text3.includes("article")) return "Article";
+  if (text3.includes("determiner")) return "Determiner";
+  if (text3.includes("verb")) return "Verb";
   return "Noun";
 }
 function normalizeForExampleCheck(value) {
@@ -6744,6 +8486,7 @@ app2.get("/api/public/results", async (req, res) => {
     const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
     const snapshot = await adminDb.collection("game_sessions").where("completedAt", ">=", recentCutoff).get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").where("completedAt", ">=", recentCutoff).get();
+    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts").where("completedAt", ">=", recentCutoff).get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
@@ -6825,6 +8568,11 @@ app2.get("/api/public/results", async (req, res) => {
       const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
       delete activity.answerDetails;
       list.push(activity);
+    });
+    listeningAttemptsSnapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
+      list.push(listeningAttemptToActivity(data));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     const named = await enrichStudentNames(list);
@@ -6937,10 +8685,10 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
 app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text2 = String(req.body?.text || "apple").trim();
+    const text3 = String(req.body?.text || "apple").trim();
     const force = Boolean(req.body?.force);
-    if (!text2) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text2, settings, force);
+    if (!text3) return res.status(400).json({ error: "Missing preview text." });
+    const result = await generateCachedTtsAudio(text3, settings, force);
     res.json({
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
@@ -6959,12 +8707,12 @@ app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "s
     const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
     if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
     const prepared = rawItems.map((item, index) => {
-      const text2 = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text2);
+      const text3 = String(item?.text || item?.term || "").trim();
+      const sanitized = sanitizeTtsInput(text3);
       const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
       return {
         id: String(item?.id || `item-${index + 1}`),
-        text: text2,
+        text: text3,
         sanitized,
         audioHash
       };
@@ -7114,7 +8862,7 @@ app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "su
     }
     const setDetails = existing.data();
     const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
-    if (!isSuperAdmin(req.user)) {
+    if (!isSuperAdmin2(req.user)) {
       const classesSnapshot = await adminDb.collection("classes").get();
       const classesById = /* @__PURE__ */ new Map();
       classesSnapshot.forEach((doc) => {
@@ -7347,11 +9095,24 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     if (!canManageClass(req.user, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
-    const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || "")).get();
-    if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
-    if (!canViewVocabSet(req.user, vocabSet) || getVocabVisibility(vocabSet) === "draft") {
-      return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
+    const resourceType = payload.resourceType === "listening" ? "listening" : "vocabulary";
+    let resource;
+    if (resourceType === "listening") {
+      const resourceId = String(payload.resourceId || payload.listeningSetId || "");
+      const listeningDoc = await adminDb.collection("listening_sets").doc(resourceId).get();
+      if (!listeningDoc.exists) return res.status(404).json({ error: "Listening set not found." });
+      resource = { id: listeningDoc.id, ...listeningDoc.data() };
+      const canManageListening = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
+      if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
+        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 nghe n\xE0y." });
+      }
+    } else {
+      const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
+      if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+      resource = { id: vocabDoc.id, ...vocabDoc.data() };
+      if (!canViewVocabSet(req.user, resource) || getVocabVisibility(resource) === "draft") {
+        return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
+      }
     }
     const shareToken = createShareToken();
     const newAssign = {
@@ -7361,8 +9122,17 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
       assignmentSlug: shareToken,
       classId: classData.id,
       className: classData.name || payload.className || "",
-      vocabSetId: vocabSet.id,
-      vocabSetTitle: vocabSet.title || payload.vocabSetTitle || "",
+      resourceType,
+      resourceId: resource.id,
+      resourceTitle: resource.title || payload.resourceTitle || "",
+      ...resourceType === "vocabulary" ? {
+        vocabSetId: resource.id,
+        vocabSetTitle: resource.title || payload.vocabSetTitle || ""
+      } : {
+        listeningSetId: resource.id,
+        listeningSetTitle: resource.title || payload.resourceTitle || "",
+        gameId: "listening-five-part"
+      },
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id
     };
@@ -8252,7 +10022,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
     timing.mark("identity");
-    const id = `session-${import_crypto.default.randomUUID()}`;
+    const id = `session-${import_crypto2.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const vocabSetId = safeText(payload.vocabSetId, 160);
@@ -8572,7 +10342,7 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
     if (!actor) {
       return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
     }
-    const id = `pronunciation-${import_crypto.default.randomUUID()}`;
+    const id = `pronunciation-${import_crypto2.default.randomUUID()}`;
     const attempt = {
       id,
       ownerKey: actor.ownerKey,
@@ -8605,8 +10375,12 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
     const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
     const snapshot = await adminDb.collection("game_sessions").where("completedAt", ">=", recentCutoff).get();
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").where("completedAt", ">=", recentCutoff).get();
+    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts").where("completedAt", ">=", recentCutoff).get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
+    const listeningSetsSnapshot = await adminDb.collection("listening_sets").get();
+    const listeningSetsById = /* @__PURE__ */ new Map();
+    listeningSetsSnapshot.forEach((doc) => listeningSetsById.set(doc.id, { id: doc.id, ...doc.data() }));
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const classesSnapshot = await adminDb.collection("classes").get();
     const assignmentsById = /* @__PURE__ */ new Map();
@@ -8642,6 +10416,13 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
+    });
+    listeningAttemptsSnapshot.forEach((doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
+      const set = listeningSetsById.get(data.setId);
+      const canView = req.user?.role === "super_admin" || data.userId === req.user?.id || data.ownerKey === `user:${req.user?.id}` || req.user?.role === "teacher" && set?.ownerId === req.user.id;
+      if (canView) list.push(listeningAttemptToActivity(data));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(await enrichStudentNames(list));
@@ -8697,7 +10478,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super
       adminDb.collection("guest_profiles").get()
     ]);
     const accounts = [];
-    if (isSuperAdmin(req.user)) {
+    if (isSuperAdmin2(req.user)) {
       usersSnapshot.forEach((doc) => {
         const data = doc.data();
         accounts.push({
@@ -8953,10 +10734,10 @@ async function start() {
     app2.use(vite.middlewares);
     console.log("Vite development server loaded as middleware.");
   } else {
-    const distPath = import_path3.default.join(process.cwd(), "dist", "client");
-    app2.use(import_express2.default.static(distPath));
+    const distPath = import_path4.default.join(process.cwd(), "dist", "client");
+    app2.use(import_express4.default.static(distPath));
     app2.get("*", (req, res) => {
-      res.sendFile(import_path3.default.join(distPath, "index.html"));
+      res.sendFile(import_path4.default.join(distPath, "index.html"));
     });
     console.log("Production static build routing active.");
   }
@@ -8994,7 +10775,7 @@ function toLegacyStatus(visibility) {
   return visibility === "assignment" ? "private" : visibility;
 }
 function createShareToken() {
-  return import_crypto.default.randomBytes(16).toString("hex");
+  return import_crypto2.default.randomBytes(16).toString("hex");
 }
 function normalizePersonName(value) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ");
@@ -9191,18 +10972,18 @@ function safeText(value, max = 2e3) {
   return String(value || "").normalize("NFKC").trim().slice(0, max);
 }
 function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${import_crypto.default.randomBytes(4).toString("hex")}`;
+  return `${prefix}-${Date.now()}-${import_crypto2.default.randomBytes(4).toString("hex")}`;
 }
 function fisherYates(input) {
   const items = [...input];
   for (let i = items.length - 1; i > 0; i--) {
-    const j = import_crypto.default.randomInt(0, i + 1);
+    const j = import_crypto2.default.randomInt(0, i + 1);
     [items[i], items[j]] = [items[j], items[i]];
   }
   return items;
 }
 function seededUnitInterval(seed, index) {
-  const digest = import_crypto.default.createHash("sha256").update(`${seed}:${index}`).digest();
+  const digest = import_crypto2.default.createHash("sha256").update(`${seed}:${index}`).digest();
   return digest.readUInt32BE(0) / 4294967296;
 }
 function deterministicShuffle(input, seed) {
