@@ -1,4 +1,4 @@
-export type LearningSourceType = 'vocabulary' | 'grammar';
+export type LearningSourceType = 'vocabulary' | 'grammar' | 'listening';
 export type LearningHistoryType = 'all' | 'assignment' | 'practice';
 export type LearningAttemptStatus = 'completed' | 'in_progress' | 'interrupted';
 export type LearningDetailStatus = 'available' | 'missing' | 'expired' | 'legacy';
@@ -47,7 +47,7 @@ export interface LearningAttemptWrite {
   assignmentDueAtSnapshot: string | null;
   lessonId: string;
   lessonTitleSnapshot: string;
-  lessonType: 'vocab_set' | 'grammar_set';
+  lessonType: 'vocab_set' | 'grammar_set' | 'listening_set';
   gameId: string;
   gameTitleSnapshot: string;
   score: number;

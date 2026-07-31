@@ -176,7 +176,7 @@ function DetailEntry({
       <dl className="mt-3 space-y-3 text-sm">
         <div>
           <dt className="text-xs font-bold text-slate-500">
-            {sourceType === 'grammar' ? 'Câu hỏi' : 'Từ / câu hỏi'}
+            {sourceType === 'vocabulary' ? 'Từ / câu hỏi' : 'Câu hỏi'}
           </dt>
           <dd className="mt-1 break-words font-bold text-slate-900">{readableValue(prompt)}</dd>
         </div>

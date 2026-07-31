@@ -7,6 +7,13 @@ import { VocabSet, Class, Assignment, GameSession, GrammarSet } from './types';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentLearningArea from './components/games/StudentLearningArea';
 import GrammarLearningArea from './components/grammar/GrammarLearningArea';
+import ListeningLibraryHome from './features/listening-library/student/ListeningLibraryHome';
+import ListeningModulePage from './features/listening-library/student/ListeningModulePage';
+import ListeningExamPage from './features/listening-library/student/ListeningExamPage';
+import {
+  listeningModulePath,
+  parseListeningLibraryRoute,
+} from './features/listening-library/routes';
 import StudentHistoryPage from './components/history/StudentHistoryPage';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
@@ -82,6 +89,9 @@ export default function App() {
     const match = window.location.pathname.match(/^\/grammar\/private\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
   }, []);
+  const listeningLibraryRoute = React.useMemo(() => (
+    parseListeningLibraryRoute(window.location.pathname, window.location.search)
+  ), []);
   const authRoute = React.useMemo(() => {
     const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
     if (pathname === '/reg' || pathname === '/register') return 'register';
@@ -91,6 +101,7 @@ export default function App() {
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
+  const [listeningSets, setListeningSets] = useState<any[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [, setResults] = useState<GameSession[]>([]);
@@ -149,9 +160,10 @@ export default function App() {
     return Array.from(new Set([
       ...DEFAULT_GRADE_OPTIONS,
       ...classes.map(cls => cls.name).filter(Boolean),
-      ...vocabSets.map(set => set.gradeLevel).filter(Boolean)
+      ...vocabSets.map(set => set.gradeLevel).filter(Boolean),
+      ...listeningSets.map(set => set.level).filter(Boolean)
     ]));
-  }, [classes, vocabSets]);
+  }, [classes, listeningSets, vocabSets]);
 
   const homeLeaderboard = React.useMemo(() => {
     return buildLeaderboard(leaderboardResults, assignments, { period: leaderboardPeriod }).gold.slice(0, 5);
@@ -164,6 +176,7 @@ export default function App() {
       setClasses([]);
       setAssignments([]);
       setGrammarSets([]);
+      setListeningSets([]);
 
       try {
         const res = await fetch('/api/public/vocab-sets');
@@ -183,6 +196,16 @@ export default function App() {
       } catch (err) {
         console.warn("Backend /api/public/grammar-sets API unreachable:", err);
         setGrammarSets([]);
+      }
+
+      try {
+        const res = await fetch('/api/listening/sets');
+        if (!res.ok) throw new Error("Public listening API response error");
+        const data = await res.json();
+        setListeningSets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Backend public listening API unreachable:", err);
+        setListeningSets([]);
       }
 
       try {
@@ -221,6 +244,18 @@ export default function App() {
     } catch (err) {
       console.warn("Backend /api/grammar-sets API unreachable:", err);
       setGrammarSets([]);
+    }
+
+    try {
+      const res = await fetch('/api/listening/sets', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Listening API response error");
+      const data = await res.json();
+      setListeningSets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Backend listening API unreachable:", err);
+      setListeningSets([]);
     }
 
     // Load Vocabulary Sets
@@ -475,6 +510,20 @@ export default function App() {
     return set.visibility === 'public' && matchSearch && matchGrade;
   });
 
+  const filteredListeningSets = listeningSets.filter(set => {
+    const searchTerms = expandSearchTerms(homeSearch);
+    const searchableText = normalizeSearchText([
+      set.title,
+      set.description,
+      set.level,
+      'listening',
+      'nghe'
+    ].filter(Boolean).join(' '));
+    const matchSearch = searchTerms.length === 0 || searchTerms.some(term => searchableText.includes(term));
+    const matchGrade = homeGrade ? set.level === homeGrade : true;
+    return set.visibility === 'public' && set.status === 'published' && matchSearch && matchGrade;
+  });
+
   // --- SCREEN RENDERS ---
 
   // 1. Loading Screen
@@ -501,6 +550,34 @@ export default function App() {
       <Login
         onNavigateToRegister={() => { window.location.href = '/reg'; }}
         onNavigateToHome={() => { window.location.href = '/'; }}
+      />
+    );
+  }
+
+  if (listeningLibraryRoute?.kind === 'library') {
+    return <ListeningLibraryHome onBack={() => { window.location.href = '/'; }} />;
+  }
+
+  if (listeningLibraryRoute?.kind === 'module') {
+    return (
+      <ListeningModulePage
+        moduleId={listeningLibraryRoute.moduleId}
+        onBack={() => { window.location.href = '/listening'; }}
+      />
+    );
+  }
+
+  if (listeningLibraryRoute?.kind === 'exam') {
+    return (
+      <ListeningExamPage
+        moduleId={listeningLibraryRoute.moduleId}
+        examId={listeningLibraryRoute.examId}
+        accessToken={listeningLibraryRoute.accessToken}
+        onBack={() => {
+          window.location.href = listeningLibraryRoute.legacy
+            ? '/'
+            : listeningModulePath(listeningLibraryRoute.moduleId);
+        }}
       />
     );
   }
@@ -880,6 +957,13 @@ export default function App() {
               ))}
             </div>
           )}
+
+          <div className="pt-8 border-t border-gray-200">
+            <ListeningLibraryHome
+              embedded
+              moduleCounts={{ mover: filteredListeningSets.length }}
+            />
+          </div>
 
           <div className="pt-8 space-y-4 border-t border-gray-200" id="home-grammar-directory">
             <div className="flex items-center justify-between gap-3">

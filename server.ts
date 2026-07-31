@@ -23,6 +23,9 @@ import {
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 import { deterministicRunDocumentId, normalizeClientStartedAt } from "./src/lib/serverLearningRuns.js";
 import { createLearningHistoryRouter } from "./src/server/learning-history/learningHistoryRouter.js";
+import { LISTENING_LIBRARY_SCHEMA_VERSION, resolveListeningModuleId } from "./src/features/listening-library/registry.js";
+import { createListeningLibraryRouter } from "./src/server/listening-library/router.js";
+import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
 import {
   projectGrammarAttempt,
   projectVocabularyAttempt
@@ -43,6 +46,11 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 const AUDIO_PUBLIC_PREFIX = "/audio";
+const LISTENING_MEDIA_PUBLIC_PREFIX = "/listening-media";
+const LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR
+  || (process.env.NODE_ENV === "production"
+    ? "/home/qzmivzbj/app-data/vhomework/listening-media"
+    : path.join(process.cwd(), ".data", "listening-media"));
 const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 const LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
 const LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
@@ -63,6 +71,14 @@ if (
 const PUBLIC_IDENTITY_SECRET = CONFIGURED_PUBLIC_IDENTITY_SECRET
   || process.env.DIAGNOSTIC_SECRET
   || `${process.env.FIREBASE_PROJECT_ID || "vhomework"}:public-identity-v1`;
+const CONFIGURED_LISTENING_TICKET_SECRET = process.env.LISTENING_TICKET_SECRET?.trim()
+  || CONFIGURED_PUBLIC_IDENTITY_SECRET
+  || process.env.DIAGNOSTIC_SECRET?.trim();
+if (process.env.NODE_ENV === "production" && !CONFIGURED_LISTENING_TICKET_SECRET) {
+  throw new Error("LISTENING_TICKET_SECRET (or GUEST_PUBLIC_ID_SECRET) is required in production.");
+}
+const LISTENING_TICKET_SECRET = CONFIGURED_LISTENING_TICKET_SECRET
+  || `${PUBLIC_IDENTITY_SECRET}:listening-ticket-v1`;
 
 if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
@@ -78,6 +94,11 @@ app.use((req, _res, next) => {
 });
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use(AUDIO_PUBLIC_PREFIX, express.static(AUDIO_DIR));
+fs.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
+app.use(LISTENING_MEDIA_PUBLIC_PREFIX, express.static(LISTENING_MEDIA_DIR, {
+  immutable: true,
+  maxAge: "365d"
+}));
 
 function sendApiError(res: express.Response, err: any) {
   const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
@@ -1342,6 +1363,49 @@ function grammarAttemptToLeaderboardEvent(attempt: any, set: any = {}) {
   });
 }
 
+function listeningAttemptToActivity(attempt: any) {
+  const totalQuestions = Math.max(
+    1,
+    Number(attempt.totalCount || 0)
+      || Number(attempt.correctCount || 0) + Number(attempt.incorrectCount || 0) + Number(attempt.unansweredCount || 0)
+  );
+  return {
+    id: attempt.id,
+    sourceType: "listening",
+    sourceId: attempt.id,
+    moduleId: resolveListeningModuleId(attempt.moduleId),
+    moduleSchemaVersion: Number(attempt.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+    ownerKey: attempt.ownerKey,
+    ownerType: attempt.guestId ? "guest" : "user",
+    userId: attempt.userId || "",
+    studentId: attempt.userId || attempt.guestId || "",
+    guestId: attempt.guestId || "",
+    studentName: attempt.studentName || "Học sinh",
+    assignmentId: attempt.assignmentId || "",
+    classId: attempt.classId || "",
+    className: attempt.className || "",
+    vocabSetId: `listening:${attempt.setId}`,
+    vocabSetTitle: attempt.setTitle || "Bộ đề nghe 5 Part",
+    gameId: "listening-five-part",
+    gameName: "Nghe 5 Part",
+    gameType: "listening",
+    startedAt: attempt.startedAt,
+    endedAt: attempt.completedAt,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt || attempt.completedAt,
+    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1000,
+    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
+    score: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    rawScore: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    maxScore: 100,
+    totalQuestions,
+    correctAnswers: Math.max(0, Number(attempt.correctCount || 0)),
+    incorrectAnswers: Math.max(0, Number(attempt.incorrectCount || 0)) + Math.max(0, Number(attempt.unansweredCount || 0)),
+    accuracy: Math.round(Math.max(0, Number(attempt.correctCount || 0)) / totalQuestions * 100),
+    status: "completed"
+  };
+}
+
 async function persistLeaderboardEvent(event: any) {
   if (!event?.completedAt) return;
   const safeEvent = sanitizeLeaderboardEvent(event);
@@ -2563,6 +2627,26 @@ app.use(
   })
 );
 
+app.use(
+  "/api/listening-library",
+  createListeningLibraryRouter()
+);
+
+app.use(
+  "/api/listening",
+  createMoverLegacyRouter({
+    db: adminDb,
+    authenticateUser,
+    authenticateOptionalUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    mediaDir: LISTENING_MEDIA_DIR,
+    mediaPublicPrefix: LISTENING_MEDIA_PUBLIC_PREFIX,
+    ticketSecret: LISTENING_TICKET_SECRET,
+    resolveGuestProfile,
+    logAudit: logAuditAction
+  })
+);
+
 const ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
   "Pronoun",
@@ -2898,6 +2982,9 @@ app.get("/api/public/results", async (req, res) => {
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts")
       .where("completedAt", ">=", recentCutoff)
       .get();
+    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
@@ -2996,6 +3083,12 @@ app.get("/api/public/results", async (req, res) => {
       const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
       delete activity.answerDetails;
       list.push(activity);
+    });
+
+    listeningAttemptsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
+      list.push(listeningAttemptToActivity(data));
     });
 
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
@@ -3616,11 +3709,25 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
 
-    const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || "")).get();
-    if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
-    if (!canViewVocabSet(req.user, vocabSet) || getVocabVisibility(vocabSet) === "draft") {
-      return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
+    const resourceType = payload.resourceType === "listening" ? "listening" : "vocabulary";
+    let resource: any;
+    if (resourceType === "listening") {
+      const resourceId = String(payload.resourceId || payload.listeningSetId || "");
+      const listeningDoc = await adminDb.collection("listening_sets").doc(resourceId).get();
+      if (!listeningDoc.exists) return res.status(404).json({ error: "Listening set not found." });
+      resource = { id: listeningDoc.id, ...listeningDoc.data() };
+      const canManageListening = req.user.role === "super_admin"
+        || (req.user.role === "teacher" && resource.ownerId === req.user.id);
+      if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
+        return res.status(403).json({ error: "Bạn không có quyền giao bộ đề nghe này." });
+      }
+    } else {
+      const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
+      if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+      resource = { id: vocabDoc.id, ...vocabDoc.data() };
+      if (!canViewVocabSet(req.user, resource) || getVocabVisibility(resource) === "draft") {
+        return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
+      }
     }
 
     const shareToken = createShareToken();
@@ -3631,8 +3738,19 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
       assignmentSlug: shareToken,
       classId: classData.id,
       className: classData.name || payload.className || "",
-      vocabSetId: vocabSet.id,
-      vocabSetTitle: vocabSet.title || payload.vocabSetTitle || "",
+      resourceType,
+      resourceId: resource.id,
+      resourceTitle: resource.title || payload.resourceTitle || "",
+      ...(resourceType === "vocabulary"
+        ? {
+            vocabSetId: resource.id,
+            vocabSetTitle: resource.title || payload.vocabSetTitle || ""
+          }
+        : {
+            listeningSetId: resource.id,
+            listeningSetTitle: resource.title || payload.resourceTitle || "",
+            gameId: "listening-five-part"
+          }),
       createdAt: new Date().toISOString(),
       createdBy: req.user.id
     };
@@ -5024,8 +5142,14 @@ app.get("/api/results", authenticateUser, async (req, res) => {
     const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts")
       .where("completedAt", ">=", recentCutoff)
       .get();
+    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts")
+      .where("completedAt", ">=", recentCutoff)
+      .get();
     const grammarSetsById = await getGrammarSetMap();
     const vocabSetsById = await getVocabSetMap();
+    const listeningSetsSnapshot = await adminDb.collection("listening_sets").get();
+    const listeningSetsById = new Map<string, any>();
+    listeningSetsSnapshot.forEach(doc => listeningSetsById.set(doc.id, { id: doc.id, ...doc.data() }));
     const assignmentsSnapshot = await adminDb.collection("assignments").get();
     const classesSnapshot = await adminDb.collection("classes").get();
     const assignmentsById = new Map<string, any>();
@@ -5061,6 +5185,16 @@ app.get("/api/results", authenticateUser, async (req, res) => {
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
+    });
+    listeningAttemptsSnapshot.forEach(doc => {
+      const data = { id: doc.id, ...doc.data() };
+      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
+      const set = listeningSetsById.get(data.setId);
+      const canView = req.user?.role === "super_admin"
+        || data.userId === req.user?.id
+        || data.ownerKey === `user:${req.user?.id}`
+        || (req.user?.role === "teacher" && set?.ownerId === req.user.id);
+      if (canView) list.push(listeningAttemptToActivity(data));
     });
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(await enrichStudentNames(list));

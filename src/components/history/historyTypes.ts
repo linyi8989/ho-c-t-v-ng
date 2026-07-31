@@ -1,4 +1,4 @@
-export type LearningHistorySourceType = 'vocabulary' | 'grammar';
+export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening';
 export type LearningHistoryKind = 'all' | 'assignment' | 'practice';
 export type LearningAttemptStatus = 'in_progress' | 'completed' | 'interrupted';
 export type LearningDetailStatus =
@@ -231,7 +231,10 @@ function normalizedScore(record: Record<string, unknown>, keys: string[], fallba
 }
 
 function normalizeSourceType(value: unknown): LearningHistorySourceType {
-  return String(value || '').toLowerCase() === 'grammar' ? 'grammar' : 'vocabulary';
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'grammar') return 'grammar';
+  if (normalized === 'listening') return 'listening';
+  return 'vocabulary';
 }
 
 function normalizeAttemptStatus(value: unknown): LearningAttemptStatus {
@@ -280,11 +283,19 @@ export function parseLearningHistoryItem(value: unknown, fallbackIndex = 0): Lea
       'Bài học không xác định'
     ),
     lessonType: optionalText(record, ['lessonType', 'lesson_type']),
-    gameId: textValue(record, ['gameId', 'game_id'], sourceType === 'grammar' ? 'grammar-practice' : ''),
+    gameId: textValue(
+      record,
+      ['gameId', 'game_id'],
+      sourceType === 'grammar' ? 'grammar-practice' : sourceType === 'listening' ? 'listening-five-part' : ''
+    ),
     gameTitle: textValue(
       record,
       ['gameTitle', 'gameTitleSnapshot', 'game_title_snapshot', 'gameName'],
-      sourceType === 'grammar' ? 'Luyện ngữ pháp' : 'Luyện từ vựng'
+      sourceType === 'grammar'
+        ? 'Luyện ngữ pháp'
+        : sourceType === 'listening'
+          ? 'Nghe 5 Part'
+          : 'Luyện từ vựng'
     ),
     classId: optionalText(record, ['classId', 'class_id']),
     className: optionalText(record, ['className', 'classNameSnapshot', 'class_name_snapshot']),

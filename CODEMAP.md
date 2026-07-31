@@ -27,6 +27,95 @@ Primary stack:
 - `@google/genai` for Gemini.
 - `lucide-react` icons and `motion/react` animation.
 
+### 1.1. Version And Environment Registry
+
+Verified: 2026-07-31. Update this registry whenever Node, npm, the lockfile,
+the native SQLite driver, the cPanel runtime, or the deployed artifact changes.
+Do not put secret values in this file.
+
+Runtime compatibility matrix:
+
+| Component | Local development/build | cPanel production host |
+| --- | --- | --- |
+| Operating system | Windows 10 `10.0.19045`, x64/AMD64 | Linux x64 on cPanel; exact distribution not recorded |
+| Node.js | `v22.16.0` | `v22.16.0` |
+| Node release policy | `package.json` requires `22.x` | cPanel application configured for Node 22 |
+| Node ABI | `127` | `127` |
+| npm | `10.9.2` | `10.9.2` |
+| Node executable | Active local Node 22 installation; Codex verification path is ephemeral and must not be hardcoded | `/opt/alt/alt-nodejs22/root/usr/bin/node` |
+| Platform/architecture | `win32` / `x64` | `linux` / `x64` |
+| glibc | Not applicable on Windows | `2.28` |
+| Native build Python | Not required by the verified local install | Python `3.11.13`, `/opt/alt/python311/bin/python3.11` |
+| Native C/C++ toolchain | Not part of the local runtime contract | GCC/G++ `8.5.0` with C++17 |
+| `better-sqlite3` | `10.1.0` exact pin | `10.1.0` exact pin, built from source |
+| SQLite bundled runtime | `3.46.0` | `3.46.0` |
+| SQLite journal mode | WAL verified in isolated/local tests | WAL active on production `app.sqlite` |
+| Process manager | Local Node process | cPanel/Passenger `lsnode` worker |
+
+The exact application dependency baseline from the current
+`package-lock.json`/local install is:
+
+| Package/tool | Exact resolved version | Runtime role |
+| --- | --- | --- |
+| React / React DOM | `19.2.7` / `19.2.7` | Client UI |
+| Vite | `6.4.3` | Local production client build |
+| TypeScript | `5.8.3` | Typecheck |
+| `tsx` | `4.22.4` | Development/test runner |
+| esbuild | `0.25.12` | Production server bundle |
+| Tailwind CSS / `@tailwindcss/vite` | `4.3.2` / `4.3.2` | Client styling |
+| Express | `4.22.2` | HTTP server |
+| Firebase client / Admin | `12.15.0` / `14.1.0` | Authentication/Firestore modes |
+| `better-sqlite3` | `10.1.0` | Primary production SQLite driver |
+| `sql.js` | `1.14.1` | Explicit emergency rollback driver only |
+| `@google/genai` | `2.10.0` | Gemini integration |
+| `dotenv` | `17.4.2` | Environment loading |
+| `lucide-react` | `0.546.0` | Icons |
+| Motion | `12.42.0` | Client animation |
+
+Current source/build/deployment ledger:
+
+- Application code/build baseline recorded before this CODEMAP-only update:
+  `6548c8e` (`fix: improve learning history answer details`).
+- Current tracked UI-on build: `dist/client/assets/index-B0ssBTt7.js` and
+  `dist/client/assets/index-BAfeBZg6.css`.
+- Current tracked server bundle includes the readable grammar-answer projector:
+  `dist/server.cjs` (approximately 393.6 kB before Git transport compression).
+- Last independently confirmed production UI artifact from the host terminal:
+  `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
+- Therefore commit/artifact `6548c8e` must be considered **pending host
+  confirmation** until cPanel deploy, one Node restart, and a fresh
+  `curl`/browser smoke show `index-B0ssBTt7.js`.
+- The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
+  audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
+  `npm audit`; never run `npm audit fix --force` blindly on production.
+
+Native-driver update constraints:
+
+- Keep `better-sqlite3@10.1.0` exact until a replacement passes on the exact
+  Passenger Node ABI, glibc 2.28, Python 3.11, and GCC 8.5 toolchain.
+- `better-sqlite3@12.4.1` was evaluated and rejected for this host: its Linux
+  prebuild requires `GLIBC_2.29`, while its source path expects a newer C++20
+  compiler flag/toolchain than the available GCC 8.5 setup.
+- A Node upgrade changes the native ABI risk. Re-run
+  `npm run storage:preflight`, reopen/read/write/WAL checks, `quick_check`, and
+  the full quality gate before changing the cPanel Node version.
+- Build frontend artifacts locally with Node 22.16.0. The host should run
+  production dependencies/server artifacts, not become the primary Vite build
+  machine.
+
+Version refresh commands:
+
+```bash
+node -p "JSON.stringify({node:process.version,abi:process.versions.modules,execPath:process.execPath,platform:process.platform,arch:process.arch,glibc:process.report?.getReport?.().header?.glibcVersionRuntime||null},null,2)"
+npm -v
+npm ls better-sqlite3
+npm run storage:preflight -- --db /absolute/path/to/isolated-preflight.sqlite
+```
+
+For a future upgrade, record the verification date, Git commit, local result,
+host result, new client asset names, database `quick_check`, journal mode, and
+rollback point in this section before calling the upgrade complete.
+
 ## 2. Important Files
 
 ### Root
@@ -1504,10 +1593,19 @@ Data-safety boundaries:
 
 Release status:
 
-- Steps 2.1-2.11 are implemented and pass the local Node 22 quality gate.
-- Production step 2.12 is intentionally pending and must deploy API-first, UI-second.
-- The tracked `dist/client` artifact is currently built with
-  `VITE_LEARNING_HISTORY_ENABLED=false` for the API-first deploy.
+- Steps 2.1-2.12 are complete. Release B was deployed API-first, backfilled and
+  reconciled, API-enabled, then deployed UI-on.
+- Production History API returned the expected protected response without a
+  credential and returned owner-scoped data with a valid credential.
+- The host storage diagnostic confirmed `storageMode=sqlite`,
+  `sqliteDriver=better-sqlite3`, `quickCheck=ok`, `journalMode=wal`,
+  `foreignKeys=1`, `synchronous=1` (`NORMAL`), busy timeout 10,000 ms, and WAL
+  auto-checkpoint 1,000 pages.
+- The first UI-on production artifact was confirmed as `index-gODK9tEe.js`.
+- Application baseline `6548c8e` contains the follow-up History control contrast,
+  hidden advanced filter panel, readable selected/correct grammar answers, and
+  a new UI-on artifact `index-B0ssBTt7.js`. This follow-up is pending host
+  confirmation as recorded in the version registry.
 
 Data model:
 
@@ -1565,6 +1663,20 @@ Frontend:
 - Grammar detail resolves stored selected/correct option IDs against the
   snapshotted option list, so existing backfilled attempts show lettered answer
   text while correct-answer visibility still follows the captured review policy.
+- Examples: a stored `grammar-question-...-option-3` is displayed as `D. go`;
+  an allowed `correctOptionId` pointing to option 2 is displayed as
+  `C. goes`, not as an internal database identifier.
+- New grammar projections also persist readable `selectedAnswer`, `userAnswer`,
+  and `correctAnswer` text. Existing backfilled detail does not need a rewrite
+  because the client resolves its immutable option IDs against `optionSnapshots`.
+- Global legacy glass-button CSS previously made the History entry, back button,
+  detail button, and modal close icon low-contrast. Feature-scoped selectors at
+  the end of `src/index.css` now provide explicit accessible foreground,
+  background, border, hover, and focus-visible states without changing unrelated
+  screens.
+- The advanced `HistoryFilters` API/backend capability remains implemented, but
+  the student filter panel is intentionally not rendered. This is a UI-only
+  decision and does not delete, update, or hide records at the database layer.
 - Opening History never creates a new guest identity. Vocabulary/grammar resolve
   flows persist newly issued guest capability tokens.
 
@@ -1593,3 +1705,199 @@ Operations:
   `docs/app-sqlite-data-structure.md`,
   `docs/activity-retention-maintenance.md`, and
   `docs/release-b-cpanel-deployment.md`.
+
+Production rollout evidence:
+
+- Release A preflight: Node `v22.16.0`, ABI `127`, Linux x64, glibc `2.28`,
+  Python `3.11.13`, GCC/G++ `8.5.0`, `better-sqlite3@10.1.0`, and SQLite
+  `3.46.0`; isolated insert/read/reopen/WAL/`quick_check` all passed.
+- Release B pre-backfill verified backup:
+  `/home/qzmivzbj/app-data/vhomework/release-b-backups/app-2026-07-30T18-46-32-929Z.sqlite`.
+- Backfill inserted exactly 4,920 attempts: 4,192 vocabulary and 728 grammar.
+  Post-run reconciliation reported `missing=0`, duplicate source groups `0`,
+  deterministic ID mismatches `0`, attempt-number mismatches `0`, and source
+  mutation `none`.
+- Idempotency dry-run after execute reported `plannedInserts=0` and
+  `plannedAttemptNumberUpdates=0`.
+- Production diagnostics after backfill reported `learning_attempts=4920`,
+  `game_results=9714`, `grammar_attempts=1747`, `leaderboard_events=2452`,
+  `migrations=7`, `quickCheck=ok`, WAL active, and database size `126849024`
+  bytes at that checkpoint.
+- The active database remains
+  `/home/qzmivzbj/app-data/vhomework/app.sqlite`; generated audio remains under
+  `/home/qzmivzbj/app-data/vhomework/audio`. Neither path is inside the deploy
+  directory.
+- Deploying the latest commit that contains application baseline `6548c8e`
+  requires the normal cPanel update/deploy and one Node restart because
+  `dist/server.cjs` changed. It does **not** require a new migration or
+  re-running the 4,920-row backfill.
+
+## 23. Listening 5-Part Test Builder and Player - 2026-07-31
+
+Scope and invariants:
+
+- Listening is an independent learning resource, not a `VocabSet`. Each
+  published test contains exactly five parts, five scored questions per part,
+  and 25 scored questions total. The final score is normalized to 0-100.
+- Parts 1 and 5 contain six draggable choices for five target regions, leaving
+  exactly one distractor. Part 2 accepts normalized written answers; Part 3 maps
+  five objects to lettered places; Part 4 is three-option multiple choice; Part
+  5 combines drag/drop names or colours with picture regions.
+- Every part owns one audio asset. The editor stores questions, answers, media
+  references, and normalized picture-region coordinates as data; no exercise
+  content or answer key is hard-coded in the rendering components.
+- Published versions are immutable. Updating a published set edits its working
+  copy; publishing creates a new numbered snapshot and retains earlier versions
+  for attempts and review.
+
+Frontend map:
+
+- `src/features/listening/types.ts` is the shared content, answer, result,
+  version, asset, access, and validation contract.
+- `src/features/listening/api.ts` is the typed HTTP client for public learning
+  flow and authenticated administration.
+- `src/features/listening/admin/ListeningAdminModule.tsx` implements the
+  `General -> Parts 1-5 -> Preview -> Publish` wizard, set library, validation
+  summary, visibility control, archive flow, and result list.
+- `ListeningAssetPicker.tsx` provides upload/library selection. Image-AI is
+  capability-gated and remains explicitly disabled until a real provider is
+  configured; audio never exposes that image-only action.
+- `ListeningRegionEditor.tsx` edits normalized percentage-based target regions
+  so coordinates remain stable across responsive image sizes.
+- `src/features/listening/student/ListeningLearningArea.tsx` resolves public or
+  assignment access, prepares a version-bound run, restores local progress,
+  retries pending submissions, enforces an optional timer, and submits once.
+- `ListeningPartViews.tsx` contains the five responsive part renderers and uses
+  native pointer/drag interactions with click/tap fallbacks.
+- `src/App.tsx` keeps `/listening/:setId` as the legacy Mover entry, adds the
+  registry-driven Listening Library routes, renders the four-module directory
+  on the home page, and routes Listening assignments directly to their test.
+
+Backend and security:
+
+- `src/server/listening/listeningRouter.ts` owns `/api/listening`. Public routes
+  list accessible published sets, prepare signed runs, and submit answers.
+  Admin routes manage assets, working sets, publishing, archiving, usages, and
+  results under the existing verified teacher/admin middleware.
+- Prepare returns a signed, expiring, version-bound ticket and a sanitized
+  student snapshot without answer keys. Submit verifies actor/access/version,
+  grades only on the server, and uses deterministic run identity plus a secret
+  hash to make retries idempotent.
+- `listeningGrader.ts` performs Unicode NFKC, whitespace, case, and apostrophe
+  normalization, validates the exact 25-question contract, and emits bounded
+  0-100 scores. `listeningValidation.ts` enforces publish-time structure,
+  required media, valid references, region bounds, and overlap limits.
+- Raw upload endpoints validate MIME allowlists, size limits, and file magic.
+  Files are named by SHA-256 and written atomically. SQLite stores metadata and
+  URLs only; it never stores uploaded binary/base64 content.
+- Production requires `LISTENING_TICKET_SECRET` or the existing stable
+  `GUEST_PUBLIC_ID_SECRET`. `LISTENING_MEDIA_DIR` defaults to
+  `/home/qzmivzbj/app-data/vhomework/listening-media` in production and is
+  exposed read-only at `/listening-media`.
+
+SQLite and history integration:
+
+- Additive/idempotent migration `listening-five-part-schema-v1` creates
+  `listening_sets`, `listening_set_versions`, `listening_assets`,
+  `listening_asset_usages`, `listening_attempts`, and
+  `listening_attempt_details`, with lookup and idempotency indexes.
+- Existing `assignments` receives additive `resource_type`, `resource_id`, and
+  `resource_title` columns. Legacy vocabulary assignments remain the default
+  and retain their existing fields and behavior.
+- Listening attempts stay in their dedicated tables. Learning History reads a
+  union projection, filters `sourceType=listening`, and loads bounded review
+  detail from `listening_attempt_details`; legacy history rows are not rewritten.
+- Public recent activity uses the existing pseudonymous identity boundary and
+  never exposes raw user or guest identifiers.
+
+Resilience and operations:
+
+- Browser progress is keyed by owner, set, immutable version, and access token.
+  It includes the run ID/secret, answers, current part, and deadline. Successful
+  submit clears it; a failed submit remains retryable without creating a second
+  attempt. Optional timeout triggers the same idempotent submit path.
+- Back up the active SQLite file before first production startup. The migration
+  is additive and performs no destructive cleanup or legacy-data rewrite.
+- Keep `LISTENING_MEDIA_DIR` outside every deploy/release directory and include
+  it in the host backup policy together with `app.sqlite`. Ensure the Passenger
+  user has read/write permission before restart.
+- Validation commands are `npm run lint`, `npm run test:listening`, and
+  `npm run build`. The focused test suite covers text normalization, exact
+  scoring, Part 2 all-blanks semantics, publish invariants, immutable version
+  persistence, and the Learning History union.
+- The current workstation runs Node 24/ABI 137 while the checked-in
+  `better-sqlite3` binary targets the deployment baseline Node 22/ABI 127.
+  Native SQLite suites therefore require the project Node 22 runtime; focused
+  Listening storage tests use the existing `sqljs` test driver and pass without
+  rebuilding the production native dependency.
+
+## 24. Listening Library Module Shell - 2026-07-31
+
+Architecture:
+
+- `src/features/listening-library/registry.ts` is the browser/server-safe source
+  of truth for module identity, display metadata, status, schema version, part
+  manifest, and capabilities. Registry order is `starter`, `mover`, `flyer`,
+  `ket`; only Mover is active. The other three modules expose no speculative
+  part definitions, components, or scoring logic.
+- Runtime registrations are deliberately split to preserve the client/server
+  security boundary. `clientRegistry.ts` owns React component adapters, while
+  `src/server/listening-library/registry.ts` owns server validation, sanitizing,
+  routing, and grading adapters. Server graders and answer handling are never
+  imported into the frontend bundle.
+- `modules/mover/module.tsx` reuses `ListeningLearningArea`,
+  `ListeningAdminModule`, and the existing typed API client. It is an adapter,
+  not a rewritten Mover implementation. The backend Mover adapter likewise
+  re-exports the existing router, validator, sanitizer, and grader.
+- Generic exam contracts standardize only module/exam identity, labels,
+  visibility/status, schema version, timestamps, creator, and an open generic
+  Part payload. They do not impose Mover question types on later modules.
+
+Student and admin routes:
+
+- `/listening` is the four-module student directory.
+- `/listening/modules/:moduleId` is a registry-dispatched module directory.
+- `/listening/modules/:moduleId/exams/:examId` is the canonical exam route.
+- `/listening/:setId?accessToken=...` remains valid and resolves to the Mover
+  adapter without changing set/version/question IDs or share tokens.
+- `ListeningLibraryHome`, `ListeningModulePage`, and `ListeningExamPage` own the
+  student gateway. Starter, Flyer, and KET render a configuration-driven
+  `coming_soon` state and cannot start an invented exercise.
+- `ListeningLibraryAdmin` is the small Admin Dashboard gateway. Teachers choose
+  a module first; Mover then opens the unchanged management workflow. The large
+  dashboard contains no new editor, grader, or module-switching business logic.
+
+Backend and compatibility:
+
+- `/api/listening-library/modules` returns safe public manifest metadata;
+  `/api/listening-library/modules/:moduleId` reports whether a server adapter is
+  available. `/api/listening/*` remains the exact Mover API surface through
+  `createMoverLegacyRouter`.
+- Legacy records with no `moduleId` or new schema markers are interpreted as
+  Mover at read time. New or newly saved Mover sets, published versions, Part
+  payloads, signed run tickets, attempts, and history projections receive
+  additive schema/module metadata. No identifier, answer, coordinate, asset
+  reference, local browser run key, `clientRunId`, or grading version changes.
+- No database migration or startup backfill is needed for this shell. Existing
+  rows are not rewritten, reset, or deleted; an old draft receives additive
+  metadata only when a teacher explicitly saves or publishes it.
+- Mover keeps its existing create/edit/publish, published student preview,
+  share-link copy, results, and recoverable archive actions. No clone action,
+  physical delete, or unpublished full student preview was invented during this
+  structural refactor because those actions were not present in the preserved
+  Mover baseline.
+
+Validation:
+
+- `npm run lint` passes.
+- `npm run test:listening` runs 10 focused contracts. They cover the registry,
+  canonical and legacy routes, safe module API, exact Mover validation/scoring,
+  immutable storage/history, legacy answer sanitizing, and idempotent replay.
+- `npm run build` passes. The existing Vite warnings about Firebase import
+  chunking and the large main bundle remain non-blocking. Generated `dist`
+  artifacts were restored/removed after validation, so this source change does
+  not directly modify `dist`.
+- A temporary SQL.js development server smoke test returned HTTP 200 for the
+  Listening Library page, Mover module page, and legacy `/api/listening/sets`;
+  the registry API returned all four IDs with only Mover active and five Parts.
+  The temporary server and database directory were removed afterward.

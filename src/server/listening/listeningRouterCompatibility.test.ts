@@ -1,0 +1,278 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import express from 'express';
+import type { ListeningAnswers, ListeningSetContent } from '../../features/listening/types';
+import { createListeningRouter } from './listeningRouter';
+
+function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswers } {
+  const region = (index: number) => ({
+    shape: 'rect' as const,
+    x: (index % 3) * 0.3,
+    y: Math.floor(index / 3) * 0.4,
+    width: 0.2,
+    height: 0.2,
+  });
+  const choices = Array.from({ length: 6 }, (_, index) => ({ id: `choice-${index}`, label: `Name ${index}` }));
+  const locations = Array.from({ length: 6 }, (_, index) => ({
+    id: `location-${index}`,
+    label: String.fromCharCode(65 + index),
+    imageAssetId: `location-image-${index}`,
+    imageUrl: `/fixture/location-${index}.png`,
+  }));
+  const colours = ['#ef4444', '#7c3aed', '#f97316', '#2563eb', '#16a34a', '#eab308']
+    .map((value, index) => ({ id: `colour-${index}`, label: `Colour ${index}`, value }));
+  const content: ListeningSetContent = {
+    schemaVersion: 1,
+    title: 'Legacy Movers fixture',
+    description: 'Contract fixture without moduleId.',
+    level: 'Movers',
+    parts: [
+      {
+        part: 1,
+        title: 'Part 1',
+        instruction: 'Listen and drag.',
+        audioAssetId: 'audio-1',
+        audioUrl: '/fixture/audio-1.mp3',
+        sceneAssetId: 'scene-1',
+        sceneUrl: '/fixture/scene-1.png',
+        choices,
+        targets: choices.slice(0, 5).map((choice, index) => ({
+          id: `p1-${index}`,
+          choiceId: choice.id,
+          region: region(index),
+        })),
+      },
+      {
+        part: 2,
+        title: 'Part 2',
+        instruction: 'Listen and write.',
+        audioAssetId: 'audio-2',
+        audioUrl: '/fixture/audio-2.mp3',
+        heading: 'Notes',
+        questions: Array.from({ length: 5 }, (_, index) => ({
+          id: `p2-${index}`,
+          prompt: `Question {{blank-${index}}}`,
+          blanks: [{ id: `blank-${index}`, acceptedAnswers: [`answer ${index}`] }],
+        })),
+      },
+      {
+        part: 3,
+        title: 'Part 3',
+        instruction: 'Listen and choose.',
+        audioAssetId: 'audio-3',
+        audioUrl: '/fixture/audio-3.mp3',
+        reuseMode: 'once',
+        options: locations,
+        items: Array.from({ length: 5 }, (_, index) => ({
+          id: `p3-${index}`,
+          label: `Item ${index}`,
+          imageAssetId: `item-image-${index}`,
+          imageUrl: `/fixture/item-${index}.png`,
+          correctOptionId: locations[index].id,
+        })),
+      },
+      {
+        part: 4,
+        title: 'Part 4',
+        instruction: 'Listen and tick.',
+        audioAssetId: 'audio-4',
+        audioUrl: '/fixture/audio-4.mp3',
+        questions: Array.from({ length: 5 }, (_, questionIndex) => {
+          const options = Array.from({ length: 3 }, (_, optionIndex) => ({
+            id: `p4-${questionIndex}-${optionIndex}`,
+            imageAssetId: `p4-image-${questionIndex}-${optionIndex}`,
+            imageUrl: `/fixture/p4-${questionIndex}-${optionIndex}.png`,
+            alt: `Option ${optionIndex}`,
+          }));
+          return {
+            id: `p4-${questionIndex}`,
+            prompt: `Question ${questionIndex}`,
+            options,
+            correctOptionId: options[1].id,
+          };
+        }),
+      },
+      {
+        part: 5,
+        title: 'Part 5',
+        instruction: 'Listen and colour.',
+        audioAssetId: 'audio-5',
+        audioUrl: '/fixture/audio-5.mp3',
+        sceneAssetId: 'scene-5',
+        sceneUrl: '/fixture/scene-5.png',
+        colours,
+        targets: colours.slice(0, 5).map((colour, index) => ({
+          id: `p5-${index}`,
+          label: `Region ${index}`,
+          correctColourId: colour.id,
+          region: region(index),
+        })),
+      },
+    ],
+  };
+  return {
+    content,
+    answers: {
+      part1: Object.fromEntries(content.parts[0].targets.map(target => [target.id, target.choiceId])),
+      part2: Object.fromEntries(content.parts[1].questions.map(question => [
+        question.id,
+        Object.fromEntries(question.blanks.map(blank => [blank.id, blank.acceptedAnswers[0]])),
+      ])),
+      part3: Object.fromEntries(content.parts[2].items.map(item => [item.id, item.correctOptionId])),
+      part4: Object.fromEntries(content.parts[3].questions.map(question => [question.id, question.correctOptionId])),
+      part5: Object.fromEntries(content.parts[4].targets.map(target => [target.id, target.correctColourId])),
+    },
+  };
+}
+
+test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotently', async t => {
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vhomework-listening-router-'));
+  process.env.NODE_ENV = 'test';
+  process.env.STORAGE_MODE = 'sqlite';
+  process.env.SQLITE_DRIVER = 'sqljs';
+  process.env.SQLITE_DB_PATH = path.join(temporaryDirectory, 'app.sqlite');
+  process.env.SQLITE_ALLOW_CREATE = 'true';
+  process.env.SQLITE_ALLOW_JSON_IMPORT = 'false';
+
+  const storage = await import('../../lib/sqliteStorage');
+  await storage.initializeSQLiteStorage();
+  const db = new storage.SQLiteFirestore();
+  const fixture = moverFixture();
+  const now = new Date().toISOString();
+  await db.collection('listening_sets').doc('legacy-mover-set').set({
+    id: 'legacy-mover-set',
+    ownerId: 'teacher-1',
+    title: fixture.content.title,
+    description: fixture.content.description,
+    level: fixture.content.level,
+    status: 'published',
+    visibility: 'public',
+    publishedVersionId: 'legacy-mover-version',
+    publishedVersionNumber: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.collection('listening_set_versions').doc('legacy-mover-version').set({
+    id: 'legacy-mover-version',
+    setId: 'legacy-mover-set',
+    versionNumber: 1,
+    status: 'published',
+    content: fixture.content,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.collection('listening_sets').doc('future-ket-set').set({
+    id: 'future-ket-set',
+    moduleId: 'ket',
+    schemaVersion: 1,
+    ownerId: 'teacher-1',
+    title: 'Future KET fixture',
+    description: 'Must not enter the legacy Mover API.',
+    level: 'KET',
+    status: 'published',
+    visibility: 'public',
+    publishedVersionId: 'future-ket-version',
+    publishedVersionNumber: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const pass: express.RequestHandler = (_req, _res, next) => next();
+  const app = express();
+  app.use(express.json());
+  app.use('/api/listening', createListeningRouter({
+    db,
+    authenticateUser: pass,
+    authenticateOptionalUser: pass,
+    requireStaff: pass,
+    mediaDir: path.join(temporaryDirectory, 'media'),
+    mediaPublicPrefix: '/listening-media',
+    ticketSecret: 'compatibility-test-secret-with-sufficient-length',
+    resolveGuestProfile: async (guestId, studentName) => ({
+      id: String(guestId),
+      displayName: String(studentName),
+      status: 'active',
+    }),
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => {
+    server.close();
+    await once(server, 'close');
+    await storage.closeSQLiteStorage();
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  });
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const listResponse = await fetch(`${baseUrl}/api/listening/sets`);
+  assert.equal(listResponse.status, 200);
+  const listedSets = await listResponse.json() as any[];
+  assert.deepEqual(listedSets.map(set => set.id), ['legacy-mover-set']);
+
+  const futureModuleResponse = await fetch(`${baseUrl}/api/listening/sets/future-ket-set`);
+  assert.equal(futureModuleResponse.status, 404);
+
+  const playableResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set`);
+  assert.equal(playableResponse.status, 200);
+  const playable = await playableResponse.json() as any;
+  assert.equal(playable.id, 'legacy-mover-set');
+  assert.equal(playable.moduleId, 'mover');
+  assert.equal(playable.schemaVersion, 1);
+  assert.equal(playable.versionId, 'legacy-mover-version');
+  assert.equal(playable.content.moduleId, 'mover');
+  assert.equal(playable.content.parts.length, 5);
+  assert.equal(playable.content.parts.every((part: any) => part.schemaVersion === 1), true);
+  assert.equal('choiceId' in playable.content.parts[0].targets[0], false);
+  assert.equal('acceptedAnswers' in playable.content.parts[1].questions[0].blanks[0], false);
+
+  const identity = { guestId: 'guest-compatibility', studentName: 'Lan Anh' };
+  const prepareResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...identity,
+      clientRunId: 'client-run-compatibility',
+      runSecret: 'run-secret-compatibility',
+    }),
+  });
+  assert.equal(prepareResponse.status, 200);
+  const prepared = await prepareResponse.json() as any;
+  assert.ok(prepared.ticket);
+
+  const submission = {
+    ...identity,
+    ticket: prepared.ticket,
+    runSecret: 'run-secret-compatibility',
+    answers: fixture.answers,
+  };
+  const firstSubmit = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(submission),
+  });
+  assert.equal(firstSubmit.status, 201);
+  const firstResult = await firstSubmit.json() as any;
+  assert.equal(firstResult.moduleId, 'mover');
+  assert.equal(firstResult.schemaVersion, 1);
+  assert.equal(firstResult.score, 100);
+  assert.equal(firstResult.correctCount, 25);
+
+  const replaySubmit = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(submission),
+  });
+  assert.equal(replaySubmit.status, 200);
+  const replayResult = await replaySubmit.json() as any;
+  assert.equal(replayResult.id, firstResult.id);
+  assert.equal(replayResult.idempotentReplay, true);
+
+  const attempts = await db.collection('listening_attempts').get();
+  assert.equal(attempts.size, 1);
+});

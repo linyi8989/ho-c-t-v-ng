@@ -39,7 +39,11 @@ function nullableNumber(value: unknown) {
 function mapItem(row: Record<string, any>): LearningHistoryItem {
   return {
     attemptId: String(row.attempt_id || ''),
-    sourceType: row.source_type === 'grammar' ? 'grammar' : 'vocabulary',
+    sourceType: row.source_type === 'grammar'
+      ? 'grammar'
+      : row.source_type === 'listening'
+        ? 'listening'
+        : 'vocabulary',
     studentType: String(row.student_type || ''),
     studentName: String(row.student_name_snapshot || ''),
     classId: row.class_id || null,
@@ -88,6 +92,56 @@ const ITEM_COLUMNS = `
   attempt_number, detail_status,
   normalization_status
 `;
+
+const HISTORY_ATTEMPTS_CTE = `
+history_attempts AS (
+  SELECT
+    attempt_id, source_record_id, source_type, student_type, owner_key,
+    student_name_snapshot, class_id, class_name_snapshot,
+    assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
+    lesson_id, lesson_title_snapshot, lesson_type, game_id, game_title_snapshot,
+    score, raw_score, max_score, correct_count, incorrect_count,
+    unanswered_count, mistake_count, total_questions, started_at, completed_at,
+    activity_at, study_date, duration_seconds, attempt_status, attempt_number, detail_status,
+    normalization_status
+  FROM learning_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'listening' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULL AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'listening_set' AS lesson_type,
+    'listening-five-part' AS game_id,
+    'Nghe 5 Part' AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    correct_count + incorrect_count + unanswered_count AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM listening_attempts
+)`;
 
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, match => `\\${match}`);
@@ -152,30 +206,34 @@ function mapSummary(row: Record<string, any> | undefined): LearningHistorySummar
 async function filterOptions(ownerKey: string) {
   const queries: Array<Promise<Array<{ id: string; label: string }>>> = [
     sqliteQueryAll(
-      `SELECT DISTINCT class_id AS id, COALESCE(NULLIF(class_name_snapshot, ''), class_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT class_id AS id, COALESCE(NULLIF(class_name_snapshot, ''), class_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND class_id IS NOT NULL AND class_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey],
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT lesson_id AS id, COALESCE(NULLIF(lesson_title_snapshot, ''), lesson_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT lesson_id AS id, COALESCE(NULLIF(lesson_title_snapshot, ''), lesson_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND lesson_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey],
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT assignment_id AS id,
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT assignment_id AS id,
               COALESCE(NULLIF(assignment_title_snapshot, ''), assignment_id) AS label
-       FROM learning_attempts
+       FROM history_attempts
        WHERE owner_key = ? AND assignment_id IS NOT NULL AND assignment_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey],
     ),
     sqliteQueryAll(
-      `SELECT DISTINCT game_id AS id, COALESCE(NULLIF(game_title_snapshot, ''), game_id) AS label
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT DISTINCT game_id AS id, COALESCE(NULLIF(game_title_snapshot, ''), game_id) AS label
+       FROM history_attempts
        WHERE owner_key = ? AND game_id <> ''
        ORDER BY label COLLATE NOCASE, id`,
       [ownerKey],
@@ -200,12 +258,13 @@ async function assignmentGroups(
   params: unknown[],
 ): Promise<LearningHistoryAssignmentGroup[]> {
   const rows = await sqliteQueryAll<Record<string, any>>(
-    `WITH filtered AS (
+    `WITH ${HISTORY_ATTEMPTS_CTE},
+     filtered AS (
        SELECT assignment_id, assignment_title_snapshot, assignment_due_at_snapshot,
               class_id, class_name_snapshot, score,
               ${EFFECTIVE_ATTEMPT_STATUS_SQL} AS attempt_status,
               activity_at, attempt_id
-       FROM learning_attempts
+       FROM history_attempts
        WHERE ${whereSql} AND assignment_id IS NOT NULL
      ),
      ranked AS (
@@ -251,11 +310,13 @@ export async function listLearningHistory(
   const offset = (filters.page - 1) * filters.pageSize;
   const [countRow, summaryRow, itemRows, options, groups] = await Promise.all([
     sqliteQueryOne<{ count: number }>(
-      `SELECT COUNT(*) AS count FROM learning_attempts WHERE ${where.sql}`,
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT COUNT(*) AS count FROM history_attempts WHERE ${where.sql}`,
       where.params,
     ),
     sqliteQueryOne<Record<string, any>>(
-      `SELECT
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT
          COUNT(*) AS total_attempts,
          COALESCE(SUM(CASE WHEN attempt_status = 'completed' THEN 1 ELSE 0 END), 0)
            AS completed_attempts,
@@ -273,13 +334,14 @@ export async function listLearningHistory(
            AS total_duration_seconds,
          COUNT(DISTINCT CASE WHEN attempt_status = 'completed' THEN study_date END)
            AS study_days
-       FROM learning_attempts
+       FROM history_attempts
        WHERE ${where.sql}`,
       where.params,
     ),
     sqliteQueryAll<Record<string, any>>(
-      `SELECT ${ITEM_COLUMNS}
-       FROM learning_attempts
+      `WITH ${HISTORY_ATTEMPTS_CTE}
+       SELECT ${ITEM_COLUMNS}
+       FROM history_attempts
        WHERE ${where.sql}
        ORDER BY activity_at DESC, attempt_id DESC
        LIMIT ? OFFSET ?`,
@@ -306,8 +368,9 @@ export async function listLearningHistory(
 
 export async function findLearningAttempt(attemptId: string): Promise<LearningHistoryRecord | null> {
   const row = await sqliteQueryOne<Record<string, any>>(
-    `SELECT ${ITEM_COLUMNS}
-     FROM learning_attempts
+    `WITH ${HISTORY_ATTEMPTS_CTE}
+     SELECT ${ITEM_COLUMNS}
+     FROM history_attempts
      WHERE attempt_id = ?`,
     [attemptId],
   );
@@ -328,6 +391,36 @@ export async function findAttemptDetail(attemptId: string) {
      FROM attempt_details
      WHERE attempt_id = ?`,
     [attemptId],
+  ).then(async row => {
+    if (row) return row;
+    const listeningRow = await sqliteQueryOne<Record<string, any>>(
+      `SELECT attempt_id, data_json, created_at, updated_at
+       FROM listening_attempt_details
+       WHERE attempt_id = ?`,
+      [attemptId],
+    );
+    if (!listeningRow) return undefined;
+    let data: Record<string, any> = {};
+    try {
+      data = JSON.parse(String(listeningRow.data_json || '{}'));
+    } catch {
+      data = {};
+    }
+    return {
+      attempt_id: attemptId,
+      client_run_id: null,
+      source_type: 'listening',
+      answer_details_json: JSON.stringify(data.answerDetails || []),
+      question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
+      option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
+      extra_details_json: JSON.stringify(data.extraDetails || {}),
+      review_policy_json: JSON.stringify(data.reviewPolicy || { revealCorrectAnswers: false }),
+      created_at: listeningRow.created_at,
+      updated_at: listeningRow.updated_at,
+      expires_at: null,
+      schema_version: 1,
+    };
+  },
   );
 }
 
@@ -335,6 +428,7 @@ export async function findLegacySource(
   sourceType: string,
   sourceRecordId: string,
 ): Promise<Record<string, any> | null> {
+  if (sourceType === 'listening') return null;
   const table = sourceType === 'grammar' ? 'grammar_attempts' : 'game_results';
   const row = await sqliteQueryOne<{ data_json?: string }>(
     `SELECT data_json FROM ${table} WHERE id = ?`,

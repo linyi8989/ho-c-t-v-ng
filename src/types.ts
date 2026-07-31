@@ -82,10 +82,15 @@ export interface Assignment {
   id: string;
   shareToken?: string;
   assignmentSlug?: string;
+  resourceType?: 'vocabulary' | 'listening';
+  resourceId?: string;
+  resourceTitle?: string;
   classId: string;
   className: string;
-  vocabSetId: string;
-  vocabSetTitle: string;
+  vocabSetId?: string;
+  vocabSetTitle?: string;
+  listeningSetId?: string;
+  listeningSetTitle?: string;
   gameId: string;
   dueDate: string;
   createdAt: string;
@@ -204,7 +209,7 @@ export interface GrammarAttempt {
 
 export interface GameSession {
   id: string;
-  sourceType?: 'vocabulary' | 'grammar';
+  sourceType?: 'vocabulary' | 'grammar' | 'listening';
   userId?: string;
   studentId?: string;
   assignmentId?: string;

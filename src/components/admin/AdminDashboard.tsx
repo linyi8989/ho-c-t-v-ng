@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Edit3, Trash2, Copy, Search, Filter, BookOpen, Layers, Users,
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
-  Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal
+  Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal, Headphones
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
@@ -10,13 +10,14 @@ import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
+import ListeningLibraryAdmin from '../../features/listening-library/admin/ListeningLibraryAdmin';
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
   onViewGrammarAsStudent?: (set: GrammarSet) => void;
 }
 
-type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
+type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'listening-library' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
 type VocabVisibility = 'public' | 'assignment' | 'draft';
 
 const getSetVisibility = (set: VocabSet): VocabVisibility => {
@@ -35,7 +36,14 @@ const getAssignmentLink = (set: VocabSet) => {
 
 const getAssignmentRecordLink = (assignment: Assignment) => {
   const token = assignment.shareToken || assignment.assignmentSlug;
-  return token ? `${window.location.origin}/assignment/${token}` : '';
+  if (!token) return '';
+  if (assignment.resourceType === 'listening') {
+    const setId = assignment.resourceId || assignment.listeningSetId;
+    return setId
+      ? `${window.location.origin}/listening/${setId}?accessToken=${encodeURIComponent(token)}`
+      : '';
+  }
+  return `${window.location.origin}/assignment/${token}`;
 };
 
 const getGrammarPrivateLink = (set: GrammarSet) => {
@@ -476,6 +484,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
+  const [listeningSets, setListeningSets] = useState<any[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -572,6 +581,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   
   // New Assignment States
   const [assignClassId, setAssignClassId] = useState('');
+  const [assignResourceType, setAssignResourceType] = useState<'vocabulary' | 'listening'>('vocabulary');
   const [assignSetId, setAssignSetId] = useState('');
   const [assignGameId, setAssignGameId] = useState('flashcard-en-vi');
   const [assignDueDate, setAssignDueDate] = useState('');
@@ -640,6 +650,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     authFetchJson<GrammarSet[]>('/api/grammar-sets')
       .then(data => setGrammarSets(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading grammar sets:", err));
+
+    authFetchJson<any[]>('/api/listening/admin/sets')
+      .then(data => setListeningSets(Array.isArray(data) ? data : []))
+      .catch(err => console.error("Error loading listening sets:", err));
 
     // Classes
     authFetchJson<Class[]>('/api/classes')
@@ -1657,19 +1671,34 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     }
 
     const selectedClass = classes.find(c => c.id === assignClassId);
-    const selectedSet = vocabSets.find(s => s.id === assignSetId);
+    const selectedSet = assignResourceType === 'listening'
+      ? listeningSets.find(s => s.id === assignSetId)
+      : vocabSets.find(s => s.id === assignSetId);
 
     if (!selectedClass || !selectedSet) return;
 
     const payload = {
       classId: assignClassId,
       className: selectedClass.name,
-      vocabSetId: assignSetId,
-      vocabSetTitle: selectedSet.title,
-      gameId: assignGameId,
+      resourceType: assignResourceType,
+      resourceId: assignSetId,
+      resourceTitle: selectedSet.title,
+      ...(assignResourceType === 'vocabulary'
+        ? {
+            vocabSetId: assignSetId,
+            vocabSetTitle: selectedSet.title,
+            gameId: assignGameId
+          }
+        : {
+            listeningSetId: assignSetId,
+            listeningSetTitle: selectedSet.title,
+            gameId: 'listening-five-part'
+          }),
       dueDate: assignDueDate,
       createdBy: user?.id || "teacher-1",
-      title: assignTitle.trim() || `Học từ vựng: ${selectedSet.title}`
+      title: assignTitle.trim() || (assignResourceType === 'listening'
+        ? `Luyện nghe: ${selectedSet.title}`
+        : `Học từ vựng: ${selectedSet.title}`)
     };
 
     authFetch('/api/assignments', {
@@ -2168,6 +2197,17 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           >
             <Edit3 size={18} />
             <span>Soạn bài tự luận</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('listening-library')}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'listening-library' ? 'bg-sky-50 text-sky-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-listening-library"
+          >
+            <Headphones size={18} />
+            <span>Kho bài luyện nghe</span>
           </button>
 
           <button
@@ -2825,6 +2865,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         {/* ==================================================================== */}
         {/* TAB 2B: GRAMMAR SETS DIRECTORY */}
         {/* ==================================================================== */}
+        {activeTab === 'listening-library' && token && (
+          <ListeningLibraryAdmin token={token} />
+        )}
+
         {activeTab === 'grammar-sets' && (
           <div className="space-y-6 animate-fade-in" id="grammar-sets-tab-content">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
@@ -4093,19 +4137,38 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-gray-400">Chọn bộ từ vựng *</label>
+                    <label className="text-[10px] font-black uppercase text-gray-400">Loại nội dung *</label>
+                    <select
+                      value={assignResourceType}
+                      onChange={(e) => {
+                        setAssignResourceType(e.target.value as 'vocabulary' | 'listening');
+                        setAssignSetId('');
+                      }}
+                      className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
+                    >
+                      <option value="vocabulary">Từ vựng</option>
+                      <option value="listening">Bộ đề nghe 5 Part</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-gray-400">
+                      {assignResourceType === 'listening' ? 'Chọn bộ đề nghe *' : 'Chọn bộ từ vựng *'}
+                    </label>
                     <select
                       value={assignSetId}
                       onChange={(e) => setAssignSetId(e.target.value)}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                       required
                     >
-                      <option value="">-- Chọn bộ từ --</option>
-                      {vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                      <option value="">-- Chọn nội dung --</option>
+                      {assignResourceType === 'listening'
+                        ? listeningSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
+                        : vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
 
-                  <div className="space-y-1">
+                  {assignResourceType === 'vocabulary' && <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-gray-400">Thể loại game yêu cầu *</label>
                     <select
                       value={assignGameId}
@@ -4115,7 +4178,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     >
                       {GAMES_LIST.filter(g => !g.hidden).map(g => <option key={g.gameId} value={g.gameId}>{g.title} ({g.category})</option>)}
                     </select>
-                  </div>
+                  </div>}
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-gray-400">Hạn nộp bài tập *</label>
@@ -4169,10 +4232,12 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 font-semibold">
                             <span className="text-indigo-600">{assign.className}</span>
                             <span>•</span>
-                            <span className="font-mono">{assign.vocabSetTitle}</span>
+                            <span className="font-mono">{assign.resourceTitle || assign.listeningSetTitle || assign.vocabSetTitle}</span>
                             <span>•</span>
                             <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase uppercase">
-                              {GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
+                              {assign.resourceType === 'listening'
+                                ? 'Nghe 5 Part'
+                                : GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
                             </span>
                           </div>
                           <div className="flex items-center space-x-1.5 text-[10px] text-gray-400 font-semibold pt-1">
@@ -4202,6 +4267,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         <div className="flex space-x-1 shrink-0">
                           <button
                             onClick={() => {
+                              if (assign.resourceType === 'listening') {
+                                if (assignmentLink) window.open(assignmentLink, '_blank', 'noopener,noreferrer');
+                                return;
+                              }
                               const foundSet = vocabSets.find(s => s.id === assign.vocabSetId);
                               if (foundSet) {
                                 onViewAsStudent({

@@ -131,9 +131,10 @@ export default function HistoryFilters({
               disabled={disabled}
               className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900"
             >
-              <option value="">Từ vựng và ngữ pháp</option>
+              <option value="">Tất cả nội dung</option>
               <option value="vocabulary">Từ vựng</option>
               <option value="grammar">Ngữ pháp</option>
+              <option value="listening">Nghe 5 Part</option>
             </select>
           </label>
 

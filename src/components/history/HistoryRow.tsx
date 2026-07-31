@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, FileText, Gamepad2 } from 'lucide-react';
+import { Eye, FileText, Gamepad2, Headphones } from 'lucide-react';
 import {
   LearningHistoryItem,
   formatHistoryDateTime,
@@ -46,7 +46,12 @@ function StatusBadges({ item }: { item: LearningHistoryItem }) {
 }
 
 function LessonInfo({ item }: { item: LearningHistoryItem }) {
-  const Icon = item.sourceType === 'grammar' ? FileText : Gamepad2;
+  const Icon = item.sourceType === 'grammar' ? FileText : item.sourceType === 'listening' ? Headphones : Gamepad2;
+  const sourceLabel = item.sourceType === 'grammar'
+    ? 'Ngữ pháp'
+    : item.sourceType === 'listening'
+      ? 'Nghe 5 Part'
+      : 'Từ vựng';
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-start gap-2">
@@ -54,7 +59,7 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
         <div className="min-w-0">
           <p className="break-words font-black text-slate-900">{item.lessonTitle}</p>
           <p className="mt-1 break-words text-xs font-semibold text-slate-500">
-            {item.sourceType === 'grammar' ? 'Ngữ pháp' : 'Từ vựng'} · {item.gameTitle}
+            {sourceLabel} · {item.gameTitle}
           </p>
         </div>
       </div>

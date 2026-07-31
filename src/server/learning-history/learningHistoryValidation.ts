@@ -109,7 +109,7 @@ export function parseLearningHistoryFilters(query: Record<string, unknown>): Lea
   const sourceType = allowlisted<LearningSourceType>(
     query.sourceType,
     'sourceType',
-    ['vocabulary', 'grammar'],
+    ['vocabulary', 'grammar', 'listening'],
   );
   const historyType = allowlisted<LearningHistoryType>(
     query.historyType,
