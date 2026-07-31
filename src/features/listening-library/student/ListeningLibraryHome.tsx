@@ -29,7 +29,7 @@ export default function ListeningLibraryHome({
           </p>
         </div>
         {!embedded && onBack && (
-          <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600">
+          <button type="button" onClick={onBack} className="listening-library-secondary-action inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black">
             <ArrowLeft size={15} aria-hidden="true" /> Trang chủ
           </button>
         )}
@@ -55,13 +55,13 @@ export default function ListeningLibraryHome({
                 <button
                   type="button"
                   onClick={() => { window.location.href = listeningModulePath(module.id); }}
-                  className="mt-5 inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-600 px-4 py-3 text-sm font-black text-white shadow-md shadow-sky-100"
+                  className="listening-library-primary-action mt-5 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black"
                 >
                   {typeof count === 'number' ? `${count} bộ đề` : 'Mở kho Mover'}
                   <ArrowRight size={16} aria-hidden="true" />
                 </button>
               ) : (
-                <button type="button" disabled className="mt-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-400 disabled:cursor-not-allowed">
+                <button type="button" disabled className="listening-library-disabled-action mt-5 rounded-2xl border px-4 py-3 text-sm font-black disabled:cursor-not-allowed">
                   Chưa triển khai
                 </button>
               )}
@@ -81,4 +81,3 @@ export default function ListeningLibraryHome({
     </main>
   );
 }
-

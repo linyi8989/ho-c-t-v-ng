@@ -212,10 +212,13 @@ lại artifact UI-off. Sau đó build UI-on là lệnh cuối cùng:
 
 ```powershell
 npm run test:phase2
-$env:VITE_LEARNING_HISTORY_ENABLED='true'
-npm run build
-Remove-Item Env:VITE_LEARNING_HISTORY_ENABLED
+npm run build:history-ui
 ```
+
+`build:history-ui` truyền `VITE_LEARNING_HISTORY_ENABLED=true` trực tiếp cho
+tiến trình build trên cả Windows và Linux. Không thay lệnh này bằng `npm run
+build` cho artifact UI-on; `npm run build` vẫn được giữ làm đường rollback
+UI-off có chủ đích.
 
 Xác nhận `dist/client` có entry `Lịch sử học tập`, sau đó commit/push artifact UI
 thành commit riêng. Deploy commit đó qua cPanel và restart Web Application.

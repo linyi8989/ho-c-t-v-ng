@@ -9,7 +9,7 @@ interface ComingSoonModuleProps {
 
 export default function ComingSoonModule({ module, onBack, admin = false }: ComingSoonModuleProps) {
   return (
-    <div className={admin ? 'rounded-3xl border border-amber-200 bg-amber-50 p-8 text-center' : 'flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-100 to-emerald-50 p-4'}>
+    <div id={admin ? undefined : 'listening-coming-soon-page'} className={admin ? 'rounded-3xl border border-amber-200 bg-amber-50 p-8 text-center' : 'flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-100 to-emerald-50 p-4'}>
       <div className={admin ? '' : 'w-full max-w-xl rounded-[2rem] border border-sky-100 bg-white p-8 text-center shadow-xl'}>
         <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
           <Clock3 size={32} aria-hidden="true" />
@@ -28,7 +28,7 @@ export default function ComingSoonModule({ module, onBack, admin = false }: Comi
           <button
             type="button"
             onClick={onBack}
-            className="mx-auto mt-7 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700"
+            className="listening-library-secondary-action mx-auto mt-7 flex items-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black"
           >
             <ArrowLeft size={16} aria-hidden="true" /> Quay lại Kho bài nghe
           </button>
@@ -37,4 +37,3 @@ export default function ComingSoonModule({ module, onBack, admin = false }: Comi
     </div>
   );
 }
-

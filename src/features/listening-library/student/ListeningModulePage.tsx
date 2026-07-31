@@ -45,7 +45,11 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
       : null;
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-sky-100 via-white to-emerald-50 p-4 sm:p-8" id={`listening-module-${manifest.id}`}>
+    <main
+      className="min-h-screen bg-gradient-to-b from-sky-100 via-white to-emerald-50 p-4 sm:p-8"
+      id="listening-module-page"
+      data-listening-module={manifest.id}
+    >
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-col gap-4 rounded-[2rem] border border-white bg-white p-6 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
@@ -56,8 +60,8 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
               <p className="mt-1 text-sm font-semibold text-slate-500">{manifest.description}</p>
             </div>
           </div>
-          <button type="button" onClick={onBack} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-black text-slate-600">
-            <ArrowLeft size={15} aria-hidden="true" /> Các module
+          <button type="button" onClick={onBack} className="listening-library-secondary-action inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-xs font-black">
+            <ArrowLeft size={15} aria-hidden="true" /> Quay lại
           </button>
         </header>
 
@@ -86,7 +90,7 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
                     <Clock3 size={14} aria-hidden="true" />
                     {exam.timeLimitMinutes ? `${exam.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}
                   </div>
-                  <button type="button" onClick={() => { window.location.href = listeningExamPath(moduleId, exam.examId); }} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-600 px-4 py-3 text-sm font-black text-white">
+                  <button type="button" onClick={() => { window.location.href = listeningExamPath(moduleId, exam.examId); }} className="listening-library-primary-action mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black">
                     Bắt đầu luyện nghe <ArrowRight size={16} aria-hidden="true" />
                   </button>
                 </div>

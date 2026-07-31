@@ -876,12 +876,17 @@ export default function App() {
         
         {/* Left Area: Vocab sets directory */}
         <section className="lg:col-span-8 space-y-6" id="home-sets-directory">
-          
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pb-4 border-b border-gray-200">
+
+          <ListeningLibraryHome
+            embedded
+            moduleCounts={{ mover: filteredListeningSets.length }}
+          />
+
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pt-8 pb-4 border-t border-b border-gray-200">
             <div className="space-y-0.5">
               <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
                 <GraduationCap className="text-indigo-600" size={24} />
-                <span>Chọn bài học từ vựng tự do</span>
+                <span>Luyện từ vựng</span>
               </h2>
               <p className="text-gray-400 text-xs font-medium">Bấm vào bất kỳ bộ bài học nào dưới đây để chọn game luyện tập.</p>
             </div>
@@ -957,13 +962,6 @@ export default function App() {
               ))}
             </div>
           )}
-
-          <div className="pt-8 border-t border-gray-200">
-            <ListeningLibraryHome
-              embedded
-              moduleCounts={{ mover: filteredListeningSets.length }}
-            />
-          </div>
 
           <div className="pt-8 space-y-4 border-t border-gray-200" id="home-grammar-directory">
             <div className="flex items-center justify-between gap-3">

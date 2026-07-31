@@ -76,8 +76,8 @@ Current source/build/deployment ledger:
 
 - Application code/build baseline recorded before this CODEMAP-only update:
   `6548c8e` (`fix: improve learning history answer details`).
-- Current tracked UI-on build: `dist/client/assets/index-B0ssBTt7.js` and
-  `dist/client/assets/index-BAfeBZg6.css`.
+- Current generated UI-on release build: `dist/client/assets/index-vgHIw9Ix.js`
+  and `dist/client/assets/index-nByREmg-.css`.
 - Current tracked server bundle includes the readable grammar-answer projector:
   `dist/server.cjs` (approximately 393.6 kB before Git transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
@@ -1656,6 +1656,11 @@ Frontend:
 
 - `src/App.tsx` exposes `/history` only when
   `VITE_LEARNING_HISTORY_ENABLED=true` at build time.
+- `npm run build:history-ui` is the canonical UI-on release command. Its small
+  Node wrapper injects the build-time flag on Windows and Linux before invoking
+  the unchanged production build. Plain `npm run build` intentionally remains
+  the UI-off rollback path and must not be the final command for a History-on
+  cPanel artifact.
 - The page supports summary, responsive desktop/mobile layouts, abortable
   pagination, and an accessible detail modal. The API retains owner-scoped
   backend filters, but the advanced filter panel is intentionally hidden from
