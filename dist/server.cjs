@@ -4638,16 +4638,19 @@ function validatePart2(part, errors) {
 }
 function validatePart3(part, errors) {
   validateBase(part, 3, errors);
+  const composite = part.displayMode === "composite";
   if (!["once", "multiple"].includes(part.reuseMode)) errors.push("Part 3: ch\u1EBF \u0111\u1ED9 d\xF9ng \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
-  if ((part.options || []).length < 5) errors.push("Part 3: c\u1EA7n \xEDt nh\u1EA5t 5 l\u1EF1a ch\u1ECDn h\xECnh \u1EA3nh.");
+  if (composite && (part.options || []).length !== 6) errors.push("Part 3: b\u1EA3ng t\u1ED5ng h\u1EE3p c\u1EA7n \u0111\xFAng 6 l\u1EF1a ch\u1ECDn A\u2013F.");
+  if (!composite && (part.options || []).length < 5) errors.push("Part 3: c\u1EA7n \xEDt nh\u1EA5t 5 l\u1EF1a ch\u1ECDn h\xECnh \u1EA3nh.");
   if (part.items?.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  if (composite && !isText(part.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh b\u1EA3ng A\u2013F t\u1ED5ng h\u1EE3p.");
   const optionIds = (part.options || []).map((option) => option.id);
   if (!unique(optionIds)) errors.push("Part 3: ID l\u1EF1a ch\u1ECDn b\u1ECB tr\xF9ng.");
-  if ((part.options || []).some((option) => !isText(option.imageAssetId, 160))) {
+  if (!composite && (part.options || []).some((option) => !isText(option.imageAssetId, 160))) {
     errors.push("Part 3: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n h\xECnh \u1EA3nh.");
   }
   const answers = (part.items || []).map((item) => item.correctOptionId);
-  if ((part.items || []).some((item) => !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
+  if ((part.items || []).some((item) => !composite && !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
     errors.push("Part 3: c\xE2u h\u1ECFi ho\u1EB7c \u0111\xE1p \xE1n h\xECnh \u1EA3nh kh\xF4ng h\u1EE3p l\u1EC7.");
   }
   if (part.reuseMode === "once" && !unique(answers)) {
@@ -4742,6 +4745,240 @@ function sanitizeListeningContentForStudent(content) {
   return copy;
 }
 
+// src/server/listening-smart-import/service.ts
+var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var cleanText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
+var clamp = (value, fallback = 0.5) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
+};
+var list = (value) => Array.isArray(value) ? value : [];
+function parseJson3(text3) {
+  const trimmed = text3.trim();
+  if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const object = fenced?.[1] || trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)?.[1];
+    if (!object) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 JSON h\u1EE3p l\u1EC7.");
+    return JSON.parse(object.trim());
+  }
+}
+function randomIndexes(total, count) {
+  const values = Array.from({ length: total }, (_, index) => index);
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    const swap = import_node_crypto3.default.randomInt(index + 1);
+    [values[index], values[swap]] = [values[swap], values[index]];
+  }
+  return values.slice(0, count);
+}
+function fixedRegion(raw) {
+  const width = 0.12;
+  const height = 0.055;
+  const centerX = clamp(raw?.centerX ?? raw?.x);
+  const centerY = clamp(raw?.centerY ?? raw?.y);
+  return {
+    shape: "rect",
+    x: Math.min(1 - width, Math.max(0, centerX - width / 2)),
+    y: Math.min(1 - height, Math.max(0, centerY - height / 2)),
+    width,
+    height
+  };
+}
+function normalizeAnchors(value, limit = 6) {
+  return list(value).slice(0, limit).map((entry, index) => ({
+    label: cleanText(entry?.label || entry?.name || `V\xF9ng ${index + 1}`, 120),
+    region: fixedRegion(entry),
+    confidence: clamp(entry?.confidence, 0.5)
+  }));
+}
+function normalizeCrop(value) {
+  const x = clamp(value?.x, 0);
+  const y = clamp(value?.y, 0);
+  const width = Math.min(1 - x, Math.max(0.02, clamp(value?.width, 0.2)));
+  const height = Math.min(1 - y, Math.max(0.02, clamp(value?.height, 0.2)));
+  return { x, y, width, height };
+}
+function promptFor(part, pastedText) {
+  const common = `You extract structured data for Cambridge Movers Listening Part ${part} from the attached PAGE IMAGES.
+Never infer or extract answers from audio or transcript. No audio is attached. Return only JSON, no markdown.
+Coordinates are normalized 0..1 relative to the source image. Do not invent unreadable text.
+Teacher will review every result before it is applied.`;
+  const pasted = pastedText ? `
+Teacher pasted text (may help OCR):
+${pastedText}` : "";
+  if (part === 1) return `${common}
+Extract the six printed name choices (including the distractor/example when visible) and locate the centre of each pictured person.
+Do NOT decide which name belongs to which person. JSON: {"choices":["name"],"exampleLabel":"optional","anchors":[{"label":"visual description","centerX":0.5,"centerY":0.5,"confidence":0.8}]}.${pasted}`;
+  if (part === 2) return `${common}
+Extract heading, optional example, and exactly five numbered fill-in questions. The darker/bold span is the supplied answer. Replace that answer span in the question with {{blank}}. Preserve answer variants separated by | as separate acceptedAnswers.
+If the page contains a main illustration, also return its picture-only rectangle as illustrationCrop and its zero-based illustrationSourceImageIndex; exclude surrounding border/text.
+JSON: {"heading":"ABC","exampleText":"optional","illustrationCrop":{"x":0.05,"y":0.1,"width":0.4,"height":0.35},"illustrationSourceImageIndex":0,"questions":[{"prompt":"Lives at: {{blank}} Main Street","acceptedAnswers":["7"]}]}.${pasted}`;
+  if (part === 3) return `${common}
+The attached image is only the label-list source. Extract only the five row labels (for example weekdays). The separate A-F composite board is deliberately not sent to AI and must not be split. Red highlighting described by the teacher is not present in the real image. Do not choose A-F answers.
+JSON: {"labels":["Monday","Tuesday","Wednesday","Thursday","Friday"]}.${pasted}`;
+  if (part === 4) return `${common}
+Read questions in printed order: top-to-bottom and, when two questions share a row, left-to-right. Extract exactly five prompts and exactly three options A, B, C per question.
+Each option picture is inside a black or dark-grey rectangular frame. Return a close rectangle for the PICTURE INSIDE that frame: stay inside the inner edge and exclude the black frame, surrounding card, A/B/C badge, radio circle, tick and question text. Do not use the outer rounded question/card border as an option crop. Keep A/B/C in left-to-right order.
+Crop coordinates are only an initial hint: deterministic browser code will detect the dark frames and snap these rectangles to their inner edges. If a frame edge is faint, still return the closest visible picture rectangle instead of omitting an option.
+If an answer is EXPLICITLY marked in the source page, set correctOptionIndex to 0, 1 or 2; otherwise omit it. Never infer the answer from picture meaning.
+JSON: {"questions":[{"prompt":"What does Daisy want?","sourceImageIndex":0,"crops":[{"x":0.1,"y":0.1,"width":0.2,"height":0.2},{"x":0.4,"y":0.1,"width":0.2,"height":0.2},{"x":0.7,"y":0.1,"width":0.2,"height":0.2}],"correctOptionIndex":1}]}.${pasted}`;
+  return `${common}
+Locate five relevant objects/people to be coloured. Return only visual labels and centres. Do NOT select colours or infer any colour answer.
+JSON: {"anchors":[{"label":"horse tail","centerX":0.2,"centerY":0.25,"confidence":0.8}]}.${pasted}`;
+}
+function localPart2(pastedText) {
+  const lines = pastedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const heading = cleanText(lines.find((line) => !/^\d+[.)]/.test(line)) || "Listening notes", 200);
+  const questions = lines.filter((line) => /^\d+[.)]/.test(line)).slice(0, 5).map((line) => {
+    const [rawPrompt, ...answers] = line.split(/\s*(?:=>|\|)\s*/);
+    return {
+      prompt: cleanText(rawPrompt.replace(/^\d+[.)]\s*/, ""), 1e3).replace(/_{2,}/, "{{blank}}"),
+      acceptedAnswers: answers.map((answer) => cleanText(answer, 200)).filter(Boolean)
+    };
+  });
+  return { heading, questions };
+}
+function localLabels(pastedText) {
+  return pastedText.split(/\r?\n|,/).map((value) => cleanText(value, 160)).filter(Boolean).slice(0, 5);
+}
+function normalizeData(part, raw, currentPart, sourceImageAssetIds, warnings) {
+  if (part === 1) {
+    const current2 = currentPart.part === 1 ? currentPart : null;
+    const choices = list(raw?.choices).map((value) => cleanText(value, 120)).filter(Boolean).slice(0, 6);
+    while (choices.length < 6 && current2?.choices[choices.length]) choices.push(current2.choices[choices.length].label);
+    const anchors2 = normalizeAnchors(raw?.anchors, 5);
+    const detectedAnchorCount2 = anchors2.length;
+    while (anchors2.length < 5 && current2?.targets[anchors2.length]) {
+      const fallback = current2.targets[anchors2.length];
+      anchors2.push({
+        label: `V\xF9ng ${anchors2.length + 1} \xB7 c\u1EA7n gi\xE1o vi\xEAn \u0111\u1EB7t l\u1EA1i`,
+        region: fixedRegion({
+          centerX: fallback.region.x + fallback.region.width / 2,
+          centerY: fallback.region.y + fallback.region.height / 2
+        }),
+        confidence: 0
+      });
+    }
+    if (choices.length < 6) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 6 th\u1EBB t\xEAn; gi\xE1o vi\xEAn c\u1EA7n \u0111i\u1EC1n ph\u1EA7n c\xF2n thi\u1EBFu.");
+    if (detectedAnchorCount2 < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 nh\xE2n v\u1EADt; \u0111\xE3 t\u1EA1o v\xF9ng m\u1EB7c \u0111\u1ECBnh \u0111\u1EC3 gi\xE1o vi\xEAn t\u1EF1 \u0111\u1EB7t l\u1EA1i.");
+    return {
+      part: 1,
+      choices,
+      anchors: anchors2,
+      exampleLabel: cleanText(raw?.exampleLabel, 120) || void 0,
+      provisionalChoiceIndexes: randomIndexes(Math.max(choices.length, 6), 5)
+    };
+  }
+  if (part === 2) {
+    const questions = list(raw?.questions).slice(0, 5).map((question) => ({
+      prompt: cleanText(question?.prompt || question?.question, 1e3).replace(/\{\{blank\}\}/g, "{{blank}}"),
+      acceptedAnswers: list(question?.acceptedAnswers || [question?.answer]).flatMap((value) => cleanText(value, 200).split("|")).map((value) => value.trim()).filter(Boolean).slice(0, 8)
+    }));
+    if (questions.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 c\xE2u; gi\xE1o vi\xEAn c\xF3 th\u1EC3 t\u1EF1 \u0111i\u1EC1n c\xE2u c\xF2n thi\u1EBFu.");
+    if (questions.some((question) => !question.acceptedAnswers.length)) warnings.push("C\xF3 c\xE2u ch\u01B0a nh\u1EADn \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n in \u0111\u1EADm.");
+    return {
+      part: 2,
+      heading: cleanText(raw?.heading, 200) || "Listening notes",
+      exampleText: cleanText(raw?.exampleText, 500) || void 0,
+      ...raw?.illustrationCrop ? {
+        illustrationCrop: normalizeCrop(raw.illustrationCrop),
+        illustrationSourceImageIndex: Math.max(0, Math.floor(Number(raw?.illustrationSourceImageIndex) || 0))
+      } : {},
+      questions
+    };
+  }
+  if (part === 3) {
+    const labels = list(raw?.labels).map((value) => cleanText(value, 160)).filter(Boolean).slice(0, 5);
+    if (labels.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 nh\xE3n; gi\xE1o vi\xEAn c\xF3 th\u1EC3 t\u1EF1 \u0111i\u1EC1n.");
+    return { part: 3, boardAssetId: sourceImageAssetIds[0] || "", labels };
+  }
+  if (part === 4) {
+    const questions = list(raw?.questions).slice(0, 5).map((question) => {
+      const crops = list(question?.crops).slice(0, 3).map(normalizeCrop);
+      const answer = Number(question?.correctOptionIndex);
+      return {
+        prompt: cleanText(question?.prompt || question?.question, 1e3),
+        sourceImageIndex: Math.max(0, Math.floor(Number(question?.sourceImageIndex) || 0)),
+        crops,
+        ...Number.isInteger(answer) && answer >= 0 && answer <= 2 ? { correctOptionIndex: answer } : {}
+      };
+    });
+    if (questions.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 c\xE2u h\u1ECFi.");
+    if (questions.some((question) => question.crops.length < 3)) warnings.push("C\xF3 c\xE2u ch\u01B0a nh\u1EADn \u0111\u1EE7 ba v\xF9ng crop A/B/C.");
+    return { part: 4, questions };
+  }
+  const anchors = normalizeAnchors(raw?.anchors, 5);
+  const detectedAnchorCount = anchors.length;
+  const current = currentPart.part === 5 ? currentPart : null;
+  while (anchors.length < 5 && current?.targets[anchors.length]) {
+    const fallback = current.targets[anchors.length];
+    anchors.push({
+      label: fallback.label || `V\xF9ng ${anchors.length + 1}`,
+      region: fixedRegion({
+        centerX: fallback.region.x + fallback.region.width / 2,
+        centerY: fallback.region.y + fallback.region.height / 2
+      }),
+      confidence: 0
+    });
+  }
+  if (detectedAnchorCount < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 v\xF9ng t\xF4 m\xE0u; \u0111\xE3 t\u1EA1o v\xF9ng m\u1EB7c \u0111\u1ECBnh \u0111\u1EC3 gi\xE1o vi\xEAn t\u1EF1 \u0111\u1EB7t l\u1EA1i.");
+  return {
+    part: 5,
+    anchors,
+    provisionalColourIndexes: randomIndexes(6, 5)
+  };
+}
+async function createListeningSmartImportCandidate(input) {
+  const warnings = [];
+  let provider = "local";
+  let raw = {};
+  const analysisImages = input.part === 3 ? input.images.slice(1) : input.images;
+  const part3BoardOnly = input.part === 3 && input.images.length === 1 && !input.pastedText.trim();
+  if (analysisImages.length && input.analyzeVision) {
+    const result = await input.analyzeVision(
+      promptFor(input.part, input.pastedText),
+      analysisImages,
+      input.signal
+    );
+    provider = result.provider;
+    raw = parseJson3(result.text);
+    if (result.errors?.length) warnings.push(...result.errors.map((value) => cleanText(value, 240)));
+  } else if (input.pastedText && (input.part === 2 || input.part === 3)) {
+    if (input.part === 2) raw = localPart2(input.pastedText);
+    else raw = { labels: localLabels(input.pastedText) };
+  } else if (part3BoardOnly) {
+    raw = { labels: [] };
+    warnings.push("Ch\u1EC9 c\xF3 \u1EA3nh b\u1EA3ng A\u2013F. \u1EA2nh n\xE0y \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn v\xE0 kh\xF4ng g\u1EEDi AI; h\xE3y nh\u1EADp th\u1EE7 c\xF4ng 5 nh\xE3n ho\u1EB7c ph\xE2n t\xEDch l\u1EA1i v\u1EDBi \u1EA3nh ngu\u1ED3n th\u1EE9 hai/v\u0103n b\u1EA3n OCR.");
+  } else if (analysisImages.length && !input.analyzeVision) {
+    const error = new Error("Backend ch\u01B0a c\u1EA5u h\xECnh AI th\u1ECB gi\xE1c \u0111\u1EC3 \u0111\u1ECDc \u1EA3nh.");
+    error.status = 503;
+    throw error;
+  } else {
+    const error = new Error("C\u1EA7n \u1EA3nh ngu\u1ED3n ho\u1EB7c v\u0103n b\u1EA3n \u0111\u1EC3 ph\xE2n t\xEDch.");
+    error.status = 400;
+    throw error;
+  }
+  return {
+    id: `limport-${import_node_crypto3.default.randomUUID()}`,
+    moduleId: "mover",
+    part: input.part,
+    basePartHash: input.basePartHash,
+    sourceImageAssetIds: input.sourceImageAssetIds,
+    provider,
+    warnings,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    data: normalizeData(
+      input.part,
+      raw,
+      input.currentPart,
+      input.sourceImageAssetIds,
+      warnings
+    )
+  };
+}
+
 // src/server/listening/listeningRouter.ts
 var IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 var AUDIO_MAX_BYTES = 50 * 1024 * 1024;
@@ -4787,6 +5024,7 @@ function canManageSet(user, set) {
 function publicSetSummary(set) {
   const {
     draftContent: _draftContent,
+    draftRevision: _draftRevision,
     shareToken: _shareToken,
     assignmentSlug: _assignmentSlug,
     ...summary
@@ -4862,6 +5100,7 @@ function collectAssetReferences(content) {
   content.parts.forEach((part) => add(part.audioAssetId, "audio", `part-${part.part}`, "audio"));
   add(content.parts[0].sceneAssetId, "image", "part-1", "scene");
   add(content.parts[1].illustrationAssetId, "image", "part-2", "illustration");
+  add(content.parts[2].boardAssetId, "image", "part-3", "board");
   content.parts[2].options.forEach((option) => add(option.imageAssetId, "image", option.id, "part3-option"));
   content.parts[2].items.forEach((item) => add(item.imageAssetId, "image", item.id, "part3-item"));
   if (content.parts[2].example) {
@@ -4907,6 +5146,7 @@ async function resolveContentAssets(db, content, user) {
   });
   clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
   clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
+  clone.parts[2].boardUrl = url(clone.parts[2].boardAssetId);
   clone.parts[2].options.forEach((option) => {
     option.imageUrl = url(option.imageAssetId);
   });
@@ -5014,15 +5254,39 @@ function createListeningRouter(dependencies) {
     mediaPublicPrefix,
     ticketSecret,
     resolveGuestProfile: resolveGuestProfile2,
-    logAudit
+    logAudit,
+    smartImport
   } = dependencies;
   const router = import_express2.default.Router();
+  const draftLocks = /* @__PURE__ */ new Map();
+  const smartImportUsage = /* @__PURE__ */ new Map();
+  const withDraftLock = async (setId, operation) => {
+    const previous = draftLocks.get(setId) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    draftLocks.set(setId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (draftLocks.get(setId) === queued) draftLocks.delete(setId);
+    }
+  };
   import_fs3.default.mkdirSync(mediaDir, { recursive: true });
   router.get("/capabilities", authenticateUser2, requireStaff, (_req, res) => {
     res.json({
       imageGeneration: {
         enabled: false,
         reason: "Ch\u01B0a c\u1EA5u h\xECnh nh\xE0 cung c\u1EA5p t\u1EA1o \u1EA3nh \u1EDF backend. C\xF3 th\u1EC3 d\xF9ng t\u1EA3i l\xEAn ho\u1EB7c th\u01B0 vi\u1EC7n media."
+      },
+      smartImport: {
+        enabled: smartImport?.enabled !== false,
+        visionEnabled: Boolean(smartImport?.analyzeVision),
+        reason: smartImport?.reason || (smartImport?.analyzeVision ? void 0 : "Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY ho\u1EB7c OPENAI_API_KEY; v\u1EABn c\xF3 th\u1EC3 nh\u1EADp v\u0103n b\u1EA3n cho Part 2/3.")
       },
       upload: {
         enabled: true,
@@ -5063,6 +5327,34 @@ function createListeningRouter(dependencies) {
         const sizeLimit = kind === "image" ? IMAGE_MAX_BYTES : AUDIO_MAX_BYTES;
         if (!buffer.length || buffer.length > sizeLimit) throw apiError(413, "File r\u1ED7ng ho\u1EB7c v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n dung l\u01B0\u1EE3ng.");
         if (!hasValidMagic(buffer, mimeType)) throw apiError(415, "N\u1ED9i dung file kh\xF4ng kh\u1EDBp \u0111\u1ECBnh d\u1EA1ng khai b\xE1o.");
+        const derivedFromAssetId = text(req.headers["x-derived-from-asset-id"], 160);
+        let crop;
+        if (derivedFromAssetId) {
+          if (kind !== "image") throw apiError(400, "Ch\u1EC9 \u1EA3nh m\u1EDBi c\xF3 th\u1EC3 l\xE0 asset crop d\u1EABn xu\u1EA5t.");
+          const sourceDocument = await db.collection("listening_assets").doc(derivedFromAssetId).get();
+          if (!sourceDocument.exists) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y \u1EA3nh ngu\u1ED3n c\u1EE7a asset crop.");
+          const sourceAsset = { id: sourceDocument.id, ...sourceDocument.data() };
+          if (!isSuperAdmin(req.user) && sourceAsset.ownerId !== req.user.id) {
+            throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n t\u1EA1o crop t\u1EEB \u1EA3nh ngu\u1ED3n n\xE0y.");
+          }
+          if (sourceAsset.kind !== "image" || sourceAsset.status !== "active") {
+            throw apiError(400, "Asset ngu\u1ED3n crop ph\u1EA3i l\xE0 \u1EA3nh \u0111ang ho\u1EA1t \u0111\u1ED9ng.");
+          }
+          try {
+            const parsed = JSON.parse(text(req.headers["x-crop-metadata"], 500));
+            crop = {
+              x: Number(parsed.x),
+              y: Number(parsed.y),
+              width: Number(parsed.width),
+              height: Number(parsed.height)
+            };
+          } catch {
+            throw apiError(400, "Metadata crop kh\xF4ng h\u1EE3p l\u1EC7.");
+          }
+          if (!crop || Object.values(crop).some((value) => !Number.isFinite(value) || value < 0 || value > 1) || crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > 1 || crop.y + crop.height > 1) {
+            throw apiError(400, "T\u1ECDa \u0111\u1ED9 crop ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.");
+          }
+        }
         const digest = sha256(buffer);
         const storageKey = `${digest}${extension}`;
         const finalPath = import_path3.default.join(mediaDir, storageKey);
@@ -5075,7 +5367,9 @@ function createListeningRouter(dependencies) {
         let existing = null;
         existingSnapshot.forEach((document) => {
           const data = { id: document.id, ...document.data() };
-          if (!existing && (isSuperAdmin(req.user) || data.ownerId === req.user.id)) existing = data;
+          const sameOwner = isSuperAdmin(req.user) || data.ownerId === req.user.id;
+          const sameDerivative = derivedFromAssetId ? data.derivedFromAssetId === derivedFromAssetId && JSON.stringify(data.crop) === JSON.stringify(crop) : !data.derivedFromAssetId;
+          if (!existing && sameOwner && sameDerivative) existing = data;
         });
         if (existing) return res.json(existing);
         const now = nowIso2();
@@ -5095,6 +5389,7 @@ function createListeningRouter(dependencies) {
           size: buffer.length,
           storageKey,
           url: `${mediaPublicPrefix}/${storageKey}`,
+          ...derivedFromAssetId && crop ? { derivedFromAssetId, crop } : {},
           status: "active",
           createdAt: now,
           updatedAt: now
@@ -5117,6 +5412,86 @@ function createListeningRouter(dependencies) {
       if (!usage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
       await document.ref.update({ status: "archived", updatedAt: nowIso2() });
       res.json({ success: true });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/admin/smart-import/analyze", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      if (smartImport?.enabled === false) throw apiError(503, smartImport.reason || "Smart Import \u0111ang t\u1EAFt.");
+      const usageKey = req.user.id;
+      const windowStart = Date.now() - 10 * 60 * 1e3;
+      const recentUsage = (smartImportUsage.get(usageKey) || []).filter((timestamp) => timestamp >= windowStart);
+      if (recentUsage.length >= 20) throw apiError(429, "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n 20 l\u01B0\u1EE3t Smart Import trong 10 ph\xFAt.");
+      recentUsage.push(Date.now());
+      smartImportUsage.set(usageKey, recentUsage);
+      if (req.body?.moduleId !== "mover") throw apiError(400, "Smart Import hi\u1EC7n ch\u1EC9 h\u1ED7 tr\u1EE3 Mover.");
+      const part = Number(req.body?.part);
+      if (![1, 2, 3, 4, 5].includes(part)) throw apiError(400, "Part kh\xF4ng h\u1EE3p l\u1EC7.");
+      const currentPart = req.body?.currentPart;
+      if (!currentPart || currentPart.part !== part) throw apiError(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      const basePartHash = text(req.body?.basePartHash, 64).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError(400, "Thi\u1EBFu hash c\u1EE7a Part hi\u1EC7n t\u1EA1i.");
+      if (sha256(JSON.stringify(currentPart)) !== basePartHash) {
+        throw apiError(409, "Part \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi b\u1EAFt \u0111\u1EA7u ph\xE2n t\xEDch.", {
+          code: "LISTENING_IMPORT_BASE_CHANGED"
+        });
+      }
+      const sourceImageAssetIds = Array.from(new Set(
+        (Array.isArray(req.body?.sourceImageAssetIds) ? req.body.sourceImageAssetIds : []).map((value) => text(value, 160)).filter(Boolean)
+      )).slice(0, 5);
+      const pastedText = text(req.body?.pastedText, 12e3);
+      const images = [];
+      let totalImageBytes = 0;
+      for (const assetId of sourceImageAssetIds) {
+        const document = await db.collection("listening_assets").doc(assetId).get();
+        if (!document.exists) throw apiError(404, `Kh\xF4ng t\xECm th\u1EA5y \u1EA3nh ngu\u1ED3n ${assetId}.`);
+        const asset = { id: document.id, ...document.data() };
+        if (!isSuperAdmin(req.user) && asset.ownerId !== req.user.id) {
+          throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng m\u1ED9t \u1EA3nh ngu\u1ED3n \u0111\xE3 ch\u1ECDn.");
+        }
+        if (asset.status !== "active" || asset.kind !== "image" || !asset.mimeType.startsWith("image/")) {
+          throw apiError(400, "Smart Import ch\u1EC9 nh\u1EADn \u1EA3nh \u0111ang ho\u1EA1t \u0111\u1ED9ng; audio kh\xF4ng bao gi\u1EDD \u0111\u01B0\u1EE3c g\u1EEDi \u0111i ph\xE2n t\xEDch.");
+        }
+        const root = import_path3.default.resolve(mediaDir);
+        const filePath = import_path3.default.resolve(mediaDir, asset.storageKey);
+        if (!filePath.startsWith(`${root}${import_path3.default.sep}`)) throw apiError(400, "\u0110\u01B0\u1EDDng d\u1EABn \u1EA3nh ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7.");
+        const data = await import_fs3.default.promises.readFile(filePath);
+        if (data.length > IMAGE_MAX_BYTES) throw apiError(413, "M\u1ED9t \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n dung l\u01B0\u1EE3ng.");
+        totalImageBytes += data.length;
+        if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 30 MB.");
+        images.push({ assetId, mimeType: asset.mimeType, data });
+      }
+      const importAbortController = new AbortController();
+      const importPromise = createListeningSmartImportCandidate({
+        part,
+        currentPart,
+        basePartHash,
+        sourceImageAssetIds,
+        pastedText,
+        images,
+        analyzeVision: smartImport?.analyzeVision,
+        signal: importAbortController.signal
+      });
+      let timeoutId;
+      const timeoutPromise = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          importAbortController.abort();
+          reject(apiError(504, "Smart Import qu\xE1 th\u1EDDi gian x\u1EED l\xFD 45 gi\xE2y."));
+        }, 45e3);
+      });
+      const candidate = await Promise.race([importPromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "ANALYZE_LISTENING_PART",
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sourceImageAssetIds.length} \u1EA3nh; provider ${candidate.provider}.`
+      );
+      res.json(candidate);
     } catch (error) {
       sendError(res, error);
     }
@@ -5154,6 +5529,7 @@ function createListeningRouter(dependencies) {
         level: text(content.level, 80),
         status: "draft",
         visibility: "draft",
+        draftRevision: 1,
         draftContent: content,
         validationErrors: validateListeningSetContent(content),
         createdAt: now,
@@ -5182,35 +5558,95 @@ function createListeningRouter(dependencies) {
   });
   router.put("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
     try {
-      const set = await getSet(db, req.params.id);
-      if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
-      if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
-      if (set.status === "archived") throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
-      const rawContent = req.body?.content;
-      if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
-      const content = withMoverContentMetadata(rawContent);
-      const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
-      const shareToken = visibility === "assignment" ? set.shareToken || import_crypto.default.randomBytes(18).toString("base64url") : void 0;
-      const updated = {
-        ...set,
-        moduleId: DEFAULT_LISTENING_MODULE_ID,
-        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
-        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
-        title: text(content.title, 160),
-        description: text(content.description, 2e3),
-        level: text(content.level, 80),
-        visibility,
-        draftContent: content,
-        validationErrors: validateListeningSetContent(content),
-        updatedAt: nowIso2(),
-        ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
-      };
-      if (!shareToken) {
-        delete updated.shareToken;
-        delete updated.assignmentSlug;
-      }
-      await db.collection("listening_sets").doc(set.id).set(updated);
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet(db, req.params.id);
+        if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+        if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
+        if (set.status === "archived") throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+        const rawContent = req.body?.content;
+        if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+        const content = withMoverContentMetadata(rawContent);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (req.body?.baseRevision !== void 0 && Number(req.body.baseRevision) !== currentRevision) {
+          throw apiError(409, "B\u1EA3n nh\xE1p \u0111\xE3 thay \u0111\u1ED5i \u1EDF m\u1ED9t phi\xEAn l\xE0m vi\u1EC7c kh\xE1c.", {
+            code: "LISTENING_DRAFT_REVISION_CONFLICT",
+            currentRevision
+          });
+        }
+        const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
+        const shareToken = visibility === "assignment" ? set.shareToken || import_crypto.default.randomBytes(18).toString("base64url") : void 0;
+        const next = {
+          ...set,
+          moduleId: DEFAULT_LISTENING_MODULE_ID,
+          schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+          moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+          title: text(content.title, 160),
+          description: text(content.description, 2e3),
+          level: text(content.level, 80),
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateListeningSetContent(content),
+          updatedAt: nowIso2(),
+          ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection("listening_sets").doc(set.id).set(next);
+        return next;
+      });
       res.json(updated);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+  router.post("/admin/sets/:id/draft/autosave", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet(db, req.params.id);
+        if (!set) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+        if (!canManageSet(req.user, set)) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
+        if (set.status === "archived") throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+        const rawContent = req.body?.content;
+        if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+        const baseRevision = Number(req.body?.baseRevision);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (!Number.isInteger(baseRevision) || baseRevision !== currentRevision) {
+          throw apiError(409, "B\u1EA3n nh\xE1p \u0111\xE3 thay \u0111\u1ED5i \u1EDF m\u1ED9t phi\xEAn l\xE0m vi\u1EC7c kh\xE1c.", {
+            code: "LISTENING_DRAFT_REVISION_CONFLICT",
+            currentRevision
+          });
+        }
+        const content = withMoverContentMetadata(rawContent);
+        const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
+        const shareToken = visibility === "assignment" ? set.shareToken || import_crypto.default.randomBytes(18).toString("base64url") : void 0;
+        const updatedAt = nowIso2();
+        const next = {
+          ...set,
+          title: text(content.title, 160),
+          description: text(content.description, 2e3),
+          level: text(content.level, 80),
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateListeningSetContent(content),
+          updatedAt,
+          ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection("listening_sets").doc(set.id).set(next);
+        return next;
+      });
+      res.json({
+        draftRevision: updated.draftRevision,
+        updatedAt: updated.updatedAt,
+        validationErrors: updated.validationErrors
+      });
     } catch (error) {
       sendError(res, error);
     }
@@ -5566,8 +6002,33 @@ function createListeningLibraryRouter() {
   return router;
 }
 
+// src/lib/localAuthBypass.ts
+var LOCAL_AUTH_BYPASS_TOKEN = "local-test-auth-bypass";
+var LOCAL_AUTH_BYPASS_USER = Object.freeze({
+  id: "local-test-super-admin",
+  name: "Local Test Super Admin",
+  email: "local-test@localhost.invalid",
+  role: "super_admin",
+  status: "active",
+  createdAt: "2026-01-01T00:00:00.000Z"
+});
+function normalizedHost(value) {
+  return String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+function isLoopbackHostname(value) {
+  const hostname = normalizedHost(value);
+  return hostname === "localhost" || hostname === "::1" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+}
+function isLoopbackAddress(value) {
+  const address = normalizedHost(value).replace(/^::ffff:/, "");
+  return isLoopbackHostname(address);
+}
+function isLocalServerAuthBypassAllowed(input) {
+  return input.requested && input.nodeEnv !== "production" && input.bearerToken === LOCAL_AUTH_BYPASS_TOKEN && isLoopbackHostname(input.hostname) && isLoopbackAddress(input.remoteAddress);
+}
+
 // src/server/learning-history/learningAttemptProjector.ts
-var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var import_node_crypto4 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -5611,7 +6072,7 @@ function studyDateInBangkok(value) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function deterministicLearningAttemptId(sourceType, sourceRecordId) {
-  const digest = import_node_crypto3.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
+  const digest = import_node_crypto4.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
@@ -5951,7 +6412,7 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
 }
 
 // src/server/publicStudentIdentity.ts
-var import_node_crypto4 = __toESM(require("node:crypto"), 1);
+var import_node_crypto5 = __toESM(require("node:crypto"), 1);
 function normalizedName(value) {
   return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").slice(0, 300);
 }
@@ -5959,7 +6420,7 @@ function createPublicStudentKey(data, secret) {
   const identity = String(
     data?.ownerKey || (data?.userId ? `user:${data.userId}` : "") || (data?.guestId ? `guest:${data.guestId}` : "") || (data?.studentId ? `student:${data.studentId}` : "") || `name:${normalizedName(data?.studentName || "H\u1ECDc sinh")}`
   ).normalize("NFKC").trim().slice(0, 300);
-  return `student-${import_node_crypto4.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
+  return `student-${import_node_crypto5.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
 }
 function sanitizePublicStudentRecord(value, secret) {
   const {
@@ -5979,6 +6440,13 @@ function sanitizePublicStudentRecord(value, secret) {
 
 // server.ts
 import_dotenv.default.config();
+var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
+if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
+  throw new Error("LOCAL_AUTH_BYPASS_ENABLED must never be enabled in production.");
+}
+if (LOCAL_AUTH_BYPASS_REQUESTED) {
+  console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
+}
 var app2 = (0, import_express4.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
@@ -6082,6 +6550,19 @@ async function logAuditAction(userId, userName, userEmail, action, details) {
 var SUPER_ADMIN_EMAILS = /* @__PURE__ */ new Set(["linyi8901@gmail.com", "admin@vocabulary.edu.vn"]);
 var VALID_ROLES = /* @__PURE__ */ new Set(["super_admin", "teacher", "student"]);
 var VALID_STATUSES = /* @__PURE__ */ new Set(["active", "pending", "blocked", "deleted"]);
+function attachLocalTestUser(req) {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : void 0;
+  if (!isLocalServerAuthBypassAllowed({
+    requested: LOCAL_AUTH_BYPASS_REQUESTED,
+    nodeEnv: process.env.NODE_ENV,
+    hostname: req.hostname,
+    remoteAddress: req.socket.remoteAddress,
+    bearerToken
+  })) return false;
+  req.user = { ...LOCAL_AUTH_BYPASS_USER };
+  return true;
+}
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -6147,6 +6628,7 @@ function buildUserProfileFromToken(decodedToken, storedProfile = {}) {
   };
 }
 var authenticateUser = async (req, res, next) => {
+  if (attachLocalTestUser(req)) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Kh\xF4ng t\xECm th\u1EA5y token x\xE1c th\u1EF1c. Vui l\xF2ng \u0111\u0103ng nh\u1EADp." });
@@ -6201,6 +6683,7 @@ var requireRole = (allowedRoles) => {
   };
 };
 var authenticateOptionalUser = async (req, _res, next) => {
+  if (attachLocalTestUser(req)) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return next();
@@ -6331,7 +6814,7 @@ function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
     displayOrder: Number(item.displayOrder || index + 1)
   })).filter((item) => item.id && item.term);
   const byId = new Map(canonicalItems.map((item) => [item.id, item]));
-  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id) => safeText(id, 160)).filter((id, index, list) => id && byId.has(id) && list.indexOf(id) === index) : [];
+  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id) => safeText(id, 160)).filter((id, index, list2) => id && byId.has(id) && list2.indexOf(id) === index) : [];
   const items = orderedIds.length ? orderedIds.map((id) => byId.get(id)) : canonicalItems;
   const config = gameId.startsWith("quiz-") ? { answerType: gameId === "quiz-en-vi" ? "meaning" : "term", questionType: gameId === "quiz-vi-en" ? "meaning" : gameId === "quiz-sound" ? "sound" : "term" } : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
   return { itemOrder: items.map((item) => item.id), items, config };
@@ -7839,6 +8322,88 @@ async function generateWithOpenAI(prompt) {
   }
   return text3;
 }
+async function generateWithOpenAIVision(prompt, images, signal) {
+  const apiKey = getOpenAIKey();
+  if (!apiKey) return null;
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    signal,
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          ...images.map((image) => ({
+            type: "input_image",
+            image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+            detail: "high"
+          }))
+        ]
+      }],
+      text: { format: { type: "text" } }
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const error = new Error(errorText || `OpenAI request failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const data = await response.json();
+  const text3 = extractOpenAIText(data);
+  if (!text3) throw new Error("OpenAI response did not include text output.");
+  return text3;
+}
+async function generateAiVisionJson(prompt, images, signal) {
+  const errors = [];
+  const gemini = getGeminiClient();
+  if (gemini) {
+    try {
+      const response = await gemini.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...images.map((image) => ({
+              inlineData: {
+                mimeType: image.mimeType,
+                data: image.data.toString("base64")
+              }
+            }))
+          ]
+        }],
+        config: { responseMimeType: "application/json", abortSignal: signal }
+      });
+      const text3 = response.text?.trim();
+      if (!text3) throw new Error("Gemini response did not include text output.");
+      return { text: text3, provider: "gemini", errors };
+    } catch (error) {
+      const message = sanitizeAiError("Gemini", error);
+      errors.push(message);
+      console.warn("Gemini vision unavailable, trying OpenAI fallback:", message);
+    }
+  } else {
+    errors.push("Gemini: GEMINI_API_KEY is not configured.");
+  }
+  try {
+    const text3 = await generateWithOpenAIVision(prompt, images, signal);
+    if (text3) return { text: text3, provider: "openai", errors };
+    errors.push("OpenAI: OPENAI_API_KEY is not configured.");
+  } catch (error) {
+    const message = sanitizeAiError("OpenAI", error);
+    errors.push(message);
+  }
+  const unavailable = new Error("Kh\xF4ng c\xF3 nh\xE0 cung c\u1EA5p AI th\u1ECB gi\xE1c kh\u1EA3 d\u1EE5ng.");
+  unavailable.status = 503;
+  unavailable.details = errors;
+  throw unavailable;
+}
 async function generateAiText(prompt, geminiConfig) {
   const errors = [];
   const gemini = getGeminiClient();
@@ -8199,7 +8764,12 @@ app2.use(
     mediaPublicPrefix: LISTENING_MEDIA_PUBLIC_PREFIX,
     ticketSecret: LISTENING_TICKET_SECRET,
     resolveGuestProfile,
-    logAudit: logAuditAction
+    logAudit: logAuditAction,
+    smartImport: {
+      enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
+      reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false" ? "Smart Import \u0111\xE3 b\u1ECB t\u1EAFt b\u1EB1ng c\u1EA5u h\xECnh m\xE1y ch\u1EE7." : void 0,
+      analyzeVision: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY ? generateAiVisionJson : void 0
+    }
   })
 );
 var ALLOWED_PARTS_OF_SPEECH = [
@@ -8465,18 +9035,18 @@ app2.get("/api/vocab-sets/share/:token", async (req, res) => {
 app2.get("/api/public/vocab-sets", async (req, res) => {
   try {
     const snapshot = await adminDb.collection("vocab_sets").get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const set = doc.data();
       const normalizedVisibility = getVocabVisibility(set);
       if (normalizedVisibility !== "public") return;
-      list.push(stripPrivateVocabSetFields({
+      list2.push(stripPrivateVocabSetFields({
         ...set,
         visibility: normalizedVisibility,
         status: toLegacyStatus(normalizedVisibility)
       }));
     });
-    res.json(list);
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -8517,7 +9087,7 @@ app2.get("/api/public/results", async (req, res) => {
         className
       });
     });
-    const list = [];
+    const list2 = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
       const data = doc.data();
@@ -8536,7 +9106,7 @@ app2.get("/api/public/results", async (req, res) => {
         classId: data.classId,
         className: data.className || classesById.get(data.classId)?.name || ""
       } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : gradeClass.classId ? gradeClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
-      list.push({
+      list2.push({
         id: data.id || doc.id,
         assignmentId: data.assignmentId,
         classId: resolvedClass.classId,
@@ -8567,15 +9137,15 @@ app2.get("/api/public/results", async (req, res) => {
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
       delete activity.answerDetails;
-      list.push(activity);
+      list2.push(activity);
     });
     listeningAttemptsSnapshot.forEach((doc) => {
       const data = { id: doc.id, ...doc.data() };
       if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
-      list.push(listeningAttemptToActivity(data));
+      list2.push(listeningAttemptToActivity(data));
     });
-    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const named = await enrichStudentNames(list);
+    list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
+    const named = await enrichStudentNames(list2);
     res.json(named.map(sanitizePublicStudentRecord2));
   } catch (err) {
     sendApiError(res, err);
@@ -8583,8 +9153,8 @@ app2.get("/api/public/results", async (req, res) => {
 });
 app2.get("/api/public/leaderboard-results", async (req, res) => {
   try {
-    const list = await loadLeaderboardEventsFromSources();
-    res.json(list.map(sanitizePublicStudentRecord2));
+    const list2 = await loadLeaderboardEventsFromSources();
+    res.json(list2.map(sanitizePublicStudentRecord2));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -8593,11 +9163,11 @@ app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
   try {
     const { search, grade, status, visibility } = req.query;
     const snapshot = await adminDb.collection("vocab_sets").get();
-    let list = [];
+    let list2 = [];
     snapshot.forEach((doc) => {
       const set = doc.data();
       const normalizedVisibility = getVocabVisibility(set);
-      list.push(stripPrivateVocabSetFields({
+      list2.push(stripPrivateVocabSetFields({
         ...set,
         visibility: normalizedVisibility,
         status: toLegacyStatus(normalizedVisibility)
@@ -8605,21 +9175,21 @@ app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
     });
     if (search) {
       const s = search.toLowerCase();
-      list = list.filter(
+      list2 = list2.filter(
         (set) => set.title.toLowerCase().includes(s) || set.description.toLowerCase().includes(s) || set.subject.toLowerCase().includes(s)
       );
     }
     if (grade) {
-      list = list.filter((set) => set.gradeLevel === grade);
+      list2 = list2.filter((set) => set.gradeLevel === grade);
     }
     if (status) {
-      list = list.filter((set) => set.status === status);
+      list2 = list2.filter((set) => set.status === status);
     }
     if (visibility) {
-      list = list.filter((set) => getVocabVisibility(set) === visibility);
+      list2 = list2.filter((set) => getVocabVisibility(set) === visibility);
     }
-    list = list.filter((set) => canViewVocabSet(req.user, set));
-    res.json(list);
+    list2 = list2.filter((set) => canViewVocabSet(req.user, set));
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -8934,12 +9504,12 @@ app2.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher",
 app2.get("/api/classes", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("classes").get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const classData = { id: doc.id, ...doc.data() };
-      if (canViewClass(req.user, classData)) list.push(classData);
+      if (canViewClass(req.user, classData)) list2.push(classData);
     });
-    res.json(list);
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -9013,13 +9583,13 @@ app2.get("/api/class-members", authenticateUser, async (req, res) => {
       classesById.set(classData.id, classData);
     });
     const snapshot = await adminDb.collection("class_members").get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const member = { id: doc.id, ...doc.data() };
       const classData = member.classId ? classesById.get(member.classId) : null;
-      if (classData && canViewClass(req.user, classData)) list.push(member);
+      if (classData && canViewClass(req.user, classData)) list2.push(member);
     });
-    res.json(list);
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -9073,13 +9643,13 @@ app2.get("/api/assignments", authenticateUser, async (req, res) => {
       classesById.set(classData.id, classData);
     });
     const snapshot = await adminDb.collection("assignments").get();
-    const list = [];
+    const list2 = [];
     for (const doc of snapshot.docs || []) {
       const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
       const classData = assignment.classId ? classesById.get(assignment.classId) : null;
-      if (canManageAssignment(req.user, assignment, classData)) list.push(assignment);
+      if (canManageAssignment(req.user, assignment, classData)) list2.push(assignment);
     }
-    res.json(list);
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -9180,14 +9750,14 @@ app2.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "s
 app2.get("/api/public/grammar-sets", async (req, res) => {
   try {
     const snapshot = await adminDb.collection("grammar_sets").get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
       if (getGrammarVisibility(set) !== "public") return;
-      list.push(sanitizeGrammarSetForStudent(set));
+      list2.push(sanitizeGrammarSetForStudent(set));
     });
-    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list);
+    list2.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -9195,14 +9765,14 @@ app2.get("/api/public/grammar-sets", async (req, res) => {
 app2.get("/api/grammar-sets", authenticateUser, async (req, res) => {
   try {
     const snapshot = await adminDb.collection("grammar_sets").get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
       if (!canViewGrammarSet(req.user, set)) return;
-      list.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
+      list2.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
     });
-    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list);
+    list2.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -9709,13 +10279,13 @@ app2.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (r
     const set = await getGrammarSetOr404(req.params.id);
     const actorField = actor.isGuest ? "guestId" : "userId";
     const snapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", req.params.id).where(actorField, "==", actor.id).get();
-    const list = [];
+    const list2 = [];
     snapshot.forEach((doc) => {
       const attempt = { id: doc.id, ...doc.data() };
-      list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
+      list2.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
     });
-    list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-    res.json(list);
+    list2.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    res.json(list2);
   } catch (err) {
     sendApiError(res, err);
   }
@@ -10394,14 +10964,14 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       const data = { id: doc.id, ...doc.data() };
       classesById.set(data.id, data);
     });
-    const list = [];
+    const list2 = [];
     const cutoff = Date.now() - ACTIVITY_TTL_MS;
     snapshot.forEach((doc) => {
       const data = doc.data();
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
         if (!canViewResultSession(req.user, data, vocabSetsById, assignmentsById, classesById)) return;
         const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-        list.push({
+        list2.push({
           ...data,
           id: data.id || doc.id,
           classId: data.classId || gradeClass.classId || "",
@@ -10415,17 +10985,17 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       if (isExpiredActivity(data)) return;
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
-      list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
+      list2.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
     listeningAttemptsSnapshot.forEach((doc) => {
       const data = { id: doc.id, ...doc.data() };
       if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
       const set = listeningSetsById.get(data.setId);
       const canView = req.user?.role === "super_admin" || data.userId === req.user?.id || data.ownerKey === `user:${req.user?.id}` || req.user?.role === "teacher" && set?.ownerId === req.user.id;
-      if (canView) list.push(listeningAttemptToActivity(data));
+      if (canView) list2.push(listeningAttemptToActivity(data));
     });
-    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(await enrichStudentNames(list));
+    list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
+    res.json(await enrichStudentNames(list2));
   } catch (err) {
     sendApiError(res, err);
   }
@@ -10727,7 +11297,14 @@ async function start() {
     console.log("[Startup] Seed data disabled.");
   }
   if (process.env.NODE_ENV !== "production") {
+    const viteMode = process.env.VITE_MODE?.trim() || void 0;
     const vite = await (0, import_vite.createServer)({
+      ...viteMode ? { mode: viteMode } : {},
+      define: {
+        "import.meta.env.VITE_LOCAL_AUTH_BYPASS_ENABLED": JSON.stringify(
+          process.env.VITE_LOCAL_AUTH_BYPASS_ENABLED === "true" ? "true" : "false"
+        )
+      },
       server: { middlewareMode: true },
       appType: "spa"
     });

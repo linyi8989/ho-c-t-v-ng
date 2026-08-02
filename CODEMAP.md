@@ -74,17 +74,20 @@ The exact application dependency baseline from the current
 
 Current source/build/deployment ledger:
 
-- Application code/build baseline recorded before this CODEMAP-only update:
-  `6548c8e` (`fix: improve learning history answer details`).
-- Current generated UI-on release build: `dist/client/assets/index-vgHIw9Ix.js`
-  and `dist/client/assets/index-nByREmg-.css`.
-- Current tracked server bundle includes the readable grammar-answer projector:
-  `dist/server.cjs` (approximately 393.6 kB before Git transport compression).
+- Current Git baseline: `0f3410c` (`fix: restore student learning history UI and
+  listening contrast`). The working tree also contains the later, uncommitted
+  Listening Smart Editor/player changes described in this CODEMAP.
+- Current local UI-on release build (generated 2026-08-02 with
+  `npm run build:history-ui`): `dist/client/assets/index-BVqE9Tj0.js` and
+  `dist/client/assets/index-CI66mUD2.css`. `dist/client/index.html` references
+  exactly these two files.
+- Current local server bundle: `dist/server.cjs` (513,262 bytes before Git
+  transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
-- Therefore commit/artifact `6548c8e` must be considered **pending host
+- Therefore the current local UI-on artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-B0ssBTt7.js`.
+  `curl`/browser smoke show `index-BVqE9Tj0.js` plus `index-CI66mUD2.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -120,6 +123,7 @@ rollback point in this section before calling the upgrade complete.
 
 ### Root
 
+- `quytac.md`: quy tắc bắt buộc về phạm vi thay đổi, chẩn đoán, kiểm thử, an toàn dữ liệu, AI, build và deploy dành cho AI agent/lập trình viên.
 - `package.json`: scripts and dependencies.
 - `server.ts`: Express API server, auth middleware, seed logic, Gemini routes, CRUD routes, static/Vite serving.
 - `app.js`: production entry that imports `./dist/server.cjs`.
@@ -161,6 +165,8 @@ rollback point in this section before calling the upgrade complete.
 - `src/server/publicStudentIdentity.ts`: HMAC pseudonymization and public result/leaderboard identity sanitizer.
 - `scripts/db-backfill-learning-history.mjs`: explicit legacy projection backfill/reconcile CLI.
 - `scripts/activity-prune.mjs`: explicit detail-only retention CLI with verified online backup.
+- `docs/listening-smart-editor-plan.md`: kế hoạch kiến trúc và sổ trạng thái triển khai Smart Editor theo Editor Shell, module definition và Part Handler; code Mover Parts 1-5 đã được triển khai, còn UAT thủ công và cấu hình môi trường production trước khi mở cho người dùng.
+- `docs/listening-smart-editor-mover-spec.md`: đặc tả nghiệp vụ Smart Editor đủ Parts 1-5 của Mover đã được xác nhận; Part 5 kế thừa vùng cố định/đáp án random cần giáo viên xác nhận của Part 1, dùng catalog 20 màu tiếng Anh thay color picker tự do và chỉ gồm năm câu `colour`, không thêm `write`. Mọi Part cấm dùng audio để trích đáp án.
 
 ## 3. Runtime Architecture
 
@@ -270,6 +276,21 @@ Phase 2 authorization hardening:
 - Adds `req.user`.
 
 `requireRole([...])` restricts teacher/super_admin/admin-only endpoints.
+
+Local test authentication:
+
+- `npm run dev:local` starts the source app with SQL.js data under `.data/` and
+  injects a fixed `Local Test Super Admin` profile, so Firebase login is not
+  required while testing `http://localhost:3000`.
+- The bypass contract lives in `src/lib/localAuthBypass.ts`. Backend acceptance
+  requires all of: explicit local flag, `NODE_ENV !== production`, the fixed
+  local token, a loopback hostname, and a loopback socket address.
+- `server.ts` refuses to start if `LOCAL_AUTH_BYPASS_ENABLED=true` under
+  production. Normal `npm run dev`, build, `npm start`, and hosted Firebase auth
+  behavior are unchanged.
+- `scripts/start-local-test.mjs` is the only supported launcher for this mode;
+  local SQLite/media output is ignored through `.gitignore` and never shares
+  production storage.
 
 ### Roles
 
@@ -1906,3 +1927,96 @@ Validation:
   Listening Library page, Mover module page, and legacy `/api/listening/sets`;
   the registry API returned all four IDs with only Mover active and five Parts.
   The temporary server and database directory were removed afterward.
+
+## 25. Listening Smart Editor - 2026-08-02
+
+Architecture and ownership:
+
+- `src/features/listening-editor/` owns the reusable editor contracts, shell,
+  bounded draft history, revision-aware autosave, fixed-size region dragger,
+  Resource Tray, staged Smart Import UI, browser crop helper, and crop preview.
+- `src/features/listening/shared/FileDropPasteInput.tsx` is the shared media
+  intake control. Image pickers accept file selection, drag/drop, focused
+  `Ctrl+V`, and an explicit clipboard-read button; batch trays retain their
+  existing file limits and upload paths.
+- `src/features/listening-library/modules/mover/editor/` owns the Mover module
+  definition plus independent handlers for Parts 1-5. A handler can only merge
+  its own Part. `moverDraft.test.ts` guards sibling Parts byte-for-byte.
+- `ListeningAdminModule.tsx` remains the Mover admin entry point. It coordinates
+  assets, candidate state, autosave status, shell navigation, and the existing
+  set/version/publish flow. Parts 1-3 import validated analysis directly into the
+  editable working draft; Parts 4-5 retain staged candidate review.
+- `src/server/listening-smart-import/service.ts` owns prompt construction,
+  local text parsing, provider JSON normalization, code-generated IDs, random
+  provisional mappings, fixed regions, warnings, and Part-specific candidates.
+- `server.ts` supplies Gemini multimodal analysis with OpenAI Responses image
+  fallback. Only backend-held keys are used. `LISTENING_SMART_IMPORT_ENABLED`
+  is the rollback switch.
+
+API and safety:
+
+- `GET /api/listening/capabilities` advertises upload and Smart Import state to
+  staff clients without exposing keys.
+- `POST /api/listening/admin/smart-import/analyze` requires staff auth and
+  verifies module, Part, `basePartHash`, asset ownership, active image type,
+  media path, per-image/aggregate size, quota, and timeout. It rejects audio;
+  no audio/transcript enters provider prompts or payloads.
+- The endpoint allows local pasted-text parsing only for Parts 2 and 3. Part 3
+  deliberately removes source image 1 (the A-F board) before the provider call.
+- Requests are limited to 20 per user per 10 minutes and 45 seconds. Timeout
+  aborts the provider request where supported. Audit rows contain candidate and
+  provider metadata, never the internal prompt or raw answer payload.
+- `POST /api/listening/admin/sets/:id/draft/autosave` uses `baseRevision`; stale
+  tabs receive `409 LISTENING_DRAFT_REVISION_CONFLICT` instead of overwriting a
+  newer draft.
+- Derived Part 2/4 uploads include server-validated `derivedFromAssetId` and
+  normalized crop metadata. Public set summaries omit both draft content and
+  internal draft revision.
+
+Mover behavior:
+
+- Parts 1/5 use normalized rounded rectangles. Part 1 stays `0.12 x 0.055`;
+  the manual Part 5 editor uses `0.12 x 0.11` so its five numbered targets are
+  twice as tall without becoming resizable.
+  Each rectangle is itself directly draggable (or movable with arrow keys), so
+  there is no separate active-region selector. The teacher can move but cannot
+  resize. Code randomizes five unique provisional answers. Part 1 imports them
+  into editable dropdowns for teacher correction; Part 5 retains explicit
+  candidate confirmation before applying.
+- Part 2 extracts a heading, optional example, five prompts, and bold answer
+  variants split by `|` directly into the editable Part form. Its optional
+  illustration crop uses a full-source-image mouse editor (draw, move and resize)
+  before creating a traceable derived asset; numeric crop inputs are not exposed.
+- Part 3 adds `displayMode: composite` plus one `boardAssetId`; old content with
+  no display mode stays `split`. Source image 1 is always the untouched A-F board
+  and is never sent to AI; source image 2 or pasted OCR text supplies the five
+  labels. Analysis imports the board and detected labels directly into the Part 3
+  form; missing labels preserve current editable values. Six option IDs, answer
+  mappings and grader behavior are unchanged.
+- Part 4 keeps the existing three-image option schema. AI reads prompt/order and
+  provides initial crop hints. Browser pixel code detects neutral dark picture
+  frames, orders them top-to-bottom/left-to-right, groups each A/B/C triple and
+  snaps crops inside the frame edge. The local five-question fixture is detected
+  as 15/15 frames, including one picture with a faint bottom edge. Each crop also
+  has a full-image mouse editor fallback. After review, Canvas crops and uploads
+  15 derived images; an answer is preselected only for an explicit source marker.
+- Part 5 uses the exact 20-name English catalog in
+  `editor/colourCatalog.ts`. The editor no longer exposes a free color picker,
+  while saved custom legacy colors remain readable. Its manual form hides the
+  unused target-name inputs and labels the five selectors `Đáp án màu 1` through
+  `Đáp án màu 5`; stored labels remain compatible with existing content.
+
+Validation ledger:
+
+- `npm run lint` passes.
+- `npm run test:listening` passes 30/30 contracts covering draft isolation,
+  module compatibility, Parts 1-5, asset/security checks, autosave conflicts,
+  grading, immutable storage/history, and idempotent legacy replay.
+- `npm run build:history-ui` passes and regenerates production client/server
+  assets. Existing Vite Firebase import and bundle-size warnings remain.
+- The current workstation cannot start `test:legacy-contracts` because its
+  installed `better-sqlite3` binary targets Node ABI 127 while the active Node
+  requires ABI 137. This is a pre-test native dependency mismatch; rebuild or
+  reinstall it under the repository's Node 22 runtime before the release gate.
+- Deployment and manual UAT steps are in
+  `docs/listening-smart-editor-deploy.md`.

@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
-import { Image, Music, Sparkles, Upload } from 'lucide-react';
+import React, { useState } from 'react';
+import { Image, Music, Sparkles } from 'lucide-react';
+import FileDropPasteInput from '../shared/FileDropPasteInput';
 import type { ListeningAsset, ListeningAssetKind } from '../types';
 
 interface ListeningAssetPickerProps {
@@ -21,14 +22,12 @@ export function ListeningAssetPicker({
   onChange,
   onUpload,
 }: ListeningAssetPickerProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const selected = assets.find(asset => asset.id === value);
   const choices = assets.filter(asset => asset.kind === kind && asset.status === 'active');
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  const handleUpload = async (files: File[]) => {
+    const file = files[0];
     if (!file) return;
     setUploading(true);
     try {
@@ -45,7 +44,7 @@ export function ListeningAssetPicker({
         <label className="text-xs font-black text-slate-700">{label}</label>
         <span className="text-[10px] font-bold uppercase text-slate-400">{kind === 'image' ? 'Hình ảnh' : 'Audio'}</span>
       </div>
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <select
           value={value || ''}
           onChange={event => onChange(event.target.value)}
@@ -56,21 +55,6 @@ export function ListeningAssetPicker({
             <option key={asset.id} value={asset.id}>{asset.name}</option>
           ))}
         </select>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4'}
-          className="hidden"
-          onChange={handleUpload}
-        />
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 disabled:opacity-50"
-        >
-          <Upload size={14} /> {uploading ? 'Đang tải...' : 'Tải lên'}
-        </button>
         {kind === 'image' && (
           <button
             type="button"
@@ -82,6 +66,13 @@ export function ListeningAssetPicker({
           </button>
         )}
       </div>
+      <FileDropPasteInput
+        accept={kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4'}
+        disabled={uploading}
+        pasteImages={kind === 'image'}
+        uploadLabel={kind === 'image' ? 'Chọn ảnh' : 'Chọn audio'}
+        onFiles={handleUpload}
+      />
       {selected && (
         <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-2">
           {kind === 'image' ? (

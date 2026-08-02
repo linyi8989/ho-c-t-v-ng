@@ -20,10 +20,15 @@ import {
   sanitizeListeningContentForStudent,
   validateListeningSetContent,
 } from './listeningValidation.js';
+import {
+  createListeningSmartImportCandidate,
+  type SmartImportImageInput,
+  type SmartImportVisionAnalyzer,
+} from '../listening-smart-import/service.js';
 
 type Middleware = express.RequestHandler;
 
-interface ListeningRouterDependencies {
+export interface ListeningRouterDependencies {
   db: any;
   authenticateUser: Middleware;
   authenticateOptionalUser: Middleware;
@@ -44,6 +49,11 @@ interface ListeningRouterDependencies {
     action: string,
     details: string
   ) => Promise<void>;
+  smartImport?: {
+    enabled: boolean;
+    reason?: string;
+    analyzeVision?: SmartImportVisionAnalyzer;
+  };
 }
 
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -96,6 +106,7 @@ function canManageSet(user: any, set: any) {
 function publicSetSummary(set: any) {
   const {
     draftContent: _draftContent,
+    draftRevision: _draftRevision,
     shareToken: _shareToken,
     assignmentSlug: _assignmentSlug,
     ...summary
@@ -179,6 +190,7 @@ function collectAssetReferences(content: ListeningSetContent) {
   content.parts.forEach(part => add(part.audioAssetId, 'audio', `part-${part.part}`, 'audio'));
   add(content.parts[0].sceneAssetId, 'image', 'part-1', 'scene');
   add(content.parts[1].illustrationAssetId, 'image', 'part-2', 'illustration');
+  add(content.parts[2].boardAssetId, 'image', 'part-3', 'board');
   content.parts[2].options.forEach(option => add(option.imageAssetId, 'image', option.id, 'part3-option'));
   content.parts[2].items.forEach(item => add(item.imageAssetId, 'image', item.id, 'part3-item'));
   if (content.parts[2].example) {
@@ -224,6 +236,7 @@ async function resolveContentAssets(db: any, content: ListeningSetContent, user:
   clone.parts.forEach(part => { part.audioUrl = url(part.audioAssetId); });
   clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
   clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
+  clone.parts[2].boardUrl = url(clone.parts[2].boardAssetId);
   clone.parts[2].options.forEach(option => { option.imageUrl = url(option.imageAssetId); });
   clone.parts[2].items.forEach(item => { item.imageUrl = url(item.imageAssetId); });
   if (clone.parts[2].example) {
@@ -336,8 +349,25 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
     ticketSecret,
     resolveGuestProfile,
     logAudit,
+    smartImport,
   } = dependencies;
   const router = express.Router();
+  const draftLocks = new Map<string, Promise<void>>();
+  const smartImportUsage = new Map<string, number[]>();
+  const withDraftLock = async <T,>(setId: string, operation: () => Promise<T>): Promise<T> => {
+    const previous = draftLocks.get(setId) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    const queued = previous.then(() => current);
+    draftLocks.set(setId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (draftLocks.get(setId) === queued) draftLocks.delete(setId);
+    }
+  };
   fs.mkdirSync(mediaDir, { recursive: true });
 
   router.get('/capabilities', authenticateUser, requireStaff, (_req, res) => {
@@ -345,6 +375,13 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       imageGeneration: {
         enabled: false,
         reason: 'Chưa cấu hình nhà cung cấp tạo ảnh ở backend. Có thể dùng tải lên hoặc thư viện media.',
+      },
+      smartImport: {
+        enabled: smartImport?.enabled !== false,
+        visionEnabled: Boolean(smartImport?.analyzeVision),
+        reason: smartImport?.reason || (smartImport?.analyzeVision
+          ? undefined
+          : 'Chưa cấu hình GEMINI_API_KEY hoặc OPENAI_API_KEY; vẫn có thể nhập văn bản cho Part 2/3.'),
       },
       upload: {
         enabled: true,
@@ -390,6 +427,42 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         if (!buffer.length || buffer.length > sizeLimit) throw apiError(413, 'File rỗng hoặc vượt giới hạn dung lượng.');
         if (!hasValidMagic(buffer, mimeType)) throw apiError(415, 'Nội dung file không khớp định dạng khai báo.');
 
+        const derivedFromAssetId = text(req.headers['x-derived-from-asset-id'], 160);
+        let crop: ListeningAsset['crop'];
+        if (derivedFromAssetId) {
+          if (kind !== 'image') throw apiError(400, 'Chỉ ảnh mới có thể là asset crop dẫn xuất.');
+          const sourceDocument = await db.collection('listening_assets').doc(derivedFromAssetId).get();
+          if (!sourceDocument.exists) throw apiError(404, 'Không tìm thấy ảnh nguồn của asset crop.');
+          const sourceAsset = { id: sourceDocument.id, ...sourceDocument.data() } as ListeningAsset;
+          if (!isSuperAdmin(req.user) && sourceAsset.ownerId !== req.user.id) {
+            throw apiError(403, 'Bạn không có quyền tạo crop từ ảnh nguồn này.');
+          }
+          if (sourceAsset.kind !== 'image' || sourceAsset.status !== 'active') {
+            throw apiError(400, 'Asset nguồn crop phải là ảnh đang hoạt động.');
+          }
+          try {
+            const parsed = JSON.parse(text(req.headers['x-crop-metadata'], 500));
+            crop = {
+              x: Number(parsed.x),
+              y: Number(parsed.y),
+              width: Number(parsed.width),
+              height: Number(parsed.height),
+            };
+          } catch {
+            throw apiError(400, 'Metadata crop không hợp lệ.');
+          }
+          if (
+            !crop
+            || Object.values(crop).some(value => !Number.isFinite(value) || value < 0 || value > 1)
+            || crop.width <= 0
+            || crop.height <= 0
+            || crop.x + crop.width > 1
+            || crop.y + crop.height > 1
+          ) {
+            throw apiError(400, 'Tọa độ crop phải nằm trong khoảng 0–1.');
+          }
+        }
+
         const digest = sha256(buffer);
         const storageKey = `${digest}${extension}`;
         const finalPath = path.join(mediaDir, storageKey);
@@ -403,7 +476,12 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         let existing: any = null;
         existingSnapshot.forEach((document: any) => {
           const data = { id: document.id, ...document.data() };
-          if (!existing && (isSuperAdmin(req.user) || data.ownerId === req.user!.id)) existing = data;
+          const sameOwner = isSuperAdmin(req.user) || data.ownerId === req.user!.id;
+          const sameDerivative = derivedFromAssetId
+            ? data.derivedFromAssetId === derivedFromAssetId
+              && JSON.stringify(data.crop) === JSON.stringify(crop)
+            : !data.derivedFromAssetId;
+          if (!existing && sameOwner && sameDerivative) existing = data;
         });
         if (existing) return res.json(existing);
 
@@ -420,6 +498,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           size: buffer.length,
           storageKey,
           url: `${mediaPublicPrefix}/${storageKey}`,
+          ...(derivedFromAssetId && crop ? { derivedFromAssetId, crop } : {}),
           status: 'active',
           createdAt: now,
           updatedAt: now,
@@ -443,6 +522,89 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       if (!usage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
       await document.ref.update({ status: 'archived', updatedAt: nowIso() });
       res.json({ success: true });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/admin/smart-import/analyze', authenticateUser, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
+      if (smartImport?.enabled === false) throw apiError(503, smartImport.reason || 'Smart Import đang tắt.');
+      const usageKey = req.user.id;
+      const windowStart = Date.now() - 10 * 60 * 1000;
+      const recentUsage = (smartImportUsage.get(usageKey) || []).filter(timestamp => timestamp >= windowStart);
+      if (recentUsage.length >= 20) throw apiError(429, 'Đã đạt giới hạn 20 lượt Smart Import trong 10 phút.');
+      recentUsage.push(Date.now());
+      smartImportUsage.set(usageKey, recentUsage);
+      if (req.body?.moduleId !== 'mover') throw apiError(400, 'Smart Import hiện chỉ hỗ trợ Mover.');
+      const part = Number(req.body?.part);
+      if (![1, 2, 3, 4, 5].includes(part)) throw apiError(400, 'Part không hợp lệ.');
+      const currentPart = req.body?.currentPart as ListeningSetContent['parts'][number];
+      if (!currentPart || currentPart.part !== part) throw apiError(400, 'Dữ liệu Part hiện tại không hợp lệ.');
+      const basePartHash = text(req.body?.basePartHash, 64).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError(400, 'Thiếu hash của Part hiện tại.');
+      if (sha256(JSON.stringify(currentPart)) !== basePartHash) {
+        throw apiError(409, 'Part đã thay đổi trước khi bắt đầu phân tích.', {
+          code: 'LISTENING_IMPORT_BASE_CHANGED',
+        });
+      }
+      const sourceImageAssetIds = Array.from(new Set(
+        (Array.isArray(req.body?.sourceImageAssetIds) ? req.body.sourceImageAssetIds : [])
+          .map((value: unknown) => text(value, 160))
+          .filter(Boolean)
+      )).slice(0, 5) as string[];
+      const pastedText = text(req.body?.pastedText, 12000);
+      const images: SmartImportImageInput[] = [];
+      let totalImageBytes = 0;
+      for (const assetId of sourceImageAssetIds) {
+        const document = await db.collection('listening_assets').doc(assetId).get();
+        if (!document.exists) throw apiError(404, `Không tìm thấy ảnh nguồn ${assetId}.`);
+        const asset = { id: document.id, ...document.data() } as ListeningAsset;
+        if (!isSuperAdmin(req.user) && asset.ownerId !== req.user.id) {
+          throw apiError(403, 'Bạn không có quyền dùng một ảnh nguồn đã chọn.');
+        }
+        if (asset.status !== 'active' || asset.kind !== 'image' || !asset.mimeType.startsWith('image/')) {
+          throw apiError(400, 'Smart Import chỉ nhận ảnh đang hoạt động; audio không bao giờ được gửi đi phân tích.');
+        }
+        const root = path.resolve(mediaDir);
+        const filePath = path.resolve(mediaDir, asset.storageKey);
+        if (!filePath.startsWith(`${root}${path.sep}`)) throw apiError(400, 'Đường dẫn ảnh nguồn không hợp lệ.');
+        const data = await fs.promises.readFile(filePath);
+        if (data.length > IMAGE_MAX_BYTES) throw apiError(413, 'Một ảnh nguồn vượt quá giới hạn dung lượng.');
+        totalImageBytes += data.length;
+        if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, 'Tổng dung lượng ảnh nguồn vượt quá 30 MB.');
+        images.push({ assetId, mimeType: asset.mimeType, data });
+      }
+      const importAbortController = new AbortController();
+      const importPromise = createListeningSmartImportCandidate({
+        part: part as 1 | 2 | 3 | 4 | 5,
+        currentPart,
+        basePartHash,
+        sourceImageAssetIds,
+        pastedText,
+        images,
+        analyzeVision: smartImport?.analyzeVision,
+        signal: importAbortController.signal,
+      });
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          importAbortController.abort();
+          reject(apiError(504, 'Smart Import quá thời gian xử lý 45 giây.'));
+        }, 45_000);
+      });
+      const candidate = await Promise.race([importPromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        'ANALYZE_LISTENING_PART',
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sourceImageAssetIds.length} ảnh; provider ${candidate.provider}.`
+      );
+      res.json(candidate);
     } catch (error) {
       sendError(res, error);
     }
@@ -484,6 +646,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         level: text(content.level, 80),
         status: 'draft',
         visibility: 'draft',
+        draftRevision: 1,
         draftContent: content,
         validationErrors: validateListeningSetContent(content),
         createdAt: now,
@@ -514,39 +677,107 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
 
   router.put('/admin/sets/:id', authenticateUser, requireStaff, async (req, res) => {
     try {
-      const set = await getSet(db, req.params.id);
-      if (!set) throw apiError(404, 'Không tìm thấy bộ đề nghe.');
-      if (!canManageSet(req.user, set)) throw apiError(403, 'Bạn không có quyền sửa bộ đề này.');
-      if (set.status === 'archived') throw apiError(409, 'Bộ đề đã được lưu trữ.');
-      const rawContent = req.body?.content as ListeningSetContent;
-      if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, 'Cấu trúc bộ đề không hợp lệ.');
-      const content = withMoverContentMetadata(rawContent);
-      const visibility = ['draft', 'public', 'assignment'].includes(req.body?.visibility)
-        ? req.body.visibility
-        : set.visibility;
-      const shareToken = visibility === 'assignment'
-        ? (set.shareToken || crypto.randomBytes(18).toString('base64url'))
-        : undefined;
-      const updated = {
-        ...set,
-        moduleId: DEFAULT_LISTENING_MODULE_ID,
-        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
-        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
-        title: text(content.title, 160),
-        description: text(content.description, 2000),
-        level: text(content.level, 80),
-        visibility,
-        draftContent: content,
-        validationErrors: validateListeningSetContent(content),
-        updatedAt: nowIso(),
-        ...(shareToken ? { shareToken, assignmentSlug: shareToken } : {}),
-      };
-      if (!shareToken) {
-        delete updated.shareToken;
-        delete updated.assignmentSlug;
-      }
-      await db.collection('listening_sets').doc(set.id).set(updated);
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet(db, req.params.id);
+        if (!set) throw apiError(404, 'Không tìm thấy bộ đề nghe.');
+        if (!canManageSet(req.user, set)) throw apiError(403, 'Bạn không có quyền sửa bộ đề này.');
+        if (set.status === 'archived') throw apiError(409, 'Bộ đề đã được lưu trữ.');
+        const rawContent = req.body?.content as ListeningSetContent;
+        if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, 'Cấu trúc bộ đề không hợp lệ.');
+        const content = withMoverContentMetadata(rawContent);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (
+          req.body?.baseRevision !== undefined
+          && Number(req.body.baseRevision) !== currentRevision
+        ) {
+          throw apiError(409, 'Bản nháp đã thay đổi ở một phiên làm việc khác.', {
+            code: 'LISTENING_DRAFT_REVISION_CONFLICT',
+            currentRevision,
+          });
+        }
+        const visibility = ['draft', 'public', 'assignment'].includes(req.body?.visibility)
+          ? req.body.visibility
+          : set.visibility;
+        const shareToken = visibility === 'assignment'
+          ? (set.shareToken || crypto.randomBytes(18).toString('base64url'))
+          : undefined;
+        const next = {
+          ...set,
+          moduleId: DEFAULT_LISTENING_MODULE_ID,
+          schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+          moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+          title: text(content.title, 160),
+          description: text(content.description, 2000),
+          level: text(content.level, 80),
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateListeningSetContent(content),
+          updatedAt: nowIso(),
+          ...(shareToken ? { shareToken, assignmentSlug: shareToken } : {}),
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection('listening_sets').doc(set.id).set(next);
+        return next;
+      });
       res.json(updated);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.post('/admin/sets/:id/draft/autosave', authenticateUser, requireStaff, async (req, res) => {
+    try {
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet(db, req.params.id);
+        if (!set) throw apiError(404, 'Không tìm thấy bộ đề nghe.');
+        if (!canManageSet(req.user, set)) throw apiError(403, 'Bạn không có quyền sửa bộ đề này.');
+        if (set.status === 'archived') throw apiError(409, 'Bộ đề đã được lưu trữ.');
+        const rawContent = req.body?.content as ListeningSetContent;
+        if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, 'Cấu trúc bộ đề không hợp lệ.');
+        const baseRevision = Number(req.body?.baseRevision);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (!Number.isInteger(baseRevision) || baseRevision !== currentRevision) {
+          throw apiError(409, 'Bản nháp đã thay đổi ở một phiên làm việc khác.', {
+            code: 'LISTENING_DRAFT_REVISION_CONFLICT',
+            currentRevision,
+          });
+        }
+        const content = withMoverContentMetadata(rawContent);
+        const visibility = ['draft', 'public', 'assignment'].includes(req.body?.visibility)
+          ? req.body.visibility
+          : set.visibility;
+        const shareToken = visibility === 'assignment'
+          ? (set.shareToken || crypto.randomBytes(18).toString('base64url'))
+          : undefined;
+        const updatedAt = nowIso();
+        const next = {
+          ...set,
+          title: text(content.title, 160),
+          description: text(content.description, 2000),
+          level: text(content.level, 80),
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateListeningSetContent(content),
+          updatedAt,
+          ...(shareToken ? { shareToken, assignmentSlug: shareToken } : {}),
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection('listening_sets').doc(set.id).set(next);
+        return next;
+      });
+      res.json({
+        draftRevision: updated.draftRevision,
+        updatedAt: updated.updatedAt,
+        validationErrors: updated.validationErrors,
+      });
     } catch (error) {
       sendError(res, error);
     }

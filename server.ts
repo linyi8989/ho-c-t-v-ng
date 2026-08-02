@@ -26,6 +26,11 @@ import { createLearningHistoryRouter } from "./src/server/learning-history/learn
 import { LISTENING_LIBRARY_SCHEMA_VERSION, resolveListeningModuleId } from "./src/features/listening-library/registry.js";
 import { createListeningLibraryRouter } from "./src/server/listening-library/router.js";
 import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
+import type { SmartImportImageInput } from "./src/server/listening-smart-import/service.js";
+import {
+  LOCAL_AUTH_BYPASS_USER,
+  isLocalServerAuthBypassAllowed,
+} from "./src/lib/localAuthBypass.js";
 import {
   projectGrammarAttempt,
   projectVocabularyAttempt
@@ -41,6 +46,14 @@ import {
 
 // Load environment variables
 dotenv.config();
+
+const LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
+if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
+  throw new Error("LOCAL_AUTH_BYPASS_ENABLED must never be enabled in production.");
+}
+if (LOCAL_AUTH_BYPASS_REQUESTED) {
+  console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
+}
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -201,6 +214,22 @@ const SUPER_ADMIN_EMAILS = new Set(["linyi8901@gmail.com", "admin@vocabulary.edu
 const VALID_ROLES = new Set<AppRole>(["super_admin", "teacher", "student"]);
 const VALID_STATUSES = new Set<AppStatus>(["active", "pending", "blocked", "deleted"]);
 
+function attachLocalTestUser(req: express.Request) {
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : undefined;
+  if (!isLocalServerAuthBypassAllowed({
+    requested: LOCAL_AUTH_BYPASS_REQUESTED,
+    nodeEnv: process.env.NODE_ENV,
+    hostname: req.hostname,
+    remoteAddress: req.socket.remoteAddress,
+    bearerToken,
+  })) return false;
+  req.user = { ...LOCAL_AUTH_BYPASS_USER };
+  return true;
+}
+
 function normalizeEmail(value: any) {
   return String(value || "").trim().toLowerCase();
 }
@@ -291,6 +320,7 @@ function assertActiveUser(userProfile: any, res: express.Response) {
 
 // Authenticates bearer token from firebase and attaches custom profile state
 const authenticateUser = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (attachLocalTestUser(req)) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Không tìm thấy token xác thực. Vui lòng đăng nhập." });
@@ -362,6 +392,7 @@ const requireRole = (allowedRoles: ('super_admin' | 'teacher' | 'student')[]) =>
 };
 
 const authenticateOptionalUser = async (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  if (attachLocalTestUser(req)) return next();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return next();
@@ -2223,6 +2254,98 @@ async function generateWithOpenAI(prompt: string) {
   return text;
 }
 
+async function generateWithOpenAIVision(
+  prompt: string,
+  images: SmartImportImageInput[],
+  signal?: AbortSignal
+) {
+  const apiKey = getOpenAIKey();
+  if (!apiKey) return null;
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    signal,
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          ...images.map(image => ({
+            type: "input_image",
+            image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+            detail: "high"
+          }))
+        ]
+      }],
+      text: { format: { type: "text" } }
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const error = new Error(errorText || `OpenAI request failed with status ${response.status}`) as any;
+    error.status = response.status;
+    throw error;
+  }
+  const data = await response.json();
+  const text = extractOpenAIText(data);
+  if (!text) throw new Error("OpenAI response did not include text output.");
+  return text;
+}
+
+async function generateAiVisionJson(
+  prompt: string,
+  images: SmartImportImageInput[],
+  signal?: AbortSignal
+) {
+  const errors: string[] = [];
+  const gemini = getGeminiClient();
+  if (gemini) {
+    try {
+      const response = await gemini.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...images.map(image => ({
+              inlineData: {
+                mimeType: image.mimeType,
+                data: image.data.toString("base64")
+              }
+            }))
+          ]
+        }],
+        config: { responseMimeType: "application/json", abortSignal: signal }
+      });
+      const text = response.text?.trim();
+      if (!text) throw new Error("Gemini response did not include text output.");
+      return { text, provider: "gemini" as const, errors };
+    } catch (error: any) {
+      const message = sanitizeAiError("Gemini", error);
+      errors.push(message);
+      console.warn("Gemini vision unavailable, trying OpenAI fallback:", message);
+    }
+  } else {
+    errors.push("Gemini: GEMINI_API_KEY is not configured.");
+  }
+  try {
+    const text = await generateWithOpenAIVision(prompt, images, signal);
+    if (text) return { text, provider: "openai" as const, errors };
+    errors.push("OpenAI: OPENAI_API_KEY is not configured.");
+  } catch (error: any) {
+    const message = sanitizeAiError("OpenAI", error);
+    errors.push(message);
+  }
+  const unavailable = new Error("Không có nhà cung cấp AI thị giác khả dụng.") as any;
+  unavailable.status = 503;
+  unavailable.details = errors;
+  throw unavailable;
+}
+
 async function generateAiText(prompt: string, geminiConfig?: any) {
   const errors: string[] = [];
   const gemini = getGeminiClient();
@@ -2643,7 +2766,16 @@ app.use(
     mediaPublicPrefix: LISTENING_MEDIA_PUBLIC_PREFIX,
     ticketSecret: LISTENING_TICKET_SECRET,
     resolveGuestProfile,
-    logAudit: logAuditAction
+    logAudit: logAuditAction,
+    smartImport: {
+      enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
+      reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false"
+        ? "Smart Import đã bị tắt bằng cấu hình máy chủ."
+        : undefined,
+      analyzeVision: (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY)
+        ? generateAiVisionJson
+        : undefined
+    }
   })
 );
 
@@ -5536,7 +5668,14 @@ async function start() {
 
   if (process.env.NODE_ENV !== "production") {
     // Start Vite in middleware mode
+    const viteMode = process.env.VITE_MODE?.trim() || undefined;
     const vite = await createViteServer({
+      ...(viteMode ? { mode: viteMode } : {}),
+      define: {
+        'import.meta.env.VITE_LOCAL_AUTH_BYPASS_ENABLED': JSON.stringify(
+          process.env.VITE_LOCAL_AUTH_BYPASS_ENABLED === "true" ? "true" : "false"
+        ),
+      },
       server: { middlewareMode: true },
       appType: "spa",
     });

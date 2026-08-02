@@ -266,25 +266,25 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     return <div className="flex min-h-screen items-center justify-center bg-sky-100"><LoaderCircle className="animate-spin text-blue-600" size={42} /></div>;
   }
   if (!playable) {
-    return <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-sky-100 p-6 text-center"><Headphones size={50} className="text-rose-500" /><h1 className="text-2xl font-black text-slate-900">Không thể mở bộ đề nghe</h1><p className="text-sm font-bold text-rose-600">{error}</p><button onClick={onBack} className="rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">Về trang chủ</button></div>;
+    return <div id="listening-error-screen" className="flex min-h-screen flex-col items-center justify-center gap-4 bg-sky-100 p-6 text-center"><Headphones size={50} className="text-rose-500" /><h1 className="text-2xl font-black text-slate-900">Không thể mở bộ đề nghe</h1><p className="text-sm font-bold text-rose-600">{error}</p><button id="listening-error-home-btn" onClick={onBack} className="listening-primary-action rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">Về trang chủ</button></div>;
   }
   if (!identityReady) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div id="listening-name-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-md rounded-3xl border-4 border-white bg-white/95 p-7 text-center shadow-2xl">
           <Headphones className="mx-auto text-blue-600" size={44} />
           <h1 className="mt-3 text-2xl font-black text-slate-900">{playable.title}</h1>
           <p className="mt-1 text-sm font-semibold text-slate-500">Nhập tên để bắt đầu và lưu lịch sử học.</p>
           <input value={studentName} onChange={event => setStudentName(event.target.value)} maxLength={STUDENT_NAME_MAX_LENGTH} className="mt-5 w-full rounded-2xl border-2 border-sky-200 px-4 py-3 text-center font-black outline-none focus:border-blue-600" placeholder="Tên học sinh" />
           {error && <p className="mt-2 text-xs font-bold text-rose-600">{error}</p>}
-          <button onClick={() => void persistName()} className="mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Xác nhận tên</button>
+          <button id="listening-confirm-name-btn" onClick={() => void persistName()} className="listening-primary-action mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Xác nhận tên</button>
         </div>
       </div>
     );
   }
   if (!run && !result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div id="listening-start-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-2xl overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
           {playable.content.coverUrl && <img src={playable.content.coverUrl} alt="" className="h-64 w-full object-cover" />}
           <div className="p-7 text-center">
@@ -298,8 +298,8 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
             </div>
             {error && <p className="mt-3 text-xs font-bold text-rose-600">{error}</p>}
             <div className="mt-6 flex gap-3">
-              <button onClick={onBack} className="flex-1 rounded-2xl border border-slate-200 py-3 font-black text-slate-600"><ArrowLeft size={16} className="mr-1 inline" /> Quay lại</button>
-              <button onClick={() => void start()} className="flex-1 rounded-2xl bg-rose-500 py-3 font-black text-white shadow-lg shadow-rose-200">Bắt đầu nghe</button>
+              <button id="listening-prestart-back-btn" onClick={onBack} className="listening-secondary-action flex-1 rounded-2xl border border-slate-200 py-3 font-black text-slate-600"><ArrowLeft size={16} className="mr-1 inline" /> Quay lại</button>
+              <button id="listening-start-btn" onClick={() => void start()} className="listening-start-action flex-1 rounded-2xl bg-rose-500 py-3 font-black text-white shadow-lg shadow-rose-200">Bắt đầu nghe</button>
             </div>
           </div>
         </div>
@@ -308,7 +308,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }
   if (result) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div id="listening-result-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-xl rounded-[2rem] border-4 border-white bg-white p-8 text-center shadow-2xl">
           <Trophy size={64} className="mx-auto text-amber-500" />
           <p className="mt-3 text-xs font-black uppercase tracking-[.2em] text-blue-600">Đã nộp bài thành công</p>
@@ -318,18 +318,18 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
             <div className="rounded-2xl bg-rose-50 p-3"><p className="text-2xl font-black text-rose-700">{result.incorrectCount}</p><p className="text-xs font-bold text-rose-600">Sai</p></div>
             <div className="rounded-2xl bg-amber-50 p-3"><p className="text-2xl font-black text-amber-700">{result.unansweredCount}</p><p className="text-xs font-bold text-amber-600">Bỏ trống</p></div>
           </div>
-          <button onClick={onBack} className="mt-7 w-full rounded-2xl bg-blue-600 py-3 font-black text-white"><Home size={16} className="mr-2 inline" /> Về trang chủ</button>
+          <button id="listening-result-home-btn" onClick={onBack} className="listening-primary-action mt-7 w-full rounded-2xl bg-blue-600 py-3 font-black text-white"><Home size={16} className="mr-2 inline" /> Về trang chủ</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100 p-2 sm:p-4" style={backgroundStyle}>
+    <div id="listening-exam-root" className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100 p-2 sm:p-4" style={backgroundStyle}>
       <header className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-1 py-2 text-white">
         <div className="rounded-2xl bg-sky-700/80 px-5 py-2 shadow"><p className="text-lg font-black">{playable.level}</p><p className="text-[10px] font-black uppercase">Listening • Part {currentPart + 1}</p></div>
         <div className="order-3 h-4 w-full flex-1 overflow-hidden rounded-full border-2 border-slate-600 bg-orange-500 sm:order-none sm:w-auto"><div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${(progress / 25) * 100}%` }} /></div>
-        <button onClick={() => document.documentElement.requestFullscreen?.()} className="rounded-xl bg-sky-700/80 p-3"><Expand size={18} /></button>
+        <button id="listening-fullscreen-btn" type="button" title="Phóng to toàn màn hình" aria-label="Phóng to toàn màn hình" onClick={() => document.documentElement.requestFullscreen?.()} className="listening-icon-action rounded-xl bg-sky-700/80 p-3"><Expand size={18} /></button>
         {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
         <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{progress}/25 câu</div>
       </header>
@@ -341,14 +341,14 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         <div className="max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1">{partViews[currentPart]}</div>
       </main>
       <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
-        <button onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>
+        <button id="listening-prev-part-btn" type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>
         <div className="flex gap-2">
-          {playable.content.parts.map((item, index) => <button key={item.part} onClick={() => setCurrentPart(index)} className={`h-9 w-9 rounded-full text-xs font-black ${currentPart === index ? 'bg-blue-700 text-white' : 'bg-white text-slate-500'}`}>{item.part}</button>)}
+          {playable.content.parts.map((item, index) => <button key={item.part} type="button" aria-label={`Mở Part ${item.part}`} aria-current={currentPart === index ? 'step' : undefined} data-active={currentPart === index ? 'true' : 'false'} onClick={() => setCurrentPart(index)} className={`listening-part-step h-9 w-9 rounded-full text-xs font-black ${currentPart === index ? 'bg-blue-700 text-white' : 'bg-white text-slate-500'}`}>{item.part}</button>)}
         </div>
         {currentPart < 4 ? (
-          <button onClick={() => setCurrentPart(value => value + 1)} className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button>
+          <button id="listening-next-part-btn" type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button>
         ) : (
-          <button disabled={submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50">
+          <button id="listening-submit-btn" disabled={submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50">
             {submitting ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />} Nộp bài
           </button>
         )}

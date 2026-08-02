@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID: string;
   readonly VITE_LAZY_SESSION_V3?: string;
   readonly VITE_LEARNING_HISTORY_ENABLED?: string;
+  readonly VITE_LOCAL_AUTH_BYPASS_ENABLED?: string;
 }
 
 interface ImportMeta {

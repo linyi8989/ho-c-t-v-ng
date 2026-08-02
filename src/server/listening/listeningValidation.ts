@@ -122,16 +122,19 @@ function validatePart2(part: ListeningPart2, errors: string[]) {
 
 function validatePart3(part: ListeningPart3, errors: string[]) {
   validateBase(part, 3, errors);
+  const composite = part.displayMode === 'composite';
   if (!['once', 'multiple'].includes(part.reuseMode)) errors.push('Part 3: chế độ dùng đáp án không hợp lệ.');
-  if ((part.options || []).length < 5) errors.push('Part 3: cần ít nhất 5 lựa chọn hình ảnh.');
+  if (composite && (part.options || []).length !== 6) errors.push('Part 3: bảng tổng hợp cần đúng 6 lựa chọn A–F.');
+  if (!composite && (part.options || []).length < 5) errors.push('Part 3: cần ít nhất 5 lựa chọn hình ảnh.');
   if (part.items?.length !== 5) errors.push('Part 3: cần đúng 5 câu.');
+  if (composite && !isText(part.boardAssetId, 160)) errors.push('Part 3: thiếu ảnh bảng A–F tổng hợp.');
   const optionIds = (part.options || []).map(option => option.id);
   if (!unique(optionIds)) errors.push('Part 3: ID lựa chọn bị trùng.');
-  if ((part.options || []).some(option => !isText(option.imageAssetId, 160))) {
+  if (!composite && (part.options || []).some(option => !isText(option.imageAssetId, 160))) {
     errors.push('Part 3: mọi lựa chọn cần hình ảnh.');
   }
   const answers = (part.items || []).map(item => item.correctOptionId);
-  if ((part.items || []).some(item => !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
+  if ((part.items || []).some(item => (!composite && !isText(item.imageAssetId, 160)) || !optionIds.includes(item.correctOptionId))) {
     errors.push('Part 3: câu hỏi hoặc đáp án hình ảnh không hợp lệ.');
   }
   if (part.reuseMode === 'once' && !unique(answers)) {

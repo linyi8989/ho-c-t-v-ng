@@ -13,6 +13,8 @@ export interface ListeningAsset {
   width?: number;
   height?: number;
   durationSeconds?: number;
+  derivedFromAssetId?: string;
+  crop?: { x: number; y: number; width: number; height: number };
   storageKey: string;
   url: string;
   status: 'active' | 'archived';
@@ -95,6 +97,9 @@ export interface ListeningPart3Item {
 
 export interface ListeningPart3 extends ListeningPartBase {
   part: 3;
+  displayMode?: 'split' | 'composite';
+  boardAssetId?: string;
+  boardUrl?: string;
   reuseMode: 'once' | 'multiple';
   options: ListeningImageOption[];
   items: ListeningPart3Item[];

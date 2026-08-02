@@ -15,6 +15,11 @@ import {
   EmailAuthProvider
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
+import {
+  LOCAL_AUTH_BYPASS_TOKEN,
+  LOCAL_AUTH_BYPASS_USER,
+  isLocalBrowserAuthBypassEnabled,
+} from '../lib/localAuthBypass';
 
 interface UserProfile {
   id: string;
@@ -44,6 +49,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 const AUTH_OPERATION_TIMEOUT_MS = 8000;
+const LOCAL_AUTH_BYPASS_ENABLED = isLocalBrowserAuthBypassEnabled(
+  import.meta.env.VITE_LOCAL_AUTH_BYPASS_ENABLED,
+  typeof window === 'undefined' ? '' : window.location.hostname
+);
+const LOCAL_AUTH_USER: UserProfile = { ...LOCAL_AUTH_BYPASS_USER };
 
 function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout>;
@@ -89,10 +99,14 @@ function createDefaultProfile(firebaseUserInstance: FirebaseUser, phone?: string
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(() => (
+    LOCAL_AUTH_BYPASS_ENABLED ? LOCAL_AUTH_USER : null
+  ));
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!LOCAL_AUTH_BYPASS_ENABLED);
+  const [token, setToken] = useState<string | null>(() => (
+    LOCAL_AUTH_BYPASS_ENABLED ? LOCAL_AUTH_BYPASS_TOKEN : null
+  ));
   const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
 
   const syncProfileFromStores = async (
@@ -140,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    if (LOCAL_AUTH_BYPASS_ENABLED) return;
     const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
       setLoading(true);
       try {
@@ -171,6 +186,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshProfile = async () => {
+    if (LOCAL_AUTH_BYPASS_ENABLED) {
+      setUser(LOCAL_AUTH_USER);
+      setToken(LOCAL_AUTH_BYPASS_TOKEN);
+      return;
+    }
     if (firebaseUser) {
       await fetchProfile(firebaseUser, undefined, true, true);
     }
@@ -315,6 +335,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    if (LOCAL_AUTH_BYPASS_ENABLED) {
+      setUser(LOCAL_AUTH_USER);
+      setFirebaseUser(null);
+      setToken(LOCAL_AUTH_BYPASS_TOKEN);
+      setPhoneConfirmation(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       await firebaseSignOut(auth);

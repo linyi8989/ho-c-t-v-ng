@@ -2376,3 +2376,183 @@ textarea::placeholder {
   outline: 3px solid rgba(37, 99, 235, 0.35) !important;
   outline-offset: 2px !important;
 }
+
+/* Listening player contrast contract
+   The legacy global contrast pass above intentionally uses !important, so all
+   newly introduced Listening player controls must opt into these scoped,
+   semantic hooks. This keeps text and currentColor icons readable in every
+   player state without changing buttons elsewhere in the application. */
+#listening-error-screen #listening-error-home-btn:not(:disabled),
+#listening-name-screen #listening-confirm-name-btn:not(:disabled),
+#listening-result-screen #listening-result-home-btn:not(:disabled) {
+  background: #2563eb !important;
+  border: 2px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22) !important;
+}
+
+#listening-error-screen #listening-error-home-btn:not(:disabled):hover,
+#listening-name-screen #listening-confirm-name-btn:not(:disabled):hover,
+#listening-result-screen #listening-result-home-btn:not(:disabled):hover {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+}
+
+#listening-start-screen #listening-prestart-back-btn:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+#listening-start-screen #listening-prestart-back-btn:not(:disabled):hover {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+  color: #1e3a8a !important;
+}
+
+#listening-start-screen #listening-start-btn:not(:disabled) {
+  background: #e11d48 !important;
+  border: 2px solid #be123c !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 10px 22px rgba(225, 29, 72, 0.24) !important;
+}
+
+#listening-start-screen #listening-start-btn:not(:disabled):hover {
+  background: #be123c !important;
+  border-color: #9f1239 !important;
+}
+
+#listening-exam-root #listening-fullscreen-btn:not(:disabled) {
+  background: #0369a1 !important;
+  border: 2px solid #075985 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 6px 14px rgba(3, 105, 161, 0.24) !important;
+}
+
+#listening-exam-root #listening-fullscreen-btn:not(:disabled):hover {
+  background: #075985 !important;
+  border-color: #0c4a6e !important;
+}
+
+#listening-exam-root button.listening-part1-choice[data-state="available"]:not(:disabled) {
+  background: #ffffff !important;
+  border-color: #fb7185 !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+}
+
+#listening-exam-root button.listening-part1-choice[data-state="used"]:not(:disabled) {
+  background: #e0f2fe !important;
+  border-color: #38bdf8 !important;
+  color: #075985 !important;
+  opacity: 1 !important;
+}
+
+#listening-exam-root button.listening-part1-choice[data-state="selected"]:not(:disabled) {
+  background: #6d28d9 !important;
+  border-color: #5b21b6 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.28) !important;
+}
+
+#listening-exam-root button.listening-part-arrow:not(:disabled) {
+  background: #e11d48 !important;
+  border-color: #ffffff !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 8px 18px rgba(225, 29, 72, 0.24) !important;
+}
+
+#listening-exam-root button.listening-part-arrow:not(:disabled):hover {
+  background: #be123c !important;
+}
+
+#listening-exam-root button.listening-part-step[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #60a5fa !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.12) !important;
+}
+
+#listening-exam-root button.listening-part-step[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  box-shadow: 0 5px 12px rgba(29, 78, 216, 0.26) !important;
+}
+
+#listening-exam-root #listening-submit-btn:not(:disabled) {
+  background: #047857 !important;
+  border-color: #ffffff !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 8px 18px rgba(4, 120, 87, 0.24) !important;
+}
+
+#listening-exam-root #listening-submit-btn:disabled {
+  background: #d1fae5 !important;
+  border-color: #6ee7b7 !important;
+  color: #065f46 !important;
+  opacity: 1 !important;
+}
+
+#listening-exam-root button.listening-part5-colour-choice:not(:disabled) {
+  min-width: 5.75rem;
+  background: #ffffff !important;
+  border-color: #7dd3fc !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  box-shadow: 0 3px 8px rgba(14, 116, 144, 0.1) !important;
+}
+
+#listening-exam-root button.listening-part5-colour-choice[data-selected="true"]:not(:disabled) {
+  background: #dbeafe !important;
+  border-color: #1d4ed8 !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3) !important;
+}
+
+#listening-exam-root .listening-part5-colour-swatch {
+  opacity: 1 !important;
+}
+
+#listening-error-screen #listening-error-home-btn *,
+#listening-name-screen #listening-confirm-name-btn *,
+#listening-start-screen #listening-start-btn *,
+#listening-result-screen #listening-result-home-btn *,
+#listening-exam-root #listening-fullscreen-btn *,
+#listening-exam-root button.listening-part-arrow *,
+#listening-exam-root button.listening-part-step[data-active="true"] *,
+#listening-exam-root button.listening-part1-choice[data-state="selected"] *,
+#listening-exam-root #listening-submit-btn:not(:disabled) * {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#listening-start-screen #listening-prestart-back-btn *,
+#listening-exam-root #listening-submit-btn:disabled * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#listening-name-screen button:focus-visible,
+#listening-start-screen button:focus-visible,
+#listening-result-screen button:focus-visible,
+#listening-error-screen button:focus-visible,
+#listening-exam-root button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.48) !important;
+  outline-offset: 3px !important;
+}

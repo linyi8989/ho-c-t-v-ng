@@ -50,9 +50,11 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
             <button
               key={choice.id}
               draggable
+              data-state={selectedChoice === choice.id ? 'selected' : used ? 'used' : 'available'}
+              aria-pressed={selectedChoice === choice.id}
               onDragStart={event => event.dataTransfer.setData('text/listening-choice', choice.id)}
               onClick={() => setSelectedChoice(choice.id)}
-              className={`rounded-2xl border-2 border-dashed px-5 py-2.5 text-base font-black transition ${
+              className={`listening-part1-choice rounded-2xl border-2 border-dashed px-5 py-2.5 text-base font-black transition ${
                 selectedChoice === choice.id ? 'border-violet-600 bg-violet-600 text-white' : used ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-rose-300 bg-white text-slate-900'
               }`}
             >
@@ -148,20 +150,27 @@ export function ListeningPart3View({ part, answers, onAnswers }: PartProps<Liste
     next[itemId] = optionId;
     onAnswers({ ...answers, part3: next });
   };
+  const composite = part.displayMode === 'composite' && part.boardUrl;
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
-        {part.options.map((option, index) => (
-          <div key={option.id} className="relative overflow-hidden rounded-2xl border-4 border-rose-300 bg-white p-2 shadow-sm">
-            <img src={option.imageUrl} alt={option.label} className="h-36 w-full object-contain" />
-            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-rose-400 px-3 py-1 text-sm font-black text-white">{String.fromCharCode(65 + index)}</span>
-          </div>
-        ))}
-      </div>
+      {composite ? (
+        <div className="overflow-hidden rounded-2xl border-4 border-rose-300 bg-white p-2 shadow-sm">
+          <img src={part.boardUrl} alt="Bảng lựa chọn A đến F" className="h-auto w-full object-contain" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
+          {part.options.map((option, index) => (
+            <div key={option.id} className="relative overflow-hidden rounded-2xl border-4 border-rose-300 bg-white p-2 shadow-sm">
+              <img src={option.imageUrl} alt={option.label} className="h-36 w-full object-contain" />
+              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-rose-400 px-3 py-1 text-sm font-black text-white">{String.fromCharCode(65 + index)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-3">
         {part.items.map(item => (
-          <div key={item.id} className="grid grid-cols-[76px_1fr_92px] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <img src={item.imageUrl} alt="" className="h-16 w-16 rounded-xl object-contain" />
+          <div key={item.id} className={`grid items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ${composite ? 'grid-cols-[1fr_92px]' : 'grid-cols-[76px_1fr_92px]'}`}>
+            {!composite && <img src={item.imageUrl} alt="" className="h-16 w-16 rounded-xl object-contain" />}
             <p className="font-black text-rose-500">{item.label}</p>
             <select
               value={answers.part3[item.id] || ''}
@@ -213,17 +222,32 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
 export function ListeningPart5View({ part, answers, onAnswers }: PartProps<ListeningPart5>) {
   const [selectedColour, setSelectedColour] = useState('');
   const colours = useMemo(() => new Map(part.colours.map(colour => [colour.id, colour])), [part.colours]);
+  const assign = (targetId: string, colourId: string) => {
+    if (!colourId || !colours.has(colourId)) return;
+    onAnswers({ ...answers, part5: { ...answers.part5, [targetId]: colourId } });
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-center gap-3">
         {part.colours.map(colour => (
           <button
             key={colour.id}
+            type="button"
+            draggable
+            aria-label={`Chọn màu ${colour.label}`}
+            aria-describedby="listening-part5-instructions"
+            title={colour.label}
+            aria-pressed={selectedColour === colour.id}
+            data-selected={selectedColour === colour.id ? 'true' : 'false'}
             onClick={() => setSelectedColour(colour.id)}
-            className={`flex items-center gap-2 rounded-2xl border-2 border-dashed px-4 py-2 font-black ${selectedColour === colour.id ? 'border-slate-900 bg-slate-900 text-white' : 'border-rose-300 bg-white text-slate-800'}`}
+            onDragStart={event => {
+              setSelectedColour(colour.id);
+              event.dataTransfer.effectAllowed = 'copy';
+              event.dataTransfer.setData('text/listening-colour', colour.id);
+            }}
+            className={`listening-part5-colour-choice flex items-center justify-center rounded-2xl border-2 px-3 py-2 ${selectedColour === colour.id ? 'border-blue-700 bg-blue-50' : 'border-sky-300 bg-white'}`}
           >
-            <span className="h-7 w-12 rounded-xl border border-black/10" style={{ backgroundColor: colour.value }} />
-            {colour.label}
+            <span aria-hidden="true" className="listening-part5-colour-swatch h-7 w-12 rounded-xl border border-black/10" style={{ backgroundColor: colour.value }} />
           </button>
         ))}
       </div>
@@ -235,7 +259,15 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
           return (
             <button
               key={target.id}
-              onClick={() => selectedColour && onAnswers({ ...answers, part5: { ...answers.part5, [target.id]: selectedColour } })}
+              onClick={() => assign(target.id, selectedColour)}
+              onDragOver={event => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }}
+              onDrop={event => {
+                event.preventDefault();
+                assign(target.id, event.dataTransfer.getData('text/listening-colour'));
+              }}
               style={{
                 ...regionStyle(target.region),
                 backgroundColor: colour ? `${colour.value}99` : 'rgba(244,63,94,.10)',
@@ -248,7 +280,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
           );
         })}
       </div>
-      <p className="text-center text-xs font-bold text-slate-500">Chọn một màu rồi chạm vùng cần tô. Có thể đổi màu trước khi nộp.</p>
+      <p id="listening-part5-instructions" className="text-center text-xs font-bold text-slate-500">Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng. Có thể đổi màu trước khi nộp.</p>
     </div>
   );
 }

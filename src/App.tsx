@@ -536,7 +536,7 @@ export default function App() {
     );
   }
 
-  if (authRoute === 'register') {
+  if (authRoute === 'register' && !user) {
     return (
       <Register
         onNavigateToLogin={() => { window.location.href = '/login'; }}
@@ -545,7 +545,7 @@ export default function App() {
     );
   }
 
-  if (authRoute === 'login') {
+  if (authRoute === 'login' && !user) {
     return (
       <Login
         onNavigateToRegister={() => { window.location.href = '/reg'; }}
