@@ -45,8 +45,8 @@ npm run build:history-ui
 ## 3. UAT tối thiểu
 
 1. Đăng nhập teacher và mở editor Mover cũ; xác nhận bộ đề legacy vẫn hiển thị/sửa được.
-2. Tạo draft mới, upload ảnh/audio theo lô; xác nhận audio không xuất hiện trong danh sách nguồn gửi phân tích.
-3. Chạy từng Part và toàn đề; một Part lỗi không được làm mất candidate của Part khác.
+2. Tạo draft mới và upload ảnh tại từng Part; xác nhận audio không xuất hiện trong danh sách nguồn gửi phân tích.
+3. Chạy Smart Import riêng từng Part; kiểm tra nút X chỉ bỏ ảnh khỏi lần phân tích hiện tại và không xóa media dùng chung. Resource Tray/phân tích toàn đề hiện là đường rollback bị ẩn khỏi tab Chung.
 4. Duyệt candidate, chỉnh thủ công và apply; undo/redo phải hoạt động. Đổi Part sau khi analyze phải làm candidate stale và bị chặn apply.
 5. Part 1/5 không được apply khi chưa xác nhận đủ năm mapping. Vùng chỉ kéo được, không resize.
 6. Part 3 phải giữ board A-F nguyên ảnh. Part 4 phải sinh đủ 15 ảnh crop. Part 5 chỉ cho chọn catalog 20 màu.

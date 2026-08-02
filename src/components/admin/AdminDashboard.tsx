@@ -71,12 +71,18 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   speed: 1
 };
 
+const DEFAULT_TTS_VOICE_BY_PROVIDER: Record<string, string> = {
+  ai33: 'elevenlabs_wMBr6SfqQVuOqplK01NE',
+  yupvox: 'EBF147'
+};
+
 const TTS_VOICE_OPTIONS = [
   { value: 'elevenlabs_wMBr6SfqQVuOqplK01NE', label: 'ElevenLabs default - en-US' },
   { value: 'edge_en-US-AriaNeural', label: 'Edge Aria - en-US' },
   { value: 'edge_en-US-JennyNeural', label: 'Edge Jenny - en-US' },
   { value: 'edge_en-GB-SoniaNeural', label: 'Edge Sonia - en-GB' },
-  { value: 'edge_en-GB-RyanNeural', label: 'Edge Ryan - en-GB' }
+  { value: 'edge_en-GB-RyanNeural', label: 'Edge Ryan - en-GB' },
+  { value: 'EBF147', label: 'YupVox EBF147' }
 ];
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
@@ -1035,6 +1041,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   const updateTtsSettings = (patch: Partial<TtsSettings>) => {
     setTtsSettings(prev => ({ ...prev, ...patch }));
+  };
+
+  const handleTtsProviderChange = (provider: string) => {
+    setTtsSettings(prev => ({
+      ...prev,
+      provider,
+      voice: DEFAULT_TTS_VOICE_BY_PROVIDER[provider] || prev.voice,
+      speed: provider === 'yupvox' ? 1 : prev.speed
+    }));
   };
 
   const refreshEditorAudioStatus = async (setId: string) => {
@@ -3386,10 +3401,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <label className="text-[10px] font-bold uppercase text-gray-500">Provider</label>
                     <select
                       value={ttsSettings.provider}
-                      onChange={(e) => updateTtsSettings({ provider: e.target.value })}
+                      onChange={(e) => handleTtsProviderChange(e.target.value)}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
                       <option value="ai33">AI33 v3</option>
+                      <option value="yupvox">YupVox</option>
                     </select>
                   </div>
 
@@ -3399,7 +3415,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       type="text"
                       value={ttsSettings.voice}
                       onChange={(e) => updateTtsSettings({ voice: e.target.value.trim() })}
-                      placeholder="elevenlabs_wMBr6SfqQVuOqplK01NE"
+                      placeholder={ttsSettings.provider === 'yupvox' ? 'EBF147' : 'elevenlabs_wMBr6SfqQVuOqplK01NE'}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-mono text-gray-700 text-xs focus:bg-white focus:border-indigo-400"
                     />
                   </div>
@@ -3424,7 +3440,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <select
                       value={String(ttsSettings.speed)}
                       onChange={(e) => updateTtsSettings({ speed: Number(e.target.value) })}
-                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
+                      disabled={ttsSettings.provider === 'yupvox'}
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs disabled:opacity-60"
                     >
                       {[0.8, 0.9, 1, 1.1, 1.2].map(speed => (
                         <option key={speed} value={speed}>{speed.toFixed(1)}</option>
@@ -3432,6 +3449,12 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     </select>
                   </div>
                 </div>
+
+                {ttsSettings.provider === 'yupvox' && (
+                  <p className="text-xs text-slate-500 font-medium">
+                    YupVox dùng Voice ID (mặc định EBF147). API hiện tại không nhận tham số tốc độ nên hệ thống cố định tốc độ 1.0.
+                  </p>
+                )}
 
               </div>
             </div>
@@ -3465,10 +3488,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <label className="text-[10px] font-bold uppercase text-gray-500">Provider</label>
                     <select
                       value={ttsSettings.provider}
-                      onChange={(e) => updateTtsSettings({ provider: e.target.value })}
+                      onChange={(e) => handleTtsProviderChange(e.target.value)}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
                       <option value="ai33">AI33 v3</option>
+                      <option value="yupvox">YupVox</option>
                     </select>
                   </div>
 
@@ -3578,10 +3602,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <label className="text-[10px] font-bold uppercase text-gray-400">Provider</label>
                     <select
                       value={ttsSettings.provider}
-                      onChange={(e) => updateTtsSettings({ provider: e.target.value })}
+                      onChange={(e) => handleTtsProviderChange(e.target.value)}
                       className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
                       <option value="ai33">AI33 v3</option>
+                      <option value="yupvox">YupVox</option>
                     </select>
                   </div>
 

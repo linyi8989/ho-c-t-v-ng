@@ -2556,3 +2556,25 @@ textarea::placeholder {
   outline: 3px solid rgba(37, 99, 235, 0.48) !important;
   outline-offset: 3px !important;
 }
+
+/* Smart Import selected-source removal stays visible under the legacy global
+   button rules. This action only detaches a source from the current analysis;
+   it never archives the shared media asset. */
+[data-listening-smart-import] button.smart-import-remove-source:not(:disabled) {
+  background: #fff1f2 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+[data-listening-smart-import] button.smart-import-remove-source:not(:disabled):hover {
+  background: #ffe4e6 !important;
+  border-color: #fb7185 !important;
+  color: #9f1239 !important;
+}
+
+[data-listening-smart-import] button.smart-import-remove-source svg {
+  color: currentColor !important;
+  opacity: 1 !important;
+}

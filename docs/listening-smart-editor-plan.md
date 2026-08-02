@@ -402,7 +402,7 @@ Nếu thay đổi storage, migration phải additive/idempotent và phải kiể
 Đã hoàn thành trong source:
 
 - Editor Shell, module definition, năm Part Handler, draft reducer với undo/redo và autosave có revision conflict.
-- Resource Tray upload tối đa 20 file, hai worker; các điểm nhận ảnh dùng chung thao tác chọn file, kéo-thả, Ctrl+V hoặc nút đọc clipboard; phân tích từng Part hoặc toàn đề với trạng thái độc lập và retry.
+- Resource Tray upload/phân tích toàn đề vẫn được giữ trong source như đường rollback nhưng bị ẩn khỏi tab Chung bằng `SHOW_WHOLE_EXAM_RESOURCE_TRAY=false`; luồng hiển thị chính là Smart Import riêng trong từng Part. Ảnh nguồn đang gắn hiện thành thẻ có nút X để bỏ khỏi lần phân tích hiện tại mà không xóa media dùng chung; chọn file, kéo-thả và Ctrl+V vẫn được giữ.
 - `basePartHash` chặn kết quả stale; import/merge Part N có test không thay bốn Part còn lại. Part 1/2/3 direct-import vào working draft; Part 4-5 giữ candidate tách khỏi draft.
 - Part 1 và Part 5 dùng vùng chữ nhật bo góc cố định; giáo viên kéo trực tiếp từng khung, không cần dropdown chọn vùng và không thể đổi kích thước. Part 1 giữ kích thước `0.12 x 0.055`; riêng năm khung ở editor thủ công Part 5 dùng `0.12 x 0.11` để cao gấp đôi. Part 1 direct-import tên/vùng/mapping random vào form chính để giáo viên sửa; Part 5 vẫn giữ review candidate.
 - Part 2 OCR heading/example/năm câu/đáp án in đậm và hỗ trợ `|` cho nhiều đáp án rồi direct-import vào form chính. Crop tranh minh họa hiển thị toàn ảnh nguồn, cho vẽ/di chuyển/resize bằng chuột và chỉ tạo asset dẫn xuất khi giáo viên bấm dùng vùng crop.

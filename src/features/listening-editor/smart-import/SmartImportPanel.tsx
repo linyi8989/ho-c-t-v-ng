@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2, X } from 'lucide-react';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset, ListeningPart } from '../../listening/types';
@@ -53,6 +53,24 @@ export default function SmartImportPanel({
   const canAnalyze = capability?.enabled !== false
     && (canUseLocalText || canPreparePart3BoardOnly || (sourceIds.length > 0 && capability?.visionEnabled));
 
+  const invalidateCandidate = () => {
+    if (candidate) onCandidateChange(undefined);
+    setNotice('');
+  };
+
+  const addSource = (assetId: string) => {
+    if (!assetId) return;
+    setSourceIds(previous => previous.includes(assetId)
+      ? previous
+      : [...previous, assetId].slice(0, 5));
+    invalidateCandidate();
+  };
+
+  const removeSource = (assetId: string) => {
+    setSourceIds(previous => previous.filter(id => id !== assetId));
+    invalidateCandidate();
+  };
+
   const analyze = async () => {
     setBusy(true);
     setError('');
@@ -85,7 +103,7 @@ export default function SmartImportPanel({
   };
 
   const uploadFiles = async (incoming: File[]) => {
-    const files = incoming.slice(0, 5);
+    const files = incoming.slice(0, Math.max(0, 5 - sourceIds.length));
     if (!files.length) return;
     setBusy(true);
     setError('');
@@ -93,6 +111,7 @@ export default function SmartImportPanel({
       const uploaded: string[] = [];
       for (const file of files) uploaded.push((await onUpload(file, 'image')).id);
       setSourceIds(previous => Array.from(new Set([...previous, ...uploaded])).slice(0, 5));
+      invalidateCandidate();
     } catch (reason: any) {
       setError(reason?.message || 'Không thể tải ảnh nguồn.');
     } finally {
@@ -115,20 +134,15 @@ export default function SmartImportPanel({
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <label className="space-y-1">
-          <span className="text-xs font-black text-slate-700">Ảnh nguồn (giữ Ctrl/Cmd để chọn nhiều, tối đa 5)</span>
+          <span className="text-xs font-black text-slate-700">Ảnh nguồn (tối đa 5)</span>
           <select
-            multiple
-            value={sourceIds}
-            onChange={event => {
-              const selected = (Array.from(event.target.selectedOptions) as HTMLOptionElement[]).map(option => option.value);
-              setSourceIds(previous => [
-                ...previous.filter(id => selected.includes(id)),
-                ...selected.filter(id => !previous.includes(id)),
-              ].slice(0, 5));
-            }}
-            className="min-h-28 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+            value=""
+            disabled={busy || sourceIds.length >= 5}
+            onChange={event => addSource(event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+            <option value="">{sourceIds.length >= 5 ? 'Đã chọn đủ 5 ảnh' : 'Thêm ảnh từ thư viện…'}</option>
+            {imageAssets.filter(asset => !sourceIds.includes(asset.id)).map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
           </select>
         </label>
         <label className="space-y-1">
@@ -142,12 +156,23 @@ export default function SmartImportPanel({
         </p>
       )}
       {sourceIds.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" aria-label={`Ảnh nguồn đã chọn cho Part ${part.part}`}>
           {sourceIds.map((id, index) => (
-            <span key={id} className="rounded-lg border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-black text-violet-700">
-              {index + 1}. {imageAssets.find(asset => asset.id === id)?.name || id}
-              {part.part === 3 && (index === 0 ? ' · bảng A–F (không gửi AI)' : index === 1 ? ' · nguồn OCR nhãn' : '')}
-            </span>
+            <div key={id} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white py-1 pl-2.5 pr-1 text-[10px] font-black text-violet-700">
+              <span>
+                {index + 1}. {imageAssets.find(asset => asset.id === id)?.name || id}
+                {part.part === 3 && (index === 0 ? ' · bảng A–F (không gửi AI)' : index === 1 ? ' · nguồn OCR nhãn' : '')}
+              </span>
+              <button
+                type="button"
+                className="smart-import-remove-source inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700"
+                title="Bỏ khỏi lần phân tích này"
+                aria-label={`Bỏ ${imageAssets.find(asset => asset.id === id)?.name || id} khỏi ảnh nguồn Part ${part.part}`}
+                onClick={() => removeSource(id)}
+              >
+                <X size={12} />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -155,9 +180,9 @@ export default function SmartImportPanel({
         <div className="min-w-72 flex-1">
           <FileDropPasteInput
             accept="image/jpeg,image/png,image/webp,image/gif"
-            disabled={busy}
+            disabled={busy || sourceIds.length >= 5}
             multiple
-            maxFiles={5}
+            maxFiles={Math.max(1, 5 - sourceIds.length)}
             pasteImages
             uploadLabel="Tải ảnh nguồn"
             onFiles={uploadFiles}

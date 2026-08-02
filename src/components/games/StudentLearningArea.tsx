@@ -60,6 +60,15 @@ const GAME_CATEGORY_TITLES: Record<string, string> = {
   millionaire: 'Ai là triệu phú',
   speaking: 'Luyện nói'
 };
+const GAME_CATEGORY_BADGES: Record<string, string> = {
+  flashcard: 'Thẻ học',
+  quiz: 'Trắc nghiệm',
+  fill: 'Điền từ',
+  matching: 'Ghép đôi',
+  memory: 'Trí nhớ',
+  millionaire: 'Trò chơi',
+  speaking: 'Luyện nói'
+};
 
 function getStoredStudentName() {
   if (typeof window === 'undefined') return '';
@@ -1186,7 +1195,7 @@ export default function StudentLearningArea({
                                 {game.title}
                               </span>
                               <span className={`game-card-badge ${game.category}`}>
-                                {game.category} game
+                                {GAME_CATEGORY_BADGES[game.category] || 'Trò chơi'}
                               </span>
                             </div>
                           </button>

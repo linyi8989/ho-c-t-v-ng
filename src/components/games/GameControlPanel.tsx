@@ -47,7 +47,7 @@ export default function GameControlPanel({
             id="premium-prev-btn"
           >
             <ChevronLeft size={18} />
-            <span>Prev</span>
+            <span>Trước</span>
           </button>
 
           {/* Large circular sound button */}
@@ -66,7 +66,7 @@ export default function GameControlPanel({
             className="flex items-center space-x-2 px-6 py-3 bg-emerald-100 hover:bg-emerald-200 text-slate-950 font-bold rounded-xl transition-all cursor-pointer border border-emerald-300 shadow-sm active:scale-95"
             id="premium-next-btn"
           >
-            <span>Next</span>
+            <span>Tiếp</span>
             <ChevronRight size={18} />
           </button>
         </div>
@@ -77,16 +77,18 @@ export default function GameControlPanel({
         {/* Word counter */}
         {showLinearControls && totalItems > 0 && (
           <span className="px-3 py-1 bg-emerald-100 border border-emerald-300 text-slate-950 rounded-lg text-xs font-bold font-mono shadow-xs">
-            Word {currentIndex + 1} / {totalItems}
+            Từ {currentIndex + 1} / {totalItems}
           </span>
         )}
 
         {/* Random Toggle */}
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-950 font-bold select-none">Random</span>
+          <span className="text-xs text-slate-950 font-bold select-none">Ngẫu nhiên</span>
           <button
             type="button"
             onClick={onToggleRandom}
+            aria-label="Bật hoặc tắt thứ tự ngẫu nhiên"
+            aria-pressed={isRandomized}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
               isRandomized ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
             }`}
@@ -102,10 +104,12 @@ export default function GameControlPanel({
 
         {/* Sound Toggle */}
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-950 font-bold select-none">Sound</span>
+          <span className="text-xs text-slate-950 font-bold select-none">Âm thanh</span>
           <button
             type="button"
             onClick={onToggleSound}
+            aria-label="Bật hoặc tắt âm thanh"
+            aria-pressed={isSoundOn}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
               isSoundOn ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
             }`}
@@ -122,10 +126,12 @@ export default function GameControlPanel({
         {/* Next Toggle (Auto-advance Autoplay - Show only if supported/linear) */}
         {showLinearControls && onToggleAutoNext && (
           <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-950 font-bold select-none">Next</span>
+            <span className="text-xs text-slate-950 font-bold select-none">Tự chuyển</span>
             <button
               type="button"
               onClick={onToggleAutoNext}
+              aria-label="Bật hoặc tắt tự động chuyển thẻ"
+              aria-pressed={isAutoNextOn}
               className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                 isAutoNextOn ? 'bg-emerald-400 ring-2 ring-emerald-200' : 'bg-slate-200'
               }`}
@@ -147,7 +153,7 @@ export default function GameControlPanel({
           id="premium-fullscreen-btn"
         >
           {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          <span>Full screen</span>
+          <span>Toàn màn hình</span>
         </button>
       </div>
     </div>

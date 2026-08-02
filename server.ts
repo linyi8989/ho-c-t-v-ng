@@ -22,6 +22,13 @@ import {
 } from "./src/lib/firebaseAdmin.js";
 import { normalizeStudentDisplayName, validateStudentDisplayName } from "./src/lib/studentIdentity.js";
 import { deterministicRunDocumentId, normalizeClientStartedAt } from "./src/lib/serverLearningRuns.js";
+import {
+  getCurrentQuizContract,
+  getQuizAnswerValue,
+  getQuizQuestionText,
+  isQuizItemEligible,
+  resolveStoredQuizContract
+} from "./src/lib/game-engine/quizContracts.js";
 import { createLearningHistoryRouter } from "./src/server/learning-history/learningHistoryRouter.js";
 import { LISTENING_LIBRARY_SCHEMA_VERSION, resolveListeningModuleId } from "./src/features/listening-library/registry.js";
 import { createListeningLibraryRouter } from "./src/server/listening-library/router.js";
@@ -43,6 +50,10 @@ import type {
 import {
   sanitizePublicStudentRecord as sanitizePublicStudentRecordWithSecret
 } from "./src/server/publicStudentIdentity.js";
+import {
+  assertSafeYupVoxAudioUrl,
+  generateYupVoxAudioUrl
+} from "./src/server/tts/yupvoxProvider.js";
 
 // Load environment variables
 dotenv.config();
@@ -527,6 +538,7 @@ function normalizeGameAnswer(value: any) {
 }
 
 function buildGameSessionSnapshot(vocabSet: any, gameId: string, requestedOrder: any[] = []) {
+  const quizContract = getCurrentQuizContract(gameId);
   const canonicalItems = (Array.isArray(vocabSet.items) ? vocabSet.items : []).slice(0, 200).map((item: any, index: number) => ({
     id: safeText(item.id || `item-${index + 1}`, 160),
     term: safeText(item.term, 500),
@@ -535,12 +547,13 @@ function buildGameSessionSnapshot(vocabSet: any, gameId: string, requestedOrder:
     ipa: safeText(item.ipa, 160),
     audioUrl: normalizeAudioUrlForClient(item.audioUrl),
     displayOrder: Number(item.displayOrder || index + 1)
-  })).filter((item: any) => item.id && item.term);
+  })).filter((item: any) => item.id && item.term)
+    .filter((item: any) => !quizContract || isQuizItemEligible(item, quizContract));
   const byId = new Map<string, any>(canonicalItems.map((item: any) => [item.id, item]));
   const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map(id => safeText(id, 160)).filter((id, index, list) => id && byId.has(id) && list.indexOf(id) === index) : [];
   const items = orderedIds.length ? orderedIds.map(id => byId.get(id)) : canonicalItems;
-  const config = gameId.startsWith("quiz-")
-    ? { answerType: gameId === "quiz-en-vi" ? "meaning" : "term", questionType: gameId === "quiz-vi-en" ? "meaning" : gameId === "quiz-sound" ? "sound" : "term" }
+  const config = quizContract
+    ? quizContract
     : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" }
     : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" }
     : gameId === "millionaire-vocab" ? { maxQuestions: 15 }
@@ -619,8 +632,10 @@ function gradeGameSessionV2(session: any, actions: any[]) {
     const latest = new Map<string, any>(); ordered.filter(a => a.type === "flashcard.rate" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
     items.forEach((item: any, index: number) => { const known = latest.get(item.id)?.userAnswer === "known"; if (known) correct++; else incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: known ? "Đã thuộc" : "Chưa thuộc", isCorrect: known }); });
   } else if (session.gameId.startsWith("quiz-")) {
+    const contract = resolveStoredQuizContract(session.gameId, session.privateSnapshot?.config);
+    if (!contract) throw createHttpError(400, "Quiz contract is not supported.");
     const latest = new Map<string, any>(); ordered.filter(a => a.type === "quiz.answer" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
-    items.forEach((item: any, index: number) => { const answer = latest.get(item.id)?.userAnswer || ""; const expected = session.gameId === "quiz-en-vi" ? item.meaning : item.term; const ok = answer === expected; ok ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: session.gameId === "quiz-vi-en" ? item.meaning : item.term, correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok }); });
+    items.forEach((item: any, index: number) => { const answer = latest.get(item.id)?.userAnswer || ""; const expected = getQuizAnswerValue(item, contract.answerType); const ok = answer === expected; ok ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: getQuizQuestionText(item, contract.questionType), correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok }); });
   } else if (session.gameId.startsWith("fill-")) {
     const latest = new Map<string, any>(); ordered.filter(a => a.type === "fill.answer" && byId.has(a.wordId)).forEach(a => latest.set(a.wordId, a));
     items.forEach((item: any, index: number) => { const answer = latest.get(item.id)?.userAnswer || ""; const ok = normalizeGameAnswer(answer) === normalizeGameAnswer(item.term); ok ? correct++ : incorrect++; details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.meaning, correctAnswer: item.term, userAnswer: answer, isCorrect: ok }); });
@@ -1550,12 +1565,18 @@ type TtsQueueJob = {
 const DEFAULT_TTS_PROVIDER = "ai33";
 const DEFAULT_TTS_LANG = "en-US";
 const DEFAULT_TTS_SPEED = 1;
-const SUPPORTED_TTS_PROVIDERS = new Set(["ai33"]);
+const SUPPORTED_TTS_PROVIDERS = new Set(["ai33", "yupvox"]);
 const TTS_FETCH_TIMEOUT_MS = Math.max(5000, Number(process.env.TTS_FETCH_TIMEOUT_MS || 30000));
 const TTS_MAX_AUDIO_BYTES = Math.max(64 * 1024, Number(process.env.TTS_MAX_AUDIO_BYTES || 3 * 1024 * 1024));
-const DEFAULT_TTS_VOICE_BY_LANG: Record<string, string> = {
-  "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
-  "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
+const DEFAULT_TTS_VOICE_BY_PROVIDER: Record<string, Record<string, string>> = {
+  ai33: {
+    "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
+    "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
+  },
+  yupvox: {
+    "en-US": "EBF147",
+    "en-GB": "EBF147"
+  }
 };
 const TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENCY || 5)));
 const ttsQueue: TtsQueueJob[] = [];
@@ -1610,11 +1631,14 @@ function normalizeTtsSettings(settings: TtsSettings = {}): Required<TtsSettings>
     throw createHttpError(400, `Unsupported TTS provider: ${provider}`);
   }
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
-  const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  const speed = provider === "yupvox"
+    ? DEFAULT_TTS_SPEED
+    : Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  const providerVoices = DEFAULT_TTS_VOICE_BY_PROVIDER[provider];
   return {
     autoGenerate: Boolean(settings.autoGenerate),
     provider,
-    voice: settings.voice || DEFAULT_TTS_VOICE_BY_LANG[lang] || DEFAULT_TTS_VOICE_BY_LANG[DEFAULT_TTS_LANG],
+    voice: String(settings.voice || providerVoices[lang] || providerVoices[DEFAULT_TTS_LANG]).trim(),
     lang,
     speed
   };
@@ -1642,6 +1666,10 @@ function audioPublicUrl(audioHash: string) {
 
 function getAi33ApiKey() {
   return process.env.AI33_API_KEY || process.env.TTS_API_KEY || "";
+}
+
+function getYupVoxApiKey() {
+  return process.env.YUPVOX_API_KEY || "";
 }
 
 function getAi33TaskUrl(taskId: string) {
@@ -1791,9 +1819,38 @@ async function pollAi33AudioUrl(taskId: string) {
   throw new Error("TTS task timed out before audio was ready.");
 }
 
-async function downloadAudioToCache(sourceUrl: string, targetPath: string) {
-  const res = await fetchWithTimeout(sourceUrl);
+async function requestTtsProviderAudioUrl(
+  text: string,
+  settings: Required<TtsSettings>,
+  fileName: string
+): Promise<{ audioUrl: string; validateAudioUrl?: (value: string) => string }> {
+  if (settings.provider === "yupvox") {
+    const audioUrl = await generateYupVoxAudioUrl({
+      apiKey: getYupVoxApiKey(),
+      baseUrl: process.env.YUPVOX_BASE_URL,
+      voiceId: settings.voice,
+      text,
+      maxPollAttempts: Number(process.env.YUPVOX_TTS_POLL_ATTEMPTS || 40),
+      pollIntervalMs: Number(process.env.YUPVOX_TTS_POLL_INTERVAL_MS || 1500),
+      fetchImpl: fetchWithTimeout,
+      wait: delay
+    });
+    return { audioUrl, validateAudioUrl: assertSafeYupVoxAudioUrl };
+  }
+
+  const taskId = await requestAi33TtsTask(text, settings, fileName);
+  return { audioUrl: await pollAi33AudioUrl(taskId) };
+}
+
+async function downloadAudioToCache(
+  sourceUrl: string,
+  targetPath: string,
+  validateAudioUrl?: (value: string) => string
+) {
+  const resolvedSourceUrl = validateAudioUrl ? validateAudioUrl(sourceUrl) : sourceUrl;
+  const res = await fetchWithTimeout(resolvedSourceUrl);
   if (!res.ok) throw new Error(`Audio download failed with HTTP ${res.status}`);
+  if (validateAudioUrl && res.url) validateAudioUrl(res.url);
   const contentType = res.headers.get("content-type") || "";
   if (contentType && !contentType.includes("audio") && !contentType.includes("octet-stream")) {
     throw new Error(`Downloaded TTS file is not audio (${contentType}).`);
@@ -1835,9 +1892,16 @@ async function generateCachedTtsAudio(inputText: string, settings: Required<TtsS
       }
     }
 
-    const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
-    const providerAudioUrl = await pollAi33AudioUrl(taskId);
-    await downloadAudioToCache(providerAudioUrl, targetPath);
+    const providerResult = await requestTtsProviderAudioUrl(
+      sanitized.text,
+      settings,
+      audioFileName(audioHash)
+    );
+    await downloadAudioToCache(
+      providerResult.audioUrl,
+      targetPath,
+      providerResult.validateAudioUrl
+    );
     return {
       audioHash,
       audioUrl: `${targetUrl}?v=${Date.now()}`,

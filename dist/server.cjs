@@ -3486,6 +3486,65 @@ function normalizeClientStartedAt(value, fallback = (/* @__PURE__ */ new Date())
   return new Date(clamped).toISOString();
 }
 
+// src/lib/game-engine/quizContracts.ts
+var CURRENT_QUIZ_CONTRACTS = {
+  "quiz-en-vi": {
+    questionType: "term",
+    answerType: "meaning",
+    contractVersion: 1
+  },
+  "quiz-vi-en": {
+    questionType: "meaning",
+    answerType: "term",
+    contractVersion: 1
+  },
+  "quiz-sound": {
+    questionType: "sound",
+    answerType: "meaning",
+    contractVersion: 2
+  }
+};
+var LEGACY_QUIZ_CONTRACTS = {
+  ...CURRENT_QUIZ_CONTRACTS,
+  "quiz-sound": {
+    questionType: "sound",
+    answerType: "term",
+    contractVersion: 1
+  }
+};
+function isQuestionType(value) {
+  return value === "term" || value === "meaning" || value === "sound";
+}
+function isAnswerType(value) {
+  return value === "term" || value === "meaning";
+}
+function getCurrentQuizContract(gameId) {
+  const contract = CURRENT_QUIZ_CONTRACTS[gameId];
+  return contract ? { ...contract } : null;
+}
+function resolveStoredQuizContract(gameId, storedConfig) {
+  const fallback = LEGACY_QUIZ_CONTRACTS[gameId];
+  if (!fallback) return null;
+  const storedVersion = Number(storedConfig?.contractVersion);
+  return {
+    questionType: isQuestionType(storedConfig?.questionType) ? storedConfig.questionType : fallback.questionType,
+    answerType: isAnswerType(storedConfig?.answerType) ? storedConfig.answerType : fallback.answerType,
+    contractVersion: Number.isInteger(storedVersion) && storedVersion > 0 ? storedVersion : fallback.contractVersion
+  };
+}
+function isQuizItemEligible(item, contract) {
+  const term = String(item.term || "").trim();
+  const meaning = String(item.meaning || "").trim();
+  const needsMeaning = contract.questionType === "meaning" || contract.answerType === "meaning";
+  return Boolean(term && (!needsMeaning || meaning));
+}
+function getQuizAnswerValue(item, answerType) {
+  return String(answerType === "term" ? item.term || "" : item.meaning || "").trim();
+}
+function getQuizQuestionText(item, questionType) {
+  return String(questionType === "meaning" ? item.meaning || "" : item.term || "").trim();
+}
+
 // src/server/learning-history/learningHistoryRouter.ts
 var import_express = __toESM(require("express"), 1);
 
@@ -6438,6 +6497,109 @@ function sanitizePublicStudentRecord(value, secret) {
   };
 }
 
+// src/server/tts/yupvoxProvider.ts
+var import_node_net = require("node:net");
+var DEFAULT_BASE_URL = "https://api.yupvox.com";
+var DEFAULT_MAX_POLL_ATTEMPTS = 40;
+var DEFAULT_POLL_INTERVAL_MS = 1500;
+function clampInteger(value, fallback, min, max) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+function getErrorMessage(payload, fallback) {
+  const message = payload?.data?.error || payload?.data?.message || payload?.error || payload?.message;
+  return typeof message === "string" && message.trim() ? message.trim() : fallback;
+}
+async function readJsonResponse(response) {
+  return response.json().catch(() => ({}));
+}
+function normalizeYupVoxBaseUrl(value) {
+  const url = new URL(String(value || DEFAULT_BASE_URL).trim());
+  if (url.protocol !== "https:") {
+    throw new Error("YUPVOX_BASE_URL must use HTTPS.");
+  }
+  if (url.username || url.password) {
+    throw new Error("YUPVOX_BASE_URL must not contain credentials.");
+  }
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+function isPrivateIpv4(hostname) {
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 10 || a === 127 || a === 0 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168;
+}
+function assertSafeYupVoxAudioUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("YupVox returned an invalid audio URL.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error("YupVox audio URL must be a credential-free HTTPS URL.");
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const ipVersion = (0, import_node_net.isIP)(hostname);
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || isPrivateIpv4(hostname) || ipVersion === 6 && (hostname === "::1" || hostname.startsWith("fe80:") || hostname.startsWith("fc") || hostname.startsWith("fd"))) {
+    throw new Error("YupVox returned an unsafe audio URL.");
+  }
+  return url.toString();
+}
+async function generateYupVoxAudioUrl(options) {
+  const apiKey = String(options.apiKey || "").trim();
+  const voiceId = String(options.voiceId || "").trim();
+  const text3 = String(options.text || "").trim();
+  if (!apiKey) throw new Error("YUPVOX_API_KEY is not configured.");
+  if (!voiceId) throw new Error("Missing YupVox voiceId.");
+  if (!text3) throw new Error("Missing YupVox TTS text.");
+  const baseUrl = normalizeYupVoxBaseUrl(options.baseUrl);
+  const maxPollAttempts = clampInteger(options.maxPollAttempts, DEFAULT_MAX_POLL_ATTEMPTS, 1, 120);
+  const pollIntervalMs = clampInteger(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, 250, 1e4);
+  const wait = options.wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json"
+  };
+  const createResponse = await options.fetchImpl(`${baseUrl}/v1/tts`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ voiceId, text: text3 })
+  });
+  const createPayload = await readJsonResponse(createResponse);
+  if (!createResponse.ok) {
+    throw new Error(getErrorMessage(createPayload, `YupVox TTS request failed with HTTP ${createResponse.status}.`));
+  }
+  const jobId = String(createPayload?.data?.jobId || "").trim();
+  if (!jobId) {
+    throw new Error(getErrorMessage(createPayload, "YupVox did not return data.jobId."));
+  }
+  for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
+    if (attempt > 0) await wait(pollIntervalMs);
+    const statusResponse = await options.fetchImpl(`${baseUrl}/v1/tts/${encodeURIComponent(jobId)}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    const statusPayload = await readJsonResponse(statusResponse);
+    if (!statusResponse.ok) {
+      throw new Error(getErrorMessage(statusPayload, `YupVox TTS status failed with HTTP ${statusResponse.status}.`));
+    }
+    const status = String(statusPayload?.data?.status || "").trim().toLowerCase();
+    if (status === "failed" || status === "error") {
+      throw new Error(getErrorMessage(statusPayload, "YupVox TTS job failed."));
+    }
+    if (status === "completed") {
+      const audioUrl = String(statusPayload?.data?.audioUrl || "").trim();
+      if (!audioUrl) throw new Error("YupVox completed the job without data.audioUrl.");
+      return assertSafeYupVoxAudioUrl(audioUrl);
+    }
+  }
+  throw new Error("YupVox TTS job timed out before audio was ready.");
+}
+
 // server.ts
 import_dotenv.default.config();
 var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
@@ -6804,6 +6966,7 @@ function normalizeGameAnswer(value) {
   return String(value || "").normalize("NFKC").trim().toLowerCase().replace(/[‘’‚‛`´]/g, "'").replace(/\s+/g, " ");
 }
 function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
+  const quizContract = getCurrentQuizContract(gameId);
   const canonicalItems = (Array.isArray(vocabSet.items) ? vocabSet.items : []).slice(0, 200).map((item, index) => ({
     id: safeText(item.id || `item-${index + 1}`, 160),
     term: safeText(item.term, 500),
@@ -6812,11 +6975,11 @@ function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
     ipa: safeText(item.ipa, 160),
     audioUrl: normalizeAudioUrlForClient(item.audioUrl),
     displayOrder: Number(item.displayOrder || index + 1)
-  })).filter((item) => item.id && item.term);
+  })).filter((item) => item.id && item.term).filter((item) => !quizContract || isQuizItemEligible(item, quizContract));
   const byId = new Map(canonicalItems.map((item) => [item.id, item]));
   const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id) => safeText(id, 160)).filter((id, index, list2) => id && byId.has(id) && list2.indexOf(id) === index) : [];
   const items = orderedIds.length ? orderedIds.map((id) => byId.get(id)) : canonicalItems;
-  const config = gameId.startsWith("quiz-") ? { answerType: gameId === "quiz-en-vi" ? "meaning" : "term", questionType: gameId === "quiz-vi-en" ? "meaning" : gameId === "quiz-sound" ? "sound" : "term" } : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
+  const config = quizContract ? quizContract : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
   return { itemOrder: items.map((item) => item.id), items, config };
 }
 function sanitizeGameAction(input) {
@@ -6896,14 +7059,16 @@ function gradeGameSessionV2(session, actions) {
       details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: item.term, correctAnswer: item.meaning, userAnswer: known ? "\u0110\xE3 thu\u1ED9c" : "Ch\u01B0a thu\u1ED9c", isCorrect: known });
     });
   } else if (session.gameId.startsWith("quiz-")) {
+    const contract = resolveStoredQuizContract(session.gameId, session.privateSnapshot?.config);
+    if (!contract) throw createHttpError(400, "Quiz contract is not supported.");
     const latest = /* @__PURE__ */ new Map();
     ordered.filter((a) => a.type === "quiz.answer" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
     items.forEach((item, index) => {
       const answer = latest.get(item.id)?.userAnswer || "";
-      const expected = session.gameId === "quiz-en-vi" ? item.meaning : item.term;
+      const expected = getQuizAnswerValue(item, contract.answerType);
       const ok = answer === expected;
       ok ? correct++ : incorrect++;
-      details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: session.gameId === "quiz-vi-en" ? item.meaning : item.term, correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok });
+      details.push({ questionIndex: index, wordId: item.id, word: item.term, questionText: getQuizQuestionText(item, contract.questionType), correctAnswer: expected, userAnswer: answer, selectedAnswer: answer, isCorrect: ok });
     });
   } else if (session.gameId.startsWith("fill-")) {
     const latest = /* @__PURE__ */ new Map();
@@ -7728,12 +7893,18 @@ function getLessonGradeClass(set = {}) {
 var DEFAULT_TTS_PROVIDER = "ai33";
 var DEFAULT_TTS_LANG = "en-US";
 var DEFAULT_TTS_SPEED = 1;
-var SUPPORTED_TTS_PROVIDERS = /* @__PURE__ */ new Set(["ai33"]);
+var SUPPORTED_TTS_PROVIDERS = /* @__PURE__ */ new Set(["ai33", "yupvox"]);
 var TTS_FETCH_TIMEOUT_MS = Math.max(5e3, Number(process.env.TTS_FETCH_TIMEOUT_MS || 3e4));
 var TTS_MAX_AUDIO_BYTES = Math.max(64 * 1024, Number(process.env.TTS_MAX_AUDIO_BYTES || 3 * 1024 * 1024));
-var DEFAULT_TTS_VOICE_BY_LANG = {
-  "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
-  "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
+var DEFAULT_TTS_VOICE_BY_PROVIDER = {
+  ai33: {
+    "en-US": "elevenlabs_wMBr6SfqQVuOqplK01NE",
+    "en-GB": "elevenlabs_wMBr6SfqQVuOqplK01NE"
+  },
+  yupvox: {
+    "en-US": "EBF147",
+    "en-GB": "EBF147"
+  }
 };
 var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENCY || 5)));
 var ttsQueue = [];
@@ -7775,11 +7946,12 @@ function normalizeTtsSettings(settings = {}) {
     throw createHttpError(400, `Unsupported TTS provider: ${provider}`);
   }
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
-  const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  const speed = provider === "yupvox" ? DEFAULT_TTS_SPEED : Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  const providerVoices = DEFAULT_TTS_VOICE_BY_PROVIDER[provider];
   return {
     autoGenerate: Boolean(settings.autoGenerate),
     provider,
-    voice: settings.voice || DEFAULT_TTS_VOICE_BY_LANG[lang] || DEFAULT_TTS_VOICE_BY_LANG[DEFAULT_TTS_LANG],
+    voice: String(settings.voice || providerVoices[lang] || providerVoices[DEFAULT_TTS_LANG]).trim(),
     lang,
     speed
   };
@@ -7799,6 +7971,9 @@ function audioPublicUrl(audioHash) {
 }
 function getAi33ApiKey() {
   return process.env.AI33_API_KEY || process.env.TTS_API_KEY || "";
+}
+function getYupVoxApiKey() {
+  return process.env.YUPVOX_API_KEY || "";
 }
 function getAi33TaskUrl(taskId) {
   const template = process.env.AI33_TASK_STATUS_URL_TEMPLATE || "https://api.ai33.pro/v1/task/{taskId}";
@@ -7924,9 +8099,28 @@ async function pollAi33AudioUrl(taskId) {
   }
   throw new Error("TTS task timed out before audio was ready.");
 }
-async function downloadAudioToCache(sourceUrl, targetPath) {
-  const res = await fetchWithTimeout(sourceUrl);
+async function requestTtsProviderAudioUrl(text3, settings, fileName) {
+  if (settings.provider === "yupvox") {
+    const audioUrl = await generateYupVoxAudioUrl({
+      apiKey: getYupVoxApiKey(),
+      baseUrl: process.env.YUPVOX_BASE_URL,
+      voiceId: settings.voice,
+      text: text3,
+      maxPollAttempts: Number(process.env.YUPVOX_TTS_POLL_ATTEMPTS || 40),
+      pollIntervalMs: Number(process.env.YUPVOX_TTS_POLL_INTERVAL_MS || 1500),
+      fetchImpl: fetchWithTimeout,
+      wait: delay
+    });
+    return { audioUrl, validateAudioUrl: assertSafeYupVoxAudioUrl };
+  }
+  const taskId = await requestAi33TtsTask(text3, settings, fileName);
+  return { audioUrl: await pollAi33AudioUrl(taskId) };
+}
+async function downloadAudioToCache(sourceUrl, targetPath, validateAudioUrl) {
+  const resolvedSourceUrl = validateAudioUrl ? validateAudioUrl(sourceUrl) : sourceUrl;
+  const res = await fetchWithTimeout(resolvedSourceUrl);
   if (!res.ok) throw new Error(`Audio download failed with HTTP ${res.status}`);
+  if (validateAudioUrl && res.url) validateAudioUrl(res.url);
   const contentType = res.headers.get("content-type") || "";
   if (contentType && !contentType.includes("audio") && !contentType.includes("octet-stream")) {
     throw new Error(`Downloaded TTS file is not audio (${contentType}).`);
@@ -7962,9 +8156,16 @@ async function generateCachedTtsAudio(inputText, settings, force = false) {
         console.warn("Could not remove old TTS cache before regeneration:", err);
       }
     }
-    const taskId = await requestAi33TtsTask(sanitized.text, settings, audioFileName(audioHash));
-    const providerAudioUrl = await pollAi33AudioUrl(taskId);
-    await downloadAudioToCache(providerAudioUrl, targetPath);
+    const providerResult = await requestTtsProviderAudioUrl(
+      sanitized.text,
+      settings,
+      audioFileName(audioHash)
+    );
+    await downloadAudioToCache(
+      providerResult.audioUrl,
+      targetPath,
+      providerResult.validateAudioUrl
+    );
     return {
       audioHash,
       audioUrl: `${targetUrl}?v=${Date.now()}`,

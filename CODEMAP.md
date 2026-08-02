@@ -78,16 +78,16 @@ Current source/build/deployment ledger:
   listening contrast`). The working tree also contains the later, uncommitted
   Listening Smart Editor/player changes described in this CODEMAP.
 - Current local UI-on release build (generated 2026-08-02 with
-  `npm run build:history-ui`): `dist/client/assets/index-BVqE9Tj0.js` and
-  `dist/client/assets/index-CI66mUD2.css`. `dist/client/index.html` references
+  `npm run build`): `dist/client/assets/index-C4BEQbtb.js` and
+  `dist/client/assets/index-CgGsJi5T.css`. `dist/client/index.html` references
   exactly these two files.
-- Current local server bundle: `dist/server.cjs` (513,262 bytes before Git
+- Current local server bundle: `dist/server.cjs` (521,357 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local UI-on artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-BVqE9Tj0.js` plus `index-CI66mUD2.css`.
+  `curl`/browser smoke show `index-C4BEQbtb.js` plus `index-CgGsJi5T.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -688,6 +688,8 @@ Recent activity behavior:
 
 `src/lib/game-engine/gameList.ts` defines `GAMES_LIST`.
 
+`src/lib/game-engine/quizContracts.ts` is the shared quiz contract used by both the browser and `server.ts`. It owns current question/answer modes, legacy snapshot fallback, item eligibility, and question/answer value selection so the client and authoritative grader cannot silently diverge.
+
 Current game modes:
 
 - `flashcard-en-vi`
@@ -700,6 +702,8 @@ Current game modes:
 - `fill-missing`
 - `matching-word-meaning`
 - `memory-match`
+
+`quiz-sound` keeps its stable game ID but uses contract version 2 for newly created snapshots: the prompt is English audio (`term`) and the selectable/correct answer is the Vietnamese `meaning`. Stored legacy snapshots with `answerType: term`, or without a contract version, remain contract version 1 and continue to grade against the English term. Completed history is never migrated or regraded.
 
 Each game config includes:
 
@@ -762,6 +766,8 @@ Shared props pattern:
 - Linear multiple choice.
 - Generates up to 3 distractors from other items.
 - Supports term, meaning, and sound question modes.
+- Filters out items missing a field required by the active quiz contract; `quiz-sound` therefore requires both `term` and `meaning` in new sessions.
+- `quiz-sound` is displayed as `Nghe và chọn nghĩa`: audio still reads the English term while options and newly stored answer details use Vietnamese meanings.
 - Score: correct / total.
 - Answer details are replaced by `wordId`; returning to a previous question cannot duplicate score rows.
 - Final result builds one row per item so unanswered questions are counted as incorrect.
@@ -1268,8 +1274,8 @@ Browser speech is fast and free but inconsistent:
 
 Current implementation:
 
-- Backend-only provider calls through AI33 v3 Text To Speech.
-- Frontend never sends the provider API key and never calls AI33 directly.
+- Backend-only provider adapters support AI33 v3 Text To Speech and YupVox asynchronous TTS.
+- Frontend never sends provider API keys and never calls AI33/YupVox directly.
 - Audio files are cached under the persistent host path:
 
 ```text
@@ -1293,7 +1299,9 @@ provider + lang + voice + speed + normalizedText
 - Cached audio is reused when the hash/file already exists. A forced regenerate bypasses the existing cache file and returns a cache-busted `/audio/{hash}.mp3?v=...` URL.
 - Backend TTS calls use an abort timeout (`TTS_FETCH_TIMEOUT_MS`), downloaded audio is capped (`TTS_MAX_AUDIO_BYTES`), and cache writes use a temp file followed by atomic rename.
 - In-flight generation is deduped by `audioHash` so concurrent requests for the same text/voice/speed do not create duplicate provider jobs in the same server process.
-- `normalizeTtsSettings` currently restricts provider to `ai33`. Add a real adapter before accepting another provider value.
+- `normalizeTtsSettings` accepts `ai33` and `yupvox`. Existing sets remain on AI33 unless a teacher explicitly changes the provider.
+- YupVox uses `POST /v1/tts` followed by bounded polling of `GET /v1/tts/{jobId}`. The adapter reads only `data.jobId`, `data.status`, and `data.audioUrl`, validates the returned HTTPS URL, and reuses the existing local cache/download limits.
+- The supplied YupVox contract does not accept a speed field, so YupVox settings are normalized to speed `1.0`; `voice` is the YupVox `voiceId` and defaults to `EBF147`.
 - Changing the English term in the editor clears stale audio metadata for that row so old files are not reused for new text.
 - Vocab item metadata stores only lightweight public references:
   - `audioUrl`
@@ -1315,7 +1323,7 @@ provider + lang + voice + speed + normalizedText
 
 Current backend endpoints:
 
-- `GET /api/tts/voices`: backend proxy for AI33 Voice Library.
+- `GET /api/tts/voices`: backend proxy for AI33 Voice Library only. YupVox Voice IDs are entered in the shared editor field because no YupVox voice-list contract is currently defined in the project.
 - `POST /api/tts/preview`: generates/plays a cached short preview.
 - `POST /api/tts/batch-preview`: generates editor batch audio before save. Backend dedupes by `audioHash` and runs up to 5 concurrent TTS jobs by default (`TTS_CONCURRENCY`, clamped 1-10).
 - `GET /api/vocab-sets/:id/audio/status`: returns per-item audio metadata.
@@ -1325,6 +1333,10 @@ Required production env vars for TTS:
 
 ```text
 AI33_API_KEY=<host-only key>
+YUPVOX_API_KEY=<host-only key; required only when provider=yupvox>
+YUPVOX_BASE_URL=https://api.yupvox.com
+YUPVOX_TTS_POLL_ATTEMPTS=40
+YUPVOX_TTS_POLL_INTERVAL_MS=1500
 TTS_AUDIO_DIR=/home/qzmivzbj/app-data/vhomework/audio
 AI33_TASK_STATUS_URL_TEMPLATE=https://api.ai33.pro/v1/task/{taskId}
 TTS_CONCURRENCY=5
@@ -1946,6 +1958,11 @@ Architecture and ownership:
   assets, candidate state, autosave status, shell navigation, and the existing
   set/version/publish flow. Parts 1-3 import validated analysis directly into the
   editable working draft; Parts 4-5 retain staged candidate review.
+- The whole-exam Resource Tray implementation remains in source as a rollback
+  path, but `SHOW_WHOLE_EXAM_RESOURCE_TRAY=false` hides it from the General tab.
+  Per-Part Smart Import is the only visible import workflow. Its compact source
+  picker shows only attached images as removable chips; the X action detaches an
+  image from the current analysis and never archives the shared media asset.
 - `src/server/listening-smart-import/service.ts` owns prompt construction,
   local text parsing, provider JSON normalization, code-generated IDs, random
   provisional mappings, fixed regions, warnings, and Part-specific candidates.

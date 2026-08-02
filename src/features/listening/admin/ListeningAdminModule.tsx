@@ -35,6 +35,7 @@ interface ListeningAdminModuleProps {
 }
 
 export const createDefaultListeningContent = createDefaultMoverListeningContent;
+const SHOW_WHOLE_EXAM_RESOURCE_TRAY = false;
 
 export default function ListeningAdminModule({ token }: ListeningAdminModuleProps) {
   const [sets, setSets] = useState<any[]>([]);
@@ -330,18 +331,20 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
           <ListeningAssetPicker {...assetPickerProps} label="Hình nền khung học sinh (không bắt buộc)" kind="image" value={content.backgroundAssetId} onChange={backgroundAssetId => setContent(value => ({ ...value, backgroundAssetId }))} />
         </div>
       </div>
-      <ListeningResourceTray
-        token={token}
-        content={content}
-        assets={assets}
-        capability={capabilities?.smartImport}
-        assignments={resourceAssignments}
-        statuses={importStatuses}
-        onAssignmentsChange={setResourceAssignments}
-        onStatusChange={(part, status) => setImportStatuses(previous => ({ ...previous, [part]: status }))}
-        onCandidate={(part, candidate) => setImportCandidates(previous => ({ ...previous, [part]: candidate }))}
-        onUpload={upload}
-      />
+      {SHOW_WHOLE_EXAM_RESOURCE_TRAY && (
+        <ListeningResourceTray
+          token={token}
+          content={content}
+          assets={assets}
+          capability={capabilities?.smartImport}
+          assignments={resourceAssignments}
+          statuses={importStatuses}
+          onAssignmentsChange={setResourceAssignments}
+          onStatusChange={(part, status) => setImportStatuses(previous => ({ ...previous, [part]: status }))}
+          onCandidate={(part, candidate) => setImportCandidates(previous => ({ ...previous, [part]: candidate }))}
+          onUpload={upload}
+        />
+      )}
     </div>
   );
 

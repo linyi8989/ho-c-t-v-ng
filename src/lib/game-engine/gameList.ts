@@ -1,4 +1,13 @@
 import { GameConfig } from '../../types';
+import { getCurrentQuizContract } from './quizContracts';
+
+const quizEnViContract = getCurrentQuizContract('quiz-en-vi');
+const quizViEnContract = getCurrentQuizContract('quiz-vi-en');
+const quizSoundContract = getCurrentQuizContract('quiz-sound');
+
+if (!quizEnViContract || !quizViEnContract || !quizSoundContract) {
+  throw new Error('Cấu hình trò chơi trắc nghiệm không hợp lệ.');
+}
 
 export const GAMES_LIST: GameConfig[] = [
   // --- FLASHCARD GROUP ---
@@ -62,8 +71,7 @@ export const GAMES_LIST: GameConfig[] = [
     componentName: 'QuizGame',
     requiredFields: ['term', 'meaning'],
     config: {
-      questionType: 'term', // Show English term
-      answerType: 'meaning', // Answer in Vietnamese meaning
+      ...quizEnViContract,
       enableSound: true
     }
   },
@@ -77,23 +85,21 @@ export const GAMES_LIST: GameConfig[] = [
     componentName: 'QuizGame',
     requiredFields: ['term', 'meaning'],
     config: {
-      questionType: 'meaning', // Show Vietnamese meaning
-      answerType: 'term', // Answer in English term
+      ...quizViEnContract,
       enableSound: false
     }
   },
   {
     gameId: 'quiz-sound',
-    title: 'Nghe và chọn từ',
-    description: 'Nghe phát âm tiếng Anh và chọn từ viết đúng.',
+    title: 'Nghe và chọn nghĩa',
+    description: 'Nghe phát âm tiếng Anh và chọn nghĩa tiếng Việt chính xác.',
     category: 'quiz',
     icon: 'Radio',
     color: 'from-cyan-500 to-blue-600',
     componentName: 'QuizGame',
-    requiredFields: ['term'],
+    requiredFields: ['term', 'meaning'],
     config: {
-      questionType: 'sound', // Listen to term sound
-      answerType: 'term', // Answer in English term
+      ...quizSoundContract,
       enableSound: true,
       autoPlaySound: true
     }

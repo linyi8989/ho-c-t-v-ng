@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Volume2, Check, X, AlertCircle, Sparkles } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
+import {
+  getQuizAnswerValue,
+  getQuizQuestionText,
+  isQuizItemEligible
+} from '../../lib/game-engine/quizContracts';
 import GameControlPanel from './GameControlPanel';
 
 interface QuizGameProps {
@@ -10,6 +15,7 @@ interface QuizGameProps {
   config: {
     questionType: 'term' | 'meaning' | 'sound';
     answerType: 'term' | 'meaning';
+    contractVersion?: number;
     enableSound?: boolean;
     autoPlaySound?: boolean;
   };
@@ -45,11 +51,15 @@ export default function QuizGame({
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const isSoundOn = !isMuted;
-  const currentItem = items[currentIndex];
+  const playableItems = useMemo(
+    () => items.filter(item => isQuizItemEligible(item, config)),
+    [items, config]
+  );
+  const currentItem = playableItems[currentIndex];
 
   // Set the correct answer depending on configuration
-  const correctAnswer = currentItem 
-    ? (config.answerType === 'term' ? currentItem.term : currentItem.meaning)
+  const correctAnswer = currentItem
+    ? getQuizAnswerValue(currentItem, config.answerType)
     : '';
 
   const buildAnswerDetail = (
@@ -59,12 +69,12 @@ export default function QuizGame({
     choices: string[],
     answered: boolean
   ): GameAnswerDetail => {
-    const expectedAnswer = config.answerType === 'term' ? item.term : item.meaning;
+    const expectedAnswer = getQuizAnswerValue(item, config.answerType);
     return {
       questionIndex: index,
       wordId: item.id,
       word: item.term,
-      questionText: config.questionType === 'meaning' ? item.meaning : item.term,
+      questionText: getQuizQuestionText(item, config.questionType),
       correctAnswer: expectedAnswer,
       selectedAnswer: answer,
       userAnswer: answer,
@@ -93,7 +103,7 @@ export default function QuizGame({
     answerDetailsRef.current.forEach(detail => {
       if (detail.wordId) detailByWordId.set(detail.wordId, detail);
     });
-    return items.map((item, index) => detailByWordId.get(item.id) || buildAnswerDetail(item, index, '', [], false));
+    return playableItems.map((item, index) => detailByWordId.get(item.id) || buildAnswerDetail(item, index, '', [], false));
   };
 
   useEffect(() => {
@@ -105,7 +115,7 @@ export default function QuizGame({
     setIsAnswered(false);
     setQuizFinished(false);
     answerDetailsRef.current = [];
-  }, [items, config]);
+  }, [playableItems, config]);
 
   // Generate randomized multi-choice options
   useEffect(() => {
@@ -116,12 +126,13 @@ export default function QuizGame({
       playVocabAudio(currentItem);
     }
 
-    const correctVal = config.answerType === 'term' ? currentItem.term : currentItem.meaning;
+    const correctVal = getQuizAnswerValue(currentItem, config.answerType);
     
     // Extract distractors from the rest of the items list
-    const pool = items
+    const pool = playableItems
       .filter((item) => item.id !== currentItem.id)
-      .map((item) => (config.answerType === 'term' ? item.term : item.meaning));
+      .map((item) => getQuizAnswerValue(item, config.answerType))
+      .filter(value => value && value !== correctVal);
     
     // Unique list of options
     const uniquePool = Array.from(new Set(pool));
@@ -138,12 +149,12 @@ export default function QuizGame({
     setOptions(finalOptions);
     setSelectedAnswer(null);
     setIsAnswered(false);
-  }, [currentIndex, currentItem, config, items, isSoundOn]);
+  }, [currentIndex, currentItem, config, playableItems, isSoundOn]);
 
-  if (!items || items.length === 0) {
+  if (playableItems.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500 bg-white rounded-2xl shadow-sm border border-gray-100" id="quiz-empty">
-        <p>Không có từ vựng nào để tạo trắc nghiệm.</p>
+        <p>Không có từ vựng nào chứa đủ từ tiếng Anh và nghĩa tiếng Việt để tạo trắc nghiệm.</p>
       </div>
     );
   }
@@ -174,7 +185,7 @@ export default function QuizGame({
 
   const handleNext = () => {
     if (quizFinished) return;
-    if (currentIndex < items.length - 1) {
+    if (currentIndex < playableItems.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
       // Completed last question
@@ -197,14 +208,14 @@ export default function QuizGame({
     }
   };
 
-  const progressPercent = Math.round((currentIndex / items.length) * 100);
+  const progressPercent = Math.round((currentIndex / playableItems.length) * 100);
 
   return (
     <div className="w-full max-w-xl mx-auto" id="quiz-game-root">
       {/* Quiz Progress */}
       <div className="flex items-center justify-between mb-4 px-2">
         <span className="text-sm font-semibold text-gray-500">
-          Câu hỏi {currentIndex + 1} / {items.length}
+          Câu hỏi {currentIndex + 1} / {playableItems.length}
         </span>
         <div className="flex space-x-3 text-xs font-bold">
           <span className="text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full flex items-center gap-1">
@@ -244,7 +255,7 @@ export default function QuizGame({
               >
                 <Volume2 size={36} className="animate-pulse" />
               </button>
-              <p className="text-xs text-gray-400 font-medium mt-3">Click để nghe lại từ tiếng Anh</p>
+              <p className="text-xs text-gray-400 font-medium mt-3">Nhấn để nghe lại từ tiếng Anh</p>
             </div>
           ) : (
             <div className="py-4">
@@ -365,7 +376,7 @@ export default function QuizGame({
               }`}
               id="continue-quiz-btn"
             >
-              {currentIndex < items.length - 1 ? "TIẾP TỤC" : "XEM KẾT QUẢ"}
+              {currentIndex < playableItems.length - 1 ? "TIẾP TỤC" : "XEM KẾT QUẢ"}
             </button>
           </motion.div>
         )}
@@ -374,7 +385,7 @@ export default function QuizGame({
       {/* Professional Slider Controls */}
       <GameControlPanel
         currentIndex={currentIndex}
-        totalItems={items.length}
+        totalItems={playableItems.length}
         onPrev={handlePrev}
         onNext={isAnswered ? handleNext : () => {}}
         onPlaySound={handlePlaySound}
