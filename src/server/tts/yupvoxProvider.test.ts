@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assertSafeYupVoxAudioUrl,
   generateYupVoxAudioUrl,
   normalizeYupVoxBaseUrl
 } from "./yupvoxProvider.js";
+
+const serverSource = readFileSync(new URL("../../../server.ts", import.meta.url), "utf8");
+const adminSource = readFileSync(new URL("../../components/admin/AdminDashboard.tsx", import.meta.url), "utf8");
 
 test("YupVox adapter creates a job, polls it, and returns the completed audio URL", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -96,4 +100,12 @@ test("YupVox URL validation requires public credential-free HTTPS URLs", () => {
   assert.throws(() => assertSafeYupVoxAudioUrl("http://cdn.example.com/audio.mp3"), /HTTPS/);
   assert.throws(() => assertSafeYupVoxAudioUrl("https://127.0.0.1/audio.mp3"), /unsafe/);
   assert.throws(() => assertSafeYupVoxAudioUrl("https://[::1]/audio.mp3"), /unsafe/);
+});
+
+test("YupVox speed remains editable and is applied at playback instead of sent as an undocumented API field", () => {
+  assert.doesNotMatch(serverSource, /const speed = provider === "yupvox"/);
+  assert.match(serverSource, /const generationSpeed = settings\.provider === "yupvox" \? DEFAULT_TTS_SPEED : settings\.speed/);
+  assert.doesNotMatch(adminSource, /disabled=\{ttsSettings\.provider === 'yupvox'\}/);
+  assert.doesNotMatch(adminSource, /speed: provider === 'yupvox' \? 1 : prev\.speed/);
+  assert.match(adminSource, /resolveTtsPlaybackRate\(ttsSettings\.provider, ttsSettings\.speed\)/);
 });

@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-07-31
+Last updated: 2026-08-03
 
 ## 1. Project Overview
 
@@ -9,7 +9,7 @@ This project is a full-stack vocabulary learning web app for students, teachers,
 Core capabilities:
 
 - Student login/register and vocabulary learning portal.
-- Long-lived student learning history for vocabulary and grammar, behind Release B feature flags.
+- Long-lived student learning history for vocabulary and grammar; the UI always ships while API/projector availability uses the Release B server runtime flag.
 - Teacher/admin dashboard for vocabulary sets, classes, assignments, results, and AI generation.
 - Game engine with flashcards, quiz, fill-blank, matching, and memory games.
 - Firebase Authentication plus Firestore data storage.
@@ -29,7 +29,7 @@ Primary stack:
 
 ### 1.1. Version And Environment Registry
 
-Verified: 2026-07-31. Update this registry whenever Node, npm, the lockfile,
+Verified: 2026-08-03. Update this registry whenever Node, npm, the lockfile,
 the native SQLite driver, the cPanel runtime, or the deployed artifact changes.
 Do not put secret values in this file.
 
@@ -38,11 +38,11 @@ Runtime compatibility matrix:
 | Component | Local development/build | cPanel production host |
 | --- | --- | --- |
 | Operating system | Windows 10 `10.0.19045`, x64/AMD64 | Linux x64 on cPanel; exact distribution not recorded |
-| Node.js | `v22.16.0` | `v22.16.0` |
-| Node release policy | `package.json` requires `22.x` | cPanel application configured for Node 22 |
-| Node ABI | `127` | `127` |
-| npm | `10.9.2` | `10.9.2` |
-| Node executable | Active local Node 22 installation; Codex verification path is ephemeral and must not be hardcoded | `/opt/alt/alt-nodejs22/root/usr/bin/node` |
+| Node.js | Active shell `v24.15.0`; release target remains Node 22 | `v22.16.0` |
+| Node release policy | `package.json` requires `22.x`; use Node 22 for the final release gate | cPanel application configured for Node 22 |
+| Node ABI | Active shell `137`; installed native module currently targets `127` | `127` |
+| npm | Active shell `11.12.1`; release baseline `10.9.2` | `10.9.2` |
+| Node executable | Active workstation installation; do not hardcode its path | `/opt/alt/alt-nodejs22/root/usr/bin/node` |
 | Platform/architecture | `win32` / `x64` | `linux` / `x64` |
 | glibc | Not applicable on Windows | `2.28` |
 | Native build Python | Not required by the verified local install | Python `3.11.13`, `/opt/alt/python311/bin/python3.11` |
@@ -74,20 +74,22 @@ The exact application dependency baseline from the current
 
 Current source/build/deployment ledger:
 
-- Current Git baseline: `0f3410c` (`fix: restore student learning history UI and
-  listening contrast`). The working tree also contains the later, uncommitted
-  Listening Smart Editor/player changes described in this CODEMAP.
-- Current local UI-on release build (generated 2026-08-02 with
-  `npm run build`): `dist/client/assets/index-C4BEQbtb.js` and
-  `dist/client/assets/index-CgGsJi5T.css`. `dist/client/index.html` references
+- Current Git baseline: `b4f989d` (`feat: add YupVox TTS and improve learning
+  modules`). The working tree contains the current TTS speed, always-present
+  Student History UI, Listening player changes, and staff-only Listening recent
+  activity detail join described in this CODEMAP.
+- Current local release build (generated 2026-08-03 with canonical
+  `npm run build` under the active Node 24 shell; repeat the final release gate
+  with Node 22): `dist/client/assets/index-D6fgyh4j.js` and
+  `dist/client/assets/index-S6xE1qDb.css`. `dist/client/index.html` references
   exactly these two files.
-- Current local server bundle: `dist/server.cjs` (521,357 bytes before Git
+- Current local server bundle: `dist/server.cjs` (527,253 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
-- Therefore the current local UI-on artifact remains **pending host
+- Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-C4BEQbtb.js` plus `index-CgGsJi5T.css`.
+  `curl`/browser smoke show `index-D6fgyh4j.js` plus `index-S6xE1qDb.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -1288,20 +1290,30 @@ Current implementation:
 /audio/{audioHash}.mp3
 ```
 
-- `audioHash` is deterministic:
+- `audioHash` is deterministic. AI33 includes provider-rendered speed; YupVox
+  uses generation speed `1.0` because speed is applied during browser playback:
 
 ```text
-provider + lang + voice + speed + normalizedText
+provider + lang + voice + generationSpeed + normalizedText
 ```
 
 - `normalizedText` preserves case and is produced from sanitized TTS text, not raw row text.
 - TTS input cleanup uses the first non-empty line, removes trailing notes/IPA, removes text after a separator like `word - meaning`, collapses whitespace, and caps text at 120 chars. The returned metadata includes `ttsText` plus `audioWarnings` so teachers can see what was actually sent to TTS.
 - Cached audio is reused when the hash/file already exists. A forced regenerate bypasses the existing cache file and returns a cache-busted `/audio/{hash}.mp3?v=...` URL.
 - Backend TTS calls use an abort timeout (`TTS_FETCH_TIMEOUT_MS`), downloaded audio is capped (`TTS_MAX_AUDIO_BYTES`), and cache writes use a temp file followed by atomic rename.
-- In-flight generation is deduped by `audioHash` so concurrent requests for the same text/voice/speed do not create duplicate provider jobs in the same server process.
+- In-flight generation is deduped by `audioHash` so concurrent requests for the same raw provider audio do not create duplicate provider jobs in the same server process.
 - `normalizeTtsSettings` accepts `ai33` and `yupvox`. Existing sets remain on AI33 unless a teacher explicitly changes the provider.
 - YupVox uses `POST /v1/tts` followed by bounded polling of `GET /v1/tts/{jobId}`. The adapter reads only `data.jobId`, `data.status`, and `data.audioUrl`, validates the returned HTTPS URL, and reuses the existing local cache/download limits.
-- The supplied YupVox contract does not accept a speed field, so YupVox settings are normalized to speed `1.0`; `voice` is the YupVox `voiceId` and defaults to `EBF147`.
+- The supplied YupVox contract does not define a speed field. The editor now
+  accepts and persists `0.8`-`1.2` for YupVox, while the shared browser player
+  applies that value with `HTMLAudioElement.playbackRate`. The adapter payload
+  remains exactly `{ voiceId, text }`, `voice` defaults to `EBF147`, and raw
+  YupVox files are shared across playback speeds instead of duplicating cache
+  entries.
+- `src/lib/game-engine/speech.ts` is the playback authority. `playVocabAudio`
+  applies saved YupVox `ttsSpeed`; AI33 audio plays at `1.0` because AI33 already
+  renders its requested speed. Admin preview, Flashcard, Quiz, Fill Blank,
+  Millionaire and Speaking AI use the same rule.
 - Changing the English term in the editor clears stale audio metadata for that row so old files are not reused for new text.
 - Vocab item metadata stores only lightweight public references:
   - `audioUrl`
@@ -1687,13 +1699,16 @@ Identity and security:
 
 Frontend:
 
-- `src/App.tsx` exposes `/history` only when
-  `VITE_LEARNING_HISTORY_ENABLED=true` at build time.
-- `npm run build:history-ui` is the canonical UI-on release command. Its small
-  Node wrapper injects the build-time flag on Windows and Linux before invoking
-  the unchanged production build. Plain `npm run build` intentionally remains
-  the UI-off rollback path and must not be the final command for a History-on
-  cPanel artifact.
+- `src/App.tsx` always ships the `/history` route and
+  `student-history-nav-btn`. Student History is no longer compiled out by
+  `VITE_LEARNING_HISTORY_ENABLED`, so a normal deploy cannot silently remove the
+  button.
+- `npm run build` is the canonical release command. `npm run build:history-ui`
+  remains only as a backwards-compatible wrapper and produces the same UI.
+- `StudentHistoryAvailability.contract.test.ts` prevents reintroducing the
+  build-time condition and verifies that the route, page and navigation hook are
+  present. Backend availability remains a runtime concern controlled by
+  `LEARNING_HISTORY_ENABLED` with `STORAGE_MODE=sqlite`.
 - The page supports summary, responsive desktop/mobile layouts, abortable
   pagination, and an accessible detail modal. The API retains owner-scoped
   backend filters, but the advanced filter panel is intentionally hidden from
@@ -1845,6 +1860,14 @@ SQLite and history integration:
 - Listening attempts stay in their dedicated tables. Learning History reads a
   union projection, filters `sourceType=listening`, and loads bounded review
   detail from `listening_attempt_details`; legacy history rows are not rewritten.
+- The admin Recent Activity path follows the same split-storage contract:
+  `/api/results` reads summaries from `listening_attempts`, then joins
+  `listening_attempt_details` only for an authorized teacher or super admin.
+  When an older detail row contains raw answers/questions but not display-ready
+  rows, the server reconstructs its 25 `answerDetails` from that attempt's
+  immutable `listening_set_versions/{versionId}` snapshot. New submissions store
+  the same display-ready rows at write time. Student and public result paths do
+  not receive this joined answer key.
 - Public recent activity uses the existing pseudonymous identity boundary and
   never exposes raw user or guest identifiers.
 
@@ -2021,16 +2044,33 @@ Mover behavior:
   `editor/colourCatalog.ts`. The editor no longer exposes a free color picker,
   while saved custom legacy colors remain readable. Its manual form hides the
   unused target-name inputs and labels the five selectors `Đáp án màu 1` through
-  `Đáp án màu 5`; stored labels remain compatible with existing content.
+  `Đáp án màu 5`; stored labels remain compatible with existing content. The
+  student player displays these target markers only as `1` through `5`, while
+  preserving stored labels for backward-compatible grading and editor data.
+  Parts 1/5 treat tray choices as single-use movable answers: an assigned choice
+  disappears from the tray, replacing/removing it returns the previous choice,
+  and six choices across five targets leave one distractor visible. Part 5 scales
+  only the student target height to 50% around the same center; stored editor
+  geometry and grading coordinates are unchanged. Assigned Part 1 names render
+  in a dedicated high-contrast pill above the target overlay.
 
 Validation ledger:
 
 - `npm run lint` passes.
-- `npm run test:listening` passes 30/30 contracts covering draft isolation,
+- `npm run test:listening` passes 41/41 contracts covering draft isolation,
   module compatibility, Parts 1-5, asset/security checks, autosave conflicts,
-  grading, immutable storage/history, and idempotent legacy replay.
-- `npm run build:history-ui` passes and regenerates production client/server
-  assets. Existing Vite Firebase import and bundle-size warnings remain.
+  grading, immutable storage/history, staff-only recent-activity detail, and
+  idempotent legacy replay.
+- Canonical `npm run build` passes and regenerates production client/server
+  assets. The resulting `index-D6fgyh4j.js` contains
+  `student-history-nav-btn` and contains no
+  `VITE_LEARNING_HISTORY_ENABLED` build condition. Existing Vite Firebase
+  import and bundle-size warnings remain.
+- TTS verification passes: `npm run test:vocab-games` 8/8,
+  `npm run test:tts` 5/5, and `npm run lint`. The History availability contract
+  passes inside `test:history:unit`; the remaining seven native History API
+  tests cannot start on this workstation because installed `better-sqlite3`
+  targets ABI 127 while the active Node targets ABI 137.
 - The current workstation cannot start `test:legacy-contracts` because its
   installed `better-sqlite3` binary targets Node ABI 127 while the active Node
   requires ABI 137. This is a pre-test native dependency mismatch; rebuild or

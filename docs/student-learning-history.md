@@ -1,5 +1,10 @@
 # Lịch sử học tập của học sinh
 
+> Cập nhật vận hành 2026-08-03: route và nút Student History luôn được đóng gói
+> trong `npm run build`. `VITE_LEARNING_HISTORY_ENABLED` đã ngừng sử dụng; chỉ
+> `LEARNING_HISTORY_ENABLED` phía server còn kiểm soát API/projector. Các đoạn
+> mô tả frontend flag bên dưới được giữ lại như lịch sử rollout Release B.
+
 Tài liệu này mô tả contract của Release B. Lịch sử học tập là lịch sử dài hạn; nó
 không thay thế Recent Activity 7 ngày và không thay đổi nguồn dữ liệu của
 leaderboard.

@@ -8,6 +8,11 @@ import type {
   ListeningPart5,
   ListeningRegion,
 } from '../types';
+import {
+  getUnusedAnswerIds,
+  placeSingleUseAnswer,
+  removeSingleUseAnswer,
+} from './listeningAnswerMoves';
 
 interface PartProps<T> {
   key?: React.Key;
@@ -33,29 +38,44 @@ function regionStyle(region: ListeningRegion): React.CSSProperties {
   };
 }
 
+function compactRegionHeightStyle(region: ListeningRegion): React.CSSProperties {
+  return {
+    ...regionStyle(region),
+    top: `${(region.y + region.height * 0.25) * 100}%`,
+    height: `${region.height * 50}%`,
+  };
+}
+
 export function ListeningPart1View({ part, answers, onAnswers }: PartProps<ListeningPart1>) {
   const [selectedChoice, setSelectedChoice] = useState('');
   const labels = useMemo(() => new Map(part.choices.map(choice => [choice.id, choice.label])), [part.choices]);
+  const availableChoiceIds = getUnusedAnswerIds(part.choices.map(choice => choice.id), answers.part1);
   const assign = (targetId: string, choiceId: string) => {
-    if (!choiceId) return;
-    onAnswers({ ...answers, part1: { ...answers.part1, [targetId]: choiceId } });
+    if (!choiceId || !labels.has(choiceId)) return;
+    onAnswers({ ...answers, part1: placeSingleUseAnswer(answers.part1, targetId, choiceId) });
+    setSelectedChoice('');
+  };
+  const clear = (targetId: string) => {
+    onAnswers({ ...answers, part1: removeSingleUseAnswer(answers.part1, targetId) });
     setSelectedChoice('');
   };
   return (
     <div className="listening-part space-y-4">
       <div className="flex flex-wrap justify-center gap-2">
-        {part.choices.map(choice => {
-          const used = Object.values(answers.part1).includes(choice.id);
+        {part.choices.filter(choice => availableChoiceIds.includes(choice.id)).map(choice => {
           return (
             <button
               key={choice.id}
               draggable
-              data-state={selectedChoice === choice.id ? 'selected' : used ? 'used' : 'available'}
+              data-state={selectedChoice === choice.id ? 'selected' : 'available'}
               aria-pressed={selectedChoice === choice.id}
-              onDragStart={event => event.dataTransfer.setData('text/listening-choice', choice.id)}
+              onDragStart={event => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/listening-choice', choice.id);
+              }}
               onClick={() => setSelectedChoice(choice.id)}
               className={`listening-part1-choice rounded-2xl border-2 border-dashed px-5 py-2.5 text-base font-black transition ${
-                selectedChoice === choice.id ? 'border-violet-600 bg-violet-600 text-white' : used ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-rose-300 bg-white text-slate-900'
+                selectedChoice === choice.id ? 'border-violet-600 bg-violet-600 text-white' : 'border-rose-300 bg-white text-slate-900'
               }`}
             >
               {choice.label}
@@ -71,15 +91,26 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
             <button
               key={target.id}
               style={regionStyle(target.region)}
-              onDragOver={event => event.preventDefault()}
-              onDrop={event => assign(target.id, event.dataTransfer.getData('text/listening-choice'))}
-              onClick={() => assign(target.id, selectedChoice)}
-              aria-label={`Vùng trả lời ${index + 1}`}
+              onDragOver={event => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={event => {
+                event.preventDefault();
+                assign(target.id, event.dataTransfer.getData('text/listening-choice'));
+              }}
+              onClick={() => selectedChoice ? assign(target.id, selectedChoice) : answer ? clear(target.id) : undefined}
+              aria-label={answer ? `Vùng trả lời ${index + 1}: ${labels.get(answer)}. Nhấn để gỡ.` : `Vùng trả lời ${index + 1}`}
               className={`absolute flex items-center justify-center border-2 border-dashed text-xs font-black shadow-sm transition ${
-                answer ? 'border-emerald-500 bg-white/90 text-emerald-800' : 'border-rose-400 bg-rose-100/35 text-rose-700'
+                answer ? 'border-emerald-700 bg-emerald-100/55' : 'border-rose-400 bg-rose-100/35'
               }`}
             >
-              {answer ? labels.get(answer) : index + 1}
+              <span className={answer
+                ? 'listening-part1-target-answer rounded-xl border-2 px-3 py-1 text-xs font-black shadow-lg'
+                : 'rounded-lg bg-white/90 px-2 py-1 text-rose-700'}
+              >
+                {answer ? labels.get(answer) || index + 1 : index + 1}
+              </span>
             </button>
           );
         })}
@@ -222,14 +253,20 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
 export function ListeningPart5View({ part, answers, onAnswers }: PartProps<ListeningPart5>) {
   const [selectedColour, setSelectedColour] = useState('');
   const colours = useMemo(() => new Map(part.colours.map(colour => [colour.id, colour])), [part.colours]);
+  const availableColourIds = getUnusedAnswerIds(part.colours.map(colour => colour.id), answers.part5);
   const assign = (targetId: string, colourId: string) => {
     if (!colourId || !colours.has(colourId)) return;
-    onAnswers({ ...answers, part5: { ...answers.part5, [targetId]: colourId } });
+    onAnswers({ ...answers, part5: placeSingleUseAnswer(answers.part5, targetId, colourId) });
+    setSelectedColour('');
+  };
+  const clear = (targetId: string) => {
+    onAnswers({ ...answers, part5: removeSingleUseAnswer(answers.part5, targetId) });
+    setSelectedColour('');
   };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-center gap-3">
-        {part.colours.map(colour => (
+        {part.colours.filter(colour => availableColourIds.includes(colour.id)).map(colour => (
           <button
             key={colour.id}
             type="button"
@@ -242,7 +279,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
             onClick={() => setSelectedColour(colour.id)}
             onDragStart={event => {
               setSelectedColour(colour.id);
-              event.dataTransfer.effectAllowed = 'copy';
+              event.dataTransfer.effectAllowed = 'move';
               event.dataTransfer.setData('text/listening-colour', colour.id);
             }}
             className={`listening-part5-colour-choice flex items-center justify-center rounded-2xl border-2 px-3 py-2 ${selectedColour === colour.id ? 'border-blue-700 bg-blue-50' : 'border-sky-300 bg-white'}`}
@@ -259,28 +296,28 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
           return (
             <button
               key={target.id}
-              onClick={() => assign(target.id, selectedColour)}
+              onClick={() => selectedColour ? assign(target.id, selectedColour) : answer ? clear(target.id) : undefined}
               onDragOver={event => {
                 event.preventDefault();
-                event.dataTransfer.dropEffect = 'copy';
+                event.dataTransfer.dropEffect = 'move';
               }}
               onDrop={event => {
                 event.preventDefault();
                 assign(target.id, event.dataTransfer.getData('text/listening-colour'));
               }}
               style={{
-                ...regionStyle(target.region),
-                backgroundColor: colour ? `${colour.value}99` : 'rgba(244,63,94,.10)',
+                ...compactRegionHeightStyle(target.region),
+                backgroundColor: colour ? `${colour.value}cc` : 'rgba(244,63,94,.10)',
               }}
               className={`absolute flex items-center justify-center border-2 border-dashed font-black ${answer ? 'border-slate-700 text-slate-900' : 'border-rose-500 text-rose-600'}`}
-              aria-label={`${target.label}, vùng ${index + 1}`}
+              aria-label={colour ? `Vùng trả lời ${index + 1}: màu ${colour.label}. Nhấn để gỡ.` : `Vùng trả lời ${index + 1}`}
             >
-              <span className="rounded-lg bg-white/80 px-2 py-1 text-[10px]">{target.label}</span>
+              <span className="rounded-lg bg-white/80 px-2 py-1 text-[10px]">{index + 1}</span>
             </button>
           );
         })}
       </div>
-      <p id="listening-part5-instructions" className="text-center text-xs font-bold text-slate-500">Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng. Có thể đổi màu trước khi nộp.</p>
+      <p id="listening-part5-instructions" className="text-center text-xs font-bold text-slate-500">Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng. Chạm vùng đã tô khi chưa chọn màu để trả màu về hàng trên.</p>
     </div>
   );
 }

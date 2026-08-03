@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
-import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, playVocabAudio, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
@@ -1040,6 +1040,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const updateTtsSettings = (patch: Partial<TtsSettings>) => {
+    if (patch.speed !== undefined && ttsSettings.provider === 'yupvox') {
+      setEditorItems(items => items.map(item => (
+        item.audioUrl && item.ttsProvider?.toLowerCase() === 'yupvox'
+          ? { ...item, ttsSpeed: patch.speed }
+          : item
+      )));
+    }
     setTtsSettings(prev => ({ ...prev, ...patch }));
   };
 
@@ -1047,8 +1054,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setTtsSettings(prev => ({
       ...prev,
       provider,
-      voice: DEFAULT_TTS_VOICE_BY_PROVIDER[provider] || prev.voice,
-      speed: provider === 'yupvox' ? 1 : prev.speed
+      voice: DEFAULT_TTS_VOICE_BY_PROVIDER[provider] || prev.voice
     }));
   };
 
@@ -1077,7 +1083,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         showNotification('Khong the tao audio nghe thu.', 'error');
         return;
       }
-      playAudioUrl(data.audioUrl, 'apple');
+      playAudioUrl(data.audioUrl, 'apple', resolveTtsPlaybackRate(ttsSettings.provider, ttsSettings.speed));
     } catch (err: any) {
       showNotification(err.message || 'Khong the nghe thu voice id.', 'error');
     } finally {
@@ -1086,11 +1092,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handlePlayItemAudio = (item: VocabItem) => {
-    if (item.audioUrl) {
-      playAudioUrl(item.audioUrl, item.term);
-      return;
-    }
-    if (item.term.trim()) speakEnglish(item.term);
+    playVocabAudio(item);
   };
 
   const handleGenerateItemAudio = async (itemId: string, force = false) => {
@@ -3440,8 +3442,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <select
                       value={String(ttsSettings.speed)}
                       onChange={(e) => updateTtsSettings({ speed: Number(e.target.value) })}
-                      disabled={ttsSettings.provider === 'yupvox'}
-                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs disabled:opacity-60"
+                      className="w-full p-2.5 bg-gray-50 rounded-xl border border-gray-100 outline-none font-bold text-gray-700 text-xs"
                     >
                       {[0.8, 0.9, 1, 1.1, 1.2].map(speed => (
                         <option key={speed} value={speed}>{speed.toFixed(1)}</option>
@@ -3452,7 +3453,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
                 {ttsSettings.provider === 'yupvox' && (
                   <p className="text-xs text-slate-500 font-medium">
-                    YupVox dùng Voice ID (mặc định EBF147). API hiện tại không nhận tham số tốc độ nên hệ thống cố định tốc độ 1.0.
+                    YupVox dùng Voice ID (mặc định EBF147). Tốc độ được lưu cùng bộ từ và áp dụng khi phát audio cho học sinh.
                   </p>
                 )}
 

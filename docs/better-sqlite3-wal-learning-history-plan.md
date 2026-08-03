@@ -1,5 +1,10 @@
 # Kế hoạch chuyển better-sqlite3 + WAL và xây dựng Lịch sử học tập
 
+> Cập nhật vận hành 2026-08-03: đây là hồ sơ kế hoạch/rollout lịch sử. Frontend
+> hiện luôn đóng gói route và nút History bằng `npm run build`; không còn dùng
+> `VITE_LEARNING_HISTORY_ENABLED` để tạo artifact UI-off. Runtime backend vẫn do
+> `LEARNING_HISTORY_ENABLED` kiểm soát.
+
 > Trạng thái: **Release A đã cutover production; Release B đã hoàn tất triển khai và quality gate ở local, chưa deploy production**
 > Ngày khảo sát repository: 2026-07-30  
 > Ngày xác minh production: 2026-07-31

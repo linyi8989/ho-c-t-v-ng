@@ -15,6 +15,7 @@ import {
   resolveListeningModuleId,
 } from '../../features/listening-library/registry.js';
 import { gradeListeningAttempt, LISTENING_GRADING_VERSION } from './listeningGrader.js';
+import { buildListeningActivityAnswerDetails } from './listeningActivity.js';
 import {
   sanitizeListeningAnswers,
   sanitizeListeningContentForStudent,
@@ -1038,21 +1039,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         createdAt: completedAt,
         updatedAt: completedAt,
       };
-      const answerForQuestion = (part: number, questionId: string) => {
-        if (part === 1) return answers.part1[questionId] || '';
-        if (part === 2) return Object.values(answers.part2[questionId] || {}).filter(Boolean).join(' | ');
-        if (part === 3) return answers.part3[questionId] || '';
-        if (part === 4) return answers.part4[questionId] || '';
-        return answers.part5[questionId] || '';
-      };
-      const answerDetails = grade.questions.map(question => ({
-        questionId: question.questionId,
-        questionText: `Part ${question.part} • ${question.questionId}`,
-        part: question.part,
-        userAnswer: answerForQuestion(question.part, question.questionId),
-        isCorrect: question.correct,
-        unanswered: question.unanswered,
-      }));
+      const answerDetails = buildListeningActivityAnswerDetails(version.content, answers, grade.questions);
       const detail = {
         id: attemptId,
         attemptId,

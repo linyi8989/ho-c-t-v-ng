@@ -93,7 +93,7 @@ npm run test:listening
 npm run test:history
 npm run test:legacy-contracts
 npm run test:phase2
-npm run build:history-ui
+npm run build
 ```
 
 Chỉ chạy tập gate phù hợp phạm vi, nhưng thay đổi cross-cutting hoặc trước deploy phải dùng gate rộng tương ứng.
@@ -151,6 +151,11 @@ Production baseline cần giữ nếu chưa có kế hoạch nâng cấp riêng:
 - Mover hiện có đúng năm Part, năm câu chấm điểm mỗi Part và 25 câu tổng cộng cho schema v1.
 - Parts 1 và 5 hiện dùng vùng tương tác; tọa độ phải chuẩn hóa trong khoảng 0-1.
 - Published version là bất biến.
+- Khi summary và chi tiết Listening được lưu ở hai collection/bảng khác nhau,
+  mọi adapter lịch sử/kết quả quản trị phải ghép chi tiết sau khi kiểm tra quyền.
+  API công khai và nhánh học sinh không được ghép answer key. Regression test
+  phải phủ cả hai nhánh để tránh trường hợp summary có điểm nhưng modal quản trị
+  hiện `0 dòng` trong khi chi tiết vẫn tồn tại trong storage.
 - Student snapshot phải loại bỏ answer key trước khi gửi xuống client học sinh.
 - Grader phải ở backend và chấm trên immutable published version.
 - Legacy record thiếu `moduleId` được đọc như Mover; không tự rewrite hàng loạt.
@@ -187,8 +192,10 @@ Kế hoạch Smart Editor chi tiết nằm tại `docs/listening-smart-editor-pl
 ## 12. Build và deploy
 
 - Source là nguồn sự thật; không chỉnh sửa `dist` thủ công.
-- `npm run build` tạo client và server bundle nhưng giữ History UI ở chế độ rollback/off.
-- Khi phát hành với Student History đang bật, dùng `npm run build:history-ui`.
+- `npm run build` luôn phải chứa nút và route Student History; không được dùng build-time flag để loại bỏ chức năng này khỏi client. `npm run build:history-ui` chỉ còn là alias tương thích và phải tạo cùng một loại artifact.
+- `LEARNING_HISTORY_ENABLED` là runtime flag phía server cho API/projector. Bật/tắt flag này không được làm biến mất nút History ở lần build kế tiếp; khi backend chưa sẵn sàng, UI phải hiển thị trạng thái lỗi/không khả dụng có thể hiểu được.
+- Sau mọi thay đổi build script hoặc trước deploy, phải có regression test hoặc kiểm tra artifact xác nhận `student-history-nav-btn` tồn tại trong client bundle và chuỗi `VITE_LEARNING_HISTORY_ENABLED` không còn là điều kiện biên dịch.
+- Control quan trọng đã phát hành (History, điều hướng, submit, back/home) không được phụ thuộc một biến build tùy chọn có default “off”. Nếu cần rollout/rollback, ưu tiên runtime capability phía server và trạng thái UI rõ ràng.
 - Thay đổi backend yêu cầu deploy `dist/server.cjs` và restart Node/Passenger.
 - Sau deploy phải xác minh:
   - Git commit đang chạy.
@@ -198,6 +205,14 @@ Kế hoạch Smart Editor chi tiết nằm tại `docs/listening-smart-editor-pl
   - API smoke và browser smoke thực tế.
 - Không kết luận deploy thành công chỉ vì Git push thành công.
 - Cập nhật CODEMAP version/deployment ledger khi thay đổi artifact hoặc kiến trúc đáng kể.
+
+### Quy tắc tốc độ TTS theo provider
+
+- Chỉ gửi tham số tốc độ cho provider khi hợp đồng API đã xác nhận hỗ trợ. Không tự thêm trường chưa được tài liệu hoặc response contract xác nhận.
+- Nếu provider không hỗ trợ tốc độ lúc tạo file nhưng sản phẩm cần điều chỉnh, lưu tốc độ trong metadata và áp dụng bằng `HTMLAudioElement.playbackRate` qua helper phát audio dùng chung.
+- Không áp dụng tốc độ hai lần: audio AI33 đã được render với tốc độ provider phải phát ở `1.0`; audio YupVox dùng file gốc và chỉ áp dụng `ttsSpeed` ở lớp playback.
+- Thay đổi tốc độ playback không được tạo file YupVox trùng lặp; cache hash của raw audio phải dùng tốc độ tạo thực tế của provider.
+- Mọi game/preview phát audio từ vựng phải đi qua helper chung hoặc truyền cùng quy tắc playback rate; thêm provider/control mới phải có regression test cho UI, metadata, cache và player.
 
 ## 13. Quy trình chuẩn cho AI agent
 

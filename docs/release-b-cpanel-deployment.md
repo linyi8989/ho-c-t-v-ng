@@ -1,5 +1,11 @@
 # Release B cPanel deployment
 
+> Operational update 2026-08-03: Student History navigation and `/history` now
+> ship in every normal `npm run build`. `VITE_LEARNING_HISTORY_ENABLED` and an
+> UI-off client artifact are retired. Treat older UI-flag/build instructions in
+> this Release B rollout record as historical; runtime API/projector rollback is
+> controlled only by server-side `LEARNING_HISTORY_ENABLED`.
+
 Release B được triển khai thành hai lượt:
 
 1. API-first: schema/projector/CLI/API có mặt nhưng History API và UI vẫn tắt.

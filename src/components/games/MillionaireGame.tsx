@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface MillionaireGameProps {
@@ -222,7 +222,11 @@ export default function MillionaireGame({
       return;
     }
 
-    playAudioUrl(learningAudioUrl, currentQuestion.item.term);
+    playAudioUrl(
+      learningAudioUrl,
+      currentQuestion.item.term,
+      resolveTtsPlaybackRate(currentQuestion.item.ttsProvider, currentQuestion.item.ttsSpeed)
+    );
   };
 
   const finishGame = (score: number, correct: number, incorrect: number) => {

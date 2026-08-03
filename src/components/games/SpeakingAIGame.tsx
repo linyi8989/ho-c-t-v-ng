@@ -10,7 +10,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { GameAction, GameCompletionDetails, VocabItem } from '../../types';
-import { playAudioUrl, speakEnglish } from '../../lib/game-engine/speech';
+import { playAudioUrl, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 declare global {
@@ -203,7 +203,11 @@ export default function SpeakingAIGame({
 
     const audioUrl = getLearningAudioUrl(currentItem);
     if (audioUrl && targetText.trim() === currentItem.term.trim()) {
-      playAudioUrl(audioUrl, targetText);
+      playAudioUrl(
+        audioUrl,
+        targetText,
+        resolveTtsPlaybackRate(currentItem.ttsProvider, currentItem.ttsSpeed)
+      );
       return;
     }
 

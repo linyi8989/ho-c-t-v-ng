@@ -5,10 +5,7 @@ if (!npmCli) throw new Error('npm_execpath is unavailable; run this script throu
 
 const result = spawnSync(process.execPath, [npmCli, 'run', 'build'], {
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    VITE_LEARNING_HISTORY_ENABLED: 'true',
-  },
+  env: process.env,
 });
 
 if (result.error) throw result.error;

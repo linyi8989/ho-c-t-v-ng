@@ -51,6 +51,7 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
     '#listening-result-screen #listening-result-home-btn',
     '#listening-exam-root #listening-fullscreen-btn',
     '#listening-exam-root button.listening-part1-choice',
+    '#listening-exam-root .listening-part1-target-answer',
     '#listening-exam-root button.listening-part-arrow',
     '#listening-exam-root button.listening-part-step',
     '#listening-exam-root #listening-submit-btn',
@@ -63,7 +64,7 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
   assert.ok(learningAreaSource.includes('className={`listening-part-step'));
   assert.ok(learningAreaSource.includes("data-active={currentPart === index ? 'true' : 'false'}"));
   assert.ok(partViewsSource.includes('listening-part1-choice'));
-  assert.ok(partViewsSource.includes("data-state={selectedChoice === choice.id ? 'selected' : used ? 'used' : 'available'}"));
+  assert.ok(partViewsSource.includes("data-state={selectedChoice === choice.id ? 'selected' : 'available'}"));
 
   const globalOverrideIndex = globalCss.indexOf('button:not(:disabled) {');
   const playerContractIndex = globalCss.indexOf('/* Listening player contrast contract');
@@ -86,7 +87,11 @@ test('Part 5 supports both click-to-colour and drag-and-drop play modes', () => 
   assert.match(part5Source, /getData\('text\/listening-colour'\)/);
   assert.match(part5Source, /onDragOver=\{event =>/);
   assert.match(part5Source, /onDrop=\{event =>/);
-  assert.match(part5Source, /onClick=\{\(\) => assign\(target\.id, selectedColour\)\}/);
+  assert.match(part5Source, /onClick=\{\(\) => selectedColour \? assign\(target\.id, selectedColour\) : answer \? clear\(target\.id\) : undefined\}/);
+  assert.match(part5Source, /filter\(colour => availableColourIds\.includes\(colour\.id\)\)/);
+  assert.match(part5Source, /compactRegionHeightStyle\(target\.region\)/);
+  assert.match(part5Source, />\{index \+ 1\}<\/span>/);
+  assert.doesNotMatch(part5Source, />\{target\.label\}<\/span>/, 'Stored region labels must not be rendered in the student target marker');
   assert.match(part5Source, /Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng/);
 });
 

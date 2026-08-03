@@ -21,8 +21,6 @@ import Register from './components/Register';
 import { buildLeaderboard, LeaderboardPeriod } from './lib/leaderboard';
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
-const LEARNING_HISTORY_UI_ENABLED = import.meta.env.VITE_LEARNING_HISTORY_ENABLED === 'true';
-
 function formatGradeLabel(value?: string) {
   return (value || '')
     .replace(/Lá»›p/g, 'Lớp')
@@ -78,8 +76,7 @@ export default function App() {
   const { user, token, logout, loading } = useAuth();
   const [adminMode, setAdminMode] = useState(false);
   const [studentHistoryOpen, setStudentHistoryOpen] = useState(() => (
-    LEARNING_HISTORY_UI_ENABLED
-    && (window.location.pathname.replace(/\/+$/, '') || '/') === '/history'
+    (window.location.pathname.replace(/\/+$/, '') || '/') === '/history'
   ));
   const privateAssignmentToken = React.useMemo(() => {
     const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
@@ -126,13 +123,6 @@ export default function App() {
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!LEARNING_HISTORY_UI_ENABLED) {
-      const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-      if (pathname === '/history') {
-        window.history.replaceState({ studentScreen: 'home' }, '', '/');
-      }
-      return;
-    }
     const syncStudentScreenFromPath = () => {
       const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
       setStudentHistoryOpen(pathname === '/history');
@@ -142,7 +132,6 @@ export default function App() {
   }, []);
 
   const navigateToStudentHistory = React.useCallback((open: boolean) => {
-    if (!LEARNING_HISTORY_UI_ENABLED) return;
     const nextPath = open ? '/history' : '/';
     const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
     if (currentPath !== nextPath) {
@@ -714,7 +703,7 @@ export default function App() {
     );
   }
 
-  if (LEARNING_HISTORY_UI_ENABLED && studentHistoryOpen) {
+  if (studentHistoryOpen) {
     return (
       <StudentHistoryPage
         authToken={token}
@@ -790,18 +779,16 @@ export default function App() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-            {LEARNING_HISTORY_UI_ENABLED && (
-              <button
-                type="button"
-                onClick={() => navigateToStudentHistory(true)}
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 text-xs font-black text-indigo-700 transition-colors hover:bg-indigo-100"
-                id="student-history-nav-btn"
-                aria-label="Mở lịch sử học tập"
-              >
-                <History size={16} aria-hidden="true" />
-                <span className="hidden sm:inline">Lịch sử học tập</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => navigateToStudentHistory(true)}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 text-xs font-black text-indigo-700 transition-colors hover:bg-indigo-100"
+              id="student-history-nav-btn"
+              aria-label="Mở lịch sử học tập"
+            >
+              <History size={16} aria-hidden="true" />
+              <span className="hidden sm:inline">Lịch sử học tập</span>
+            </button>
             {user ? (
               <>
                 <div className="flex items-center space-x-2 text-right">

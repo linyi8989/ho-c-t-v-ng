@@ -7,6 +7,10 @@ import path from 'node:path';
 import test from 'node:test';
 import express from 'express';
 import type { ListeningAnswers, ListeningSetContent } from '../../features/listening/types';
+import {
+  listeningAttemptToActivity,
+  resolveListeningActivityDetailForStaff,
+} from './listeningActivity';
 import { createListeningRouter } from './listeningRouter';
 
 function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswers } {
@@ -263,6 +267,23 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(firstResult.score, 100);
   assert.equal(firstResult.correctCount, 25);
 
+  const storedDetailSnapshot = await db.collection('listening_attempt_details').doc(firstResult.id).get();
+  assert.equal(storedDetailSnapshot.exists, true);
+  const storedDetail = storedDetailSnapshot.data() as any;
+  assert.equal(storedDetail.answerDetails.length, 25);
+  assert.equal(storedDetail.answerDetails[0].userAnswer, 'Name 0');
+  assert.equal(storedDetail.answerDetails[0].correctAnswer, 'Name 0');
+  assert.equal(storedDetail.answerDetails[5].questionText, 'Question {{blank-0}}');
+
+  const resolvedLegacyDetail = await resolveListeningActivityDetailForStaff(db, firstResult);
+  const staffActivity = listeningAttemptToActivity(firstResult, resolvedLegacyDetail);
+  assert.equal(staffActivity.answerDetails.length, 25);
+  assert.equal(staffActivity.answerDetails[10].userAnswer, 'A');
+  assert.equal(staffActivity.answerDetails[15].userAnswer, 'Option 1');
+  assert.equal(staffActivity.answerDetails[20].userAnswer, 'Colour 0');
+  const studentActivity = listeningAttemptToActivity(firstResult);
+  assert.equal('answerDetails' in studentActivity, false);
+
   const replaySubmit = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -275,4 +296,16 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
 
   const attempts = await db.collection('listening_attempts').get();
   assert.equal(attempts.size, 1);
+});
+
+test('authenticated results join listening detail only inside the staff review branch', () => {
+  const serverSource = fs.readFileSync(path.resolve(process.cwd(), 'server.ts'), 'utf8');
+  const resultsRouteStart = serverSource.indexOf('app.get("/api/results"');
+  const nextRouteStart = serverSource.indexOf('app.get("/api/leaderboard-results"', resultsRouteStart);
+  const resultsRoute = serverSource.slice(resultsRouteStart, nextRouteStart);
+
+  assert.match(resultsRoute, /isStaffResultReview/);
+  assert.match(resultsRoute, /resolveListeningActivityDetailForStaff/);
+  assert.match(resultsRoute, /listeningAttemptToActivity\(data, detail\)/);
+  assert.match(resultsRoute, /if \(!isStaffResultReview\) return listeningAttemptToActivity\(data\)/);
 });

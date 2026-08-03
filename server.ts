@@ -54,6 +54,10 @@ import {
   assertSafeYupVoxAudioUrl,
   generateYupVoxAudioUrl
 } from "./src/server/tts/yupvoxProvider.js";
+import {
+  listeningAttemptToActivity,
+  resolveListeningActivityDetailForStaff
+} from "./src/server/listening/listeningActivity.js";
 
 // Load environment variables
 dotenv.config();
@@ -1409,49 +1413,6 @@ function grammarAttemptToLeaderboardEvent(attempt: any, set: any = {}) {
   });
 }
 
-function listeningAttemptToActivity(attempt: any) {
-  const totalQuestions = Math.max(
-    1,
-    Number(attempt.totalCount || 0)
-      || Number(attempt.correctCount || 0) + Number(attempt.incorrectCount || 0) + Number(attempt.unansweredCount || 0)
-  );
-  return {
-    id: attempt.id,
-    sourceType: "listening",
-    sourceId: attempt.id,
-    moduleId: resolveListeningModuleId(attempt.moduleId),
-    moduleSchemaVersion: Number(attempt.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
-    ownerKey: attempt.ownerKey,
-    ownerType: attempt.guestId ? "guest" : "user",
-    userId: attempt.userId || "",
-    studentId: attempt.userId || attempt.guestId || "",
-    guestId: attempt.guestId || "",
-    studentName: attempt.studentName || "Học sinh",
-    assignmentId: attempt.assignmentId || "",
-    classId: attempt.classId || "",
-    className: attempt.className || "",
-    vocabSetId: `listening:${attempt.setId}`,
-    vocabSetTitle: attempt.setTitle || "Bộ đề nghe 5 Part",
-    gameId: "listening-five-part",
-    gameName: "Nghe 5 Part",
-    gameType: "listening",
-    startedAt: attempt.startedAt,
-    endedAt: attempt.completedAt,
-    completedAt: attempt.completedAt,
-    createdAt: attempt.createdAt || attempt.completedAt,
-    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1000,
-    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
-    score: Math.max(0, Math.min(100, Number(attempt.score || 0))),
-    rawScore: Math.max(0, Math.min(100, Number(attempt.score || 0))),
-    maxScore: 100,
-    totalQuestions,
-    correctAnswers: Math.max(0, Number(attempt.correctCount || 0)),
-    incorrectAnswers: Math.max(0, Number(attempt.incorrectCount || 0)) + Math.max(0, Number(attempt.unansweredCount || 0)),
-    accuracy: Math.round(Math.max(0, Number(attempt.correctCount || 0)) / totalQuestions * 100),
-    status: "completed"
-  };
-}
-
 async function persistLeaderboardEvent(event: any) {
   if (!event?.completedAt) return;
   const safeEvent = sanitizeLeaderboardEvent(event);
@@ -1631,9 +1592,7 @@ function normalizeTtsSettings(settings: TtsSettings = {}): Required<TtsSettings>
     throw createHttpError(400, `Unsupported TTS provider: ${provider}`);
   }
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
-  const speed = provider === "yupvox"
-    ? DEFAULT_TTS_SPEED
-    : Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
+  const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
   const providerVoices = DEFAULT_TTS_VOICE_BY_PROVIDER[provider];
   return {
     autoGenerate: Boolean(settings.autoGenerate),
@@ -1646,9 +1605,12 @@ function normalizeTtsSettings(settings: TtsSettings = {}): Required<TtsSettings>
 
 function createAudioHash(text: string, settings: Required<TtsSettings>) {
   const normalizedText = normalizeTtsText(text);
+  // The supplied YupVox API contract has no generation-speed field. Speed is
+  // applied by the client player, so all playback speeds share one raw file.
+  const generationSpeed = settings.provider === "yupvox" ? DEFAULT_TTS_SPEED : settings.speed;
   return crypto
     .createHash("sha256")
-    .update(`${settings.provider}|${settings.lang}|${settings.voice}|${settings.speed}|${normalizedText}`)
+    .update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`)
     .digest("hex");
 }
 
@@ -5382,6 +5344,7 @@ app.get("/api/results", authenticateUser, async (req, res) => {
       if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
       list.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
     });
+    const visibleListeningAttempts: any[] = [];
     listeningAttemptsSnapshot.forEach(doc => {
       const data = { id: doc.id, ...doc.data() };
       if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
@@ -5390,8 +5353,20 @@ app.get("/api/results", authenticateUser, async (req, res) => {
         || data.userId === req.user?.id
         || data.ownerKey === `user:${req.user?.id}`
         || (req.user?.role === "teacher" && set?.ownerId === req.user.id);
-      if (canView) list.push(listeningAttemptToActivity(data));
+      if (canView) visibleListeningAttempts.push(data);
     });
+    const isStaffResultReview = req.user?.role === "teacher" || req.user?.role === "super_admin";
+    const listeningVersionContentCache = new Map();
+    const listeningActivities = await Promise.all(visibleListeningAttempts.map(async data => {
+      if (!isStaffResultReview) return listeningAttemptToActivity(data);
+      const detail = await resolveListeningActivityDetailForStaff(
+        adminDb,
+        data,
+        listeningVersionContentCache
+      );
+      return listeningAttemptToActivity(data, detail);
+    }));
+    list.push(...listeningActivities);
     list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
     res.json(await enrichStudentNames(list));
   } catch (err: any) {
