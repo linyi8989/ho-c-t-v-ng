@@ -269,7 +269,7 @@ export default function FillBlankGame({
       </div>
 
       {/* Input Form Area */}
-      <form onSubmit={handleCheckAnswer} className="space-y-4" id="fill-form">
+      <form onSubmit={handleCheckAnswer} className="space-y-4" id="fill-form" autoComplete="off">
         <div className="relative">
           <input
             ref={inputRef}
@@ -293,6 +293,7 @@ export default function FillBlankGame({
             autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
+            spellCheck={false}
           />
 
           {!isSubmitted && (

@@ -107,20 +107,6 @@ export const GAMES_LIST: GameConfig[] = [
 
   // --- FILL BLANK GROUP ---
   {
-    gameId: 'fill-meaning',
-    title: 'Điền từ theo nghĩa',
-    description: 'Nhìn nghĩa tiếng Việt và gõ từ tiếng Anh hoàn chỉnh.',
-    category: 'fill',
-    icon: 'Edit3',
-    color: 'from-amber-500 to-orange-600',
-    componentName: 'FillBlankGame',
-    requiredFields: ['term', 'meaning'],
-    config: {
-      mode: 'complete', // Write entire word
-      promptType: 'meaning'
-    }
-  },
-  {
     gameId: 'fill-missing',
     title: 'Điền chữ cái còn thiếu',
     description: 'Gõ các ký tự còn thiếu của từ tiếng Anh để hoàn thành từ.',
@@ -132,6 +118,20 @@ export const GAMES_LIST: GameConfig[] = [
     config: {
       mode: 'missing_letters', // Fill hidden letter blanks, e.g. a_p_e
       promptType: 'meaning_and_hint'
+    }
+  },
+  {
+    gameId: 'fill-meaning',
+    title: 'Điền từ theo nghĩa',
+    description: 'Nhìn nghĩa tiếng Việt và gõ từ tiếng Anh hoàn chỉnh.',
+    category: 'fill',
+    icon: 'Edit3',
+    color: 'from-amber-500 to-orange-600',
+    componentName: 'FillBlankGame',
+    requiredFields: ['term', 'meaning'],
+    config: {
+      mode: 'complete', // Write entire word
+      promptType: 'meaning'
     }
   },
 

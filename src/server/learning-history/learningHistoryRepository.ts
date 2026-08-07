@@ -3,6 +3,12 @@ import {
   sqliteQueryOne,
 } from '../../lib/sqliteStorage';
 import type {
+  ListeningAnswers,
+  ListeningGradeResult,
+  ListeningSetContent,
+} from '../../features/listening/types';
+import { buildListeningActivityAnswerDetails } from '../listening/listeningActivity';
+import type {
   LearningHistoryAssignmentGroup,
   LearningHistoryFilterOption,
   LearningHistoryFilters,
@@ -394,9 +400,12 @@ export async function findAttemptDetail(attemptId: string) {
   ).then(async row => {
     if (row) return row;
     const listeningRow = await sqliteQueryOne<Record<string, any>>(
-      `SELECT attempt_id, data_json, created_at, updated_at
-       FROM listening_attempt_details
-       WHERE attempt_id = ?`,
+      `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+              attempt.version_id, version.data_json AS version_data_json
+       FROM listening_attempt_details AS detail
+       JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+       LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
+       WHERE detail.attempt_id = ?`,
       [attemptId],
     );
     if (!listeningRow) return undefined;
@@ -406,6 +415,33 @@ export async function findAttemptDetail(attemptId: string) {
     } catch {
       data = {};
     }
+    try {
+      const version = JSON.parse(String(listeningRow.version_data_json || '{}'));
+      if (version?.content && data?.answers && Array.isArray(data?.questions)) {
+        const answerDetails = buildListeningActivityAnswerDetails(
+          version.content as ListeningSetContent,
+          data.answers as ListeningAnswers,
+          data.questions as ListeningGradeResult['questions'],
+        );
+        data = {
+          ...data,
+          answerDetails,
+          questionSnapshots: answerDetails.map(item => ({
+            questionId: item.questionId,
+            questionText: item.questionText,
+            part: item.part,
+          })),
+        };
+      }
+    } catch {
+      // Keep the stored bounded detail if a legacy immutable version is malformed.
+    }
+    const reviewPolicy = {
+      ...(data.reviewPolicy && typeof data.reviewPolicy === 'object' ? data.reviewPolicy : {}),
+      showReviewAfterSubmit: true,
+      showExplanationImmediately: false,
+      policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0)),
+    };
     return {
       attempt_id: attemptId,
       client_run_id: null,
@@ -414,7 +450,7 @@ export async function findAttemptDetail(attemptId: string) {
       question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
       option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
       extra_details_json: JSON.stringify(data.extraDetails || {}),
-      review_policy_json: JSON.stringify(data.reviewPolicy || { revealCorrectAnswers: false }),
+      review_policy_json: JSON.stringify(reviewPolicy),
       created_at: listeningRow.created_at,
       updated_at: listeningRow.updated_at,
       expires_at: null,

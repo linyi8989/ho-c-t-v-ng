@@ -1059,7 +1059,11 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           versionId: ticket.versionId,
           gradingVersion: LISTENING_GRADING_VERSION,
         },
-        reviewPolicy: { revealCorrectAnswers: false },
+        reviewPolicy: {
+          showReviewAfterSubmit: true,
+          showExplanationImmediately: false,
+          policyVersion: 2,
+        },
         gradingVersion: LISTENING_GRADING_VERSION,
         createdAt: completedAt,
         updatedAt: completedAt,

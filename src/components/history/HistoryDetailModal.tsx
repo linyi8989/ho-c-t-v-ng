@@ -17,6 +17,10 @@ import {
   normalizeHistoryDetailEntries,
   resolveHistoryOptionAnswer
 } from './historyTypes';
+import {
+  formatListeningReviewAnswer,
+  formatListeningReviewQuestion,
+} from '../../features/listening/reviewPresentation';
 
 interface HistoryDetailModalProps {
   open: boolean;
@@ -128,11 +132,20 @@ function DetailEntry({
   ]);
   const correctness = firstValue(data, ['isCorrect', 'correct', 'passed']);
   const options = firstValue(data, ['optionsSnapshot', 'options']);
-  const displayedStudentAnswer = resolveHistoryOptionAnswer(studentAnswer, options)
+  const resolvedStudentAnswer = resolveHistoryOptionAnswer(studentAnswer, options)
     || readableValue(studentAnswer);
+  const displayedStudentAnswer = sourceType === 'listening'
+    ? formatListeningReviewAnswer(resolvedStudentAnswer) || '—'
+    : resolvedStudentAnswer;
   const correctAnswer = explicitCorrectAnswer ?? correctOptionId;
-  const displayedCorrectAnswer = resolveHistoryOptionAnswer(correctAnswer, options)
+  const resolvedCorrectAnswer = resolveHistoryOptionAnswer(correctAnswer, options)
     || readableValue(correctAnswer);
+  const displayedCorrectAnswer = sourceType === 'listening'
+    ? formatListeningReviewAnswer(resolvedCorrectAnswer) || '—'
+    : resolvedCorrectAnswer;
+  const displayedPrompt = sourceType === 'listening'
+    ? formatListeningReviewQuestion(prompt, data.part, entry.index)
+    : readableValue(prompt);
   const ipa = firstValue(data, ['ipa', 'phonetic', 'ipaSnapshot']);
   const meaning = firstValue(data, ['meaning', 'definition', 'meaningSnapshot']);
   const explanation = firstValue(data, ['explanation', 'explanationSnapshot']);
@@ -178,7 +191,7 @@ function DetailEntry({
           <dt className="text-xs font-bold text-slate-500">
             {sourceType === 'vocabulary' ? 'Từ / câu hỏi' : 'Câu hỏi'}
           </dt>
-          <dd className="mt-1 break-words font-bold text-slate-900">{readableValue(prompt)}</dd>
+          <dd className="mt-1 break-words font-bold text-slate-900">{displayedPrompt}</dd>
         </div>
         {(ipa !== undefined || meaning !== undefined) && (
           <div className="grid gap-3 sm:grid-cols-2">

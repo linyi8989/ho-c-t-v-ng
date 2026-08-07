@@ -7,6 +7,10 @@ import {
   LISTENING_LIBRARY_SCHEMA_VERSION,
   resolveListeningModuleId,
 } from '../../features/listening-library/registry.js';
+import {
+  formatListeningReviewAnswer,
+  formatListeningReviewQuestion,
+} from '../../features/listening/reviewPresentation.js';
 
 const activityText = (value: unknown, max = 1000) => String(value ?? '').trim().slice(0, max);
 
@@ -17,7 +21,9 @@ function labelForId<T extends { id: string }>(
 ) {
   const normalizedId = activityText(id, 200);
   const index = items.findIndex(item => item.id === normalizedId);
-  return index >= 0 ? activityText(getLabel(items[index], index), 500) : normalizedId;
+  return index >= 0
+    ? activityText(getLabel(items[index], index), 500)
+    : formatListeningReviewAnswer(normalizedId);
 }
 
 export function buildListeningActivityAnswerDetails(
@@ -41,12 +47,11 @@ export function buildListeningActivityAnswerDetails(
     details.push({
       questionIndex: details.length,
       questionId,
-      wordId: questionId,
-      questionText: activityText(questionText, 1000),
+      questionText: formatListeningReviewQuestion(questionText, part, details.length),
       part,
-      selectedAnswer: activityText(userAnswer, 1000),
-      userAnswer: activityText(userAnswer, 1000),
-      correctAnswer: activityText(correctAnswer, 1000),
+      selectedAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1000)),
+      userAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1000)),
+      correctAnswer: formatListeningReviewAnswer(activityText(correctAnswer, 1000)),
       isCorrect: Boolean(result?.correct),
       unanswered: Boolean(result?.unanswered),
       options: options.map(option => activityText(option, 500)).filter(Boolean).slice(0, 20),
@@ -55,11 +60,11 @@ export function buildListeningActivityAnswerDetails(
 
   const part1 = content.parts[0];
   const part1Options = part1.choices.map(choice => choice.label);
-  part1.targets.forEach(target => {
+  part1.targets.forEach((target, index) => {
     push(
       1,
       target.id,
-      `Part 1 • ${target.id}`,
+      formatListeningReviewQuestion('', 1, index),
       labelForId(part1.choices, answers.part1[target.id], choice => choice.label),
       labelForId(part1.choices, target.choiceId, choice => choice.label),
       part1Options
@@ -67,23 +72,23 @@ export function buildListeningActivityAnswerDetails(
   });
 
   const part2 = content.parts[1];
-  part2.questions.forEach(question => {
+  part2.questions.forEach((question, index) => {
     const answer = answers.part2[question.id] || {};
     const userAnswer = question.blanks.map(blank => activityText(answer[blank.id], 500)).filter(Boolean).join(' | ');
     const correctAnswer = question.blanks
       .map(blank => blank.acceptedAnswers.map(item => activityText(item, 500)).filter(Boolean).join(' / '))
       .filter(Boolean)
       .join(' | ');
-    push(2, question.id, question.prompt, userAnswer, correctAnswer);
+    push(2, question.id, formatListeningReviewQuestion(question.prompt, 2, index + 5), userAnswer, correctAnswer);
   });
 
   const part3 = content.parts[2];
   const part3Options = part3.options.map(option => option.label);
-  part3.items.forEach(item => {
+  part3.items.forEach((item, index) => {
     push(
       3,
       item.id,
-      `Part 3 • ${item.label || item.id}`,
+      formatListeningReviewQuestion(`Part 3 • ${item.label || ''}`, 3, index + 10),
       labelForId(part3.options, answers.part3[item.id], option => option.label),
       labelForId(part3.options, item.correctOptionId, option => option.label),
       part3Options
@@ -91,12 +96,12 @@ export function buildListeningActivityAnswerDetails(
   });
 
   const part4 = content.parts[3];
-  part4.questions.forEach(question => {
+  part4.questions.forEach((question, questionIndex) => {
     const optionLabels = question.options.map((option, index) => option.alt || String.fromCharCode(65 + index));
     push(
       4,
       question.id,
-      question.prompt,
+      formatListeningReviewQuestion(question.prompt, 4, questionIndex + 15),
       labelForId(question.options, answers.part4[question.id], (option, index) => option.alt || String.fromCharCode(65 + index)),
       labelForId(question.options, question.correctOptionId, (option, index) => option.alt || String.fromCharCode(65 + index)),
       optionLabels
@@ -105,11 +110,11 @@ export function buildListeningActivityAnswerDetails(
 
   const part5 = content.parts[4];
   const part5Options = part5.colours.map(colour => colour.label);
-  part5.targets.forEach(target => {
+  part5.targets.forEach((target, index) => {
     push(
       5,
       target.id,
-      `Part 5 • ${target.label || target.id}`,
+      formatListeningReviewQuestion(`Part 5 • ${target.label || ''}`, 5, index + 20),
       labelForId(part5.colours, answers.part5[target.id], colour => colour.label),
       labelForId(part5.colours, target.correctColourId, colour => colour.label),
       part5Options
@@ -123,11 +128,15 @@ export function normalizeListeningActivityAnswerDetails(detail: any) {
   if (!Array.isArray(detail?.answerDetails)) return [];
   return detail.answerDetails.slice(0, 200).map((item: any, index: number) => ({
     questionIndex: Number.isFinite(Number(item?.questionIndex)) ? Number(item.questionIndex) : index,
-    wordId: activityText(item?.wordId || item?.questionId, 200),
-    questionText: activityText(item?.questionText || (item?.part ? `Part ${item.part}` : ''), 1000),
-    selectedAnswer: activityText(item?.selectedAnswer || item?.userAnswer, 1000),
-    userAnswer: activityText(item?.userAnswer || item?.selectedAnswer, 1000),
-    correctAnswer: activityText(item?.correctAnswer, 1000),
+    part: Number(item?.part || 0),
+    questionText: formatListeningReviewQuestion(
+      item?.questionText || (item?.part ? `Part ${item.part}` : ''),
+      item?.part,
+      index
+    ),
+    selectedAnswer: formatListeningReviewAnswer(item?.selectedAnswer || item?.userAnswer),
+    userAnswer: formatListeningReviewAnswer(item?.userAnswer || item?.selectedAnswer),
+    correctAnswer: formatListeningReviewAnswer(item?.correctAnswer),
     isCorrect: Boolean(item?.isCorrect),
     options: Array.isArray(item?.options)
       ? item.options.map((option: unknown) => activityText(option, 500)).filter(Boolean).slice(0, 20)

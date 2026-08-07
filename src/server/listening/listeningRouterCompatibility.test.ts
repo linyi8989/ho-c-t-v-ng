@@ -11,6 +11,7 @@ import {
   listeningAttemptToActivity,
   resolveListeningActivityDetailForStaff,
 } from './listeningActivity';
+import { containsInternalListeningDisplayValue } from '../../features/listening/reviewPresentation';
 import { createListeningRouter } from './listeningRouter';
 
 function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswers } {
@@ -273,7 +274,14 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(storedDetail.answerDetails.length, 25);
   assert.equal(storedDetail.answerDetails[0].userAnswer, 'Name 0');
   assert.equal(storedDetail.answerDetails[0].correctAnswer, 'Name 0');
-  assert.equal(storedDetail.answerDetails[5].questionText, 'Question {{blank-0}}');
+  assert.equal(storedDetail.answerDetails[0].questionText, 'Part 1 · Vị trí nhân vật 1');
+  assert.equal(storedDetail.answerDetails[5].questionText, 'Question _____');
+  assert.equal(storedDetail.reviewPolicy.showReviewAfterSubmit, true);
+  assert.equal(storedDetail.answerDetails.some((item: any) => (
+    containsInternalListeningDisplayValue(item.questionText)
+    || containsInternalListeningDisplayValue(item.userAnswer)
+    || containsInternalListeningDisplayValue(item.correctAnswer)
+  )), false);
 
   const resolvedLegacyDetail = await resolveListeningActivityDetailForStaff(db, firstResult);
   const staffActivity = listeningAttemptToActivity(firstResult, resolvedLegacyDetail);
@@ -281,8 +289,31 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(staffActivity.answerDetails[10].userAnswer, 'A');
   assert.equal(staffActivity.answerDetails[15].userAnswer, 'Option 1');
   assert.equal(staffActivity.answerDetails[20].userAnswer, 'Colour 0');
+  assert.equal('wordId' in staffActivity.answerDetails[0], false);
   const studentActivity = listeningAttemptToActivity(firstResult);
   assert.equal('answerDetails' in studentActivity, false);
+
+  const historyService = await import('../learning-history/learningHistoryService');
+  const studentHistoryDetail = await historyService.getLearningHistoryDetail({
+    id: identity.guestId,
+    ownerKey: `guest:${identity.guestId}`,
+    kind: 'guest',
+    role: 'student',
+  }, firstResult.id);
+  assert.equal(studentHistoryDetail.detailStatus, 'available');
+  assert.equal(studentHistoryDetail.detail?.answerDetails.length, 25);
+  assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).questionText, 'Part 1 · Vị trí nhân vật 1');
+  assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).userAnswer, 'Name 0');
+  assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).correctAnswer, 'Name 0');
+  await assert.rejects(
+    historyService.getLearningHistoryDetail({
+      id: 'another-guest',
+      ownerKey: 'guest:another-guest',
+      kind: 'guest',
+      role: 'student',
+    }, firstResult.id),
+    (error: any) => error?.code === 'HISTORY_ATTEMPT_NOT_FOUND',
+  );
 
   const replaySubmit = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
     method: 'POST',

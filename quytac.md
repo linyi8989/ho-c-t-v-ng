@@ -156,6 +156,13 @@ Production baseline cần giữ nếu chưa có kế hoạch nâng cấp riêng:
   API công khai và nhánh học sinh không được ghép answer key. Regression test
   phải phủ cả hai nhánh để tránh trường hợp summary có điểm nhưng modal quản trị
   hiện `0 dòng` trong khi chi tiết vẫn tồn tại trong storage.
+- ID kỹ thuật của Listening (`targetId`, `choiceId`, `blankId`, UUID) chỉ dùng
+  cho lưu trữ/chấm điểm và không được hiển thị như nội dung câu hỏi hoặc đáp án.
+  Màn hình review phải dùng presentation adapter chung và có fallback dễ đọc
+  khi dữ liệu legacy không dựng lại được.
+- Chính sách review phải dùng cùng contract với Learning History. Nếu cho học
+  sinh xem đáp án đúng sau khi hoàn thành, phải dùng `showReviewAfterSubmit`,
+  kiểm tra đúng owner và giữ API công khai ở dạng summary không có answer key.
 - Student snapshot phải loại bỏ answer key trước khi gửi xuống client học sinh.
 - Grader phải ở backend và chấm trên immutable published version.
 - Legacy record thiếu `moduleId` được đọc như Mover; không tự rewrite hàng loạt.

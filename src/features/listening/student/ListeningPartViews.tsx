@@ -137,6 +137,10 @@ function renderPrompt(
         onChange={event => onChange(blankId, event.target.value)}
         aria-label={`Ô trống ${blankId}`}
         className="mx-1 inline-block min-w-32 max-w-56 border-0 border-b-2 border-orange-400 bg-orange-50/60 px-2 py-1 text-center font-black text-slate-900 outline-none focus:border-blue-600"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
       />
     );
   });

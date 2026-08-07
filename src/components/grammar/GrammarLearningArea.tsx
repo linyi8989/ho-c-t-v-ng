@@ -606,6 +606,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                   disabled={currentQuestionIsSaving || Boolean(currentQuestionFeedback)}
                   className="min-h-36 w-full rounded-2xl border-2 border-blue-200 bg-white p-4 text-base font-bold text-gray-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:bg-gray-50"
                   placeholder="Nhập câu trả lời của em..."
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                 />
                 <button
                   onClick={() => answerRewriteQuestion(currentQuestion.id)}

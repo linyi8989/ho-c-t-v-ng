@@ -266,6 +266,8 @@ export interface GameAction {
 
 export interface GameAnswerDetail {
   questionIndex: number;
+  part?: 1 | 2 | 3 | 4 | 5;
+  questionId?: string;
   wordId?: string;
   word?: string;
   questionText?: string;

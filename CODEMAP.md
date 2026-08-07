@@ -80,16 +80,16 @@ Current source/build/deployment ledger:
   activity detail join described in this CODEMAP.
 - Current local release build (generated 2026-08-03 with canonical
   `npm run build` under the active Node 24 shell; repeat the final release gate
-  with Node 22): `dist/client/assets/index-D6fgyh4j.js` and
+  with Node 22): `dist/client/assets/index-BgPPh9tA.js` and
   `dist/client/assets/index-S6xE1qDb.css`. `dist/client/index.html` references
   exactly these two files.
-- Current local server bundle: `dist/server.cjs` (527,253 bytes before Git
+- Current local server bundle: `dist/server.cjs` (530,437 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-D6fgyh4j.js` plus `index-S6xE1qDb.css`.
+  `curl`/browser smoke show `index-BgPPh9tA.js` plus `index-S6xE1qDb.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -1868,6 +1868,16 @@ SQLite and history integration:
   immutable `listening_set_versions/{versionId}` snapshot. New submissions store
   the same display-ready rows at write time. Student and public result paths do
   not receive this joined answer key.
+- `reviewPresentation.ts` is the shared presentation boundary for Listening
+  review screens. Stable target/choice/blank UUIDs remain internal grading keys;
+  Part 1/5 receive human ordinal labels and Part 2 `{{blank-*}}` tokens render as
+  `_____`. Admin and Student History also suppress internal IDs defensively when
+  an immutable legacy version cannot be reconstructed.
+- The owner of a completed Listening attempt can review `correctAnswer` in
+  Student History. New attempt details persist the standardized
+  `showReviewAfterSubmit=true` policy; the read adapter applies the same policy
+  to existing completed Listening attempts without rewriting stored rows.
+  Cross-owner requests remain 404 and public result APIs remain summary-only.
 - Public recent activity uses the existing pseudonymous identity boundary and
   never exposes raw user or guest identifiers.
 
@@ -2057,12 +2067,13 @@ Mover behavior:
 Validation ledger:
 
 - `npm run lint` passes.
-- `npm run test:listening` passes 41/41 contracts covering draft isolation,
+- `npm run test:listening` passes 42/42 contracts covering draft isolation,
   module compatibility, Parts 1-5, asset/security checks, autosave conflicts,
-  grading, immutable storage/history, staff-only recent-activity detail, and
+  grading, immutable storage/history, human-readable review presentation,
+  owner-only correct-answer review, staff-only recent-activity detail, and
   idempotent legacy replay.
 - Canonical `npm run build` passes and regenerates production client/server
-  assets. The resulting `index-D6fgyh4j.js` contains
+  assets. The resulting `index-BgPPh9tA.js` contains
   `student-history-nav-btn` and contains no
   `VITE_LEARNING_HISTORY_ENABLED` build condition. Existing Vite Firebase
   import and bundle-size warnings remain.

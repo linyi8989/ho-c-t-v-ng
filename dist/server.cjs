@@ -3551,6 +3551,308 @@ var import_express = __toESM(require("express"), 1);
 // src/server/learning-history/learningHistoryAuth.ts
 var import_node_crypto2 = __toESM(require("node:crypto"), 1);
 
+// src/features/listening-library/registry.ts
+var DEFAULT_LISTENING_MODULE_ID = "mover";
+var LISTENING_LIBRARY_SCHEMA_VERSION = 1;
+var comingSoonCapabilities = {
+  student: false,
+  admin: false,
+  scoring: false,
+  assignments: false
+};
+var LISTENING_MODULES = [
+  {
+    id: "starter",
+    displayName: "Starter",
+    description: "Kho b\xE0i luy\u1EC7n nghe Starter \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  },
+  {
+    id: "mover",
+    displayName: "Mover",
+    description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
+    status: "active",
+    schemaVersion: 1,
+    partCount: 5,
+    questionsPerPart: 5,
+    parts: Array.from({ length: 5 }, (_, index) => ({
+      id: `part-${index + 1}`,
+      displayName: `Part ${index + 1}`,
+      schemaVersion: 1,
+      questionCount: 5
+    })),
+    capabilities: {
+      student: true,
+      admin: true,
+      scoring: true,
+      assignments: true
+    }
+  },
+  {
+    id: "flyer",
+    displayName: "Flyer",
+    description: "Kho b\xE0i luy\u1EC7n nghe Flyer \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  },
+  {
+    id: "ket",
+    displayName: "KET",
+    description: "Kho b\xE0i luy\u1EC7n nghe KET \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities
+  }
+];
+var moduleMap = new Map(
+  LISTENING_MODULES.map((module2) => [module2.id, module2])
+);
+function isListeningModuleId(value) {
+  return typeof value === "string" && moduleMap.has(value);
+}
+function getListeningModule(moduleId) {
+  return moduleMap.get(moduleId);
+}
+function getVisibleListeningModules() {
+  return LISTENING_MODULES.filter((module2) => module2.status !== "hidden");
+}
+function resolveListeningModuleId(value) {
+  return isListeningModuleId(value) ? value : DEFAULT_LISTENING_MODULE_ID;
+}
+function publicListeningModuleManifest(module2) {
+  return {
+    id: module2.id,
+    displayName: module2.displayName,
+    description: module2.description,
+    status: module2.status,
+    schemaVersion: module2.schemaVersion,
+    partCount: module2.partCount,
+    questionsPerPart: module2.questionsPerPart,
+    parts: module2.parts,
+    capabilities: module2.capabilities
+  };
+}
+
+// src/features/listening/reviewPresentation.ts
+var INTERNAL_LISTENING_ID = /\bp[1-5]-(?:target|question|item|choice|option|colour|color|blank)-[a-z0-9-]{8,}\b/i;
+var LISTENING_BLANK_TOKEN = /\{\{[a-zA-Z0-9_-]+\}\}/g;
+function normalizedPart(value, globalIndex) {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 5) return parsed;
+  return Math.min(5, Math.max(1, Math.floor(Math.max(0, globalIndex) / 5) + 1));
+}
+function defaultListeningReviewQuestion(partValue, globalIndex) {
+  const part = normalizedPart(partValue, globalIndex);
+  const position = Math.max(0, globalIndex) % 5 + 1;
+  if (part === 1) return `Part 1 \xB7 V\u1ECB tr\xED nh\xE2n v\u1EADt ${position}`;
+  if (part === 5) return `Part 5 \xB7 V\xF9ng t\xF4 m\xE0u ${position}`;
+  return `Part ${part} \xB7 C\xE2u ${position}`;
+}
+function formatListeningReviewQuestion(value, partValue, globalIndex) {
+  const source = String(value ?? "").trim();
+  const withoutTokens = source.replace(LISTENING_BLANK_TOKEN, "_____").replace(/\s*[•]\s*/g, " \xB7 ").replace(/\s+/g, " ").trim();
+  if (!withoutTokens || INTERNAL_LISTENING_ID.test(withoutTokens)) {
+    return defaultListeningReviewQuestion(partValue, globalIndex);
+  }
+  return withoutTokens;
+}
+function formatListeningReviewAnswer(value) {
+  const source = String(value ?? "").trim();
+  if (!source) return "";
+  return INTERNAL_LISTENING_ID.test(source) ? "Kh\xF4ng c\xF3 d\u1EEF li\u1EC7u hi\u1EC3n th\u1ECB" : source;
+}
+
+// src/server/listening/listeningActivity.ts
+var activityText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
+function labelForId(items, id, getLabel) {
+  const normalizedId = activityText(id, 200);
+  const index = items.findIndex((item) => item.id === normalizedId);
+  return index >= 0 ? activityText(getLabel(items[index], index), 500) : formatListeningReviewAnswer(normalizedId);
+}
+function buildListeningActivityAnswerDetails(content, answers, questions) {
+  const resultByQuestion = new Map(
+    questions.map((question) => [`${question.part}:${question.questionId}`, question])
+  );
+  const details = [];
+  const push = (part, questionId, questionText, userAnswer, correctAnswer, options = []) => {
+    const result = resultByQuestion.get(`${part}:${questionId}`);
+    details.push({
+      questionIndex: details.length,
+      questionId,
+      questionText: formatListeningReviewQuestion(questionText, part, details.length),
+      part,
+      selectedAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1e3)),
+      userAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1e3)),
+      correctAnswer: formatListeningReviewAnswer(activityText(correctAnswer, 1e3)),
+      isCorrect: Boolean(result?.correct),
+      unanswered: Boolean(result?.unanswered),
+      options: options.map((option) => activityText(option, 500)).filter(Boolean).slice(0, 20)
+    });
+  };
+  const part1 = content.parts[0];
+  const part1Options = part1.choices.map((choice) => choice.label);
+  part1.targets.forEach((target, index) => {
+    push(
+      1,
+      target.id,
+      formatListeningReviewQuestion("", 1, index),
+      labelForId(part1.choices, answers.part1[target.id], (choice) => choice.label),
+      labelForId(part1.choices, target.choiceId, (choice) => choice.label),
+      part1Options
+    );
+  });
+  const part2 = content.parts[1];
+  part2.questions.forEach((question, index) => {
+    const answer = answers.part2[question.id] || {};
+    const userAnswer = question.blanks.map((blank) => activityText(answer[blank.id], 500)).filter(Boolean).join(" | ");
+    const correctAnswer = question.blanks.map((blank) => blank.acceptedAnswers.map((item) => activityText(item, 500)).filter(Boolean).join(" / ")).filter(Boolean).join(" | ");
+    push(2, question.id, formatListeningReviewQuestion(question.prompt, 2, index + 5), userAnswer, correctAnswer);
+  });
+  const part3 = content.parts[2];
+  const part3Options = part3.options.map((option) => option.label);
+  part3.items.forEach((item, index) => {
+    push(
+      3,
+      item.id,
+      formatListeningReviewQuestion(`Part 3 \u2022 ${item.label || ""}`, 3, index + 10),
+      labelForId(part3.options, answers.part3[item.id], (option) => option.label),
+      labelForId(part3.options, item.correctOptionId, (option) => option.label),
+      part3Options
+    );
+  });
+  const part4 = content.parts[3];
+  part4.questions.forEach((question, questionIndex) => {
+    const optionLabels = question.options.map((option, index) => option.alt || String.fromCharCode(65 + index));
+    push(
+      4,
+      question.id,
+      formatListeningReviewQuestion(question.prompt, 4, questionIndex + 15),
+      labelForId(question.options, answers.part4[question.id], (option, index) => option.alt || String.fromCharCode(65 + index)),
+      labelForId(question.options, question.correctOptionId, (option, index) => option.alt || String.fromCharCode(65 + index)),
+      optionLabels
+    );
+  });
+  const part5 = content.parts[4];
+  const part5Options = part5.colours.map((colour) => colour.label);
+  part5.targets.forEach((target, index) => {
+    push(
+      5,
+      target.id,
+      formatListeningReviewQuestion(`Part 5 \u2022 ${target.label || ""}`, 5, index + 20),
+      labelForId(part5.colours, answers.part5[target.id], (colour) => colour.label),
+      labelForId(part5.colours, target.correctColourId, (colour) => colour.label),
+      part5Options
+    );
+  });
+  return details;
+}
+function normalizeListeningActivityAnswerDetails(detail) {
+  if (!Array.isArray(detail?.answerDetails)) return [];
+  return detail.answerDetails.slice(0, 200).map((item, index) => ({
+    questionIndex: Number.isFinite(Number(item?.questionIndex)) ? Number(item.questionIndex) : index,
+    part: Number(item?.part || 0),
+    questionText: formatListeningReviewQuestion(
+      item?.questionText || (item?.part ? `Part ${item.part}` : ""),
+      item?.part,
+      index
+    ),
+    selectedAnswer: formatListeningReviewAnswer(item?.selectedAnswer || item?.userAnswer),
+    userAnswer: formatListeningReviewAnswer(item?.userAnswer || item?.selectedAnswer),
+    correctAnswer: formatListeningReviewAnswer(item?.correctAnswer),
+    isCorrect: Boolean(item?.isCorrect),
+    options: Array.isArray(item?.options) ? item.options.map((option) => activityText(option, 500)).filter(Boolean).slice(0, 20) : []
+  }));
+}
+async function resolveListeningActivityDetailForStaff(db, attempt, versionContentCache = /* @__PURE__ */ new Map()) {
+  const attemptId = activityText(attempt?.id, 200);
+  if (!attemptId) return null;
+  const detailSnapshot = await db.collection("listening_attempt_details").doc(attemptId).get();
+  if (!detailSnapshot.exists) return null;
+  const storedDetail = { id: detailSnapshot.id, ...detailSnapshot.data() };
+  const versionId = activityText(attempt?.versionId || storedDetail?.extraDetails?.versionId, 200);
+  if (!versionId || !storedDetail?.answers || !Array.isArray(storedDetail?.questions)) {
+    return storedDetail;
+  }
+  let contentPromise = versionContentCache.get(versionId);
+  if (!contentPromise) {
+    contentPromise = (async () => {
+      const versionSnapshot = await db.collection("listening_set_versions").doc(versionId).get();
+      if (!versionSnapshot.exists) return null;
+      return versionSnapshot.data()?.content;
+    })();
+    versionContentCache.set(versionId, contentPromise);
+  }
+  const content = await contentPromise;
+  if (!content) return storedDetail;
+  try {
+    return {
+      ...storedDetail,
+      answerDetails: buildListeningActivityAnswerDetails(
+        content,
+        storedDetail.answers,
+        storedDetail.questions
+      )
+    };
+  } catch {
+    return storedDetail;
+  }
+}
+function listeningAttemptToActivity(attempt, detail) {
+  const totalQuestions = Math.max(
+    1,
+    Number(attempt.totalCount || 0) || Number(attempt.correctCount || 0) + Number(attempt.incorrectCount || 0) + Number(attempt.unansweredCount || 0)
+  );
+  const answerDetails = normalizeListeningActivityAnswerDetails(detail);
+  return {
+    id: attempt.id,
+    sourceType: "listening",
+    sourceId: attempt.id,
+    moduleId: resolveListeningModuleId(attempt.moduleId),
+    moduleSchemaVersion: Number(attempt.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+    ownerKey: attempt.ownerKey,
+    ownerType: attempt.guestId ? "guest" : "user",
+    userId: attempt.userId || "",
+    studentId: attempt.userId || attempt.guestId || "",
+    guestId: attempt.guestId || "",
+    studentName: attempt.studentName || "H\u1ECDc sinh",
+    assignmentId: attempt.assignmentId || "",
+    classId: attempt.classId || "",
+    className: attempt.className || "",
+    vocabSetId: `listening:${attempt.setId}`,
+    vocabSetTitle: attempt.setTitle || "B\u1ED9 \u0111\u1EC1 nghe 5 Part",
+    gameId: "listening-five-part",
+    gameName: "Nghe 5 Part",
+    gameType: "listening",
+    startedAt: attempt.startedAt,
+    endedAt: attempt.completedAt,
+    completedAt: attempt.completedAt,
+    createdAt: attempt.createdAt || attempt.completedAt,
+    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1e3,
+    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
+    score: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    rawScore: Math.max(0, Math.min(100, Number(attempt.score || 0))),
+    maxScore: 100,
+    totalQuestions,
+    correctAnswers: Math.max(0, Number(attempt.correctCount || 0)),
+    incorrectAnswers: Math.max(0, Number(attempt.incorrectCount || 0)) + Math.max(0, Number(attempt.unansweredCount || 0)),
+    accuracy: Math.round(Math.max(0, Number(attempt.correctCount || 0)) / totalQuestions * 100),
+    ...answerDetails.length ? { answerDetails } : {},
+    status: "completed"
+  };
+}
+
 // src/server/learning-history/learningHistoryRepository.ts
 var EFFECTIVE_ATTEMPT_STATUS_SQL = `CASE
   WHEN attempt_status = 'in_progress'
@@ -3893,9 +4195,12 @@ async function findAttemptDetail(attemptId) {
     async (row) => {
       if (row) return row;
       const listeningRow = await sqliteQueryOne(
-        `SELECT attempt_id, data_json, created_at, updated_at
-       FROM listening_attempt_details
-       WHERE attempt_id = ?`,
+        `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+              attempt.version_id, version.data_json AS version_data_json
+       FROM listening_attempt_details AS detail
+       JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+       LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
+       WHERE detail.attempt_id = ?`,
         [attemptId]
       );
       if (!listeningRow) return void 0;
@@ -3905,6 +4210,32 @@ async function findAttemptDetail(attemptId) {
       } catch {
         data = {};
       }
+      try {
+        const version = JSON.parse(String(listeningRow.version_data_json || "{}"));
+        if (version?.content && data?.answers && Array.isArray(data?.questions)) {
+          const answerDetails = buildListeningActivityAnswerDetails(
+            version.content,
+            data.answers,
+            data.questions
+          );
+          data = {
+            ...data,
+            answerDetails,
+            questionSnapshots: answerDetails.map((item) => ({
+              questionId: item.questionId,
+              questionText: item.questionText,
+              part: item.part
+            }))
+          };
+        }
+      } catch {
+      }
+      const reviewPolicy = {
+        ...data.reviewPolicy && typeof data.reviewPolicy === "object" ? data.reviewPolicy : {},
+        showReviewAfterSubmit: true,
+        showExplanationImmediately: false,
+        policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0))
+      };
       return {
         attempt_id: attemptId,
         client_run_id: null,
@@ -3913,7 +4244,7 @@ async function findAttemptDetail(attemptId) {
         question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
         option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
         extra_details_json: JSON.stringify(data.extraDetails || {}),
-        review_policy_json: JSON.stringify(data.reviewPolicy || { revealCorrectAnswers: false }),
+        review_policy_json: JSON.stringify(reviewPolicy),
         created_at: listeningRow.created_at,
         updated_at: listeningRow.updated_at,
         expires_at: null,
@@ -4444,100 +4775,6 @@ function createLearningHistoryRouter(options) {
 // src/server/listening-library/router.ts
 var import_express3 = __toESM(require("express"), 1);
 
-// src/features/listening-library/registry.ts
-var DEFAULT_LISTENING_MODULE_ID = "mover";
-var LISTENING_LIBRARY_SCHEMA_VERSION = 1;
-var comingSoonCapabilities = {
-  student: false,
-  admin: false,
-  scoring: false,
-  assignments: false
-};
-var LISTENING_MODULES = [
-  {
-    id: "starter",
-    displayName: "Starter",
-    description: "Kho b\xE0i luy\u1EC7n nghe Starter \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
-    schemaVersion: 1,
-    partCount: null,
-    questionsPerPart: null,
-    parts: [],
-    capabilities: comingSoonCapabilities
-  },
-  {
-    id: "mover",
-    displayName: "Mover",
-    description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
-    status: "active",
-    schemaVersion: 1,
-    partCount: 5,
-    questionsPerPart: 5,
-    parts: Array.from({ length: 5 }, (_, index) => ({
-      id: `part-${index + 1}`,
-      displayName: `Part ${index + 1}`,
-      schemaVersion: 1,
-      questionCount: 5
-    })),
-    capabilities: {
-      student: true,
-      admin: true,
-      scoring: true,
-      assignments: true
-    }
-  },
-  {
-    id: "flyer",
-    displayName: "Flyer",
-    description: "Kho b\xE0i luy\u1EC7n nghe Flyer \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
-    schemaVersion: 1,
-    partCount: null,
-    questionsPerPart: null,
-    parts: [],
-    capabilities: comingSoonCapabilities
-  },
-  {
-    id: "ket",
-    displayName: "KET",
-    description: "Kho b\xE0i luy\u1EC7n nghe KET \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
-    schemaVersion: 1,
-    partCount: null,
-    questionsPerPart: null,
-    parts: [],
-    capabilities: comingSoonCapabilities
-  }
-];
-var moduleMap = new Map(
-  LISTENING_MODULES.map((module2) => [module2.id, module2])
-);
-function isListeningModuleId(value) {
-  return typeof value === "string" && moduleMap.has(value);
-}
-function getListeningModule(moduleId) {
-  return moduleMap.get(moduleId);
-}
-function getVisibleListeningModules() {
-  return LISTENING_MODULES.filter((module2) => module2.status !== "hidden");
-}
-function resolveListeningModuleId(value) {
-  return isListeningModuleId(value) ? value : DEFAULT_LISTENING_MODULE_ID;
-}
-function publicListeningModuleManifest(module2) {
-  return {
-    id: module2.id,
-    displayName: module2.displayName,
-    description: module2.description,
-    status: module2.status,
-    schemaVersion: module2.schemaVersion,
-    partCount: module2.partCount,
-    questionsPerPart: module2.questionsPerPart,
-    parts: module2.parts,
-    capabilities: module2.capabilities
-  };
-}
-
 // src/server/listening/listeningGrader.ts
 var LISTENING_GRADING_VERSION = "listening-five-part-v1";
 function normalizeListeningTextAnswer(value) {
@@ -4598,182 +4835,6 @@ var import_crypto = __toESM(require("crypto"), 1);
 var import_express2 = __toESM(require("express"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_path3 = __toESM(require("path"), 1);
-
-// src/server/listening/listeningActivity.ts
-var activityText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
-function labelForId(items, id, getLabel) {
-  const normalizedId = activityText(id, 200);
-  const index = items.findIndex((item) => item.id === normalizedId);
-  return index >= 0 ? activityText(getLabel(items[index], index), 500) : normalizedId;
-}
-function buildListeningActivityAnswerDetails(content, answers, questions) {
-  const resultByQuestion = new Map(
-    questions.map((question) => [`${question.part}:${question.questionId}`, question])
-  );
-  const details = [];
-  const push = (part, questionId, questionText, userAnswer, correctAnswer, options = []) => {
-    const result = resultByQuestion.get(`${part}:${questionId}`);
-    details.push({
-      questionIndex: details.length,
-      questionId,
-      wordId: questionId,
-      questionText: activityText(questionText, 1e3),
-      part,
-      selectedAnswer: activityText(userAnswer, 1e3),
-      userAnswer: activityText(userAnswer, 1e3),
-      correctAnswer: activityText(correctAnswer, 1e3),
-      isCorrect: Boolean(result?.correct),
-      unanswered: Boolean(result?.unanswered),
-      options: options.map((option) => activityText(option, 500)).filter(Boolean).slice(0, 20)
-    });
-  };
-  const part1 = content.parts[0];
-  const part1Options = part1.choices.map((choice) => choice.label);
-  part1.targets.forEach((target) => {
-    push(
-      1,
-      target.id,
-      `Part 1 \u2022 ${target.id}`,
-      labelForId(part1.choices, answers.part1[target.id], (choice) => choice.label),
-      labelForId(part1.choices, target.choiceId, (choice) => choice.label),
-      part1Options
-    );
-  });
-  const part2 = content.parts[1];
-  part2.questions.forEach((question) => {
-    const answer = answers.part2[question.id] || {};
-    const userAnswer = question.blanks.map((blank) => activityText(answer[blank.id], 500)).filter(Boolean).join(" | ");
-    const correctAnswer = question.blanks.map((blank) => blank.acceptedAnswers.map((item) => activityText(item, 500)).filter(Boolean).join(" / ")).filter(Boolean).join(" | ");
-    push(2, question.id, question.prompt, userAnswer, correctAnswer);
-  });
-  const part3 = content.parts[2];
-  const part3Options = part3.options.map((option) => option.label);
-  part3.items.forEach((item) => {
-    push(
-      3,
-      item.id,
-      `Part 3 \u2022 ${item.label || item.id}`,
-      labelForId(part3.options, answers.part3[item.id], (option) => option.label),
-      labelForId(part3.options, item.correctOptionId, (option) => option.label),
-      part3Options
-    );
-  });
-  const part4 = content.parts[3];
-  part4.questions.forEach((question) => {
-    const optionLabels = question.options.map((option, index) => option.alt || String.fromCharCode(65 + index));
-    push(
-      4,
-      question.id,
-      question.prompt,
-      labelForId(question.options, answers.part4[question.id], (option, index) => option.alt || String.fromCharCode(65 + index)),
-      labelForId(question.options, question.correctOptionId, (option, index) => option.alt || String.fromCharCode(65 + index)),
-      optionLabels
-    );
-  });
-  const part5 = content.parts[4];
-  const part5Options = part5.colours.map((colour) => colour.label);
-  part5.targets.forEach((target) => {
-    push(
-      5,
-      target.id,
-      `Part 5 \u2022 ${target.label || target.id}`,
-      labelForId(part5.colours, answers.part5[target.id], (colour) => colour.label),
-      labelForId(part5.colours, target.correctColourId, (colour) => colour.label),
-      part5Options
-    );
-  });
-  return details;
-}
-function normalizeListeningActivityAnswerDetails(detail) {
-  if (!Array.isArray(detail?.answerDetails)) return [];
-  return detail.answerDetails.slice(0, 200).map((item, index) => ({
-    questionIndex: Number.isFinite(Number(item?.questionIndex)) ? Number(item.questionIndex) : index,
-    wordId: activityText(item?.wordId || item?.questionId, 200),
-    questionText: activityText(item?.questionText || (item?.part ? `Part ${item.part}` : ""), 1e3),
-    selectedAnswer: activityText(item?.selectedAnswer || item?.userAnswer, 1e3),
-    userAnswer: activityText(item?.userAnswer || item?.selectedAnswer, 1e3),
-    correctAnswer: activityText(item?.correctAnswer, 1e3),
-    isCorrect: Boolean(item?.isCorrect),
-    options: Array.isArray(item?.options) ? item.options.map((option) => activityText(option, 500)).filter(Boolean).slice(0, 20) : []
-  }));
-}
-async function resolveListeningActivityDetailForStaff(db, attempt, versionContentCache = /* @__PURE__ */ new Map()) {
-  const attemptId = activityText(attempt?.id, 200);
-  if (!attemptId) return null;
-  const detailSnapshot = await db.collection("listening_attempt_details").doc(attemptId).get();
-  if (!detailSnapshot.exists) return null;
-  const storedDetail = { id: detailSnapshot.id, ...detailSnapshot.data() };
-  const versionId = activityText(attempt?.versionId || storedDetail?.extraDetails?.versionId, 200);
-  if (!versionId || !storedDetail?.answers || !Array.isArray(storedDetail?.questions)) {
-    return storedDetail;
-  }
-  let contentPromise = versionContentCache.get(versionId);
-  if (!contentPromise) {
-    contentPromise = (async () => {
-      const versionSnapshot = await db.collection("listening_set_versions").doc(versionId).get();
-      if (!versionSnapshot.exists) return null;
-      return versionSnapshot.data()?.content;
-    })();
-    versionContentCache.set(versionId, contentPromise);
-  }
-  const content = await contentPromise;
-  if (!content) return storedDetail;
-  try {
-    return {
-      ...storedDetail,
-      answerDetails: buildListeningActivityAnswerDetails(
-        content,
-        storedDetail.answers,
-        storedDetail.questions
-      )
-    };
-  } catch {
-    return storedDetail;
-  }
-}
-function listeningAttemptToActivity(attempt, detail) {
-  const totalQuestions = Math.max(
-    1,
-    Number(attempt.totalCount || 0) || Number(attempt.correctCount || 0) + Number(attempt.incorrectCount || 0) + Number(attempt.unansweredCount || 0)
-  );
-  const answerDetails = normalizeListeningActivityAnswerDetails(detail);
-  return {
-    id: attempt.id,
-    sourceType: "listening",
-    sourceId: attempt.id,
-    moduleId: resolveListeningModuleId(attempt.moduleId),
-    moduleSchemaVersion: Number(attempt.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
-    ownerKey: attempt.ownerKey,
-    ownerType: attempt.guestId ? "guest" : "user",
-    userId: attempt.userId || "",
-    studentId: attempt.userId || attempt.guestId || "",
-    guestId: attempt.guestId || "",
-    studentName: attempt.studentName || "H\u1ECDc sinh",
-    assignmentId: attempt.assignmentId || "",
-    classId: attempt.classId || "",
-    className: attempt.className || "",
-    vocabSetId: `listening:${attempt.setId}`,
-    vocabSetTitle: attempt.setTitle || "B\u1ED9 \u0111\u1EC1 nghe 5 Part",
-    gameId: "listening-five-part",
-    gameName: "Nghe 5 Part",
-    gameType: "listening",
-    startedAt: attempt.startedAt,
-    endedAt: attempt.completedAt,
-    completedAt: attempt.completedAt,
-    createdAt: attempt.createdAt || attempt.completedAt,
-    durationMs: Math.max(0, Number(attempt.durationSeconds || 0)) * 1e3,
-    durationSeconds: Math.max(0, Number(attempt.durationSeconds || 0)),
-    score: Math.max(0, Math.min(100, Number(attempt.score || 0))),
-    rawScore: Math.max(0, Math.min(100, Number(attempt.score || 0))),
-    maxScore: 100,
-    totalQuestions,
-    correctAnswers: Math.max(0, Number(attempt.correctCount || 0)),
-    incorrectAnswers: Math.max(0, Number(attempt.incorrectCount || 0)) + Math.max(0, Number(attempt.unansweredCount || 0)),
-    accuracy: Math.round(Math.max(0, Number(attempt.correctCount || 0)) / totalQuestions * 100),
-    ...answerDetails.length ? { answerDetails } : {},
-    status: "completed"
-  };
-}
 
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
@@ -6145,7 +6206,11 @@ function createListeningRouter(dependencies) {
           versionId: ticket.versionId,
           gradingVersion: LISTENING_GRADING_VERSION
         },
-        reviewPolicy: { revealCorrectAnswers: false },
+        reviewPolicy: {
+          showReviewAfterSubmit: true,
+          showExplanationImmediately: false,
+          policyVersion: 2
+        },
         gradingVersion: LISTENING_GRADING_VERSION,
         createdAt: completedAt,
         updatedAt: completedAt

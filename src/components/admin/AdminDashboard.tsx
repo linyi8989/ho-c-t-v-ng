@@ -11,6 +11,10 @@ import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 import ListeningLibraryAdmin from '../../features/listening-library/admin/ListeningLibraryAdmin';
+import {
+  formatListeningReviewAnswer,
+  formatListeningReviewQuestion,
+} from '../../features/listening/reviewPresentation';
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
@@ -2105,14 +2109,28 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                           <tr key={`${selectedActivity.id}-detail-${index}`} className="border-t border-gray-100">
                             <td className="p-3 text-xs font-bold text-gray-500">{Number.isFinite(Number(detail.questionIndex)) ? Number(detail.questionIndex) + 1 : index + 1}</td>
                             <td className="p-3">
-                              <p className="text-sm font-bold text-gray-900">{detail.questionText || detail.word || '--'}</p>
-                              {detail.wordId && <p className="text-[10px] font-mono text-gray-400">{detail.wordId}</p>}
+                              <p className="text-sm font-bold text-gray-900">
+                                {selectedActivity.sourceType === 'listening'
+                                  ? formatListeningReviewQuestion(detail.questionText || detail.word, detail.part, index)
+                                  : detail.questionText || detail.word || '--'}
+                              </p>
+                              {selectedActivity.sourceType !== 'listening' && detail.wordId && (
+                                <p className="text-[10px] font-mono text-gray-400">{detail.wordId}</p>
+                              )}
                               {Array.isArray(detail.options) && detail.options.length > 0 && (
                                 <p className="mt-1 text-[10px] text-gray-500">Lựa chọn: {detail.options.filter(Boolean).join(' | ')}</p>
                               )}
                             </td>
-                            <td className="p-3 text-sm font-semibold text-gray-700">{detail.userAnswer || detail.selectedAnswer || '--'}</td>
-                            <td className="p-3 text-sm font-semibold text-gray-700">{detail.correctAnswer || '--'}</td>
+                            <td className="p-3 text-sm font-semibold text-gray-700">
+                              {selectedActivity.sourceType === 'listening'
+                                ? formatListeningReviewAnswer(detail.userAnswer || detail.selectedAnswer) || '--'
+                                : detail.userAnswer || detail.selectedAnswer || '--'}
+                            </td>
+                            <td className="p-3 text-sm font-semibold text-gray-700">
+                              {selectedActivity.sourceType === 'listening'
+                                ? formatListeningReviewAnswer(detail.correctAnswer) || '--'
+                                : detail.correctAnswer || '--'}
+                            </td>
                             <td className="p-3">
                               <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
                                 detail.isCorrect ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
