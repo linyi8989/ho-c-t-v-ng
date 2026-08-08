@@ -15,6 +15,7 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   const mediaDir = path.join(temporaryDirectory, 'media');
   fs.mkdirSync(mediaDir, { recursive: true });
   fs.writeFileSync(path.join(mediaDir, 'source.png'), Buffer.from('fixture-image'));
+  fs.writeFileSync(path.join(mediaDir, 'answer.png'), Buffer.from('fixture-answer'));
   fs.writeFileSync(path.join(mediaDir, 'source.mp3'), Buffer.from('fixture-audio'));
   process.env.NODE_ENV = 'test';
   process.env.STORAGE_MODE = 'sqlite';
@@ -30,6 +31,11 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   await db.collection('listening_assets').doc('owned-image').set({
     id: 'owned-image', ownerId: 'teacher-import', kind: 'image', mimeType: 'image/png',
     name: 'source.png', size: 13, storageKey: 'source.png', url: '/listening-media/source.png',
+    status: 'active', createdAt: now, updatedAt: now,
+  });
+  await db.collection('listening_assets').doc('owned-answer').set({
+    id: 'owned-answer', ownerId: 'teacher-import', kind: 'image', mimeType: 'image/png',
+    name: 'answer.png', size: 14, storageKey: 'answer.png', url: '/listening-media/answer.png',
     status: 'active', createdAt: now, updatedAt: now,
   });
   await db.collection('listening_assets').doc('owned-audio').set({
@@ -62,9 +68,10 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
           text: JSON.stringify({
             heading: 'ABC',
             questions: Array.from({ length: 5 }, (_, index) => ({
+              questionNumber: index + 1,
               prompt: `Question ${index + 1} {{blank}}`,
-              acceptedAnswers: [`answer ${index + 1}`],
             })),
+            answers: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, answer: `answer ${index + 1}` })),
           }),
         };
       },
@@ -82,8 +89,11 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   const url = `http://127.0.0.1:${address.port}/api/listening/admin/smart-import/analyze`;
   const part = createDefaultMoverListeningContent().parts[1];
   const basePartHash = crypto.createHash('sha256').update(JSON.stringify(part)).digest('hex');
-  const body = (assetId: string) => JSON.stringify({
-    moduleId: 'mover', part: 2, sourceImageAssetIds: [assetId], currentPart: part, basePartHash,
+  const body = (answerAssetId: string) => JSON.stringify({
+    moduleId: 'mover', part: 2, sources: [
+      { role: 'question', assetId: 'owned-image' },
+      { role: 'answer_key', assetId: answerAssetId },
+    ], currentPart: part, basePartHash,
   });
 
   const rejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-audio') });
@@ -95,7 +105,10 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      moduleId: 'mover', part: 2, sourceImageAssetIds: ['owned-image'], currentPart: part,
+      moduleId: 'mover', part: 2, sources: [
+        { role: 'question', assetId: 'owned-image' },
+        { role: 'answer_key', assetId: 'owned-answer' },
+      ], currentPart: part,
       basePartHash: '0'.repeat(64),
     }),
   });
@@ -103,12 +116,12 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   assert.equal((await stale.json() as any).details.code, 'LISTENING_IMPORT_BASE_CHANGED');
   assert.deepEqual(analyzedKinds, []);
 
-  const accepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-image') });
+  const accepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer') });
   assert.equal(accepted.status, 200);
   const candidate = await accepted.json() as any;
   assert.equal(candidate.part, 2);
   assert.equal(candidate.data.questions.length, 5);
-  assert.deepEqual(analyzedKinds, ['image/png']);
+  assert.deepEqual(analyzedKinds, ['image/png', 'image/png']);
 
   const derivedResponse = await fetch(`http://127.0.0.1:${address.port}/api/listening/admin/assets`, {
     method: 'POST',

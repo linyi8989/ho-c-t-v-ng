@@ -62,13 +62,9 @@ export default function ListeningResourceTray({
     [part]: { ...assignments[part], ...patch },
   });
 
-  const canRun = (part: 1 | 2 | 3 | 4 | 5) => {
-    if (capability?.enabled === false) return false;
-    const assignment = assignments[part];
-    if ((part === 2 || part === 3) && assignment.pastedText.trim()) return true;
-    if (part === 3 && assignment.imageAssetIds.length === 1) return true;
-    return Boolean(capability?.visionEnabled && assignment.imageAssetIds.length);
-  };
+  // The whole-exam tray predates role-based sources and is hidden. It must not
+  // infer question/answer roles from array order if the rollback UI is restored.
+  const canRun = (_part: 1 | 2 | 3 | 4 | 5) => false;
 
   const runPart = async (part: 1 | 2 | 3 | 4 | 5) => {
     if (!canRun(part)) {
@@ -82,7 +78,7 @@ export default function ListeningResourceTray({
       const candidate = await listeningApi.analyzeSmartImport(token, {
         moduleId: 'mover',
         part,
-        sourceImageAssetIds: assignments[part].imageAssetIds,
+        sources: [],
         pastedText: assignments[part].pastedText.trim() || undefined,
         currentPart,
         basePartHash: await hashListeningPart(currentPart),

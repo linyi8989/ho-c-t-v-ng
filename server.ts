@@ -2300,11 +2300,14 @@ async function generateWithOpenAIVision(
         role: "user",
         content: [
           { type: "input_text", text: prompt },
-          ...images.map(image => ({
-            type: "input_image",
-            image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
-            detail: "high"
-          }))
+          ...images.flatMap(image => ([
+            { type: "input_text" as const, text: `IMAGE ROLE: ${image.role}` },
+            {
+              type: "input_image" as const,
+              image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+              detail: "high" as const
+            }
+          ]))
         ]
       }],
       text: { format: { type: "text" } }
@@ -2337,12 +2340,15 @@ async function generateAiVisionJson(
           role: "user",
           parts: [
             { text: prompt },
-            ...images.map(image => ({
-              inlineData: {
-                mimeType: image.mimeType,
-                data: image.data.toString("base64")
+            ...images.flatMap(image => ([
+              { text: `IMAGE ROLE: ${image.role}` },
+              {
+                inlineData: {
+                  mimeType: image.mimeType,
+                  data: image.data.toString("base64")
+                }
               }
-            }))
+            ]))
           ]
         }],
         config: { responseMimeType: "application/json", abortSignal: signal }

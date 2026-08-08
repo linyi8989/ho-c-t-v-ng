@@ -15,6 +15,7 @@ import {
   type MoverPartEditorProps,
 } from './shared';
 import { importPart2Analysis } from './directImport';
+import { smartImportSourceAssetId } from '../../../../listening-editor/smart-import/types';
 
 interface PendingIllustrationCrop {
   candidateId: string;
@@ -41,14 +42,11 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
   const importAnalysis = (candidate: ListeningSmartImportCandidate) => {
     if (candidate.data.part !== 2) throw new Error('Dữ liệu AI không đúng Part 2.');
     onChange(importPart2Analysis(part, candidate.data));
-    if (candidate.data.illustrationCrop && candidate.sourceImageAssetIds.length) {
-      const sourceIndex = Math.min(
-        candidate.data.illustrationSourceImageIndex || 0,
-        candidate.sourceImageAssetIds.length - 1
-      );
+    const questionAssetId = smartImportSourceAssetId(candidate, 'question');
+    if (candidate.data.illustrationCrop && questionAssetId) {
       setPendingCrop({
         candidateId: candidate.id,
-        sourceAssetId: candidate.sourceImageAssetIds[sourceIndex],
+        sourceAssetId: questionAssetId,
         crop: candidate.data.illustrationCrop,
       });
     } else {

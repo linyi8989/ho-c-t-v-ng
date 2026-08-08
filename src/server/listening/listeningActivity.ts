@@ -83,6 +83,19 @@ export function buildListeningActivityAnswerDetails(
   });
 
   const part3 = content.parts[2];
+  if (part3.displayMode === 'connect-image') {
+    part3.correctConnections.forEach((connection, index) => {
+      const answer = part3.answers.find(item => item.id === connection.answerId);
+      push(
+        3,
+        connection.answerId,
+        formatListeningReviewQuestion(`Part 3 • ${answer?.label || ''}`, 3, index + 10),
+        labelForId(part3.pictures, answers.part3[connection.answerId], picture => `${picture.side} ${picture.row}`),
+        labelForId(part3.pictures, connection.pictureId, picture => `${picture.side} ${picture.row}`),
+        part3.pictures.map(picture => `${picture.side} ${picture.row}`)
+      );
+    });
+  } else {
   const part3Options = part3.options.map(option => option.label);
   part3.items.forEach((item, index) => {
     push(
@@ -94,6 +107,7 @@ export function buildListeningActivityAnswerDetails(
       part3Options
     );
   });
+  }
 
   const part4 = content.parts[3];
   part4.questions.forEach((question, questionIndex) => {
@@ -110,6 +124,30 @@ export function buildListeningActivityAnswerDetails(
 
   const part5 = content.parts[4];
   const part5Options = part5.colours.map(colour => colour.label);
+  if (part5.displayMode === 'scene-colour-draw') {
+    part5.questions.forEach((question, index) => {
+      const userAnswer = question.actions.map(action => {
+        const answer = answers.part5[action.id];
+        if (!answer || typeof answer === 'string') return activityText(answer, 500);
+        if (answer.type === 'colour_object') {
+          const object = part5.interactiveObjects.find(item => item.id === answer.objectId)?.label || answer.objectId;
+          const colour = part5.colours.find(item => item.id === answer.colourId)?.label || answer.colourId;
+          return `${object}: ${colour}`;
+        }
+        const item = part5.objectPalette.find(entry => entry.id === answer.paletteItemId)?.label || answer.paletteItemId;
+        return `${item} @ ${answer.anchor.x.toFixed(3)}, ${answer.anchor.y.toFixed(3)}`;
+      }).filter(Boolean).join(' | ');
+      const correctAnswer = question.actions.map(action => {
+        if (action.type === 'colour_object') {
+          const object = part5.interactiveObjects.find(item => item.id === action.correctObjectId)?.label || action.correctObjectId;
+          const colour = part5.colours.find(item => item.id === action.correctColourId)?.label || action.correctColourId;
+          return `${object}: ${colour}`;
+        }
+        return part5.objectPalette.find(item => item.id === action.correctPaletteItemId)?.label || action.correctPaletteItemId;
+      }).join(' | ');
+      push(5, question.id, formatListeningReviewQuestion(question.staffPrompt, 5, index + 20), userAnswer, correctAnswer, part5Options);
+    });
+  } else {
   part5.targets.forEach((target, index) => {
     push(
       5,
@@ -120,6 +158,7 @@ export function buildListeningActivityAnswerDetails(
       part5Options
     );
   });
+  }
 
   return details;
 }

@@ -95,7 +95,7 @@ export interface ListeningPart3Item {
   correctOptionId: string;
 }
 
-export interface ListeningPart3 extends ListeningPartBase {
+export interface ListeningPart3Legacy extends ListeningPartBase {
   part: 3;
   displayMode?: 'split' | 'composite';
   boardAssetId?: string;
@@ -105,6 +105,45 @@ export interface ListeningPart3 extends ListeningPartBase {
   items: ListeningPart3Item[];
   example?: { item: Omit<ListeningPart3Item, 'correctOptionId'>; correctOptionId: string };
 }
+
+export type ListeningConnectionSide = 'left' | 'right';
+
+export interface ListeningPart3ConnectAnswer {
+  id: string;
+  label: string;
+  region: ListeningRegion;
+  leftAnchorOffset: number;
+  rightAnchorOffset: number;
+}
+
+export interface ListeningPart3ConnectPicture {
+  id: string;
+  label: string;
+  side: ListeningConnectionSide;
+  row: 1 | 2 | 3;
+  region: ListeningRegion;
+  anchorOffset: number;
+}
+
+export interface ListeningPart3Connection {
+  answerId: string;
+  pictureId: string;
+}
+
+export interface ListeningPart3ConnectImage extends ListeningPartBase {
+  part: 3;
+  displayMode: 'connect-image';
+  connectionSchemaVersion: 1;
+  boardAssetId: string;
+  boardUrl?: string;
+  answers: ListeningPart3ConnectAnswer[];
+  pictures: ListeningPart3ConnectPicture[];
+  exampleConnection: ListeningPart3Connection & { renderOverlayLine: boolean };
+  correctConnections: ListeningPart3Connection[];
+  distractorAnswerId: string;
+}
+
+export type ListeningPart3 = ListeningPart3Legacy | ListeningPart3ConnectImage;
 
 export interface ListeningPart4Option {
   id: string;
@@ -139,14 +178,69 @@ export interface ListeningPart5Target {
   region: ListeningRegion;
 }
 
-export interface ListeningPart5 extends ListeningPartBase {
+export interface ListeningPart5Legacy extends ListeningPartBase {
   part: 5;
+  displayMode?: 'legacy-colour-regions';
   sceneAssetId: string;
   sceneUrl?: string;
   colours: ListeningColour[];
   targets: ListeningPart5Target[];
   example?: ListeningPart5Target;
 }
+
+export interface ListeningPart5InteractiveObject {
+  id: string;
+  label: string;
+  geometry: ListeningRegion;
+  interactionKinds: ['colour'];
+}
+
+export interface ListeningPart5PaletteItem {
+  id: string;
+  objectType: string;
+  label: string;
+  colourId?: string;
+  tokenAssetId?: string;
+  tokenUrl?: string;
+}
+
+export interface ListeningPart5ColourAction {
+  id: string;
+  type: 'colour_object';
+  correctObjectId: string;
+  correctColourId: string;
+}
+
+export interface ListeningPart5PlaceAction {
+  id: string;
+  type: 'place_object';
+  correctPaletteItemId: string;
+  targetRegion: ListeningRegion;
+  relationLabel?: string;
+}
+
+export type ListeningPart5Action = ListeningPart5ColourAction | ListeningPart5PlaceAction;
+
+export interface ListeningPart5Question {
+  id: string;
+  questionNumber: 1 | 2 | 3 | 4 | 5;
+  staffPrompt: string;
+  actions: ListeningPart5Action[];
+}
+
+export interface ListeningPart5SceneColourDraw extends ListeningPartBase {
+  part: 5;
+  displayMode: 'scene-colour-draw';
+  interactionSchemaVersion: 1;
+  sceneAssetId: string;
+  sceneUrl?: string;
+  colours: ListeningColour[];
+  interactiveObjects: ListeningPart5InteractiveObject[];
+  objectPalette: ListeningPart5PaletteItem[];
+  questions: ListeningPart5Question[];
+}
+
+export type ListeningPart5 = ListeningPart5Legacy | ListeningPart5SceneColourDraw;
 
 export type ListeningPart =
   | ListeningPart1
@@ -214,8 +308,22 @@ export interface ListeningAnswers {
   part2: Record<string, Record<string, string>>;
   part3: Record<string, string>;
   part4: Record<string, string>;
-  part5: Record<string, string>;
+  part5: Record<string, ListeningPart5Answer>;
 }
+
+export interface ListeningPart5ColourAnswer {
+  type: 'colour_object';
+  objectId: string;
+  colourId: string;
+}
+
+export interface ListeningPart5PlaceAnswer {
+  type: 'place_object';
+  paletteItemId: string;
+  anchor: { x: number; y: number };
+}
+
+export type ListeningPart5Answer = string | ListeningPart5ColourAnswer | ListeningPart5PlaceAnswer;
 
 export interface ListeningAttemptTicket {
   ticket: string;

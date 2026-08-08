@@ -26,6 +26,10 @@ import {
   type SmartImportImageInput,
   type SmartImportVisionAnalyzer,
 } from '../listening-smart-import/service.js';
+import {
+  getListeningSmartImportRoleDefinitions,
+  type ListeningSmartImportSource,
+} from '../../features/listening-editor/smart-import/types.js';
 
 type Middleware = express.RequestHandler;
 
@@ -191,11 +195,14 @@ function collectAssetReferences(content: ListeningSetContent) {
   content.parts.forEach(part => add(part.audioAssetId, 'audio', `part-${part.part}`, 'audio'));
   add(content.parts[0].sceneAssetId, 'image', 'part-1', 'scene');
   add(content.parts[1].illustrationAssetId, 'image', 'part-2', 'illustration');
-  add(content.parts[2].boardAssetId, 'image', 'part-3', 'board');
-  content.parts[2].options.forEach(option => add(option.imageAssetId, 'image', option.id, 'part3-option'));
-  content.parts[2].items.forEach(item => add(item.imageAssetId, 'image', item.id, 'part3-item'));
-  if (content.parts[2].example) {
-    add(content.parts[2].example.item.imageAssetId, 'image', content.parts[2].example.item.id, 'part3-example');
+  const part3 = content.parts[2];
+  add(part3.boardAssetId, 'image', 'part-3', 'board');
+  if (part3.displayMode !== 'connect-image') {
+    part3.options.forEach(option => add(option.imageAssetId, 'image', option.id, 'part3-option'));
+    part3.items.forEach(item => add(item.imageAssetId, 'image', item.id, 'part3-item'));
+    if (part3.example) {
+      add(part3.example.item.imageAssetId, 'image', part3.example.item.id, 'part3-example');
+    }
   }
   content.parts[3].questions.forEach(question => {
     question.options.forEach(option => add(option.imageAssetId, 'image', `${question.id}:${option.id}`, 'part4-option'));
@@ -204,14 +211,21 @@ function collectAssetReferences(content: ListeningSetContent) {
     content.parts[3].example.options.forEach(option => add(option.imageAssetId, 'image', `example:${option.id}`, 'part4-example'));
   }
   add(content.parts[4].sceneAssetId, 'image', 'part-5', 'scene');
+  const part5 = content.parts[4];
+  if (part5.displayMode === 'scene-colour-draw') {
+    part5.objectPalette.forEach(item => add(item.tokenAssetId, 'image', item.id, 'part5-token'));
+  }
   return references;
 }
 
 async function resolveContentAssets(db: any, content: ListeningSetContent, user: any) {
   const clone = structuredClone(content);
-  clone.parts[2].options.forEach((option, index) => {
-    option.label = String.fromCharCode(65 + index);
-  });
+  const part3 = clone.parts[2];
+  if (part3.displayMode !== 'connect-image') {
+    part3.options.forEach((option, index) => {
+      option.label = String.fromCharCode(65 + index);
+    });
+  }
   const references = collectAssetReferences(clone);
   const assets = new Map<string, ListeningAsset>();
   await Promise.all([...new Set(references.map(reference => reference.id))].map(async assetId => {
@@ -238,10 +252,12 @@ async function resolveContentAssets(db: any, content: ListeningSetContent, user:
   clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
   clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
   clone.parts[2].boardUrl = url(clone.parts[2].boardAssetId);
-  clone.parts[2].options.forEach(option => { option.imageUrl = url(option.imageAssetId); });
-  clone.parts[2].items.forEach(item => { item.imageUrl = url(item.imageAssetId); });
-  if (clone.parts[2].example) {
-    clone.parts[2].example.item.imageUrl = url(clone.parts[2].example.item.imageAssetId);
+  if (clone.parts[2].displayMode !== 'connect-image') {
+    clone.parts[2].options.forEach(option => { option.imageUrl = url(option.imageAssetId); });
+    clone.parts[2].items.forEach(item => { item.imageUrl = url(item.imageAssetId); });
+    if (clone.parts[2].example) {
+      clone.parts[2].example.item.imageUrl = url(clone.parts[2].example.item.imageAssetId);
+    }
   }
   clone.parts[3].questions.forEach(question => {
     question.options.forEach(option => { option.imageUrl = url(option.imageAssetId); });
@@ -250,6 +266,9 @@ async function resolveContentAssets(db: any, content: ListeningSetContent, user:
     clone.parts[3].example.options.forEach(option => { option.imageUrl = url(option.imageAssetId); });
   }
   clone.parts[4].sceneUrl = url(clone.parts[4].sceneAssetId);
+  if (clone.parts[4].displayMode === 'scene-colour-draw') {
+    clone.parts[4].objectPalette.forEach(item => { item.tokenUrl = url(item.tokenAssetId); });
+  }
   return { content: clone, references };
 }
 
@@ -550,15 +569,33 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           code: 'LISTENING_IMPORT_BASE_CHANGED',
         });
       }
-      const sourceImageAssetIds = Array.from(new Set(
-        (Array.isArray(req.body?.sourceImageAssetIds) ? req.body.sourceImageAssetIds : [])
-          .map((value: unknown) => text(value, 160))
-          .filter(Boolean)
-      )).slice(0, 5) as string[];
       const pastedText = text(req.body?.pastedText, 12000);
+      const roleDefinitions = getListeningSmartImportRoleDefinitions(part as 1 | 2 | 3 | 4 | 5);
+      const allowedRoles = new Set(roleDefinitions.map(definition => definition.role));
+      const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
+      const sources: ListeningSmartImportSource[] = [];
+      const seenRoles = new Set<string>();
+      const seenAssets = new Set<string>();
+      for (const rawSource of rawSources.slice(0, 3)) {
+        const role = text(rawSource?.role, 40) as ListeningSmartImportSource['role'];
+        const assetId = text(rawSource?.assetId, 160);
+        if (!allowedRoles.has(role) || !assetId) throw apiError(400, 'Role hoặc asset Smart Import không hợp lệ.');
+        if (seenRoles.has(role)) throw apiError(400, `Role ${role} bị trùng.`);
+        if (seenAssets.has(assetId)) throw apiError(400, 'Một asset không được dùng đồng thời cho nhiều role.');
+        seenRoles.add(role);
+        seenAssets.add(assetId);
+        sources.push({ role, assetId });
+      }
+      const missingRoles = roleDefinitions.filter(definition => definition.required && !seenRoles.has(definition.role));
+      const answerTextFallback = Boolean(pastedText) && (part === 2 || part === 3);
+      const effectiveMissingRoles = missingRoles.filter(definition => !(answerTextFallback && definition.role === 'answer_key'));
+      if (effectiveMissingRoles.length) {
+        throw apiError(400, `Thiếu nguồn bắt buộc: ${effectiveMissingRoles.map(definition => definition.label).join(', ')}.`);
+      }
       const images: SmartImportImageInput[] = [];
       let totalImageBytes = 0;
-      for (const assetId of sourceImageAssetIds) {
+      for (const source of sources) {
+        const assetId = source.assetId;
         const document = await db.collection('listening_assets').doc(assetId).get();
         if (!document.exists) throw apiError(404, `Không tìm thấy ảnh nguồn ${assetId}.`);
         const asset = { id: document.id, ...document.data() } as ListeningAsset;
@@ -575,14 +612,14 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         if (data.length > IMAGE_MAX_BYTES) throw apiError(413, 'Một ảnh nguồn vượt quá giới hạn dung lượng.');
         totalImageBytes += data.length;
         if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, 'Tổng dung lượng ảnh nguồn vượt quá 30 MB.');
-        images.push({ assetId, mimeType: asset.mimeType, data });
+        images.push({ assetId, role: source.role, mimeType: asset.mimeType, data });
       }
       const importAbortController = new AbortController();
       const importPromise = createListeningSmartImportCandidate({
         part: part as 1 | 2 | 3 | 4 | 5,
         currentPart,
         basePartHash,
-        sourceImageAssetIds,
+        sources,
         pastedText,
         images,
         analyzeVision: smartImport?.analyzeVision,
@@ -603,7 +640,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         req.user.name,
         req.user.email,
         'ANALYZE_LISTENING_PART',
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sourceImageAssetIds.length} ảnh; provider ${candidate.provider}.`
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; provider ${candidate.provider}.`
       );
       res.json(candidate);
     } catch (error) {

@@ -5,8 +5,9 @@ import type {
   ListeningQuestionResult,
   ListeningSetContent,
 } from '../../features/listening/types.js';
+import { pointInListeningRegion } from '../../features/listening/geometry.js';
 
-export const LISTENING_GRADING_VERSION = 'listening-five-part-v1';
+export const LISTENING_GRADING_VERSION = 'listening-five-part-v2';
 
 export function normalizeListeningTextAnswer(value: unknown) {
   return String(value ?? '')
@@ -52,17 +53,49 @@ export function gradeListeningAttempt(
     const result = gradeTextQuestion(question, answers.part2?.[question.id]);
     push(2, question.id, result.correct, result.unanswered);
   }
-  for (const item of content.parts[2].items) {
-    const actual = answers.part3?.[item.id] || '';
-    push(3, item.id, actual === item.correctOptionId, !actual);
+  const part3 = content.parts[2];
+  if (part3.displayMode === 'connect-image') {
+    for (const connection of part3.correctConnections) {
+      const actual = answers.part3?.[connection.answerId] || '';
+      push(3, connection.answerId, actual === connection.pictureId, !actual);
+    }
+  } else {
+    for (const item of part3.items) {
+      const actual = answers.part3?.[item.id] || '';
+      push(3, item.id, actual === item.correctOptionId, !actual);
+    }
   }
   for (const question of content.parts[3].questions) {
     const actual = answers.part4?.[question.id] || '';
     push(4, question.id, actual === question.correctOptionId, !actual);
   }
-  for (const target of content.parts[4].targets) {
-    const actual = answers.part5?.[target.id] || '';
-    push(5, target.id, actual === target.correctColourId, !actual);
+  const part5 = content.parts[4];
+  if (part5.displayMode === 'scene-colour-draw') {
+    for (const question of part5.questions) {
+      const submitted = question.actions.map(action => answers.part5?.[action.id]);
+      const unanswered = submitted.every(answer => !answer);
+      const correct = question.actions.length > 0 && question.actions.every((action, index) => {
+        const answer = submitted[index];
+        if (action.type === 'colour_object') {
+          return Boolean(
+            answer && typeof answer === 'object' && answer.type === 'colour_object'
+            && answer.objectId === action.correctObjectId
+            && answer.colourId === action.correctColourId
+          );
+        }
+        return Boolean(
+          answer && typeof answer === 'object' && answer.type === 'place_object'
+          && answer.paletteItemId === action.correctPaletteItemId
+          && pointInListeningRegion(answer.anchor, action.targetRegion)
+        );
+      });
+      push(5, question.id, correct, unanswered);
+    }
+  } else {
+    for (const target of part5.targets) {
+      const actual = answers.part5?.[target.id] || '';
+      push(5, target.id, actual === target.correctColourId, !actual);
+    }
   }
 
   if (questions.length !== 25) {

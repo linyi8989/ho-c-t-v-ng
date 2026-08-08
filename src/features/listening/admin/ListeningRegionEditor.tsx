@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Check, Circle, MousePointer2, Pentagon, RotateCcw, Square } from 'lucide-react';
 import type { ListeningRegion, ListeningRegionShape } from '../types';
+import { regionFromPolygon } from '../geometry';
 
 interface RegionItem {
   id: string;
@@ -23,6 +24,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange }: ListeningRe
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [history, setHistory] = useState<RegionItem[][]>([]);
+  const vertexDragRef = useRef<{ itemId: string; pointIndex: number } | null>(null);
 
   const active = useMemo(() => items.find(item => item.id === activeId), [activeId, items]);
   const point = (event: React.PointerEvent) => {
@@ -84,6 +86,32 @@ export function ListeningRegionEditor({ imageUrl, items, onChange }: ListeningRe
     setHistory(value => value.slice(0, -1));
     onChange(previous);
   };
+  const beginVertexDrag = (event: React.PointerEvent<SVGCircleElement>, itemId: string, pointIndex: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveId(itemId);
+    setHistory(previous => [...previous.slice(-19), structuredClone(items)]);
+    vertexDragRef.current = { itemId, pointIndex };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveVertex = (event: React.PointerEvent<SVGCircleElement>) => {
+    const dragging = vertexDragRef.current;
+    if (!dragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextPoint = point(event);
+    onChange(items.map(item => {
+      if (item.id !== dragging.itemId || item.region.shape !== 'polygon' || !item.region.points) return item;
+      const points = item.region.points.map((current, index) => index === dragging.pointIndex ? nextPoint : current);
+      const region = regionFromPolygon(points);
+      return region ? { ...item, region } : item;
+    }));
+  };
+  const finishVertexDrag = (event: React.PointerEvent<SVGCircleElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    vertexDragRef.current = null;
+  };
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-3">
@@ -132,7 +160,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange }: ListeningRe
           className="relative mx-auto max-w-4xl cursor-crosshair touch-none overflow-hidden rounded-xl border border-slate-300 bg-white select-none"
         >
           <img src={imageUrl} alt="Vùng tương tác" className="block h-auto w-full pointer-events-none" draggable={false} />
-          <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1000 1000" preserveAspectRatio="none">
             {items.map((item, index) => {
               const region = item.region;
               const common = {
@@ -140,6 +168,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange }: ListeningRe
                 stroke: item.id === activeId ? '#2563eb' : '#f43f5e',
                 strokeWidth: 4,
                 vectorEffect: 'non-scaling-stroke' as const,
+                pointerEvents: 'none' as const,
               };
               if (region.shape === 'polygon' && region.points?.length) {
                 return <polygon key={item.id} points={region.points.map(p => `${p.x * 1000},${p.y * 1000}`).join(' ')} {...common} />;
@@ -150,8 +179,26 @@ export function ListeningRegionEditor({ imageUrl, items, onChange }: ListeningRe
               return <rect key={item.id} x={region.x * 1000} y={region.y * 1000} width={region.width * 1000} height={region.height * 1000} rx="8" {...common} />;
             })}
             {polygonPoints.length > 0 && (
-              <polyline points={polygonPoints.map(p => `${p.x * 1000},${p.y * 1000}`).join(' ')} fill="none" stroke="#7c3aed" strokeWidth="4" vectorEffect="non-scaling-stroke" />
+              <polyline points={polygonPoints.map(p => `${p.x * 1000},${p.y * 1000}`).join(' ')} fill="none" stroke="#7c3aed" strokeWidth="4" vectorEffect="non-scaling-stroke" pointerEvents="none" />
             )}
+            {active?.region.shape === 'polygon' && active.region.points?.map((vertex, index) => (
+              <circle
+                key={`${active.id}-${index}`}
+                cx={vertex.x * 1000}
+                cy={vertex.y * 1000}
+                r="10"
+                fill="#ffffff"
+                stroke="#1d4ed8"
+                strokeWidth="5"
+                vectorEffect="non-scaling-stroke"
+                pointerEvents="all"
+                className="cursor-move"
+                onPointerDown={event => beginVertexDrag(event, active.id, index)}
+                onPointerMove={moveVertex}
+                onPointerUp={finishVertexDrag}
+                onPointerCancel={finishVertexDrag}
+              />
+            ))}
           </svg>
         </div>
       )}

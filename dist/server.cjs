@@ -3721,17 +3721,31 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
     push(2, question.id, formatListeningReviewQuestion(question.prompt, 2, index + 5), userAnswer, correctAnswer);
   });
   const part3 = content.parts[2];
-  const part3Options = part3.options.map((option) => option.label);
-  part3.items.forEach((item, index) => {
-    push(
-      3,
-      item.id,
-      formatListeningReviewQuestion(`Part 3 \u2022 ${item.label || ""}`, 3, index + 10),
-      labelForId(part3.options, answers.part3[item.id], (option) => option.label),
-      labelForId(part3.options, item.correctOptionId, (option) => option.label),
-      part3Options
-    );
-  });
+  if (part3.displayMode === "connect-image") {
+    part3.correctConnections.forEach((connection, index) => {
+      const answer = part3.answers.find((item) => item.id === connection.answerId);
+      push(
+        3,
+        connection.answerId,
+        formatListeningReviewQuestion(`Part 3 \u2022 ${answer?.label || ""}`, 3, index + 10),
+        labelForId(part3.pictures, answers.part3[connection.answerId], (picture) => `${picture.side} ${picture.row}`),
+        labelForId(part3.pictures, connection.pictureId, (picture) => `${picture.side} ${picture.row}`),
+        part3.pictures.map((picture) => `${picture.side} ${picture.row}`)
+      );
+    });
+  } else {
+    const part3Options = part3.options.map((option) => option.label);
+    part3.items.forEach((item, index) => {
+      push(
+        3,
+        item.id,
+        formatListeningReviewQuestion(`Part 3 \u2022 ${item.label || ""}`, 3, index + 10),
+        labelForId(part3.options, answers.part3[item.id], (option) => option.label),
+        labelForId(part3.options, item.correctOptionId, (option) => option.label),
+        part3Options
+      );
+    });
+  }
   const part4 = content.parts[3];
   part4.questions.forEach((question, questionIndex) => {
     const optionLabels = question.options.map((option, index) => option.alt || String.fromCharCode(65 + index));
@@ -3746,16 +3760,41 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
   });
   const part5 = content.parts[4];
   const part5Options = part5.colours.map((colour) => colour.label);
-  part5.targets.forEach((target, index) => {
-    push(
-      5,
-      target.id,
-      formatListeningReviewQuestion(`Part 5 \u2022 ${target.label || ""}`, 5, index + 20),
-      labelForId(part5.colours, answers.part5[target.id], (colour) => colour.label),
-      labelForId(part5.colours, target.correctColourId, (colour) => colour.label),
-      part5Options
-    );
-  });
+  if (part5.displayMode === "scene-colour-draw") {
+    part5.questions.forEach((question, index) => {
+      const userAnswer = question.actions.map((action) => {
+        const answer = answers.part5[action.id];
+        if (!answer || typeof answer === "string") return activityText(answer, 500);
+        if (answer.type === "colour_object") {
+          const object = part5.interactiveObjects.find((item2) => item2.id === answer.objectId)?.label || answer.objectId;
+          const colour = part5.colours.find((item2) => item2.id === answer.colourId)?.label || answer.colourId;
+          return `${object}: ${colour}`;
+        }
+        const item = part5.objectPalette.find((entry) => entry.id === answer.paletteItemId)?.label || answer.paletteItemId;
+        return `${item} @ ${answer.anchor.x.toFixed(3)}, ${answer.anchor.y.toFixed(3)}`;
+      }).filter(Boolean).join(" | ");
+      const correctAnswer = question.actions.map((action) => {
+        if (action.type === "colour_object") {
+          const object = part5.interactiveObjects.find((item) => item.id === action.correctObjectId)?.label || action.correctObjectId;
+          const colour = part5.colours.find((item) => item.id === action.correctColourId)?.label || action.correctColourId;
+          return `${object}: ${colour}`;
+        }
+        return part5.objectPalette.find((item) => item.id === action.correctPaletteItemId)?.label || action.correctPaletteItemId;
+      }).join(" | ");
+      push(5, question.id, formatListeningReviewQuestion(question.staffPrompt, 5, index + 20), userAnswer, correctAnswer, part5Options);
+    });
+  } else {
+    part5.targets.forEach((target, index) => {
+      push(
+        5,
+        target.id,
+        formatListeningReviewQuestion(`Part 5 \u2022 ${target.label || ""}`, 5, index + 20),
+        labelForId(part5.colours, answers.part5[target.id], (colour) => colour.label),
+        labelForId(part5.colours, target.correctColourId, (colour) => colour.label),
+        part5Options
+      );
+    });
+  }
   return details;
 }
 function normalizeListeningActivityAnswerDetails(detail) {
@@ -4775,8 +4814,105 @@ function createLearningHistoryRouter(options) {
 // src/server/listening-library/router.ts
 var import_express3 = __toESM(require("express"), 1);
 
+// src/features/listening/geometry.ts
+var EPSILON = 1e-7;
+var isNormalizedPoint = (point) => Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+function polygonArea(points) {
+  if (points.length < 3) return 0;
+  return Math.abs(points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0)) / 2;
+}
+var orientation = (a, b, c) => (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+var onSegment = (a, b, c) => b.x <= Math.max(a.x, c.x) + EPSILON && b.x + EPSILON >= Math.min(a.x, c.x) && b.y <= Math.max(a.y, c.y) + EPSILON && b.y + EPSILON >= Math.min(a.y, c.y);
+function segmentsIntersect(a, b, c, d) {
+  const values = [orientation(a, b, c), orientation(a, b, d), orientation(c, d, a), orientation(c, d, b)];
+  if ((values[0] > EPSILON && values[1] < -EPSILON || values[0] < -EPSILON && values[1] > EPSILON) && (values[2] > EPSILON && values[3] < -EPSILON || values[2] < -EPSILON && values[3] > EPSILON)) return true;
+  return Math.abs(values[0]) <= EPSILON && onSegment(a, c, b) || Math.abs(values[1]) <= EPSILON && onSegment(a, d, b) || Math.abs(values[2]) <= EPSILON && onSegment(c, a, d) || Math.abs(values[3]) <= EPSILON && onSegment(c, b, d);
+}
+function polygonSelfIntersects(points) {
+  for (let first = 0; first < points.length; first += 1) {
+    const firstNext = (first + 1) % points.length;
+    for (let second = first + 1; second < points.length; second += 1) {
+      const secondNext = (second + 1) % points.length;
+      if (first === second || firstNext === second || secondNext === first) continue;
+      if (first === 0 && secondNext === 0) continue;
+      if (segmentsIntersect(points[first], points[firstNext], points[second], points[secondNext])) return true;
+    }
+  }
+  return false;
+}
+function regionFromPolygon(points) {
+  if (points.length < 3 || points.some((point) => !isNormalizedPoint(point))) return null;
+  if (polygonArea(points) <= EPSILON || polygonSelfIntersects(points)) return null;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  const width = Math.max(...xs) - x;
+  const height = Math.max(...ys) - y;
+  if (width <= EPSILON || height <= EPSILON) return null;
+  return { shape: "polygon", x, y, width, height, points: points.map((point) => ({ ...point })) };
+}
+function isValidListeningRegion(region) {
+  if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) return false;
+  if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return false;
+  if (region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) return false;
+  if (region.x + region.width > 1 + EPSILON || region.y + region.height > 1 + EPSILON) return false;
+  if (region.shape !== "polygon") return true;
+  const normalized = regionFromPolygon(region.points || []);
+  if (!normalized) return false;
+  return Math.abs(normalized.x - region.x) <= EPSILON && Math.abs(normalized.y - region.y) <= EPSILON && Math.abs(normalized.width - region.width) <= EPSILON && Math.abs(normalized.height - region.height) <= EPSILON;
+}
+function pointInListeningRegion(point, region) {
+  if (!isNormalizedPoint(point)) return false;
+  if (region.shape === "ellipse") {
+    const rx = region.width / 2;
+    const ry = region.height / 2;
+    if (rx <= 0 || ry <= 0) return false;
+    const dx = (point.x - region.x - rx) / rx;
+    const dy = (point.y - region.y - ry) / ry;
+    return dx * dx + dy * dy <= 1 + EPSILON;
+  }
+  if (region.shape === "polygon" && region.points?.length) {
+    let inside = false;
+    for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
+      const a = region.points[index];
+      const b = region.points[previous];
+      const crosses = a.y > point.y !== b.y > point.y && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y || EPSILON) + a.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+  return point.x >= region.x - EPSILON && point.x <= region.x + region.width + EPSILON && point.y >= region.y - EPSILON && point.y <= region.y + region.height + EPSILON;
+}
+function transformListeningPoint(point, sourceScene, targetScene) {
+  if (!isValidListeningRegion(sourceScene) || !isValidListeningRegion(targetScene)) return null;
+  const u = (point.x - sourceScene.x) / sourceScene.width;
+  const v = (point.y - sourceScene.y) / sourceScene.height;
+  if (!Number.isFinite(u) || !Number.isFinite(v) || u < -EPSILON || u > 1 + EPSILON || v < -EPSILON || v > 1 + EPSILON) return null;
+  const transformed = {
+    x: targetScene.x + Math.min(1, Math.max(0, u)) * targetScene.width,
+    y: targetScene.y + Math.min(1, Math.max(0, v)) * targetScene.height
+  };
+  return isNormalizedPoint(transformed) ? transformed : null;
+}
+function transformListeningRegion(region, sourceScene, targetScene) {
+  if (!isValidListeningRegion(region)) return null;
+  if (region.shape === "polygon") {
+    const points = (region.points || []).map((point) => transformListeningPoint(point, sourceScene, targetScene));
+    if (points.some((point) => !point)) return null;
+    return regionFromPolygon(points);
+  }
+  const start2 = transformListeningPoint({ x: region.x, y: region.y }, sourceScene, targetScene);
+  const end = transformListeningPoint({ x: region.x + region.width, y: region.y + region.height }, sourceScene, targetScene);
+  if (!start2 || !end) return null;
+  return { shape: region.shape, x: start2.x, y: start2.y, width: end.x - start2.x, height: end.y - start2.y };
+}
+
 // src/server/listening/listeningGrader.ts
-var LISTENING_GRADING_VERSION = "listening-five-part-v1";
+var LISTENING_GRADING_VERSION = "listening-five-part-v2";
 function normalizeListeningTextAnswer(value) {
   return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
 }
@@ -4802,17 +4938,45 @@ function gradeListeningAttempt(content, answers) {
     const result = gradeTextQuestion(question, answers.part2?.[question.id]);
     push(2, question.id, result.correct, result.unanswered);
   }
-  for (const item of content.parts[2].items) {
-    const actual = answers.part3?.[item.id] || "";
-    push(3, item.id, actual === item.correctOptionId, !actual);
+  const part3 = content.parts[2];
+  if (part3.displayMode === "connect-image") {
+    for (const connection of part3.correctConnections) {
+      const actual = answers.part3?.[connection.answerId] || "";
+      push(3, connection.answerId, actual === connection.pictureId, !actual);
+    }
+  } else {
+    for (const item of part3.items) {
+      const actual = answers.part3?.[item.id] || "";
+      push(3, item.id, actual === item.correctOptionId, !actual);
+    }
   }
   for (const question of content.parts[3].questions) {
     const actual = answers.part4?.[question.id] || "";
     push(4, question.id, actual === question.correctOptionId, !actual);
   }
-  for (const target of content.parts[4].targets) {
-    const actual = answers.part5?.[target.id] || "";
-    push(5, target.id, actual === target.correctColourId, !actual);
+  const part5 = content.parts[4];
+  if (part5.displayMode === "scene-colour-draw") {
+    for (const question of part5.questions) {
+      const submitted = question.actions.map((action) => answers.part5?.[action.id]);
+      const unanswered = submitted.every((answer) => !answer);
+      const correct = question.actions.length > 0 && question.actions.every((action, index) => {
+        const answer = submitted[index];
+        if (action.type === "colour_object") {
+          return Boolean(
+            answer && typeof answer === "object" && answer.type === "colour_object" && answer.objectId === action.correctObjectId && answer.colourId === action.correctColourId
+          );
+        }
+        return Boolean(
+          answer && typeof answer === "object" && answer.type === "place_object" && answer.paletteItemId === action.correctPaletteItemId && pointInListeningRegion(answer.anchor, action.targetRegion)
+        );
+      });
+      push(5, question.id, correct, unanswered);
+    }
+  } else {
+    for (const target of part5.targets) {
+      const actual = answers.part5?.[target.id] || "";
+      push(5, target.id, actual === target.correctColourId, !actual);
+    }
   }
   if (questions.length !== 25) {
     throw new Error(`Published listening version must contain exactly 25 questions; received ${questions.length}.`);
@@ -4867,6 +5031,9 @@ function validateRegion(region, path9, errors) {
         }
       });
     }
+  }
+  if (region && !isValidListeningRegion(region)) {
+    errors.push(`${path9}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -4934,6 +5101,44 @@ function validatePart2(part, errors) {
 }
 function validatePart3(part, errors) {
   validateBase(part, 3, errors);
+  if (part.displayMode === "connect-image") {
+    if (!isText(part.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh \u0111\u1EC1 b\xE0i k\u1EBFt n\u1ED1i.");
+    if (part.connectionSchemaVersion !== 1) errors.push("Part 3: phi\xEAn b\u1EA3n k\u1EBFt n\u1ED1i kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    if (part.answers?.length !== 7) errors.push("Part 3: c\u1EA7n \u0111\xFAng 7 answer \u1EDF gi\u1EEFa, g\u1ED3m example, 5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u.");
+    if (part.pictures?.length !== 6) errors.push("Part 3: c\u1EA7n \u0111\xFAng 6 picture, ba b\xEAn tr\xE1i v\xE0 ba b\xEAn ph\u1EA3i.");
+    const answerIds = (part.answers || []).map((answer) => answer.id);
+    const pictureIds = (part.pictures || []).map((picture) => picture.id);
+    if (!unique(answerIds) || (part.answers || []).some((answer) => !isText(answer.id, 160) || !isText(answer.label, 120))) {
+      errors.push("Part 3: answer ID/label ph\u1EA3i \u0111\u1EA7y \u0111\u1EE7 v\xE0 kh\xF4ng tr\xF9ng.");
+    }
+    if (!unique(pictureIds)) errors.push("Part 3: picture ID b\u1ECB tr\xF9ng.");
+    const pictureSlots = (part.pictures || []).map((picture) => `${picture.side}:${picture.row}`);
+    if (!unique(pictureSlots) || (part.pictures || []).some((picture) => !["left", "right"].includes(picture.side) || ![1, 2, 3].includes(picture.row))) {
+      errors.push("Part 3: picture ph\u1EA3i n\u1EB1m \u0111\xFAng ba h\xE0ng b\xEAn tr\xE1i v\xE0 ba h\xE0ng b\xEAn ph\u1EA3i.");
+    }
+    if ((part.answers || []).some((answer) => answer.leftAnchorOffset < 0 || answer.leftAnchorOffset > 1 || answer.rightAnchorOffset < 0 || answer.rightAnchorOffset > 1)) {
+      errors.push("Part 3: anchor answer ph\u1EA3i \u0111\u01B0\u1EE3c gi\u1EDBi h\u1EA1n tr\xEAn \u0111\xFAng c\u1EA1nh.");
+    }
+    if ((part.pictures || []).some((picture) => picture.anchorOffset < 0 || picture.anchorOffset > 1)) {
+      errors.push("Part 3: anchor picture ph\u1EA3i \u0111\u01B0\u1EE3c gi\u1EDBi h\u1EA1n tr\xEAn \u0111\xFAng c\u1EA1nh.");
+    }
+    validateRegionCollection(part.answers || [], "Part 3 answers", errors);
+    validateRegionCollection(part.pictures || [], "Part 3 pictures", errors);
+    const example = part.exampleConnection;
+    if (!example || !answerIds.includes(example.answerId) || !pictureIds.includes(example.pictureId)) {
+      errors.push("Part 3: example connection kh\xF4ng h\u1EE3p l\u1EC7.");
+    }
+    const mappings = part.correctConnections || [];
+    if (mappings.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 connection \u0111\u01B0\u1EE3c ch\u1EA5m \u0111i\u1EC3m.");
+    if (!unique(mappings.map((item) => item.answerId)) || !unique(mappings.map((item) => item.pictureId)) || mappings.some((item) => !answerIds.includes(item.answerId) || !pictureIds.includes(item.pictureId)) || mappings.some((item) => item.answerId === example?.answerId || item.pictureId === example?.pictureId)) {
+      errors.push("Part 3: mapping ch\u1EA5m \u0111i\u1EC3m b\u1ECB tr\xF9ng, tham chi\u1EBFu sai ho\u1EB7c d\xF9ng l\u1EA1i example.");
+    }
+    const unusedAnswers = answerIds.filter((id) => id !== example?.answerId && !mappings.some((item) => item.answerId === id));
+    if (unusedAnswers.length !== 1 || unusedAnswers[0] !== part.distractorAnswerId) {
+      errors.push("Part 3: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t answer nhi\u1EC5u kh\xF4ng \u0111\u01B0\u1EE3c n\u1ED1i.");
+    }
+    return;
+  }
   const composite = part.displayMode === "composite";
   if (!["once", "multiple"].includes(part.reuseMode)) errors.push("Part 3: ch\u1EBF \u0111\u1ED9 d\xF9ng \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
   if (composite && (part.options || []).length !== 6) errors.push("Part 3: b\u1EA3ng t\u1ED5ng h\u1EE3p c\u1EA7n \u0111\xFAng 6 l\u1EF1a ch\u1ECDn A\u2013F.");
@@ -4956,20 +5161,65 @@ function validatePart3(part, errors) {
 function validatePart4(part, errors) {
   validateBase(part, 4, errors);
   if (part.questions?.length !== 5) errors.push("Part 4: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
-  (part.questions || []).forEach((question, index) => {
-    if (!isText(question.prompt, 1e3)) errors.push(`Part 4 c\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung.`);
-    if (question.options?.length !== 3) errors.push(`Part 4 c\xE2u ${index + 1}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
+  const validateQuestion = (question, label) => {
+    if (!isText(question.prompt, 1e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung.`);
+    if (question.options?.length !== 3) errors.push(`${label}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
     const optionIds = (question.options || []).map((option) => option.id);
     if (!unique(optionIds) || !optionIds.includes(question.correctOptionId)) {
-      errors.push(`Part 4 c\xE2u ${index + 1}: l\u1EF1a ch\u1ECDn ho\u1EB7c \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
+      errors.push(`${label}: l\u1EF1a ch\u1ECDn ho\u1EB7c \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
     }
-    if ((question.options || []).some((option) => !isText(option.imageAssetId, 160))) {
-      errors.push(`Part 4 c\xE2u ${index + 1}: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n h\xECnh \u1EA3nh.`);
+    if ((question.options || []).some((option) => !isText(option.id, 160) || !isText(option.imageAssetId, 160))) {
+      errors.push(`${label}: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n ID v\xE0 h\xECnh \u1EA3nh.`);
     }
+  };
+  (part.questions || []).forEach((question, index) => {
+    validateQuestion(question, `Part 4 c\xE2u ${index + 1}`);
   });
+  if (part.example) validateQuestion(part.example, "Part 4 example");
 }
 function validatePart5(part, errors) {
   validateBase(part, 5, errors);
+  if (part.displayMode === "scene-colour-draw") {
+    if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\u01B0\u01A1ng t\xE1c.");
+    if (part.interactionSchemaVersion !== 1) errors.push("Part 5: phi\xEAn b\u1EA3n t\u01B0\u01A1ng t\xE1c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    if (part.colours?.length !== 20) errors.push("Part 5: palette m\xE0u c\u1EA7n \u0111\u1EE7 20 m\xE0u chu\u1EA9n.");
+    const colourIds2 = (part.colours || []).map((colour) => colour.id);
+    if (!unique(colourIds2) || (part.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
+      errors.push("Part 5: m\xE0u ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 m\xE3 #RRGGBB h\u1EE3p l\u1EC7.");
+    }
+    if (part.questions?.length !== 5 || !unique((part.questions || []).map((question) => String(question.questionNumber)))) {
+      errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 c\xE2u c\xF3 questionNumber 1\u20135 kh\xF4ng tr\xF9ng.");
+    }
+    const objectIds = (part.interactiveObjects || []).map((object) => object.id);
+    const paletteIds = (part.objectPalette || []).map((item) => item.id);
+    if (!unique(objectIds) || !unique(paletteIds)) errors.push("Part 5: ID object/palette b\u1ECB tr\xF9ng.");
+    (part.interactiveObjects || []).forEach((object, index) => validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors));
+    const actionIds = (part.questions || []).flatMap((question) => (question.actions || []).map((action) => action.id));
+    if (!unique(actionIds)) errors.push("Part 5: action ID b\u1ECB tr\xF9ng.");
+    if ((part.questions || []).some((question) => question.actions?.some((action) => action.type === "colour_object")) && objectIds.length < 2) {
+      errors.push("Part 5: colour_object c\u1EA7n \xEDt nh\u1EA5t hai public object \u0111\u1EC3 geometry kh\xF4ng tr\u1EDF th\xE0nh g\u1EE3i \xFD \u0111\xE1p \xE1n.");
+    }
+    (part.questions || []).forEach((question, questionIndex) => {
+      if (!question.actions?.length) errors.push(`Part 5 c\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t action.`);
+      question.actions?.forEach((action, actionIndex) => {
+        if (action.type === "colour_object") {
+          if (!objectIds.includes(action.correctObjectId) || !colourIds2.includes(action.correctColourId)) {
+            errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: object/m\xE0u \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
+          }
+        } else {
+          if (!paletteIds.includes(action.correctPaletteItemId)) {
+            errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: object \u0111\u1EB7t kh\xF4ng h\u1EE3p l\u1EC7.`);
+          }
+          validateRegion(action.targetRegion, `Part 5 questions[${questionIndex}].actions[${actionIndex}].targetRegion`, errors);
+          const correctItem = part.objectPalette.find((item) => item.id === action.correctPaletteItemId);
+          if (!correctItem || !part.objectPalette.some((item) => item.id !== correctItem.id && item.objectType === correctItem.objectType)) {
+            errors.push(`Part 5 c\xE2u ${questionIndex + 1}: place_object c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t l\u1EF1a ch\u1ECDn nhi\u1EC5u c\xF9ng lo\u1EA1i.`);
+          }
+        }
+      });
+    });
+    return;
+  }
   if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\xF4 m\xE0u.");
   if (part.colours?.length !== 6) errors.push("Part 5: c\u1EA7n \u0111\xFAng 6 m\xE0u (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
   if (part.targets?.length !== 5) errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
@@ -5016,12 +5266,43 @@ function sanitizeListeningAnswers(value) {
       nested ? record(answer, false) : String(answer ?? "").slice(0, 500)
     ]));
   };
+  const part5Record = (input) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+    const sanitized = {};
+    Object.entries(input).slice(0, 100).forEach(([key, rawAnswer]) => {
+      if (!/^[a-zA-Z0-9_-]{1,160}$/.test(key)) return;
+      if (typeof rawAnswer === "string") {
+        sanitized[key] = rawAnswer.slice(0, 500);
+        return;
+      }
+      if (!rawAnswer || typeof rawAnswer !== "object" || Array.isArray(rawAnswer)) return;
+      const answer = rawAnswer;
+      if (answer.type === "colour_object") {
+        const objectId = String(answer.objectId ?? "").slice(0, 160);
+        const colourId = String(answer.colourId ?? "").slice(0, 160);
+        if (/^[a-zA-Z0-9_-]{1,160}$/.test(objectId) && /^[a-zA-Z0-9_-]{1,160}$/.test(colourId)) {
+          sanitized[key] = { type: "colour_object", objectId, colourId };
+        }
+        return;
+      }
+      if (answer.type === "place_object") {
+        const paletteItemId = String(answer.paletteItemId ?? "").slice(0, 160);
+        const anchor = answer.anchor && typeof answer.anchor === "object" && !Array.isArray(answer.anchor) ? answer.anchor : {};
+        const x = Number(anchor.x);
+        const y = Number(anchor.y);
+        if (/^[a-zA-Z0-9_-]{1,160}$/.test(paletteItemId) && Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+          sanitized[key] = { type: "place_object", paletteItemId, anchor: { x, y } };
+        }
+      }
+    });
+    return sanitized;
+  };
   return {
     part1: record(source.part1),
     part2: record(source.part2, true),
     part3: record(source.part3),
     part4: record(source.part4),
-    part5: record(source.part5)
+    part5: part5Record(source.part5)
   };
 }
 function sanitizeListeningContentForStudent(content) {
@@ -5032,23 +5313,68 @@ function sanitizeListeningContentForStudent(content) {
     ...question,
     blanks: question.blanks.map(({ acceptedAnswers: _answers, ...blank }) => blank)
   }));
-  copy.parts[2].items = copy.parts[2].items.map(({ correctOptionId: _answer, ...item }) => item);
-  if (copy.parts[2].example) delete copy.parts[2].example.correctOptionId;
+  if (copy.parts[2].displayMode === "connect-image") {
+    delete copy.parts[2].correctConnections;
+    delete copy.parts[2].distractorAnswerId;
+  } else {
+    copy.parts[2].items = copy.parts[2].items.map(({ correctOptionId: _answer, ...item }) => item);
+    if (copy.parts[2].example) delete copy.parts[2].example.correctOptionId;
+  }
   copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }) => question);
-  if (copy.parts[3].example) delete copy.parts[3].example.correctOptionId;
-  copy.parts[4].targets = copy.parts[4].targets.map(({ correctColourId: _answer, ...target }) => target);
-  if (copy.parts[4].example) delete copy.parts[4].example.correctColourId;
+  const part5 = copy.parts[4];
+  if (part5.displayMode === "scene-colour-draw") {
+    part5.questions = part5.questions.map((question) => ({
+      id: question.id,
+      questionNumber: question.questionNumber,
+      actions: question.actions.map((action) => ({ id: action.id, type: action.type }))
+    }));
+  } else {
+    part5.targets = part5.targets.map(({ correctColourId: _answer, ...target }) => target);
+    if (part5.example) delete part5.example.correctColourId;
+  }
   return copy;
 }
 
 // src/server/listening-smart-import/service.ts
 var import_node_crypto3 = __toESM(require("node:crypto"), 1);
-var cleanText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
+
+// src/features/listening-library/modules/mover/editor/colourCatalog.ts
+var MOVER_COLOUR_CATALOG = [
+  { label: "Red", value: "#EF4444" },
+  { label: "Blue", value: "#2563EB" },
+  { label: "Green", value: "#16A34A" },
+  { label: "Yellow", value: "#FACC15" },
+  { label: "Orange", value: "#F97316" },
+  { label: "Purple", value: "#7C3AED" },
+  { label: "Pink", value: "#EC4899" },
+  { label: "Brown", value: "#92400E" },
+  { label: "Black", value: "#111827" },
+  { label: "White", value: "#FFFFFF" },
+  { label: "Grey", value: "#6B7280" },
+  { label: "Light Blue", value: "#7DD3FC" },
+  { label: "Dark Blue", value: "#1E3A8A" },
+  { label: "Light Green", value: "#86EFAC" },
+  { label: "Dark Green", value: "#166534" },
+  { label: "Light Pink", value: "#F9A8D4" },
+  { label: "Dark Red", value: "#991B1B" },
+  { label: "Beige", value: "#D6C7A1" },
+  { label: "Gold", value: "#D4A017" },
+  { label: "Silver", value: "#A8A9AD" }
+];
+
+// src/server/listening-smart-import/service.ts
+var cleanText = (value, max = 1e3) => String(value ?? "").normalize("NFKC").trim().slice(0, max);
+var comparable = (value) => cleanText(value, 300).toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/\s+/g, " ");
 var clamp = (value, fallback = 0.5) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
 };
 var list = (value) => Array.isArray(value) ? value : [];
+var integer = (value) => Number.isInteger(Number(value)) ? Number(value) : void 0;
+var questionNumber = (value) => {
+  const parsed = integer(value);
+  return parsed && parsed >= 1 && parsed <= 5 ? parsed : void 0;
+};
 function parseJson3(text3) {
   const trimmed = text3.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
@@ -5061,218 +5387,405 @@ function parseJson3(text3) {
     return JSON.parse(object.trim());
   }
 }
-function randomIndexes(total, count) {
-  const values = Array.from({ length: total }, (_, index) => index);
-  for (let index = values.length - 1; index > 0; index -= 1) {
-    const swap = import_node_crypto3.default.randomInt(index + 1);
-    [values[index], values[swap]] = [values[swap], values[index]];
-  }
-  return values.slice(0, count);
+function normalizedRect(value, minimum = 5e-3) {
+  const x = Number(value?.x);
+  const y = Number(value?.y);
+  const width = Number(value?.width);
+  const height = Number(value?.height);
+  const region = { shape: value?.shape === "ellipse" ? "ellipse" : "rect", x, y, width, height };
+  return width >= minimum && height >= minimum && isValidListeningRegion(region) ? region : void 0;
 }
-function fixedRegion(raw) {
+function normalizedRegion(value) {
+  if (value?.shape === "polygon" || Array.isArray(value?.points)) {
+    const points = list(value?.points).slice(0, 80).map((point) => ({ x: Number(point?.x), y: Number(point?.y) }));
+    return regionFromPolygon(points) || void 0;
+  }
+  return normalizedRect(value);
+}
+function normalizeCrop(value) {
+  const region = normalizedRect(value, 0.02);
+  return region ? { x: region.x, y: region.y, width: region.width, height: region.height } : void 0;
+}
+function fixedRegionFromPoint(point) {
   const width = 0.12;
   const height = 0.055;
-  const centerX = clamp(raw?.centerX ?? raw?.x);
-  const centerY = clamp(raw?.centerY ?? raw?.y);
   return {
     shape: "rect",
-    x: Math.min(1 - width, Math.max(0, centerX - width / 2)),
-    y: Math.min(1 - height, Math.max(0, centerY - height / 2)),
+    x: Math.min(1 - width, Math.max(0, point.x - width / 2)),
+    y: Math.min(1 - height, Math.max(0, point.y - height / 2)),
     width,
     height
   };
 }
-function normalizeAnchors(value, limit = 6) {
-  return list(value).slice(0, limit).map((entry, index) => ({
-    label: cleanText(entry?.label || entry?.name || `V\xF9ng ${index + 1}`, 120),
-    region: fixedRegion(entry),
-    confidence: clamp(entry?.confidence, 0.5)
-  }));
-}
-function normalizeCrop(value) {
-  const x = clamp(value?.x, 0);
-  const y = clamp(value?.y, 0);
-  const width = Math.min(1 - x, Math.max(0.02, clamp(value?.width, 0.2)));
-  const height = Math.min(1 - y, Math.max(0.02, clamp(value?.height, 0.2)));
-  return { x, y, width, height };
-}
 function promptFor(part, pastedText) {
-  const common = `You extract structured data for Cambridge Movers Listening Part ${part} from the attached PAGE IMAGES.
-Never infer or extract answers from audio or transcript. No audio is attached. Return only JSON, no markdown.
-Coordinates are normalized 0..1 relative to the source image. Do not invent unreadable text.
-Teacher will review every result before it is applied.`;
+  const common = `You extract structured data for Cambridge Movers Listening Part ${part}. Each attached image is explicitly preceded by its technical ROLE label; never infer roles from image order. Never use audio or transcript. Return only JSON. Coordinates are normalized 0..1. Do not invent unreadable text, answers, objects, colours, geometry or IDs. Never return UUID/database/question/action/object/choice IDs. Use warnings for uncertainty.`;
   const pasted = pastedText ? `
-Teacher pasted text (may help OCR):
+Teacher supplied an explicit manual OCR fallback for the answer text:
 ${pastedText}` : "";
   if (part === 1) return `${common}
-Extract the six printed name choices (including the distractor/example when visible) and locate the centre of each pictured person.
-Do NOT decide which name belongs to which person. JSON: {"choices":["name"],"exampleLabel":"optional","anchors":[{"label":"visual description","centerX":0.5,"centerY":0.5,"confidence":0.8}]}.${pasted}`;
+ROLE question: detect every printed name, identify and separate the example, and locate the canonical scene. After removing the example there must be six draggable names. ROLE answer_key: read the five name-to-picture mappings. ROLE position_key: identify the five line endpoints on the picture/person side, never the name-side endpoints, plus the corresponding scene rectangle. Return questionScene, positionScene, printedNames, example, targets and answerMappings. Each target should have visualLabel, optional targetNumber, targetEndpoint and confidence; each mapping should have visualLabel/targetNumber and choiceLabel.${pasted}`;
   if (part === 2) return `${common}
-Extract heading, optional example, and exactly five numbered fill-in questions. The darker/bold span is the supplied answer. Replace that answer span in the question with {{blank}}. Preserve answer variants separated by | as separate acceptedAnswers.
-If the page contains a main illustration, also return its picture-only rectangle as illustrationCrop and its zero-based illustrationSourceImageIndex; exclude surrounding border/text.
-JSON: {"heading":"ABC","exampleText":"optional","illustrationCrop":{"x":0.05,"y":0.1,"width":0.4,"height":0.35},"illustrationSourceImageIndex":0,"questions":[{"prompt":"Lives at: {{blank}} Main Street","acceptedAnswers":["7"]}]}.${pasted}`;
+ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. ROLE answer_key supplies accepted answers numbered 1..5. Never infer an answer from the question image. Preserve text such as 4b exactly and split variants only when the source explicitly separates them with |. Return heading, instruction, exampleText, questions [{questionNumber,prompt}], answers [{questionNumber,correctAnswer,answerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
   if (part === 3) return `${common}
-The attached image is only the label-list source. Extract only the five row labels (for example weekdays). The separate A-F composite board is deliberately not sent to AI and must not be split. Red highlighting described by the teacher is not present in the real image. Do not choose A-F answers.
-JSON: {"labels":["Monday","Tuesday","Wednesday","Thursday","Friday"]}.${pasted}`;
+ROLE question is the full worksheet: detect seven centre answer labels/regions with left/right anchor hints, six picture regions arranged three left and three right, and the printed example connection. ROLE answer_key is a two-column by three-row mapping; preserve side+row and do not flatten OCR order. Return questionAnswers, questionPictures, questionExample, answerKeyCells and warnings. The example is unscored and the remaining unused answer is the distractor.${pasted}`;
   if (part === 4) return `${common}
-Read questions in printed order: top-to-bottom and, when two questions share a row, left-to-right. Extract exactly five prompts and exactly three options A, B, C per question.
-Each option picture is inside a black or dark-grey rectangular frame. Return a close rectangle for the PICTURE INSIDE that frame: stay inside the inner edge and exclude the black frame, surrounding card, A/B/C badge, radio circle, tick and question text. Do not use the outer rounded question/card border as an option crop. Keep A/B/C in left-to-right order.
-Crop coordinates are only an initial hint: deterministic browser code will detect the dark frames and snap these rectangles to their inner edges. If a frame edge is faint, still return the closest visible picture rectangle instead of omitting an option.
-If an answer is EXPLICITLY marked in the source page, set correctOptionIndex to 0, 1 or 2; otherwise omit it. Never infer the answer from picture meaning.
-JSON: {"questions":[{"prompt":"What does Daisy want?","sourceImageIndex":0,"crops":[{"x":0.1,"y":0.1,"width":0.2,"height":0.2},{"x":0.4,"y":0.1,"width":0.2,"height":0.2},{"x":0.7,"y":0.1,"width":0.2,"height":0.2}],"correctOptionIndex":1}]}.${pasted}`;
+ROLE question contains one example followed by exactly five numbered questions. Each block has three framed pictures A/B/C. Return example and questions with close picture-only crops inside frame edges, excluding A/B/C text, checkbox/tick, border and prompt. ROLE answer_key supplies only scored answers 1..5 as A/B/C; map by questionNumber, never OCR index. Only the explicit example marker on the question image may set the example answer. Return {example:{prompt,crops,answer},questions:[{questionNumber,prompt,crops}],answers:[{questionNumber,answer}],orderedFallbackEvidence?}.${pasted}`;
   return `${common}
-Locate five relevant objects/people to be coloured. Return only visual labels and centres. Do NOT select colours or infer any colour answer.
-JSON: {"anchors":[{"label":"horse tail","centerX":0.2,"centerY":0.25,"confidence":0.8}]}.${pasted}`;
+ROLE question is the canonical student scene. ROLE answer_key supplies five numbered staff prompts and their colour/draw actions. ROLE position_key, when present, shows final object/placement locations. Detect a reviewable public set of colourable interactive objects, including plausible non-answer objects already visible in the scene. Detect the number of actions per question from evidence; never assume one action or hard-code question 1. Actions are colour_object or place_object. Colours must use only: ${MOVER_COLOUR_CATALOG.map((colour) => colour.label).join(", ")}. Return questionScene, positionScene, interactiveObjects [{label,geometry,geometrySource,confidence}], optional paletteItems explicitly visible in source, questions [{questionNumber,prompt,actions:[{type,objectLabel/objectType,correctColor,color,geometry,targetRegion,geometrySource,relationLabel,confidence}]}], warnings. Do not invent distractor palette items.${pasted}`;
 }
-function localPart2(pastedText) {
-  const lines = pastedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const heading = cleanText(lines.find((line) => !/^\d+[.)]/.test(line)) || "Listening notes", 200);
-  const questions = lines.filter((line) => /^\d+[.)]/.test(line)).slice(0, 5).map((line) => {
-    const [rawPrompt, ...answers] = line.split(/\s*(?:=>|\|)\s*/);
-    return {
-      prompt: cleanText(rawPrompt.replace(/^\d+[.)]\s*/, ""), 1e3).replace(/_{2,}/, "{{blank}}"),
-      acceptedAnswers: answers.map((answer) => cleanText(answer, 200)).filter(Boolean)
-    };
+function localNumberedLines(pastedText) {
+  return pastedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const match = line.match(/^([1-5])[.)\s:-]+(.+)$/);
+    return match ? { questionNumber: Number(match[1]), value: match[2].trim() } : { value: line };
   });
-  return { heading, questions };
 }
-function localLabels(pastedText) {
-  return pastedText.split(/\r?\n|,/).map((value) => cleanText(value, 160)).filter(Boolean).slice(0, 5);
-}
-function normalizeData(part, raw, currentPart, sourceImageAssetIds, warnings) {
-  if (part === 1) {
-    const current2 = currentPart.part === 1 ? currentPart : null;
-    const choices = list(raw?.choices).map((value) => cleanText(value, 120)).filter(Boolean).slice(0, 6);
-    while (choices.length < 6 && current2?.choices[choices.length]) choices.push(current2.choices[choices.length].label);
-    const anchors2 = normalizeAnchors(raw?.anchors, 5);
-    const detectedAnchorCount2 = anchors2.length;
-    while (anchors2.length < 5 && current2?.targets[anchors2.length]) {
-      const fallback = current2.targets[anchors2.length];
-      anchors2.push({
-        label: `V\xF9ng ${anchors2.length + 1} \xB7 c\u1EA7n gi\xE1o vi\xEAn \u0111\u1EB7t l\u1EA1i`,
-        region: fixedRegion({
-          centerX: fallback.region.x + fallback.region.width / 2,
-          centerY: fallback.region.y + fallback.region.height / 2
-        }),
-        confidence: 0
-      });
+function normalizeNumberedEntries(values, convert, warnings, label, allowOrderedFallback = false) {
+  const numbered = /* @__PURE__ */ new Map();
+  const conflicts = /* @__PURE__ */ new Set();
+  const unnumbered = [];
+  values.forEach((entry) => {
+    const value = convert(entry);
+    if (value === void 0) return;
+    const number2 = questionNumber(entry?.questionNumber ?? entry?.number);
+    if (!number2) {
+      unnumbered.push(value);
+      return;
     }
-    if (choices.length < 6) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 6 th\u1EBB t\xEAn; gi\xE1o vi\xEAn c\u1EA7n \u0111i\u1EC1n ph\u1EA7n c\xF2n thi\u1EBFu.");
-    if (detectedAnchorCount2 < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 nh\xE2n v\u1EADt; \u0111\xE3 t\u1EA1o v\xF9ng m\u1EB7c \u0111\u1ECBnh \u0111\u1EC3 gi\xE1o vi\xEAn t\u1EF1 \u0111\u1EB7t l\u1EA1i.");
-    return {
-      part: 1,
-      choices,
-      anchors: anchors2,
-      exampleLabel: cleanText(raw?.exampleLabel, 120) || void 0,
-      provisionalChoiceIndexes: randomIndexes(Math.max(choices.length, 6), 5)
+    if (numbered.has(number2)) {
+      numbered.delete(number2);
+      conflicts.add(number2);
+    } else if (!conflicts.has(number2)) numbered.set(number2, value);
+  });
+  conflicts.forEach((number2) => warnings.push(`${label}: s\u1ED1 c\xE2u ${number2} b\u1ECB tr\xF9ng n\xEAn \u0111\u01B0\u1EE3c gi\u1EEF unresolved.`));
+  if (!numbered.size && allowOrderedFallback && unnumbered.length === 5) {
+    warnings.push(`${label}: d\xF9ng ordered fallback v\xEC c\xF3 \u0111\xFAng n\u0103m gi\xE1 tr\u1ECB kh\xF4ng \u0111\xE1nh s\u1ED1 v\u1EDBi c\u1EA5u tr\xFAc r\xF5 r\xE0ng.`);
+    unnumbered.forEach((value, index) => numbered.set(index + 1, value));
+  } else if (numbered.size && unnumbered.length) {
+    warnings.push(`${label}: b\u1ECF qua gi\xE1 tr\u1ECB kh\xF4ng \u0111\xE1nh s\u1ED1; kh\xF4ng d\u1ED3n index v\xE0o ch\u1ED7 tr\u1ED1ng.`);
+  }
+  return numbered;
+}
+function normalizePart1(raw, warnings) {
+  const exampleLabel = cleanText(raw?.example?.label || raw?.exampleLabel, 120);
+  const allNames = list(raw?.printedNames || raw?.choices).map((value) => cleanText(value?.label ?? value, 120)).filter(Boolean);
+  const seenNames = /* @__PURE__ */ new Set();
+  const choices = allNames.filter((name) => {
+    const key = comparable(name);
+    if (exampleLabel && key === comparable(exampleLabel) || seenNames.has(key)) return false;
+    seenNames.add(key);
+    return true;
+  }).slice(0, 6);
+  if (!exampleLabel) warnings.push("Part 1: ch\u01B0a x\xE1c \u0111\u1ECBnh ch\u1EAFc t\xEAn example.");
+  if (choices.length !== 6) warnings.push(`Part 1: sau khi t\xE1ch example nh\u1EADn ${choices.length}/6 choices; kh\xF4ng t\u1EF1 \xE9p \u0111\u1EE7 b\u1EB1ng d\u1EEF li\u1EC7u gi\u1EA3.`);
+  const questionScene = normalizedRegion(raw?.questionScene);
+  const positionScene = normalizedRegion(raw?.positionScene);
+  const mappings = list(raw?.answerMappings);
+  const rawTargets = list(raw?.targets || raw?.questionTargets || raw?.anchors);
+  const byNumber = /* @__PURE__ */ new Map();
+  rawTargets.forEach((target, index) => {
+    const number2 = questionNumber(target?.targetNumber) || (index < 5 ? index + 1 : void 0);
+    if (number2 && !byNumber.has(number2)) byNumber.set(number2, target);
+  });
+  const anchors = [];
+  const targetChoiceLabels = Array.from({ length: 5 });
+  for (let number2 = 1; number2 <= 5; number2 += 1) {
+    const target = byNumber.get(number2);
+    if (!target) continue;
+    let point = {
+      x: Number(target?.targetEndpoint?.x ?? target?.centerX ?? target?.x),
+      y: Number(target?.targetEndpoint?.y ?? target?.centerY ?? target?.y)
     };
+    if (target?.coordinateRole === "position_key" || target?.targetEndpoint) {
+      const transformed = questionScene && positionScene ? transformListeningPoint(point, positionScene, questionScene) : null;
+      if (!transformed) {
+        warnings.push(`Part 1 target ${number2}: kh\xF4ng x\xE1c \u0111\u1ECBnh \u0111\u01B0\u1EE3c scene transform/endpoint ph\xEDa h\xECnh.`);
+        continue;
+      }
+      point = transformed;
+    }
+    if (![point.x, point.y].every(Number.isFinite) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
+      warnings.push(`Part 1 target ${number2}: endpoint kh\xF4ng h\u1EE3p l\u1EC7.`);
+      continue;
+    }
+    const visualLabel = cleanText(target?.visualLabel || target?.label || `V\xF9ng ${number2}`, 120);
+    anchors.push({ targetNumber: number2, label: visualLabel, region: fixedRegionFromPoint(point), confidence: clamp(target?.confidence, 0.5) });
+    const mapping = mappings.find((entry) => questionNumber(entry?.targetNumber) === number2 || visualLabel && comparable(entry?.visualLabel) === comparable(visualLabel));
+    const choiceLabel = cleanText(mapping?.choiceLabel || target?.choiceLabel || target?.answer, 120);
+    targetChoiceLabels[number2 - 1] = choiceLabel || void 0;
   }
-  if (part === 2) {
-    const questions = list(raw?.questions).slice(0, 5).map((question) => ({
-      prompt: cleanText(question?.prompt || question?.question, 1e3).replace(/\{\{blank\}\}/g, "{{blank}}"),
-      acceptedAnswers: list(question?.acceptedAnswers || [question?.answer]).flatMap((value) => cleanText(value, 200).split("|")).map((value) => value.trim()).filter(Boolean).slice(0, 8)
-    }));
-    if (questions.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 c\xE2u; gi\xE1o vi\xEAn c\xF3 th\u1EC3 t\u1EF1 \u0111i\u1EC1n c\xE2u c\xF2n thi\u1EBFu.");
-    if (questions.some((question) => !question.acceptedAnswers.length)) warnings.push("C\xF3 c\xE2u ch\u01B0a nh\u1EADn \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n in \u0111\u1EADm.");
-    return {
-      part: 2,
-      heading: cleanText(raw?.heading, 200) || "Listening notes",
-      exampleText: cleanText(raw?.exampleText, 500) || void 0,
-      ...raw?.illustrationCrop ? {
-        illustrationCrop: normalizeCrop(raw.illustrationCrop),
-        illustrationSourceImageIndex: Math.max(0, Math.floor(Number(raw?.illustrationSourceImageIndex) || 0))
-      } : {},
-      questions
-    };
+  if (anchors.length !== 5) warnings.push(`Part 1: ch\u1EC9 resolve \u0111\u01B0\u1EE3c ${anchors.length}/5 target endpoints.`);
+  if (targetChoiceLabels.filter(Boolean).length !== 5) warnings.push("Part 1: answer key ch\u01B0a resolve \u0111\u1EE7 n\u0103m mapping; gi\u1EEF \u0111\xE1p \xE1n draft \u1EDF m\u1EE5c unresolved.");
+  let example;
+  const examplePointRaw = raw?.example?.targetEndpoint || raw?.example?.center;
+  if (exampleLabel && examplePointRaw) {
+    const rawPoint = { x: Number(examplePointRaw.x), y: Number(examplePointRaw.y) };
+    const point = raw?.example?.coordinateRole === "position_key" || raw?.example?.targetEndpoint ? questionScene && positionScene ? transformListeningPoint(rawPoint, positionScene, questionScene) : null : rawPoint;
+    if (point && [point.x, point.y].every(Number.isFinite)) example = { label: exampleLabel, region: fixedRegionFromPoint(point) };
   }
-  if (part === 3) {
-    const labels = list(raw?.labels).map((value) => cleanText(value, 160)).filter(Boolean).slice(0, 5);
-    if (labels.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 nh\xE3n; gi\xE1o vi\xEAn c\xF3 th\u1EC3 t\u1EF1 \u0111i\u1EC1n.");
-    return { part: 3, boardAssetId: sourceImageAssetIds[0] || "", labels };
-  }
-  if (part === 4) {
-    const questions = list(raw?.questions).slice(0, 5).map((question) => {
-      const crops = list(question?.crops).slice(0, 3).map(normalizeCrop);
-      const answer = Number(question?.correctOptionIndex);
-      return {
-        prompt: cleanText(question?.prompt || question?.question, 1e3),
-        sourceImageIndex: Math.max(0, Math.floor(Number(question?.sourceImageIndex) || 0)),
-        crops,
-        ...Number.isInteger(answer) && answer >= 0 && answer <= 2 ? { correctOptionIndex: answer } : {}
-      };
-    });
-    if (questions.length < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 c\xE2u h\u1ECFi.");
-    if (questions.some((question) => question.crops.length < 3)) warnings.push("C\xF3 c\xE2u ch\u01B0a nh\u1EADn \u0111\u1EE7 ba v\xF9ng crop A/B/C.");
-    return { part: 4, questions };
-  }
-  const anchors = normalizeAnchors(raw?.anchors, 5);
-  const detectedAnchorCount = anchors.length;
-  const current = currentPart.part === 5 ? currentPart : null;
-  while (anchors.length < 5 && current?.targets[anchors.length]) {
-    const fallback = current.targets[anchors.length];
-    anchors.push({
-      label: fallback.label || `V\xF9ng ${anchors.length + 1}`,
-      region: fixedRegion({
-        centerX: fallback.region.x + fallback.region.width / 2,
-        centerY: fallback.region.y + fallback.region.height / 2
-      }),
-      confidence: 0
-    });
-  }
-  if (detectedAnchorCount < 5) warnings.push("Ch\u01B0a nh\u1EADn \u0111\u1EE7 5 v\xF9ng t\xF4 m\xE0u; \u0111\xE3 t\u1EA1o v\xF9ng m\u1EB7c \u0111\u1ECBnh \u0111\u1EC3 gi\xE1o vi\xEAn t\u1EF1 \u0111\u1EB7t l\u1EA1i.");
+  return { part: 1, choices, anchors, targetChoiceLabels, ...example ? { example } : {} };
+}
+function answerVariants(entry) {
+  const source = list(entry?.answerVariants).length ? list(entry.answerVariants) : [entry?.correctAnswer ?? entry?.answer];
+  const seen = /* @__PURE__ */ new Set();
+  return source.flatMap((value) => cleanText(value, 300).split("|")).map((value) => value.trim()).filter((value) => {
+    const key = comparable(value);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
+}
+function normalizePart2(raw, warnings) {
+  const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
+    const prompt = cleanText(entry?.prompt || entry?.question, 1e3).replace(/_{2,}/g, "{{blank}}");
+    return prompt ? prompt : void 0;
+  }, warnings, "Part 2 prompts");
+  const answerMap = normalizeNumberedEntries(list(raw?.answers).length ? list(raw.answers) : list(raw?.questions), (entry) => {
+    const answers = answerVariants(entry);
+    return answers.length ? answers : void 0;
+  }, warnings, "Part 2 answer key", true);
+  const numbers = /* @__PURE__ */ new Set([...questionMap.keys(), ...answerMap.keys()]);
+  const questions = [...numbers].sort().flatMap((number2) => {
+    const valid = questionNumber(number2);
+    if (!valid) return [];
+    return [{ questionNumber: valid, prompt: questionMap.get(number2), acceptedAnswers: answerMap.get(number2) }];
+  });
+  if (questionMap.size !== 5) warnings.push(`Part 2: nh\u1EADn ${questionMap.size}/5 prompt \u0111\xE1nh s\u1ED1.`);
+  if (answerMap.size !== 5) warnings.push(`Part 2: nh\u1EADn ${answerMap.size}/5 answer mappings; m\u1EE5c thi\u1EBFu gi\u1EEF d\u1EEF li\u1EC7u c\u0169.`);
+  const illustrationCrop = normalizeCrop(raw?.illustrationCrop);
   return {
-    part: 5,
-    anchors,
-    provisionalColourIndexes: randomIndexes(6, 5)
+    part: 2,
+    heading: cleanText(raw?.heading, 200) || void 0,
+    instruction: cleanText(raw?.instruction, 500) || void 0,
+    exampleText: cleanText(raw?.exampleText || raw?.example, 500) || void 0,
+    ...illustrationCrop ? { illustrationCrop } : {},
+    questions
   };
+}
+function normalizePart3(raw, warnings) {
+  const answers = list(raw?.questionAnswers || raw?.answers).slice(0, 7).flatMap((entry) => {
+    const label = cleanText(entry?.label, 160);
+    const region = normalizedRegion(entry?.region);
+    if (!label || !region) return [];
+    return [{ label, region, leftAnchorOffset: clamp(entry?.leftAnchorOffset ?? entry?.leftAnchor?.offset, 0.5), rightAnchorOffset: clamp(entry?.rightAnchorOffset ?? entry?.rightAnchor?.offset, 0.5) }];
+  });
+  const pictures = list(raw?.questionPictures || raw?.pictures).slice(0, 6).flatMap((entry) => {
+    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+    const row = integer(entry?.row);
+    const region = normalizedRegion(entry?.region);
+    if (!side || !row || row < 1 || row > 3 || !region) return [];
+    return [{ label: cleanText(entry?.label || `${side}-${row}`, 160), side, row, region, anchorOffset: clamp(entry?.anchorOffset ?? entry?.anchor?.offset, 0.5) }];
+  });
+  const rawExample = raw?.questionExample || raw?.example;
+  const exampleSide = rawExample?.pictureSide === "left" || rawExample?.pictureSide === "right" ? rawExample.pictureSide : void 0;
+  const exampleRow = integer(rawExample?.pictureRow ?? rawExample?.row);
+  const exampleLabel = cleanText(rawExample?.answerLabel || rawExample?.label, 160);
+  const example = exampleLabel && exampleSide && exampleRow && exampleRow >= 1 && exampleRow <= 3 ? { answerLabel: exampleLabel, pictureSide: exampleSide, pictureRow: exampleRow, renderOverlayLine: Boolean(rawExample?.renderOverlayLine) } : void 0;
+  const cells = list(raw?.answerKeyCells || raw?.connections).flatMap((entry) => {
+    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+    const row = integer(entry?.row);
+    const answerLabel = cleanText(entry?.answerLabel || entry?.label, 160);
+    if (!side || !row || row < 1 || row > 3 || !answerLabel) return [];
+    return [{ answerLabel, pictureSide: side, pictureRow: row }];
+  });
+  const connections = cells.filter((connection) => !example || !(comparable(connection.answerLabel) === comparable(example.answerLabel) && connection.pictureSide === example.pictureSide && connection.pictureRow === example.pictureRow)).slice(0, 5);
+  const used = /* @__PURE__ */ new Set([...example ? [comparable(example.answerLabel)] : [], ...connections.map((connection) => comparable(connection.answerLabel))]);
+  const distractors = answers.filter((answer) => !used.has(comparable(answer.label)));
+  if (answers.length !== 7) warnings.push(`Part 3: nh\u1EADn ${answers.length}/7 answer regions.`);
+  if (pictures.length !== 6 || new Set(pictures.map((picture) => `${picture.side}-${picture.row}`)).size !== 6) warnings.push("Part 3: c\u1EA7n \u0111\xFAng ba picture b\xEAn tr\xE1i v\xE0 ba b\xEAn ph\u1EA3i theo row 1-3.");
+  if (!example) warnings.push("Part 3: ch\u01B0a resolve \u0111\u01B0\u1EE3c example t\u1EEB \u1EA3nh \u0111\u1EC1.");
+  if (connections.length !== 5) warnings.push(`Part 3: resolve \u0111\u01B0\u1EE3c ${connections.length}/5 scored connections; kh\xF4ng d\xF9ng OCR order \u0111\u1EC3 b\xF9.`);
+  if (distractors.length !== 1) warnings.push("Part 3: distractor kh\xF4ng x\xE1c \u0111\u1ECBnh duy nh\u1EA5t b\u1EB1ng set difference.");
+  return { part: 3, answers, pictures, ...example ? { example } : {}, connections, distractorLabel: distractors.length === 1 ? distractors[0].label : void 0 };
+}
+function optionIndex(value) {
+  const normalized = cleanText(value, 10).toUpperCase();
+  return normalized === "A" ? 0 : normalized === "B" ? 1 : normalized === "C" ? 2 : void 0;
+}
+function normalizePart4(raw, warnings) {
+  const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
+    const prompt = cleanText(entry?.prompt || entry?.question, 1e3);
+    const crops = list(entry?.crops).slice(0, 3).map(normalizeCrop).filter(Boolean);
+    return prompt ? { prompt, crops } : void 0;
+  }, warnings, "Part 4 prompts");
+  const rawAnswers = list(raw?.answers);
+  const hasAnyNumber = rawAnswers.some((entry) => Boolean(questionNumber(entry?.questionNumber ?? entry?.number)));
+  const orderedEvidence = raw?.orderedFallbackEvidence === "single-row" || raw?.orderedFallbackEvidence === "single-column";
+  const answerMap = normalizeNumberedEntries(rawAnswers, (entry) => optionIndex(entry?.answer ?? entry), warnings, "Part 4 answer key", !hasAnyNumber && orderedEvidence);
+  if (!hasAnyNumber && rawAnswers.length === 5 && !orderedEvidence) warnings.push("Part 4: n\u0103m \u0111\xE1p \xE1n kh\xF4ng s\u1ED1 thi\u1EBFu evidence m\u1ED9t h\xE0ng/c\u1ED9t n\xEAn kh\xF4ng d\xF9ng ordered fallback.");
+  const questions = [1, 2, 3, 4, 5].flatMap((number2) => {
+    const question = questionMap.get(number2);
+    if (!question) return [];
+    const answer = answerMap.get(number2);
+    return [{ questionNumber: number2, ...question, ...answer === void 0 ? {} : { correctOptionIndex: answer }, answerSource: answer === void 0 ? "current-part" : hasAnyNumber ? "answer-key-numbered" : "answer-key-ordered-fallback" }];
+  });
+  const rawExample = raw?.example;
+  const exampleCrops = list(rawExample?.crops).slice(0, 3).map(normalizeCrop).filter(Boolean);
+  const examplePrompt = cleanText(rawExample?.prompt || rawExample?.question, 1e3);
+  const exampleAnswer = optionIndex(rawExample?.answer ?? rawExample?.correctOption);
+  const example = examplePrompt ? { prompt: examplePrompt, crops: exampleCrops, ...exampleAnswer === void 0 ? {} : { correctOptionIndex: exampleAnswer } } : void 0;
+  if (!example) warnings.push("Part 4: ch\u01B0a t\xE1ch \u0111\u01B0\u1EE3c example kh\u1ECFi n\u0103m c\xE2u scored.");
+  if (questions.length !== 5) warnings.push(`Part 4: nh\u1EADn ${questions.length}/5 c\xE2u \u0111\xE1nh s\u1ED1.`);
+  if (answerMap.size !== 5) warnings.push(`Part 4: nh\u1EADn ${answerMap.size}/5 answer mappings; c\xE2u thi\u1EBFu gi\u1EEF \u0111\xE1p \xE1n draft.`);
+  return { part: 4, ...example ? { example } : {}, questions };
+}
+function catalogColourLabel(value) {
+  const key = comparable(value);
+  return MOVER_COLOUR_CATALOG.find((colour) => comparable(colour.label) === key)?.label;
+}
+function normalizePart5(raw, currentPart, warnings) {
+  const questionScene = normalizedRegion(raw?.questionScene);
+  const positionScene = normalizedRegion(raw?.positionScene);
+  const convertGeometry = (value, sourceRole) => {
+    const region = normalizedRegion(value);
+    if (!region) return void 0;
+    if (sourceRole !== "position_key") return region;
+    if (!positionScene || !questionScene) return void 0;
+    return transformListeningRegion(region, positionScene, questionScene) || void 0;
+  };
+  const interactiveObjects = list(raw?.interactiveObjects).flatMap((entry) => {
+    const label = cleanText(entry?.label, 160);
+    const geometry = convertGeometry(entry?.geometry, entry?.geometrySource);
+    if (!label || !geometry) return [];
+    return [{ label, geometry, confidence: clamp(entry?.confidence, 0.5) }];
+  });
+  const paletteItems = list(raw?.paletteItems).flatMap((entry) => {
+    const objectType = cleanText(entry?.objectType, 120);
+    const label = cleanText(entry?.label || entry?.objectType, 160);
+    if (!objectType || !label) return [];
+    const rawColour = cleanText(entry?.color || entry?.colour, 80);
+    const colourLabel = rawColour ? catalogColourLabel(rawColour) : void 0;
+    if (rawColour && !colourLabel) warnings.push(`Part 5 palette "${label}": m\xE0u ngo\xE0i catalog n\xEAn \u0111\u1EC3 unresolved.`);
+    return [{ objectType, label, ...colourLabel ? { colourLabel } : {} }];
+  });
+  const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
+    const staffPrompt = cleanText(entry?.prompt || entry?.staffPrompt, 1e3);
+    const actions = list(entry?.actions).slice(0, 10).flatMap((action) => {
+      const confidence = clamp(action?.confidence, 0.5);
+      if (action?.type === "colour_object") {
+        const objectLabel = cleanText(action?.objectLabel, 160);
+        const rawColour = cleanText(action?.correctColor || action?.color, 80);
+        const correctColourLabel = catalogColourLabel(rawColour);
+        if (rawColour && !correctColourLabel) warnings.push(`Part 5 "${objectLabel}": m\xE0u "${rawColour}" ngo\xE0i catalog.`);
+        const geometry = convertGeometry(action?.geometry, action?.geometrySource);
+        return objectLabel ? [{ type: "colour_object", objectLabel, ...correctColourLabel ? { correctColourLabel } : {}, ...geometry ? { geometry } : {}, confidence }] : [];
+      }
+      if (action?.type === "place_object") {
+        const objectType = cleanText(action?.objectType, 120);
+        const rawColour = cleanText(action?.color || action?.correctColor, 80);
+        const colourLabel = rawColour ? catalogColourLabel(rawColour) : void 0;
+        if (rawColour && !colourLabel) warnings.push(`Part 5 object "${objectType}": m\xE0u "${rawColour}" ngo\xE0i catalog.`);
+        const targetRegion = convertGeometry(action?.targetRegion, action?.geometrySource);
+        return objectType ? [{ type: "place_object", objectType, ...colourLabel ? { colourLabel } : {}, ...targetRegion ? { targetRegion } : {}, relationLabel: cleanText(action?.relationLabel, 240) || void 0, confidence }] : [];
+      }
+      return [];
+    });
+    return staffPrompt ? { staffPrompt, actions } : void 0;
+  }, warnings, "Part 5 questions");
+  const questions = [1, 2, 3, 4, 5].flatMap((number2) => {
+    const value = questionMap.get(number2);
+    return value ? [{ questionNumber: number2, ...value }] : [];
+  });
+  if (questions.length !== 5) warnings.push(`Part 5: nh\u1EADn ${questions.length}/5 c\xE2u \u0111\xE1nh s\u1ED1.`);
+  questions.forEach((question) => {
+    if (!question.actions.length) warnings.push(`Part 5 c\xE2u ${question.questionNumber}: ch\u01B0a resolve \u0111\u01B0\u1EE3c action n\xE0o.`);
+    question.actions.forEach((action, index) => {
+      if (action.type === "colour_object" && (!action.correctColourLabel || !action.geometry && !interactiveObjects.some((object) => comparable(object.label) === comparable(action.objectLabel)))) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: thi\u1EBFu m\xE0u ho\u1EB7c object geometry ch\u1EAFc ch\u1EAFn.`);
+      if (action.type === "place_object" && !action.targetRegion) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: thi\u1EBFu target region; kh\xF4ng \u0111o\xE1n v\u1ECB tr\xED.`);
+    });
+  });
+  const placeActions = questions.flatMap((question) => question.actions).filter((action) => action.type === "place_object");
+  const colourActions = questions.flatMap((question) => question.actions).filter((action) => action.type === "colour_object");
+  const requestedColourObjects = new Set(colourActions.map((action) => comparable(action.objectLabel)));
+  if (colourActions.length && interactiveObjects.length <= requestedColourObjects.size) {
+    warnings.push("Part 5: public geometry ch\u01B0a c\xF3 object nhi\u1EC5u ngo\xE0i c\xE1c object \u0111\u01B0\u1EE3c h\u1ECFi; gi\xE1o vi\xEAn ph\u1EA3i b\u1ED5 sung tr\u01B0\u1EDBc khi publish.");
+  }
+  const paletteTypes = new Set(paletteItems.map((item) => comparable(item.objectType)));
+  if (placeActions.some((action) => !paletteTypes.has(comparable(action.objectType)))) warnings.push("Part 5: palette thi\u1EBFu token \u0111\xFAng cho \xEDt nh\u1EA5t m\u1ED9t place action; gi\xE1o vi\xEAn ph\u1EA3i b\u1ED5 sung.");
+  if (placeActions.length && paletteItems.length <= new Set(placeActions.map((action) => comparable(action.objectType))).size) warnings.push("Part 5: object palette ch\u01B0a c\xF3 distractor; kh\xF4ng t\u1EF1 t\u1EA1o object gi\u1EA3.");
+  if (currentPart.part === 5 && currentPart.displayMode === "scene-colour-draw") {
+    currentPart.questions.forEach((question) => question.actions.forEach((action) => {
+      const matched = questions.some((nextQuestion) => nextQuestion.questionNumber === question.questionNumber && nextQuestion.actions.some((next) => {
+        if (next.type !== action.type) return false;
+        if (next.type === "colour_object" && action.type === "colour_object") {
+          const object = currentPart.interactiveObjects.find((item) => item.id === action.correctObjectId);
+          return comparable(next.objectLabel) === comparable(object?.label);
+        }
+        if (next.type === "place_object" && action.type === "place_object") {
+          const item = currentPart.objectPalette.find((entry) => entry.id === action.correctPaletteItemId);
+          return comparable(next.objectType) === comparable(item?.objectType);
+        }
+        return false;
+      }));
+      if (!matched) warnings.push(`Part 5 c\xE2u ${question.questionNumber}: gi\u1EEF action c\u0169 ${action.id} v\xEC l\u1EA7n ph\xE2n t\xEDch m\u1EDBi kh\xF4ng match ch\u1EAFc ch\u1EAFn.`);
+    }));
+  }
+  return { part: 5, interactiveObjects, paletteItems, questions };
+}
+function normalizeData(part, raw, currentPart, warnings) {
+  if (part === 1) return normalizePart1(raw, warnings);
+  if (part === 2) return normalizePart2(raw, warnings);
+  if (part === 3) return normalizePart3(raw, warnings);
+  if (part === 4) return normalizePart4(raw, warnings);
+  return normalizePart5(raw, currentPart, warnings);
+}
+function localFallback(part, text3) {
+  const rows = localNumberedLines(text3);
+  if (part === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
+  if (part === 3) return { answerKeyCells: rows.map((row) => ({ label: row.value })) };
+  return {};
 }
 async function createListeningSmartImportCandidate(input) {
   const warnings = [];
   let provider = "local";
-  let raw = {};
-  const analysisImages = input.part === 3 ? input.images.slice(1) : input.images;
-  const part3BoardOnly = input.part === 3 && input.images.length === 1 && !input.pastedText.trim();
-  if (analysisImages.length && input.analyzeVision) {
-    const result = await input.analyzeVision(
-      promptFor(input.part, input.pastedText),
-      analysisImages,
-      input.signal
-    );
+  let raw;
+  if (input.images.length && input.analyzeVision) {
+    const result = await input.analyzeVision(promptFor(input.part, input.pastedText), input.images, input.signal);
     provider = result.provider;
     raw = parseJson3(result.text);
     if (result.errors?.length) warnings.push(...result.errors.map((value) => cleanText(value, 240)));
   } else if (input.pastedText && (input.part === 2 || input.part === 3)) {
-    if (input.part === 2) raw = localPart2(input.pastedText);
-    else raw = { labels: localLabels(input.pastedText) };
-  } else if (part3BoardOnly) {
-    raw = { labels: [] };
-    warnings.push("Ch\u1EC9 c\xF3 \u1EA3nh b\u1EA3ng A\u2013F. \u1EA2nh n\xE0y \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn v\xE0 kh\xF4ng g\u1EEDi AI; h\xE3y nh\u1EADp th\u1EE7 c\xF4ng 5 nh\xE3n ho\u1EB7c ph\xE2n t\xEDch l\u1EA1i v\u1EDBi \u1EA3nh ngu\u1ED3n th\u1EE9 hai/v\u0103n b\u1EA3n OCR.");
-  } else if (analysisImages.length && !input.analyzeVision) {
+    raw = localFallback(input.part, input.pastedText);
+    warnings.push(`Part ${input.part}: \u0111ang d\xF9ng fallback v\u0103n b\u1EA3n th\u1EE7 c\xF4ng thay cho \u1EA3nh answer key.`);
+  } else if (input.images.length && !input.analyzeVision) {
     const error = new Error("Backend ch\u01B0a c\u1EA5u h\xECnh AI th\u1ECB gi\xE1c \u0111\u1EC3 \u0111\u1ECDc \u1EA3nh.");
     error.status = 503;
     throw error;
   } else {
-    const error = new Error("C\u1EA7n \u1EA3nh ngu\u1ED3n ho\u1EB7c v\u0103n b\u1EA3n \u0111\u1EC3 ph\xE2n t\xEDch.");
+    const error = new Error("C\u1EA7n \u0111\u1EE7 \u1EA3nh ngu\u1ED3n theo role ho\u1EB7c fallback v\u0103n b\u1EA3n \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
     error.status = 400;
     throw error;
   }
+  const data = normalizeData(input.part, raw, input.currentPart, warnings);
   return {
     id: `limport-${import_node_crypto3.default.randomUUID()}`,
     moduleId: "mover",
     part: input.part,
     basePartHash: input.basePartHash,
-    sourceImageAssetIds: input.sourceImageAssetIds,
+    sources: input.sources,
+    sourceImageAssetIds: input.sources.map((source) => source.assetId),
     provider,
     warnings,
     createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    data: normalizeData(
-      input.part,
-      raw,
-      input.currentPart,
-      input.sourceImageAssetIds,
-      warnings
-    )
+    data
   };
+}
+
+// src/features/listening-editor/smart-import/types.ts
+function getListeningSmartImportRoleDefinitions(part) {
+  if (part === 1) return [
+    { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true },
+    { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: true }
+  ];
+  if (part === 5) return [
+    { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true },
+    { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: false }
+  ];
+  return [
+    { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true }
+  ];
 }
 
 // src/server/listening/listeningRouter.ts
@@ -5396,11 +5909,14 @@ function collectAssetReferences(content) {
   content.parts.forEach((part) => add(part.audioAssetId, "audio", `part-${part.part}`, "audio"));
   add(content.parts[0].sceneAssetId, "image", "part-1", "scene");
   add(content.parts[1].illustrationAssetId, "image", "part-2", "illustration");
-  add(content.parts[2].boardAssetId, "image", "part-3", "board");
-  content.parts[2].options.forEach((option) => add(option.imageAssetId, "image", option.id, "part3-option"));
-  content.parts[2].items.forEach((item) => add(item.imageAssetId, "image", item.id, "part3-item"));
-  if (content.parts[2].example) {
-    add(content.parts[2].example.item.imageAssetId, "image", content.parts[2].example.item.id, "part3-example");
+  const part3 = content.parts[2];
+  add(part3.boardAssetId, "image", "part-3", "board");
+  if (part3.displayMode !== "connect-image") {
+    part3.options.forEach((option) => add(option.imageAssetId, "image", option.id, "part3-option"));
+    part3.items.forEach((item) => add(item.imageAssetId, "image", item.id, "part3-item"));
+    if (part3.example) {
+      add(part3.example.item.imageAssetId, "image", part3.example.item.id, "part3-example");
+    }
   }
   content.parts[3].questions.forEach((question) => {
     question.options.forEach((option) => add(option.imageAssetId, "image", `${question.id}:${option.id}`, "part4-option"));
@@ -5409,13 +5925,20 @@ function collectAssetReferences(content) {
     content.parts[3].example.options.forEach((option) => add(option.imageAssetId, "image", `example:${option.id}`, "part4-example"));
   }
   add(content.parts[4].sceneAssetId, "image", "part-5", "scene");
+  const part5 = content.parts[4];
+  if (part5.displayMode === "scene-colour-draw") {
+    part5.objectPalette.forEach((item) => add(item.tokenAssetId, "image", item.id, "part5-token"));
+  }
   return references;
 }
 async function resolveContentAssets(db, content, user) {
   const clone = structuredClone(content);
-  clone.parts[2].options.forEach((option, index) => {
-    option.label = String.fromCharCode(65 + index);
-  });
+  const part3 = clone.parts[2];
+  if (part3.displayMode !== "connect-image") {
+    part3.options.forEach((option, index) => {
+      option.label = String.fromCharCode(65 + index);
+    });
+  }
   const references = collectAssetReferences(clone);
   const assets = /* @__PURE__ */ new Map();
   await Promise.all([...new Set(references.map((reference) => reference.id))].map(async (assetId) => {
@@ -5443,14 +5966,16 @@ async function resolveContentAssets(db, content, user) {
   clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
   clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
   clone.parts[2].boardUrl = url(clone.parts[2].boardAssetId);
-  clone.parts[2].options.forEach((option) => {
-    option.imageUrl = url(option.imageAssetId);
-  });
-  clone.parts[2].items.forEach((item) => {
-    item.imageUrl = url(item.imageAssetId);
-  });
-  if (clone.parts[2].example) {
-    clone.parts[2].example.item.imageUrl = url(clone.parts[2].example.item.imageAssetId);
+  if (clone.parts[2].displayMode !== "connect-image") {
+    clone.parts[2].options.forEach((option) => {
+      option.imageUrl = url(option.imageAssetId);
+    });
+    clone.parts[2].items.forEach((item) => {
+      item.imageUrl = url(item.imageAssetId);
+    });
+    if (clone.parts[2].example) {
+      clone.parts[2].example.item.imageUrl = url(clone.parts[2].example.item.imageAssetId);
+    }
   }
   clone.parts[3].questions.forEach((question) => {
     question.options.forEach((option) => {
@@ -5463,6 +5988,11 @@ async function resolveContentAssets(db, content, user) {
     });
   }
   clone.parts[4].sceneUrl = url(clone.parts[4].sceneAssetId);
+  if (clone.parts[4].displayMode === "scene-colour-draw") {
+    clone.parts[4].objectPalette.forEach((item) => {
+      item.tokenUrl = url(item.tokenAssetId);
+    });
+  }
   return { content: clone, references };
 }
 async function getSet(db, id) {
@@ -5734,13 +6264,33 @@ function createListeningRouter(dependencies) {
           code: "LISTENING_IMPORT_BASE_CHANGED"
         });
       }
-      const sourceImageAssetIds = Array.from(new Set(
-        (Array.isArray(req.body?.sourceImageAssetIds) ? req.body.sourceImageAssetIds : []).map((value) => text(value, 160)).filter(Boolean)
-      )).slice(0, 5);
       const pastedText = text(req.body?.pastedText, 12e3);
+      const roleDefinitions = getListeningSmartImportRoleDefinitions(part);
+      const allowedRoles = new Set(roleDefinitions.map((definition) => definition.role));
+      const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
+      const sources = [];
+      const seenRoles = /* @__PURE__ */ new Set();
+      const seenAssets = /* @__PURE__ */ new Set();
+      for (const rawSource of rawSources.slice(0, 3)) {
+        const role = text(rawSource?.role, 40);
+        const assetId = text(rawSource?.assetId, 160);
+        if (!allowedRoles.has(role) || !assetId) throw apiError(400, "Role ho\u1EB7c asset Smart Import kh\xF4ng h\u1EE3p l\u1EC7.");
+        if (seenRoles.has(role)) throw apiError(400, `Role ${role} b\u1ECB tr\xF9ng.`);
+        if (seenAssets.has(assetId)) throw apiError(400, "M\u1ED9t asset kh\xF4ng \u0111\u01B0\u1EE3c d\xF9ng \u0111\u1ED3ng th\u1EDDi cho nhi\u1EC1u role.");
+        seenRoles.add(role);
+        seenAssets.add(assetId);
+        sources.push({ role, assetId });
+      }
+      const missingRoles = roleDefinitions.filter((definition) => definition.required && !seenRoles.has(definition.role));
+      const answerTextFallback = Boolean(pastedText) && (part === 2 || part === 3);
+      const effectiveMissingRoles = missingRoles.filter((definition) => !(answerTextFallback && definition.role === "answer_key"));
+      if (effectiveMissingRoles.length) {
+        throw apiError(400, `Thi\u1EBFu ngu\u1ED3n b\u1EAFt bu\u1ED9c: ${effectiveMissingRoles.map((definition) => definition.label).join(", ")}.`);
+      }
       const images = [];
       let totalImageBytes = 0;
-      for (const assetId of sourceImageAssetIds) {
+      for (const source of sources) {
+        const assetId = source.assetId;
         const document = await db.collection("listening_assets").doc(assetId).get();
         if (!document.exists) throw apiError(404, `Kh\xF4ng t\xECm th\u1EA5y \u1EA3nh ngu\u1ED3n ${assetId}.`);
         const asset = { id: document.id, ...document.data() };
@@ -5757,14 +6307,14 @@ function createListeningRouter(dependencies) {
         if (data.length > IMAGE_MAX_BYTES) throw apiError(413, "M\u1ED9t \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n dung l\u01B0\u1EE3ng.");
         totalImageBytes += data.length;
         if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 30 MB.");
-        images.push({ assetId, mimeType: asset.mimeType, data });
+        images.push({ assetId, role: source.role, mimeType: asset.mimeType, data });
       }
       const importAbortController = new AbortController();
       const importPromise = createListeningSmartImportCandidate({
         part,
         currentPart,
         basePartHash,
-        sourceImageAssetIds,
+        sources,
         pastedText,
         images,
         analyzeVision: smartImport?.analyzeVision,
@@ -5785,7 +6335,7 @@ function createListeningRouter(dependencies) {
         req.user.name,
         req.user.email,
         "ANALYZE_LISTENING_PART",
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sourceImageAssetIds.length} \u1EA3nh; provider ${candidate.provider}.`
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; provider ${candidate.provider}.`
       );
       res.json(candidate);
     } catch (error) {
@@ -6325,7 +6875,7 @@ function nonNegative(value) {
   const number2 = Number(value);
   return Number.isFinite(number2) ? Math.max(0, number2) : 0;
 }
-function integer(value) {
+function integer2(value) {
   return Math.round(nonNegative(value));
 }
 function clampScore(value) {
@@ -6411,13 +6961,13 @@ function resolveOwnership(source) {
 }
 function vocabularyCounts(session) {
   const gameId = text2(session?.gameId, 120);
-  const sourceCorrect = integer(session?.correctAnswers ?? session?.correct);
-  const sourceIncorrect = integer(session?.incorrectAnswers ?? session?.incorrect);
-  let total = integer(session?.totalQuestions);
+  const sourceCorrect = integer2(session?.correctAnswers ?? session?.correct);
+  const sourceIncorrect = integer2(session?.incorrectAnswers ?? session?.incorrect);
+  let total = integer2(session?.totalQuestions);
   let correct = sourceCorrect;
   let incorrect = sourceIncorrect;
-  let unanswered = integer(session?.unansweredCount);
-  let mistakeCount = integer(session?.mistakeCount);
+  let unanswered = integer2(session?.unansweredCount);
+  let mistakeCount = integer2(session?.mistakeCount);
   let normalizationStatus = "canonical";
   if (gameId === "matching-word-meaning" || gameId === "memory-match") {
     const itemLimit = gameId === "matching-word-meaning" ? 8 : 6;
@@ -6513,11 +7063,11 @@ function projectVocabularyAttempt(session, options = {}) {
     completedAt,
     activityAt,
     studyDate: studyDateInBangkok(activityAt),
-    durationSeconds: integer(
+    durationSeconds: integer2(
       session?.durationSeconds ?? (Number.isFinite(Number(session?.durationMs)) ? Number(session.durationMs) / 1e3 : 0)
     ),
     attemptStatus: status,
-    attemptNumber: integer(session?.attemptNumber),
+    attemptNumber: integer2(session?.attemptNumber),
     schemaVersion: HISTORY_SCHEMA_VERSION,
     detailStatus,
     normalizationStatus: counts.normalizationStatus,
@@ -6577,9 +7127,9 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
   const startedAt = isoOrNull(grammarAttempt?.startedAt || grammarAttempt?.createdAt);
   const activityAt = completedAt || isoOrNull(grammarAttempt?.lastSavedAt || grammarAttempt?.updatedAt || grammarAttempt?.activatedAt) || startedAt || (/* @__PURE__ */ new Date()).toISOString();
   const status = activityStatus(grammarAttempt?.status, completedAt);
-  const correct = integer(grammarAttempt?.correctCount);
-  const incorrect = integer(grammarAttempt?.wrongCount ?? grammarAttempt?.incorrectCount);
-  const unanswered = integer(grammarAttempt?.unansweredCount);
+  const correct = integer2(grammarAttempt?.correctCount);
+  const incorrect = integer2(grammarAttempt?.wrongCount ?? grammarAttempt?.incorrectCount);
+  const unanswered = integer2(grammarAttempt?.unansweredCount);
   const questionCount = Array.isArray(grammarAttempt?.questions) ? grammarAttempt.questions.length : correct + incorrect + unanswered;
   const total = Math.max(questionCount, correct + incorrect + unanswered);
   const rawScore = nonNegative(grammarAttempt?.score);
@@ -6622,9 +7172,9 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
     completedAt,
     activityAt,
     studyDate: studyDateInBangkok(activityAt),
-    durationSeconds: integer(grammarAttempt?.durationSeconds),
+    durationSeconds: integer2(grammarAttempt?.durationSeconds),
     attemptStatus: status,
-    attemptNumber: integer(grammarAttempt?.attemptNumber),
+    attemptNumber: integer2(grammarAttempt?.attemptNumber),
     schemaVersion: HISTORY_SCHEMA_VERSION,
     detailStatus: includeDetail ? "available" : status === "completed" ? "legacy" : "missing",
     normalizationStatus: questions.length ? "canonical" : "legacy_partial",
@@ -8726,11 +9276,14 @@ async function generateWithOpenAIVision(prompt, images, signal) {
         role: "user",
         content: [
           { type: "input_text", text: prompt },
-          ...images.map((image) => ({
-            type: "input_image",
-            image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
-            detail: "high"
-          }))
+          ...images.flatMap((image) => [
+            { type: "input_text", text: `IMAGE ROLE: ${image.role}` },
+            {
+              type: "input_image",
+              image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+              detail: "high"
+            }
+          ])
         ]
       }],
       text: { format: { type: "text" } }
@@ -8758,12 +9311,15 @@ async function generateAiVisionJson(prompt, images, signal) {
           role: "user",
           parts: [
             { text: prompt },
-            ...images.map((image) => ({
-              inlineData: {
-                mimeType: image.mimeType,
-                data: image.data.toString("base64")
+            ...images.flatMap((image) => [
+              { text: `IMAGE ROLE: ${image.role}` },
+              {
+                inlineData: {
+                  mimeType: image.mimeType,
+                  data: image.data.toString("base64")
+                }
               }
-            }))
+            ])
           ]
         }],
         config: { responseMimeType: "application/json", abortSignal: signal }
@@ -12120,10 +12676,10 @@ function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choi
   const questionId = question.id || makeId(`grammar-question-${index + 1}`);
   const questionType = getGrammarQuestionType(question.questionType, fallbackType);
   const rawOptions = questionType === "multiple_choice" && Array.isArray(question.options) ? question.options : [];
-  const options = rawOptions.slice(0, 5).map((option, optionIndex) => ({
-    id: option.id || `${questionId}-option-${optionIndex + 1}`,
+  const options = rawOptions.slice(0, 5).map((option, optionIndex2) => ({
+    id: option.id || `${questionId}-option-${optionIndex2 + 1}`,
     text: safeText(option.text, 1e3),
-    originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex + 1
+    originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex2 + 1
   }));
   const normalized = {
     id: questionId,
@@ -12157,8 +12713,8 @@ function validateGrammarQuestion(question, index) {
   if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 4) {
     errors.push(`C\xE2u ${index + 1}: c\u1EA7n t\u1EEB 2 \u0111\u1EBFn 4 ph\u01B0\u01A1ng \xE1n.`);
   }
-  question.options?.forEach((option, optionIndex) => {
-    if (!option.text) errors.push(`C\xE2u ${index + 1}: ph\u01B0\u01A1ng \xE1n ${optionIndex + 1} \u0111ang tr\u1ED1ng.`);
+  question.options?.forEach((option, optionIndex2) => {
+    if (!option.text) errors.push(`C\xE2u ${index + 1}: ph\u01B0\u01A1ng \xE1n ${optionIndex2 + 1} \u0111ang tr\u1ED1ng.`);
   });
   const optionIds = (question.options || []).map((option) => String(option.id || ""));
   if (new Set(optionIds).size !== optionIds.length) {

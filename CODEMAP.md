@@ -1989,16 +1989,18 @@ Architecture and ownership:
   its own Part. `moverDraft.test.ts` guards sibling Parts byte-for-byte.
 - `ListeningAdminModule.tsx` remains the Mover admin entry point. It coordinates
   assets, candidate state, autosave status, shell navigation, and the existing
-  set/version/publish flow. Parts 1-3 import validated analysis directly into the
-  editable working draft; Parts 4-5 retain staged candidate review.
+  set/version/publish flow. Parts 1-2 import validated analysis directly into the
+  editable working draft; Parts 3-5 retain staged candidate review.
 - The whole-exam Resource Tray implementation remains in source as a rollback
   path, but `SHOW_WHOLE_EXAM_RESOURCE_TRAY=false` hides it from the General tab.
   Per-Part Smart Import is the only visible import workflow. Its compact source
   picker shows only attached images as removable chips; the X action detaches an
   image from the current analysis and never archives the shared media asset.
-- `src/server/listening-smart-import/service.ts` owns prompt construction,
-  local text parsing, provider JSON normalization, code-generated IDs, random
-  provisional mappings, fixed regions, warnings, and Part-specific candidates.
+- `src/server/listening-smart-import/service.ts` owns role-aware prompt
+  construction, local text parsing, untrusted provider JSON normalization,
+  safe unresolved values, geometry hints, warnings, and Part-specific
+  candidates. Technical IDs are created only by application merge code; no
+  provisional/random correct-answer mapping remains.
 - `server.ts` supplies Gemini multimodal analysis with OpenAI Responses image
   fallback. Only backend-held keys are used. `LISTENING_SMART_IMPORT_ENABLED`
   is the rollback switch.
@@ -2088,3 +2090,108 @@ Validation ledger:
   reinstall it under the repository's Node 22 runtime before the release gate.
 - Deployment and manual UAT steps are in
   `docs/listening-smart-editor-deploy.md`.
+
+## 26. Listening Smart Editor five-Part role upgrade - 2026-08-08
+
+This section supersedes the Smart Import behavior notes in section 25 where they
+conflict. In particular, Parts 1-2 are direct import, while Parts 3-5 use staged
+candidate review, matching `quytac.md`.
+
+Source-role contract and flow:
+
+- `src/features/listening-editor/smart-import/types.ts` defines explicit
+  `question`, `answer_key`, and `position_key` sources. The visible UI uses the
+  fixed labels `Ảnh đề bài`, `Ảnh đáp án`, and, for Parts 1/5,
+  `Ảnh đáp án + vị trí`. Part 5 position input is optional; the other declared
+  role slots are required unless the supported Part 2/3 text fallback replaces
+  only the answer-key role.
+- `SmartImportPanel.tsx` gives every role its own library selector and
+  `FileDropPasteInput`. Replacing/removing a role only detaches it from the
+  analysis and never archives/deletes its asset. A single asset cannot occupy
+  multiple roles.
+- `POST /api/listening/admin/smart-import/analyze` validates role uniqueness,
+  required roles, unique owned active image assets, MIME/path/size/quota and
+  `basePartHash`. Provider adapters in `server.ts` place an explicit role label
+  immediately before each image. Audio and transcripts are never inputs.
+- Provider output contains logical labels, numbers, regions, actions and
+  warnings only. `service.ts` discards provider IDs; application merge code
+  preserves matching IDs or creates editor IDs when an entity is new.
+- Parts 1/2 merge validated results directly into the working Part. The panel
+  rechecks `basePartHash` after analysis, and draft autosave still enforces
+  `baseRevision`. Parts 3/4/5 retain a candidate until teacher apply. No flow
+  publishes automatically, and `moverDraft.test.ts` guards sibling Parts.
+
+Part behavior:
+
+- Part 1 reads all visible names from `question`, separates the example, and
+  requires six remaining draggable choices (five scored plus one distractor).
+  `answer_key` supplies label mappings; `position_key` supplies picture-side
+  line endpoints. Geometry is transformed into the canonical question scene.
+  No provisional/random answer mapping remains.
+- Part 2 reads heading/instruction/example and five numbered prompts only from
+  `question`, then maps numbered answers 1-5 from `answer_key`. Single answers
+  remain one `acceptedAnswers` entry; explicitly supplied alternatives keep the
+  existing variants array/`|` editing contract. Missing, duplicate or malformed
+  answers preserve the existing question answer and emit warnings; partial
+  numbering never collapses indexes.
+- Part 3 adds the versioned `displayMode: connect-image` branch while preserving
+  the legacy split/composite schema. It stores seven middle answers, six picture
+  regions (`left|right` x rows 1-3), one unscored example connection, five
+  private scored connections and one distractor answer. Anchors are derived from
+  the correct region edge and only expose a clamped vertical offset. The default
+  example overlay line is off because the book image may already contain it.
+  The player makes every free picture on the selected side eligible and never
+  reads the correct mapping to highlight a destination.
+- Part 4 retains the three-option question/player/grader contract. Smart Import
+  uses `question` for text and crop detection and `answer_key` only for numbered
+  A/B/C answers. The crop review supports six blocks when present: one example
+  triple plus five scored triples, producing 18 derived images; older/no-example
+  input still supports the existing 15 scored crops. Numbered mapping is strict;
+  ordered fallback requires exactly five values plus explicit row/column
+  evidence. The public example is rendered locked and is not scored.
+- Part 5 adds the versioned `displayMode: scene-colour-draw` branch while keeping
+  the legacy five-region colour branch readable/playable/gradable. The new
+  branch stores the full 20-colour catalog, public colourable object geometry,
+  a public object palette with distractors, five staff questions, and a dynamic
+  action list per question. Re-analysis appends unmatched old actions and their
+  referenced public entities for review instead of deleting them.
+- Part 5 `colour_object` checks both object and colour. `place_object` checks the
+  selected palette item plus backend containment in rect/ellipse/polygon target
+  geometry. A multi-action question is correct only when every action is
+  correct, so the exam still produces exactly five Part 5 results and 25 total.
+  New attempts use grading version `listening-five-part-v2`; existing immutable
+  content and legacy answer branches remain readable and gradeable.
+
+Geometry, player and security:
+
+- `src/features/listening/geometry.ts` owns normalized region validation,
+  self-intersection rejection, point containment and scene-to-scene transforms.
+  `ListeningRegionEditor.tsx` supports rect/ellipse/polygon creation, undo and
+  direct dragging of existing polygon vertices.
+- Part 5 answers are structured objects for colour/place actions. The answer
+  sanitizer validates IDs and normalized anchors without stringifying objects
+  to `[object Object]`; malformed submissions are dropped.
+- Student sanitization removes Part 3 scored connections/distractor and removes
+  Part 5 staff prompts, correct object/colour/token mappings, relation labels and
+  all `targetRegion` values. Public render geometry and palette choices remain,
+  but public geometry never identifies the requested correct object.
+- Asset collection/resolution understands the two versioned branches and Part 5
+  token assets. Staff activity formatting produces readable new-mode answers;
+  published legacy content and immutable versions are not migrated on read.
+
+Primary implementation files are the Smart Import types/panel/service/router,
+Mover `directImport.ts` and Part 1-5 handlers, `ListeningPartViews.tsx`,
+`listeningValidation.ts`, `listeningGrader.ts`, `listeningActivity.ts`, and the
+versioned types in `src/features/listening/types.ts`.
+
+Validation ledger for this change:
+
+- `npm run lint`: passes.
+- `npm run test:listening`: passes 52/52, including explicit role routing,
+  numbered answer mapping, example separation, Part 3 side/row mapping, Part 4
+  A/B/C/fallback behavior, variable Part 5 actions, structured sanitization,
+  new/legacy grading, stale hash/revision and sibling-Part isolation.
+- `npm run build`: passes. Vite still reports the existing Firebase mixed
+  static/dynamic-import notices and large-chunk warning; generated `dist`
+  output was produced only by the build and was not edited manually.
+- `git diff --check`: passes.

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const panelSource = readFileSync(new URL('./SmartImportPanel.tsx', import.meta.url), 'utf8');
+const typesSource = readFileSync(new URL('./types.ts', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../../listening/admin/ListeningAdminModule.tsx', import.meta.url), 'utf8');
 
 test('whole-exam Resource Tray stays hidden while per-Part Smart Import remains available', () => {
@@ -11,18 +12,20 @@ test('whole-exam Resource Tray stays hidden while per-Part Smart Import remains 
   assert.match(panelSource, /Smart Import · Part \{part\.part\}/);
 });
 
-test('selected Smart Import sources can be removed without archiving shared media', () => {
-  assert.match(panelSource, /const removeSource = \(assetId: string\) =>/);
-  assert.match(panelSource, /previous\.filter\(id => id !== assetId\)/);
-  assert.match(panelSource, /onClick=\{\(\) => removeSource\(id\)\}/);
+test('selected role source can be detached independently without archiving shared media', () => {
+  assert.match(panelSource, /const setSource = \(role: ListeningSmartImportSourceRole, assetId\?: string\) =>/);
+  assert.match(panelSource, /onClick=\{\(\) => setSource\(definition\.role\)\}/);
   assert.match(panelSource, /className="smart-import-remove-source/);
   assert.match(panelSource, /title="Bỏ khỏi lần phân tích này"/);
   assert.doesNotMatch(panelSource, /archiveAsset|deleteAsset/);
 });
 
-test('source picker only shows unselected library assets and enforces the five-image limit', () => {
-  assert.match(panelSource, /imageAssets\.filter\(asset => !sourceIds\.includes\(asset\.id\)\)/);
-  assert.match(panelSource, /disabled=\{busy \|\| sourceIds\.length >= 5\}/);
-  assert.match(panelSource, /Math\.max\(1, 5 - sourceIds\.length\)/);
+test('role slots are explicit, use FileDropPasteInput, and exclude assets selected by another role', () => {
+  assert.match(typesSource, /role: 'question'/);
+  assert.match(typesSource, /role: 'answer_key'/);
+  assert.match(typesSource, /role: 'position_key'/);
+  assert.match(panelSource, /data-smart-import-role=\{definition\.role\}/);
+  assert.match(panelSource, /usedByAnotherRole/);
+  assert.match(panelSource, /maxFiles=\{1\}/);
+  assert.match(panelSource, /<FileDropPasteInput/);
 });
-

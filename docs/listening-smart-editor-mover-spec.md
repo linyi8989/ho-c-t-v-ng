@@ -1,5 +1,11 @@
 # Đặc tả Smart Editor cho Mover
 
+> Cập nhật yêu cầu ngày 2026-08-08: kế hoạch nâng cấp mới nhất được lưu tại
+> `docs/listening-smart-editor-five-part-upgrade-plan.md`. Các quyết định đã
+> duyệt và trạng thái triển khai cho toàn bộ Part 1-5 trong tài liệu mới thay thế
+> mọi mô tả xung đột bên dưới, gồm random provisional mapping và flow Part 3
+> direct import. Phần còn lại của tài liệu này được giữ như lịch sử thiết kế.
+
 ## 1. Trạng thái
 
 - Module: Mover.

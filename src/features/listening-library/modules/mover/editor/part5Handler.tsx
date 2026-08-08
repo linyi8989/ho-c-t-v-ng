@@ -1,166 +1,74 @@
 import React from 'react';
-import type { ListeningPart5 } from '../../../../listening/types';
+import { Plus, Trash2 } from 'lucide-react';
+import type { ListeningPart5, ListeningPart5Legacy, ListeningPart5SceneColourDraw } from '../../../../listening/types';
 import { ListeningAssetPicker } from '../../../../listening/admin/ListeningAssetPicker';
+import { ListeningRegionEditor } from '../../../../listening/admin/ListeningRegionEditor';
 import FixedRegionEditor from '../../../../listening-editor/regions/FixedRegionEditor';
 import SmartImportPanel from '../../../../listening-editor/smart-import/SmartImportPanel';
 import { hashListeningPart } from '../../../../listening-editor/smart-import/hash';
-import { MoverPartBaseEditor, type MoverPartEditorProps } from './shared';
-import { findMoverColour, MOVER_COLOUR_CATALOG } from './colourCatalog';
+import { smartImportSourceAssetId } from '../../../../listening-editor/smart-import/types';
+import { createMoverDefaultRegion, createMoverEditorId } from './editorUtilities';
+import { applyPart5SceneAnalysis } from './directImport';
+import { EditorField, MoverPartBaseEditor, type MoverPartEditorProps } from './shared';
 
-const PART5_REGION_WIDTH = 0.12;
-const PART5_REGION_HEIGHT = 0.11;
+function LegacyPart5Editor({ part, props }: { part: ListeningPart5Legacy; props: MoverPartEditorProps<ListeningPart5> }) {
+  const { assets, assetUrl, aiCapability, onUpload, onChange } = props;
+  const commit = (next: ListeningPart5Legacy) => onChange(next);
+  return <div className="space-y-5 rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
+    <p className="text-xs font-bold text-amber-800">Dữ liệu Part 5 legacy vẫn được hỗ trợ. Smart Import mới sẽ chuyển riêng Part 5 sang scene-colour-draw.</p>
+    <ListeningAssetPicker assets={assets} aiCapability={aiCapability} onUpload={onUpload} label="Tranh tô màu Part 5" kind="image" value={part.sceneAssetId} onChange={sceneAssetId => commit({ ...part, sceneAssetId })} />
+    <div className="grid gap-3 md:grid-cols-5">{part.targets.map((target, index) => <label key={target.id} className="space-y-1 rounded-xl border bg-white p-3"><span className="text-xs font-black">Đáp án màu {index + 1}</span><select value={target.correctColourId} onChange={event => commit({ ...part, targets: part.targets.map(item => item.id === target.id ? { ...item, correctColourId: event.target.value } : item) })} className="w-full rounded-xl border p-2 text-xs">{part.colours.map(colour => <option key={colour.id} value={colour.id}>{colour.label}</option>)}</select></label>)}</div>
+    <FixedRegionEditor imageUrl={assetUrl(part.sceneAssetId)} items={part.targets.map(target => ({ id: target.id, label: target.label, region: target.region }))} onChange={items => commit({ ...part, targets: part.targets.map(target => ({ ...target, region: items.find(item => item.id === target.id)?.region || target.region })) })} />
+  </div>;
+}
+
+function ScenePart5Editor({ part, props }: { part: ListeningPart5SceneColourDraw; props: MoverPartEditorProps<ListeningPart5> }) {
+  const { assets, assetUrl, aiCapability, onUpload, onChange } = props;
+  const commit = (next: ListeningPart5SceneColourDraw) => onChange(next);
+  const addObject = () => commit({ ...part, interactiveObjects: [...part.interactiveObjects, { id: createMoverEditorId('p5-object'), label: 'Object mới', geometry: createMoverDefaultRegion(part.interactiveObjects.length), interactionKinds: ['colour'] }] });
+  const addPaletteItem = () => commit({ ...part, objectPalette: [...part.objectPalette, { id: createMoverEditorId('p5-token'), objectType: 'object', label: 'Lựa chọn mới' }] });
+  const updateQuestion = (questionId: string, updater: (question: ListeningPart5SceneColourDraw['questions'][number]) => ListeningPart5SceneColourDraw['questions'][number]) => commit({ ...part, questions: part.questions.map(question => question.id === questionId ? updater(question) : question) });
+  const placeActions = part.questions.flatMap(question => question.actions.filter(action => action.type === 'place_object').map(action => ({ id: action.id, label: `${question.questionNumber}. ${question.staffPrompt}`, region: action.targetRegion })));
+  return <div className="space-y-5">
+    <ListeningAssetPicker assets={assets} aiCapability={aiCapability} onUpload={onUpload} label="Ảnh đề bài Part 5" kind="image" value={part.sceneAssetId} onChange={sceneAssetId => commit({ ...part, sceneAssetId })} />
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-center justify-between"><div><h4 className="text-sm font-black">Public geometry · vùng có thể tương tác</h4><p className="text-[10px] font-semibold text-slate-500">Các vùng này chỉ dùng render/tương tác, không cho biết object nào là đáp án.</p></div><button type="button" onClick={addObject} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"><Plus size={13} className="inline" /> Thêm object</button></div>
+      <div className="grid gap-2 md:grid-cols-2">{part.interactiveObjects.map((object, index) => <div key={object.id} className="flex items-end gap-2 rounded-xl border bg-white p-3"><div className="flex-1"><EditorField label={`Object ${index + 1}`} value={object.label} onChange={label => commit({ ...part, interactiveObjects: part.interactiveObjects.map(item => item.id === object.id ? { ...item, label } : item) })} /></div><button type="button" onClick={() => commit({ ...part, interactiveObjects: part.interactiveObjects.filter(item => item.id !== object.id) })} className="rounded-lg p-2 text-rose-600" aria-label="Xóa object"><Trash2 size={16} /></button></div>)}</div>
+      {part.interactiveObjects.length > 0 && <ListeningRegionEditor imageUrl={assetUrl(part.sceneAssetId)} items={part.interactiveObjects.map(object => ({ id: object.id, label: object.label, region: object.geometry }))} onChange={items => commit({ ...part, interactiveObjects: part.interactiveObjects.map(object => ({ ...object, geometry: items.find(item => item.id === object.id)?.region || object.geometry })) })} />}
+    </section>
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-center justify-between"><div><h4 className="text-sm font-black">Object palette cho place_object</h4><p className="text-[10px] font-semibold text-slate-500">Mỗi loại object dùng trong đáp án cần ít nhất một lựa chọn nhiễu cùng loại.</p></div><button type="button" onClick={addPaletteItem} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700"><Plus size={13} className="inline" /> Thêm lựa chọn</button></div>
+      {part.objectPalette.map((item, index) => <div key={item.id} className="grid gap-3 rounded-xl border bg-white p-3 lg:grid-cols-[1fr_1fr_180px_1.2fr_40px]"><EditorField label={`Nhãn ${index + 1}`} value={item.label} onChange={label => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, label } : entry) })} /><EditorField label="Loại object" value={item.objectType} onChange={objectType => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, objectType } : entry) })} /><label className="space-y-1"><span className="text-xs font-black">Màu (nếu có)</span><select value={item.colourId || ''} onChange={event => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, colourId: event.target.value || undefined } : entry) })} className="w-full rounded-xl border p-2.5 text-xs"><option value="">Không màu</option>{part.colours.map(colour => <option key={colour.id} value={colour.id}>{colour.label}</option>)}</select></label><ListeningAssetPicker assets={assets} aiCapability={aiCapability} onUpload={onUpload} label="Ảnh token" kind="image" value={item.tokenAssetId} onChange={tokenAssetId => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, tokenAssetId } : entry) })} /><button type="button" onClick={() => commit({ ...part, objectPalette: part.objectPalette.filter(entry => entry.id !== item.id) })} className="self-end rounded-lg p-2 text-rose-600" aria-label="Xóa lựa chọn"><Trash2 size={16} /></button></div>)}
+    </section>
+    <section className="space-y-4">
+      {part.questions.map(question => <div key={question.id} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-end gap-3"><div className="flex-1"><EditorField label={`Câu ${question.questionNumber}`} value={question.staffPrompt} onChange={staffPrompt => updateQuestion(question.id, current => ({ ...current, staffPrompt }))} /></div><button type="button" onClick={() => updateQuestion(question.id, current => ({ ...current, actions: [...current.actions, { id: createMoverEditorId('p5-action'), type: 'colour_object', correctObjectId: part.interactiveObjects[0]?.id || '', correctColourId: part.colours[0]?.id || '' }] }))} className="rounded-xl bg-violet-50 px-3 py-2 text-xs font-black text-violet-700">+ Tô màu</button><button type="button" onClick={() => updateQuestion(question.id, current => ({ ...current, actions: [...current.actions, { id: createMoverEditorId('p5-action'), type: 'place_object', correctPaletteItemId: part.objectPalette[0]?.id || '', targetRegion: createMoverDefaultRegion(current.actions.length) }] }))} className="rounded-xl bg-sky-50 px-3 py-2 text-xs font-black text-sky-700">+ Đặt hình</button></div>
+        {question.actions.map((action, actionIndex) => <div key={action.id} className="grid gap-2 rounded-xl border bg-slate-50 p-3 md:grid-cols-[120px_1fr_1fr_40px]"><span className="self-center text-xs font-black">Action {actionIndex + 1}<br />{action.type}</span>{action.type === 'colour_object' ? <><label className="space-y-1"><span className="text-[10px] font-black">Object đúng</span><select value={action.correctObjectId} onChange={event => updateQuestion(question.id, current => ({ ...current, actions: current.actions.map(item => item.id === action.id && item.type === 'colour_object' ? { ...item, correctObjectId: event.target.value } : item) }))} className="w-full rounded-xl border p-2 text-xs"><option value="">—</option>{part.interactiveObjects.map(object => <option key={object.id} value={object.id}>{object.label}</option>)}</select></label><label className="space-y-1"><span className="text-[10px] font-black">Màu đúng</span><select value={action.correctColourId} onChange={event => updateQuestion(question.id, current => ({ ...current, actions: current.actions.map(item => item.id === action.id && item.type === 'colour_object' ? { ...item, correctColourId: event.target.value } : item) }))} className="w-full rounded-xl border p-2 text-xs">{part.colours.map(colour => <option key={colour.id} value={colour.id}>{colour.label}</option>)}</select></label></> : <><label className="space-y-1"><span className="text-[10px] font-black">Palette item đúng</span><select value={action.correctPaletteItemId} onChange={event => updateQuestion(question.id, current => ({ ...current, actions: current.actions.map(item => item.id === action.id && item.type === 'place_object' ? { ...item, correctPaletteItemId: event.target.value } : item) }))} className="w-full rounded-xl border p-2 text-xs"><option value="">—</option>{part.objectPalette.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><EditorField label="Quan hệ/vị trí" value={action.relationLabel || ''} onChange={relationLabel => updateQuestion(question.id, current => ({ ...current, actions: current.actions.map(item => item.id === action.id && item.type === 'place_object' ? { ...item, relationLabel } : item) }))} /></>}<button type="button" onClick={() => updateQuestion(question.id, current => ({ ...current, actions: current.actions.filter(item => item.id !== action.id) }))} className="self-center rounded-lg p-2 text-rose-600" aria-label="Xóa action"><Trash2 size={16} /></button></div>)}
+      </div>)}
+      {placeActions.length > 0 && <div className="space-y-2"><p className="text-xs font-black text-rose-700">Private answer geometry · chỉ staff/backend dùng</p><ListeningRegionEditor imageUrl={assetUrl(part.sceneAssetId)} items={placeActions} onChange={items => commit({ ...part, questions: part.questions.map(question => ({ ...question, actions: question.actions.map(action => action.type === 'place_object' ? { ...action, targetRegion: items.find(item => item.id === action.id)?.region || action.targetRegion } : action) })) })} /></div>}
+    </section>
+  </div>;
+}
 
 export default function MoverPart5Editor(props: MoverPartEditorProps<ListeningPart5>) {
-  const {
-    part,
-    token,
-    assets,
-    assetUrl,
-    aiCapability,
-    smartImportCapability,
-    importCandidate,
-    onImportCandidateChange,
-    onImportCandidateApplied,
-    onUpload,
-    onChange,
-  } = props;
-  const commitPart = (nextPart: ListeningPart5) => onChange({
-    ...nextPart,
-    targets: nextPart.targets.map(target => ({
-      ...target,
-      region: {
-        shape: 'rect',
-        x: Math.max(0, Math.min(1 - PART5_REGION_WIDTH, target.region.x)),
-        y: Math.max(0, Math.min(1 - PART5_REGION_HEIGHT, target.region.y)),
-        width: PART5_REGION_WIDTH,
-        height: PART5_REGION_HEIGHT,
-      },
-    })),
-  });
-  const candidate = importCandidate?.part === 5 && importCandidate.data.part === 5
-    ? importCandidate
-    : undefined;
-  const candidateData = candidate?.data.part === 5 ? candidate.data : undefined;
-  const updateCandidate = (patch: Partial<NonNullable<typeof candidateData>>) => {
-    if (!candidate || !candidateData) return;
-    onImportCandidateChange({ ...candidate, data: { ...candidateData, ...patch } });
-  };
+  const { part, token, assets, smartImportCapability, importCandidate, onImportCandidateChange, onImportCandidateApplied, onUpload, onChange } = props;
+  const candidate = importCandidate?.part === 5 && importCandidate.data.part === 5 ? importCandidate : undefined;
   const applyCandidate = async () => {
-    if (!candidate || !candidateData) return;
-    const catalogLabels = part.colours.map(colour => findMoverColour(colour.label, colour.value)?.label);
-    if (
-      candidateData.anchors.length < 5
-      || new Set(candidateData.confirmedTargetIndexes || []).size !== 5
-      || new Set(candidateData.provisionalColourIndexes).size !== 5
-      || catalogLabels.some(label => !label)
-      || new Set(catalogLabels).size !== 6
-    ) {
-      window.alert('Cần chọn 6 màu preset không trùng, đủ 5 vùng, 5 đáp án màu không trùng và xác nhận thủ công cả 5 trước khi áp dụng.');
-      return;
-    }
+    if (!candidate || candidate.data.part !== 5) return;
     if (await hashListeningPart(part) !== candidate.basePartHash) {
-      window.alert('Part 5 đã thay đổi sau khi phân tích. Hãy tạo lại bản đề xuất.');
+      window.alert('Part 5 đã thay đổi sau khi phân tích. Hãy phân tích lại để tránh ghi đè draft mới.');
       return;
     }
-    commitPart({
-      ...part,
-      sceneAssetId: candidate.sourceImageAssetIds[0] || part.sceneAssetId,
-      targets: part.targets.map((target, index) => ({
-        ...target,
-        label: candidateData.anchors[index]?.label || target.label,
-        correctColourId: part.colours[candidateData.provisionalColourIndexes[index]]?.id || target.correctColourId,
-        region: candidateData.anchors[index]?.region || target.region,
-      })),
-    });
+    const sceneAssetId = smartImportSourceAssetId(candidate, 'question');
+    if (!sceneAssetId) return;
+    onChange(applyPart5SceneAnalysis(part, candidate.data, sceneAssetId));
     onImportCandidateChange(undefined);
     onImportCandidateApplied();
   };
-  const selectedLabels = new Set(part.colours.map(colour => findMoverColour(colour.label, colour.value)?.label).filter(Boolean));
-
-  return (
-    <div className="space-y-5">
-      <MoverPartBaseEditor {...props} onChange={commitPart} />
-      <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} candidate={candidate} onCandidateChange={onImportCandidateChange} onUpload={onUpload}>
-        {candidateData && (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }, (_, index) => {
-              const confirmed = candidateData.confirmedTargetIndexes?.includes(index) || false;
-              return (
-                <div key={index} className="grid items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_220px_150px]">
-                  <span className="text-xs font-bold text-slate-700">Vùng {index + 1}: {candidateData.anchors[index]?.label || 'Chưa nhận diện'}</span>
-                  <select value={candidateData.provisionalColourIndexes[index] ?? 0} onChange={event => updateCandidate({
-                    provisionalColourIndexes: Array.from({ length: 5 }, (_, itemIndex) => itemIndex === index
-                      ? Number(event.target.value)
-                      : candidateData.provisionalColourIndexes[itemIndex] ?? itemIndex),
-                    confirmedTargetIndexes: (candidateData.confirmedTargetIndexes || []).filter(value => value !== index),
-                  })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold">
-                    {part.colours.map((colour, colourIndex) => <option key={colour.id} value={colourIndex} disabled={candidateData.provisionalColourIndexes.some((value, itemIndex) => itemIndex !== index && value === colourIndex)}>{colour.label}</option>)}
-                  </select>
-                  <label className="flex items-center gap-2 text-xs font-black text-emerald-700">
-                    <input type="checkbox" checked={confirmed} onChange={event => updateCandidate({
-                      confirmedTargetIndexes: event.target.checked
-                        ? Array.from(new Set([...(candidateData.confirmedTargetIndexes || []), index]))
-                        : (candidateData.confirmedTargetIndexes || []).filter(value => value !== index),
-                    })} /> Đã kiểm tra
-                  </label>
-                </div>
-              );
-            })}
-            <p className="text-xs font-semibold text-amber-700">AI chỉ đề xuất vị trí. Code xáo ngẫu nhiên đáp án màu; giáo viên phải đặt lại và xác nhận từng dòng.</p>
-            <button type="button" onClick={() => void applyCandidate()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white">Áp dụng 5 vùng đã xác nhận</button>
-          </div>
-        )}
-      </SmartImportPanel>
-
-      <ListeningAssetPicker assets={assets} aiCapability={aiCapability} onUpload={onUpload} label="Tranh tô màu Part 5" kind="image" value={part.sceneAssetId} onChange={sceneAssetId => commitPart({ ...part, sceneAssetId })} />
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {part.colours.map((colour, index) => {
-          const known = findMoverColour(colour.label, colour.value);
-          return (
-            <label key={colour.id} className="space-y-1 rounded-xl border border-slate-200 bg-white p-3">
-              <span className="text-xs font-black text-slate-700">Màu {index + 1}{index === 5 ? ' (nhiễu)' : ''}</span>
-              <div className="flex items-center gap-2">
-                <span className="h-9 w-12 rounded-lg border border-slate-300" style={{ backgroundColor: colour.value }} />
-                <select value={known?.label || '__legacy__'} onChange={event => {
-                  const selected = MOVER_COLOUR_CATALOG.find(item => item.label === event.target.value);
-                  if (!selected) return;
-                  commitPart({
-                    ...part,
-                    colours: part.colours.map(item => item.id === colour.id ? { ...item, ...selected } : item),
-                  });
-                }} className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold">
-                  {!known && <option value="__legacy__">{colour.label} ({colour.value}) · dữ liệu cũ</option>}
-                  {MOVER_COLOUR_CATALOG.map(item => (
-                    <option key={item.label} value={item.label} disabled={item.label !== known?.label && selectedLabels.has(item.label)}>{item.label}</option>
-                  ))}
-                </select>
-              </div>
-            </label>
-          );
-        })}
-      </div>
-      <div className="grid gap-3 md:grid-cols-5">
-        {part.targets.map((target, index) => (
-          <div key={target.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <label className="space-y-1">
-              <span className="text-xs font-black text-slate-700">Đáp án màu {index + 1}</span>
-              <select value={target.correctColourId} onChange={event => commitPart({
-                ...part,
-                targets: part.targets.map(item => item.id === target.id ? { ...item, correctColourId: event.target.value } : item),
-              })} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold">
-                {part.colours.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            </label>
-          </div>
-        ))}
-      </div>
-      <FixedRegionEditor width={PART5_REGION_WIDTH} height={PART5_REGION_HEIGHT} imageUrl={assetUrl(part.sceneAssetId)} items={part.targets.map((target, index) => ({ id: target.id, label: `Đáp án màu ${index + 1}`, region: target.region }))} onChange={items => commitPart({
-        ...part,
-        targets: part.targets.map(target => ({
-          ...target,
-          region: items.find(item => item.id === target.id)?.region || target.region,
-        })),
-      })} />
-    </div>
-  );
+  return <div className="space-y-5">
+    <MoverPartBaseEditor {...props} />
+    <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} candidate={candidate} onCandidateChange={onImportCandidateChange} onUpload={onUpload} analyzeLabel="Phân tích ảnh đề + ảnh đáp án Part 5" analyzedNotice="Candidate giữ số action AI đọc được theo từng câu; action cũ không match chắc chắn vẫn được giữ khi áp dụng.">
+      {candidate?.data.part === 5 && <div className="space-y-3"><p className="text-xs font-bold text-slate-700">Nhận diện {candidate.data.interactiveObjects.length} object công khai, {candidate.data.paletteItems.length} palette item và {candidate.data.questions.reduce((total, question) => total + question.actions.length, 0)} action.</p><button type="button" onClick={() => void applyCandidate()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white">Áp dụng candidate vào Part 5</button></div>}
+    </SmartImportPanel>
+    {part.displayMode === 'scene-colour-draw' ? <ScenePart5Editor part={part} props={props} /> : <LegacyPart5Editor part={part} props={props} />}
+  </div>;
 }

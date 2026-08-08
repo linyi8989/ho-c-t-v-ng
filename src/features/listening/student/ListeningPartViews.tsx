@@ -6,6 +6,8 @@ import type {
   ListeningPart3,
   ListeningPart4,
   ListeningPart5,
+  ListeningPart3ConnectImage,
+  ListeningPart5SceneColourDraw,
   ListeningRegion,
 } from '../types';
 import {
@@ -13,6 +15,19 @@ import {
   placeSingleUseAnswer,
   removeSingleUseAnswer,
 } from './listeningAnswerMoves';
+
+const anchorPointForAnswer = (
+  answer: ListeningPart3ConnectImage['answers'][number],
+  side: 'left' | 'right'
+) => ({
+  x: side === 'left' ? answer.region.x : answer.region.x + answer.region.width,
+  y: answer.region.y + answer.region.height * (side === 'left' ? answer.leftAnchorOffset : answer.rightAnchorOffset),
+});
+
+const anchorPointForPicture = (picture: ListeningPart3ConnectImage['pictures'][number]) => ({
+  x: picture.side === 'left' ? picture.region.x + picture.region.width : picture.region.x,
+  y: picture.region.y + picture.region.height * picture.anchorOffset,
+});
 
 interface PartProps<T> {
   key?: React.Key;
@@ -174,7 +189,73 @@ export function ListeningPart2View({ part, answers, onAnswers }: PartProps<Liste
   );
 }
 
+function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<ListeningPart3ConnectImage>) {
+  const [selected, setSelected] = useState<{ answerId: string; side: 'left' | 'right' }>();
+  const exampleAnswerId = part.exampleConnection?.answerId;
+  const examplePictureId = part.exampleConnection?.pictureId;
+  const assignedPictureIds = new Set(Object.values(answers.part3));
+  const assign = (pictureId: string, source = selected) => {
+    if (!source || pictureId === examplePictureId) return;
+    const picture = part.pictures.find(item => item.id === pictureId);
+    if (!picture || picture.side !== source.side || assignedPictureIds.has(pictureId)) return;
+    const next = { ...answers.part3 };
+    Object.entries(next).forEach(([answerId, existingPictureId]) => {
+      if (answerId !== source.answerId && existingPictureId === pictureId) delete next[answerId];
+    });
+    next[source.answerId] = pictureId;
+    onAnswers({ ...answers, part3: next });
+    setSelected(undefined);
+  };
+  const lines = Object.entries(answers.part3).flatMap(([answerId, pictureId]) => {
+    const answer = part.answers.find(item => item.id === answerId);
+    const picture = part.pictures.find(item => item.id === pictureId);
+    if (!answer || !picture || answerId === exampleAnswerId || pictureId === examplePictureId) return [];
+    return [{ id: answerId, from: anchorPointForAnswer(answer, picture.side), to: anchorPointForPicture(picture) }];
+  });
+  if (part.exampleConnection?.renderOverlayLine) {
+    const answer = part.answers.find(item => item.id === exampleAnswerId);
+    const picture = part.pictures.find(item => item.id === examplePictureId);
+    if (answer && picture) lines.push({ id: 'example', from: anchorPointForAnswer(answer, picture.side), to: anchorPointForPicture(picture) });
+  }
+  return (
+    <div className="space-y-3" onKeyDown={event => { if (event.key === 'Escape') setSelected(undefined); }}>
+      <div className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white">
+        <img src={part.boardUrl} alt="Part 3" className="block h-auto w-full" draggable={false} />
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+          {lines.map(line => <line key={line.id} x1={line.from.x * 1000} y1={line.from.y * 1000} x2={line.to.x * 1000} y2={line.to.y * 1000} stroke={line.id === 'example' ? '#64748b' : '#2563eb'} strokeWidth="5" />)}
+        </svg>
+        {part.answers.map(answer => {
+          const locked = answer.id === exampleAnswerId;
+          const connected = Boolean(answers.part3[answer.id]);
+          return (
+            <React.Fragment key={answer.id}>
+              <span style={regionStyle(answer.region)} className={`pointer-events-none absolute flex items-start justify-end rounded-lg border text-xs font-black ${locked ? 'border-slate-400 bg-slate-100/20' : 'border-transparent'}`}>
+                {locked && <span className="rounded-bl-md bg-slate-700 px-1 text-[9px] text-white">E</span>}
+              </span>
+              {(['left', 'right'] as const).map(side => {
+                const point = anchorPointForAnswer(answer, side);
+                const source = { answerId: answer.id, side };
+                return <button key={side} type="button" draggable={!locked} disabled={locked} onDragStart={event => { setSelected(source); event.dataTransfer.effectAllowed = 'link'; event.dataTransfer.setData('text/listening-connection', JSON.stringify(source)); }} onClick={() => setSelected(source)} style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }} className={`absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${selected?.answerId === answer.id && selected.side === side ? 'border-blue-800 bg-blue-400' : connected ? 'border-emerald-700 bg-emerald-300' : 'border-slate-700 bg-white'} disabled:border-slate-400 disabled:bg-slate-300`} aria-label={`${answer.label}, nối sang ${side === 'left' ? 'trái' : 'phải'}`} />;
+              })}
+            </React.Fragment>
+          );
+        })}
+        {part.pictures.map(picture => {
+          const locked = picture.id === examplePictureId;
+          const eligible = Boolean(selected && selected.side === picture.side && !assignedPictureIds.has(picture.id) && !locked);
+          const point = anchorPointForPicture(picture);
+          return <button key={picture.id} type="button" disabled={!eligible} onDragOver={event => { if (eligible) { event.preventDefault(); event.dataTransfer.dropEffect = 'link'; } }} onDrop={event => { event.preventDefault(); try { const source = JSON.parse(event.dataTransfer.getData('text/listening-connection')); assign(picture.id, source); } catch { /* Ignore malformed drag payloads. */ } }} onClick={() => assign(picture.id)} style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }} className={`absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${eligible ? 'border-blue-800 bg-blue-300 shadow-lg' : locked ? 'border-slate-500 bg-slate-300' : 'border-slate-600 bg-white'}`} aria-label={`Hình ${picture.side === 'left' ? 'bên trái' : 'bên phải'} hàng ${picture.row}`} />;
+        })}
+      </div>
+      <p className="text-center text-xs font-bold text-slate-500">Chọn nút ở cạnh trái hoặc phải của answer, rồi chọn một picture còn trống cùng phía. Example đã khóa.</p>
+    </div>
+  );
+}
+
 export function ListeningPart3View({ part, answers, onAnswers }: PartProps<ListeningPart3>) {
+  if (part.displayMode === 'connect-image') {
+    return <ListeningPart3ConnectView part={part} answers={answers} onAnswers={onAnswers} />;
+  }
   const choose = (itemId: string, optionId: string) => {
     const next = { ...answers.part3 };
     if (part.reuseMode === 'once') {
@@ -226,6 +307,23 @@ export function ListeningPart3View({ part, answers, onAnswers }: PartProps<Liste
 export function ListeningPart4View({ part, answers, onAnswers }: PartProps<ListeningPart4>) {
   return (
     <div className="grid gap-5 xl:grid-cols-2">
+      {part.example && (
+        <fieldset disabled className="rounded-2xl border-2 border-sky-200 bg-sky-50/40 p-4 xl:col-span-2">
+          <legend className="px-2 text-sm font-black text-sky-800">Example. {part.example.prompt}</legend>
+          <div className="mt-2 grid grid-cols-3 gap-3">
+            {part.example.options.map((option, optionIndex) => {
+              const selected = part.example?.correctOptionId === option.id;
+              return (
+                <label key={option.id} className={`rounded-2xl border-4 bg-white p-2 ${selected ? 'border-emerald-500' : 'border-sky-200'}`}>
+                  <img src={option.imageUrl} alt={option.alt} className="h-32 w-full object-contain" />
+                  <span className="mx-auto mt-1 flex w-8 items-center justify-center rounded-full bg-sky-500 py-1 text-xs font-black text-white">{String.fromCharCode(65 + optionIndex)}</span>
+                  <input type="radio" checked={selected} readOnly className="mx-auto mt-2 block h-5 w-5 accent-emerald-600" />
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      )}
       {part.questions.map((question, questionIndex) => (
         <fieldset key={question.id} className="rounded-2xl border-2 border-orange-200 bg-orange-50/30 p-4">
           <legend className="px-2 text-sm font-black text-slate-900">{questionIndex + 1}. {question.prompt}</legend>
@@ -254,17 +352,125 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
   );
 }
 
+function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<ListeningPart5SceneColourDraw>) {
+  const actions = part.questions.flatMap(question => question.actions.map(action => ({ ...action, question })));
+  const [activeActionId, setActiveActionId] = useState(actions[0]?.id || '');
+  const [selectedColour, setSelectedColour] = useState('');
+  const [selectedPaletteItem, setSelectedPaletteItem] = useState('');
+  const [keyboardAnchor, setKeyboardAnchor] = useState({ x: 0.5, y: 0.5 });
+  const active = actions.find(action => action.id === activeActionId) || actions[0];
+  const colours = new Map(part.colours.map(colour => [colour.id, colour]));
+  const updateAnswer = (actionId: string, answer: ListeningAnswers['part5'][string]) => {
+    onAnswers({ ...answers, part5: { ...answers.part5, [actionId]: answer } });
+  };
+  const clearAnswer = (actionId: string) => {
+    const next = { ...answers.part5 };
+    delete next[actionId];
+    onAnswers({ ...answers, part5: next });
+  };
+  const placeAt = (x: number, y: number, paletteItemId = selectedPaletteItem) => {
+    if (!active || active.type !== 'place_object' || !paletteItemId) return;
+    updateAnswer(active.id, { type: 'place_object', paletteItemId, anchor: { x, y } });
+    setSelectedPaletteItem('');
+  };
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-2 md:grid-cols-5">
+        {part.questions.map(question => (
+          <div key={question.id} className="rounded-xl border border-slate-200 bg-white p-2">
+            <p className="text-xs font-black text-slate-800">Câu {question.questionNumber}</p>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {question.actions.map((action, index) => (
+                <button key={action.id} type="button" onClick={() => setActiveActionId(action.id)} className={`rounded-lg px-2 py-1 text-[10px] font-black ${active?.id === action.id ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                  {action.type === 'colour_object' ? 'Tô màu' : 'Đặt hình'} {index + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {active?.type === 'colour_object' ? (
+        <div className="flex flex-wrap justify-center gap-2">
+          {part.colours.map(colour => (
+            <button key={colour.id} type="button" draggable aria-label={`Chọn màu ${colour.label}`} aria-pressed={selectedColour === colour.id} onClick={() => setSelectedColour(colour.id)} onDragStart={event => { setSelectedColour(colour.id); event.dataTransfer.setData('text/listening-colour', colour.id); }} className={`listening-part5-colour-choice rounded-xl border-2 p-2 ${selectedColour === colour.id ? 'border-blue-700' : 'border-slate-300'}`}>
+              <span aria-hidden="true" className="listening-part5-colour-swatch block h-7 w-10 rounded-lg border border-black/10" style={{ backgroundColor: colour.value }} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap justify-center gap-2">
+          {part.objectPalette.map(item => (
+            <button key={item.id} type="button" draggable aria-pressed={selectedPaletteItem === item.id} onClick={() => setSelectedPaletteItem(item.id)} onDragStart={event => event.dataTransfer.setData('text/listening-palette', item.id)} className={`flex min-h-12 items-center gap-2 rounded-xl border-2 px-3 py-2 text-xs font-black ${selectedPaletteItem === item.id ? 'border-blue-700 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+              {item.tokenUrl && <img src={item.tokenUrl} alt="" className="h-9 w-9 object-contain" />}{item.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white"
+        tabIndex={active?.type === 'place_object' ? 0 : undefined}
+        aria-label={active?.type === 'place_object' ? 'Vùng đặt hình; dùng phím mũi tên để di chuyển và Enter để đặt' : undefined}
+        onKeyDown={event => {
+          if (active?.type !== 'place_object') return;
+          const step = event.shiftKey ? 0.05 : 0.02;
+          const movement: Partial<Record<string, { x: number; y: number }>> = {
+            ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step },
+          };
+          if (movement[event.key]) {
+            event.preventDefault();
+            const delta = movement[event.key]!;
+            setKeyboardAnchor(point => ({ x: Math.max(0, Math.min(1, point.x + delta.x)), y: Math.max(0, Math.min(1, point.y + delta.y)) }));
+          } else if (event.key === 'Enter' && selectedPaletteItem) {
+            event.preventDefault();
+            placeAt(keyboardAnchor.x, keyboardAnchor.y);
+          }
+        }}
+        onDragOver={event => { if (active?.type === 'place_object') event.preventDefault(); }}
+        onDrop={event => {
+          if (active?.type !== 'place_object') return;
+          event.preventDefault();
+          const bounds = event.currentTarget.getBoundingClientRect();
+          placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height, event.dataTransfer.getData('text/listening-palette'));
+        }}
+        onClick={event => {
+          if (active?.type !== 'place_object' || !selectedPaletteItem) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
+        }}
+      >
+        <img src={part.sceneUrl} alt="Part 5" className="block h-auto w-full" draggable={false} />
+        {active?.type === 'place_object' && selectedPaletteItem && <span aria-hidden="true" style={{ left: `${keyboardAnchor.x * 100}%`, top: `${keyboardAnchor.y * 100}%` }} className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-blue-200/70" />}
+        {part.interactiveObjects.map((object, index) => {
+          const selectedAnswer = Object.values(answers.part5).find(answer => typeof answer === 'object' && answer.type === 'colour_object' && answer.objectId === object.id);
+          const colour = selectedAnswer && typeof selectedAnswer === 'object' && selectedAnswer.type === 'colour_object' ? colours.get(selectedAnswer.colourId) : undefined;
+          return <button key={object.id} type="button" disabled={active?.type !== 'colour_object'} onDragOver={event => { if (active?.type === 'colour_object') event.preventDefault(); }} onDrop={event => { event.preventDefault(); const colourId = event.dataTransfer.getData('text/listening-colour'); if (active?.type === 'colour_object' && colours.has(colourId)) updateAnswer(active.id, { type: 'colour_object', objectId: object.id, colourId }); }} onClick={() => { if (active?.type !== 'colour_object') return; if (selectedColour) updateAnswer(active.id, { type: 'colour_object', objectId: object.id, colourId: selectedColour }); else if (answers.part5[active.id]) clearAnswer(active.id); }} style={{ ...regionStyle(object.geometry), backgroundColor: colour ? `${colour.value}aa` : 'rgba(255,255,255,.04)' }} className="absolute border border-dashed border-slate-500/40 enabled:hover:border-blue-600" aria-label={`Vùng hình ${index + 1}`} />;
+        })}
+        {Object.entries(answers.part5).map(([actionId, answer]) => {
+          if (!answer || typeof answer === 'string' || answer.type !== 'place_object') return null;
+          const item = part.objectPalette.find(entry => entry.id === answer.paletteItemId);
+          return <button key={actionId} type="button" onClick={event => { event.stopPropagation(); clearAnswer(actionId); }} style={{ left: `${answer.anchor.x * 100}%`, top: `${answer.anchor.y * 100}%` }} className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white p-1 text-[10px] font-black shadow-lg" aria-label={`${item?.label || 'Hình đã đặt'}, nhấn để gỡ`}>{item?.tokenUrl ? <img src={item.tokenUrl} alt={item.label} className="h-10 w-10 object-contain" /> : item?.label || '●'}</button>;
+        })}
+      </div>
+      <p className="text-center text-xs font-bold text-slate-500">Chọn action, rồi chọn màu hoặc hình trong palette. Mọi vùng/hình hợp lệ đều được thao tác; hệ thống không gợi ý đáp án đúng.</p>
+    </div>
+  );
+}
+
 export function ListeningPart5View({ part, answers, onAnswers }: PartProps<ListeningPart5>) {
+  if (part.displayMode === 'scene-colour-draw') {
+    return <ListeningPart5SceneView part={part} answers={answers} onAnswers={onAnswers} />;
+  }
   const [selectedColour, setSelectedColour] = useState('');
   const colours = useMemo(() => new Map(part.colours.map(colour => [colour.id, colour])), [part.colours]);
-  const availableColourIds = getUnusedAnswerIds(part.colours.map(colour => colour.id), answers.part5);
+  const legacyAnswers = answers.part5 as Record<string, string>;
+  const availableColourIds = getUnusedAnswerIds(part.colours.map(colour => colour.id), legacyAnswers);
   const assign = (targetId: string, colourId: string) => {
     if (!colourId || !colours.has(colourId)) return;
-    onAnswers({ ...answers, part5: placeSingleUseAnswer(answers.part5, targetId, colourId) });
+    onAnswers({ ...answers, part5: placeSingleUseAnswer(legacyAnswers, targetId, colourId) });
     setSelectedColour('');
   };
   const clear = (targetId: string) => {
-    onAnswers({ ...answers, part5: removeSingleUseAnswer(answers.part5, targetId) });
+    onAnswers({ ...answers, part5: removeSingleUseAnswer(legacyAnswers, targetId) });
     setSelectedColour('');
   };
   return (
@@ -295,7 +501,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
       <div className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white">
         <img src={part.sceneUrl} alt="Part 5" className="block h-auto w-full" draggable={false} />
         {part.targets.map((target, index) => {
-          const answer = answers.part5[target.id];
+          const answer = legacyAnswers[target.id];
           const colour = colours.get(answer);
           return (
             <button

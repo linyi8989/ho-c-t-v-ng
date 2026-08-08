@@ -8,6 +8,7 @@ import type {
   ListeningRegion,
   ListeningSetContent,
 } from '../../features/listening/types.js';
+import { isValidListeningRegion } from '../../features/listening/geometry.js';
 
 const isText = (value: unknown, max = 500) =>
   typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max;
@@ -45,6 +46,9 @@ function validateRegion(region: ListeningRegion | undefined, path: string, error
         }
       });
     }
+  }
+  if (region && !isValidListeningRegion(region)) {
+    errors.push(`${path}: hình học rỗng, tự cắt hoặc không hợp lệ.`);
   }
 }
 
@@ -122,6 +126,49 @@ function validatePart2(part: ListeningPart2, errors: string[]) {
 
 function validatePart3(part: ListeningPart3, errors: string[]) {
   validateBase(part, 3, errors);
+  if (part.displayMode === 'connect-image') {
+    if (!isText(part.boardAssetId, 160)) errors.push('Part 3: thiếu ảnh đề bài kết nối.');
+    if (part.connectionSchemaVersion !== 1) errors.push('Part 3: phiên bản kết nối không được hỗ trợ.');
+    if (part.answers?.length !== 7) errors.push('Part 3: cần đúng 7 answer ở giữa, gồm example, 5 đáp án và 1 nhiễu.');
+    if (part.pictures?.length !== 6) errors.push('Part 3: cần đúng 6 picture, ba bên trái và ba bên phải.');
+    const answerIds = (part.answers || []).map(answer => answer.id);
+    const pictureIds = (part.pictures || []).map(picture => picture.id);
+    if (!unique(answerIds) || (part.answers || []).some(answer => !isText(answer.id, 160) || !isText(answer.label, 120))) {
+      errors.push('Part 3: answer ID/label phải đầy đủ và không trùng.');
+    }
+    if (!unique(pictureIds)) errors.push('Part 3: picture ID bị trùng.');
+    const pictureSlots = (part.pictures || []).map(picture => `${picture.side}:${picture.row}`);
+    if (!unique(pictureSlots) || (part.pictures || []).some(picture => !['left', 'right'].includes(picture.side) || ![1, 2, 3].includes(picture.row))) {
+      errors.push('Part 3: picture phải nằm đúng ba hàng bên trái và ba hàng bên phải.');
+    }
+    if ((part.answers || []).some(answer => answer.leftAnchorOffset < 0 || answer.leftAnchorOffset > 1 || answer.rightAnchorOffset < 0 || answer.rightAnchorOffset > 1)) {
+      errors.push('Part 3: anchor answer phải được giới hạn trên đúng cạnh.');
+    }
+    if ((part.pictures || []).some(picture => picture.anchorOffset < 0 || picture.anchorOffset > 1)) {
+      errors.push('Part 3: anchor picture phải được giới hạn trên đúng cạnh.');
+    }
+    validateRegionCollection(part.answers || [], 'Part 3 answers', errors);
+    validateRegionCollection(part.pictures || [], 'Part 3 pictures', errors);
+    const example = part.exampleConnection;
+    if (!example || !answerIds.includes(example.answerId) || !pictureIds.includes(example.pictureId)) {
+      errors.push('Part 3: example connection không hợp lệ.');
+    }
+    const mappings = part.correctConnections || [];
+    if (mappings.length !== 5) errors.push('Part 3: cần đúng 5 connection được chấm điểm.');
+    if (
+      !unique(mappings.map(item => item.answerId))
+      || !unique(mappings.map(item => item.pictureId))
+      || mappings.some(item => !answerIds.includes(item.answerId) || !pictureIds.includes(item.pictureId))
+      || mappings.some(item => item.answerId === example?.answerId || item.pictureId === example?.pictureId)
+    ) {
+      errors.push('Part 3: mapping chấm điểm bị trùng, tham chiếu sai hoặc dùng lại example.');
+    }
+    const unusedAnswers = answerIds.filter(id => id !== example?.answerId && !mappings.some(item => item.answerId === id));
+    if (unusedAnswers.length !== 1 || unusedAnswers[0] !== part.distractorAnswerId) {
+      errors.push('Part 3: phải có đúng một answer nhiễu không được nối.');
+    }
+    return;
+  }
   const composite = part.displayMode === 'composite';
   if (!['once', 'multiple'].includes(part.reuseMode)) errors.push('Part 3: chế độ dùng đáp án không hợp lệ.');
   if (composite && (part.options || []).length !== 6) errors.push('Part 3: bảng tổng hợp cần đúng 6 lựa chọn A–F.');
@@ -145,21 +192,69 @@ function validatePart3(part: ListeningPart3, errors: string[]) {
 function validatePart4(part: ListeningPart4, errors: string[]) {
   validateBase(part, 4, errors);
   if (part.questions?.length !== 5) errors.push('Part 4: cần đúng 5 câu.');
-  (part.questions || []).forEach((question, index) => {
-    if (!isText(question.prompt, 1000)) errors.push(`Part 4 câu ${index + 1}: thiếu nội dung.`);
-    if (question.options?.length !== 3) errors.push(`Part 4 câu ${index + 1}: cần đúng 3 lựa chọn.`);
+  const validateQuestion = (
+    question: ListeningPart4['questions'][number],
+    label: string
+  ) => {
+    if (!isText(question.prompt, 1000)) errors.push(`${label}: thiếu nội dung.`);
+    if (question.options?.length !== 3) errors.push(`${label}: cần đúng 3 lựa chọn.`);
     const optionIds = (question.options || []).map(option => option.id);
     if (!unique(optionIds) || !optionIds.includes(question.correctOptionId)) {
-      errors.push(`Part 4 câu ${index + 1}: lựa chọn hoặc đáp án đúng không hợp lệ.`);
+      errors.push(`${label}: lựa chọn hoặc đáp án đúng không hợp lệ.`);
     }
-    if ((question.options || []).some(option => !isText(option.imageAssetId, 160))) {
-      errors.push(`Part 4 câu ${index + 1}: mọi lựa chọn cần hình ảnh.`);
+    if ((question.options || []).some(option => !isText(option.id, 160) || !isText(option.imageAssetId, 160))) {
+      errors.push(`${label}: mọi lựa chọn cần ID và hình ảnh.`);
     }
+  };
+  (part.questions || []).forEach((question, index) => {
+    validateQuestion(question, `Part 4 câu ${index + 1}`);
   });
+  if (part.example) validateQuestion(part.example, 'Part 4 example');
 }
 
 function validatePart5(part: ListeningPart5, errors: string[]) {
   validateBase(part, 5, errors);
+  if (part.displayMode === 'scene-colour-draw') {
+    if (!isText(part.sceneAssetId, 160)) errors.push('Part 5: thiếu tranh tương tác.');
+    if (part.interactionSchemaVersion !== 1) errors.push('Part 5: phiên bản tương tác không được hỗ trợ.');
+    if (part.colours?.length !== 20) errors.push('Part 5: palette màu cần đủ 20 màu chuẩn.');
+    const colourIds = (part.colours || []).map(colour => colour.id);
+    if (!unique(colourIds) || (part.colours || []).some(colour => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
+      errors.push('Part 5: màu phải có ID riêng và mã #RRGGBB hợp lệ.');
+    }
+    if (part.questions?.length !== 5 || !unique((part.questions || []).map(question => String(question.questionNumber)))) {
+      errors.push('Part 5: cần đúng 5 câu có questionNumber 1–5 không trùng.');
+    }
+    const objectIds = (part.interactiveObjects || []).map(object => object.id);
+    const paletteIds = (part.objectPalette || []).map(item => item.id);
+    if (!unique(objectIds) || !unique(paletteIds)) errors.push('Part 5: ID object/palette bị trùng.');
+    (part.interactiveObjects || []).forEach((object, index) => validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors));
+    const actionIds = (part.questions || []).flatMap(question => (question.actions || []).map(action => action.id));
+    if (!unique(actionIds)) errors.push('Part 5: action ID bị trùng.');
+    if ((part.questions || []).some(question => question.actions?.some(action => action.type === 'colour_object')) && objectIds.length < 2) {
+      errors.push('Part 5: colour_object cần ít nhất hai public object để geometry không trở thành gợi ý đáp án.');
+    }
+    (part.questions || []).forEach((question, questionIndex) => {
+      if (!question.actions?.length) errors.push(`Part 5 câu ${questionIndex + 1}: cần ít nhất một action.`);
+      question.actions?.forEach((action, actionIndex) => {
+        if (action.type === 'colour_object') {
+          if (!objectIds.includes(action.correctObjectId) || !colourIds.includes(action.correctColourId)) {
+            errors.push(`Part 5 câu ${questionIndex + 1}, action ${actionIndex + 1}: object/màu đúng không hợp lệ.`);
+          }
+        } else {
+          if (!paletteIds.includes(action.correctPaletteItemId)) {
+            errors.push(`Part 5 câu ${questionIndex + 1}, action ${actionIndex + 1}: object đặt không hợp lệ.`);
+          }
+          validateRegion(action.targetRegion, `Part 5 questions[${questionIndex}].actions[${actionIndex}].targetRegion`, errors);
+          const correctItem = part.objectPalette.find(item => item.id === action.correctPaletteItemId);
+          if (!correctItem || !part.objectPalette.some(item => item.id !== correctItem.id && item.objectType === correctItem.objectType)) {
+            errors.push(`Part 5 câu ${questionIndex + 1}: place_object cần ít nhất một lựa chọn nhiễu cùng loại.`);
+          }
+        }
+      });
+    });
+    return;
+  }
   if (!isText(part.sceneAssetId, 160)) errors.push('Part 5: thiếu tranh tô màu.');
   if (part.colours?.length !== 6) errors.push('Part 5: cần đúng 6 màu (5 đáp án và 1 nhiễu).');
   if (part.targets?.length !== 5) errors.push('Part 5: cần đúng 5 vùng chấm điểm.');
@@ -213,12 +308,46 @@ export function sanitizeListeningAnswers(value: unknown): ListeningAnswers {
         nested ? record(answer, false) : String(answer ?? '').slice(0, 500),
       ]));
   };
+  const part5Record = (input: unknown) => {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+    const sanitized: Record<string, any> = {};
+    Object.entries(input as Record<string, unknown>).slice(0, 100).forEach(([key, rawAnswer]) => {
+        if (!/^[a-zA-Z0-9_-]{1,160}$/.test(key)) return;
+        if (typeof rawAnswer === 'string') {
+          sanitized[key] = rawAnswer.slice(0, 500);
+          return;
+        }
+        if (!rawAnswer || typeof rawAnswer !== 'object' || Array.isArray(rawAnswer)) return;
+        const answer = rawAnswer as Record<string, unknown>;
+        if (answer.type === 'colour_object') {
+          const objectId = String(answer.objectId ?? '').slice(0, 160);
+          const colourId = String(answer.colourId ?? '').slice(0, 160);
+          if (/^[a-zA-Z0-9_-]{1,160}$/.test(objectId) && /^[a-zA-Z0-9_-]{1,160}$/.test(colourId)) {
+            sanitized[key] = { type: 'colour_object', objectId, colourId };
+          }
+          return;
+        }
+        if (answer.type === 'place_object') {
+          const paletteItemId = String(answer.paletteItemId ?? '').slice(0, 160);
+          const anchor = answer.anchor && typeof answer.anchor === 'object' && !Array.isArray(answer.anchor)
+            ? answer.anchor as Record<string, unknown>
+            : {};
+          const x = Number(anchor.x);
+          const y = Number(anchor.y);
+          if (/^[a-zA-Z0-9_-]{1,160}$/.test(paletteItemId)
+            && Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+            sanitized[key] = { type: 'place_object', paletteItemId, anchor: { x, y } };
+          }
+        }
+      });
+    return sanitized;
+  };
   return {
     part1: record(source.part1),
     part2: record(source.part2, true),
     part3: record(source.part3),
     part4: record(source.part4),
-    part5: record(source.part5),
+    part5: part5Record(source.part5),
   };
 }
 
@@ -230,11 +359,24 @@ export function sanitizeListeningContentForStudent(content: ListeningSetContent)
     ...question,
     blanks: question.blanks.map(({ acceptedAnswers: _answers, ...blank }: any) => blank),
   }));
-  copy.parts[2].items = copy.parts[2].items.map(({ correctOptionId: _answer, ...item }: any) => item);
-  if (copy.parts[2].example) delete copy.parts[2].example.correctOptionId;
+  if (copy.parts[2].displayMode === 'connect-image') {
+    delete copy.parts[2].correctConnections;
+    delete copy.parts[2].distractorAnswerId;
+  } else {
+    copy.parts[2].items = copy.parts[2].items.map(({ correctOptionId: _answer, ...item }: any) => item);
+    if (copy.parts[2].example) delete copy.parts[2].example.correctOptionId;
+  }
   copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }: any) => question);
-  if (copy.parts[3].example) delete copy.parts[3].example.correctOptionId;
-  copy.parts[4].targets = copy.parts[4].targets.map(({ correctColourId: _answer, ...target }: any) => target);
-  if (copy.parts[4].example) delete copy.parts[4].example.correctColourId;
+  const part5 = copy.parts[4];
+  if (part5.displayMode === 'scene-colour-draw') {
+    part5.questions = part5.questions.map((question: any) => ({
+      id: question.id,
+      questionNumber: question.questionNumber,
+      actions: question.actions.map((action: any) => ({ id: action.id, type: action.type })),
+    }));
+  } else {
+    part5.targets = part5.targets.map(({ correctColourId: _answer, ...target }: any) => target);
+    if (part5.example) delete part5.example.correctColourId;
+  }
   return copy;
 }

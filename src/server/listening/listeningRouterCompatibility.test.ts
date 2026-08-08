@@ -120,6 +120,9 @@ function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswe
       },
     ],
   };
+  const part3 = content.parts[2];
+  const part5 = content.parts[4];
+  if (part3.displayMode === 'connect-image' || part5.displayMode === 'scene-colour-draw') throw new Error('Legacy fixture expected.');
   return {
     content,
     answers: {
@@ -128,9 +131,9 @@ function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswe
         question.id,
         Object.fromEntries(question.blanks.map(blank => [blank.id, blank.acceptedAnswers[0]])),
       ])),
-      part3: Object.fromEntries(content.parts[2].items.map(item => [item.id, item.correctOptionId])),
+      part3: Object.fromEntries(part3.items.map(item => [item.id, item.correctOptionId])),
       part4: Object.fromEntries(content.parts[3].questions.map(question => [question.id, question.correctOptionId])),
-      part5: Object.fromEntries(content.parts[4].targets.map(target => [target.id, target.correctColourId])),
+      part5: Object.fromEntries(part5.targets.map(target => [target.id, target.correctColourId])),
     },
   };
 }

@@ -9,7 +9,7 @@ import MoverPart3Editor from './part3Handler';
 import MoverPart4Editor from './part4Handler';
 import MoverPart5Editor from './part5Handler';
 import { createMoverDefaultRegion, createMoverEditorId } from './editorUtilities';
-import { DEFAULT_MOVER_COLOURS, MOVER_COLOUR_CATALOG } from './colourCatalog';
+import { MOVER_COLOUR_CATALOG } from './colourCatalog';
 
 export { createMoverDefaultRegion, createMoverEditorId } from './editorUtilities';
 
@@ -24,15 +24,10 @@ export function createDefaultMoverListeningContent(): ListeningSetContent {
     id: createMoverEditorId('p1-choice'),
     label: `Tên ${index + 1}`,
   }));
-  const p3Options = Array.from({ length: 6 }, (_, index) => ({
-    id: createMoverEditorId('p3-option'),
-    label: String.fromCharCode(65 + index),
-    imageAssetId: '',
+  const colours = MOVER_COLOUR_CATALOG.map(colour => ({
+    id: createMoverEditorId('p5-colour'),
+    ...colour,
   }));
-  const colours = DEFAULT_MOVER_COLOURS.map(label => {
-    const colour = MOVER_COLOUR_CATALOG.find(item => item.label === label)!;
-    return { id: createMoverEditorId('p5-colour'), ...colour };
-  });
   return {
     moduleId: 'mover',
     schemaVersion: 1,
@@ -74,19 +69,30 @@ export function createDefaultMoverListeningContent(): ListeningSetContent {
       {
         schemaVersion: 1,
         part: 3,
-        displayMode: 'composite',
+        displayMode: 'connect-image',
+        connectionSchemaVersion: 1,
         boardAssetId: '',
         title: 'Part 3',
-        instruction: 'Listen and write a letter in each box.',
+        instruction: 'Listen and draw lines.',
         audioAssetId: '',
-        reuseMode: 'once',
-        options: p3Options,
-        items: Array.from({ length: 5 }, (_, index) => ({
-          id: createMoverEditorId('p3-item'),
-          label: `Đồ vật ${index + 1}`,
-          imageAssetId: '',
-          correctOptionId: '',
+        answers: Array.from({ length: 7 }, (_, index) => ({
+          id: createMoverEditorId('p3-answer'),
+          label: `Answer ${index + 1}`,
+          region: { shape: 'rect' as const, x: 0.42, y: 0.08 + index * 0.12, width: 0.16, height: 0.065 },
+          leftAnchorOffset: 0.5,
+          rightAnchorOffset: 0.5,
         })),
+        pictures: Array.from({ length: 6 }, (_, index) => ({
+          id: createMoverEditorId('p3-picture'),
+          label: `Picture ${index + 1}`,
+          side: index < 3 ? 'left' as const : 'right' as const,
+          row: (index % 3 + 1) as 1 | 2 | 3,
+          region: { shape: 'rect' as const, x: index < 3 ? 0.05 : 0.72, y: 0.08 + (index % 3) * 0.3, width: 0.23, height: 0.22 },
+          anchorOffset: 0.5,
+        })),
+        exampleConnection: { answerId: '', pictureId: '', renderOverlayLine: false },
+        correctConnections: [],
+        distractorAnswerId: '',
       },
       {
         schemaVersion: 1,
@@ -111,16 +117,20 @@ export function createDefaultMoverListeningContent(): ListeningSetContent {
       {
         schemaVersion: 1,
         part: 5,
+        displayMode: 'scene-colour-draw',
+        interactionSchemaVersion: 1,
         title: 'Part 5',
-        instruction: 'Listen and colour and write. There is one example.',
+        instruction: 'Listen and colour and draw. There is one example.',
         audioAssetId: '',
         sceneAssetId: '',
         colours,
-        targets: colours.slice(0, 5).map((colour, index) => ({
-          id: createMoverEditorId('p5-target'),
-          label: `Vùng ${index + 1}`,
-          correctColourId: colour.id,
-          region: { ...createMoverDefaultRegion(index), height: 0.11 },
+        interactiveObjects: [],
+        objectPalette: [],
+        questions: Array.from({ length: 5 }, (_, index) => ({
+          id: createMoverEditorId('p5-question'),
+          questionNumber: (index + 1) as 1 | 2 | 3 | 4 | 5,
+          staffPrompt: `Question ${index + 1}`,
+          actions: [],
         })),
       },
     ],
@@ -152,9 +162,13 @@ export const moverListeningEditorDefinition: ListeningEditorModuleDefinition = {
       part: 3,
       label: 'Part 3',
       EditorComponent: MoverPart3Editor,
-      validateLocal: part => part.items.length === 5 && part.options.length >= 5
-        ? []
-        : [issue('part3', 'Part 3 cần 5 câu và ít nhất 5 lựa chọn.')],
+      validateLocal: part => part.displayMode === 'connect-image'
+        ? part.answers.length === 7 && part.pictures.length === 6
+          ? []
+          : [issue('part3', 'Part 3 cần 7 answer và 6 picture.')]
+        : part.items.length === 5 && part.options.length >= 5
+          ? []
+          : [issue('part3', 'Part 3 cần 5 câu và ít nhất 5 lựa chọn.')],
     },
     {
       part: 4,
@@ -168,9 +182,13 @@ export const moverListeningEditorDefinition: ListeningEditorModuleDefinition = {
       part: 5,
       label: 'Part 5',
       EditorComponent: MoverPart5Editor,
-      validateLocal: part => part.colours.length === 6 && part.targets.length === 5
-        ? []
-        : [issue('part5', 'Part 5 cần đúng 6 màu và 5 vùng.')],
+      validateLocal: part => part.displayMode === 'scene-colour-draw'
+        ? part.colours.length === 20 && part.questions.length === 5
+          ? []
+          : [issue('part5', 'Part 5 cần palette 20 màu và đúng 5 câu.')]
+        : part.colours.length === 6 && part.targets.length === 5
+          ? []
+          : [issue('part5', 'Part 5 cần đúng 6 màu và 5 vùng.')],
     },
   ],
 };
