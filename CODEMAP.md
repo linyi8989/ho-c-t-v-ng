@@ -2235,8 +2235,10 @@ Validation ledger for this change:
 This pass addresses failures observed with real Gemini responses while keeping
 the five-Part role and security contracts from section 26.
 
-- `SmartImportPanel.tsx` now renders a capability-driven AI selector. The
-  initial registry exposes `Tự động · Gemini → ChatGPT`, Gemini and ChatGPT;
+- `SmartImportPanel.tsx` now renders a capability-driven AI selector. Mover
+  defaults to `Stali · GPT 5.6 Sol` whenever that Vision provider is configured,
+  and otherwise keeps the safe available-provider fallback. The registry still
+  exposes `Tự động · Gemini → ChatGPT`, Gemini, ChatGPT and configured Stali models;
   explicit selection is sent as `preferredProvider` and is never silently
   changed to another provider. `/api/listening/capabilities` returns provider
   IDs, labels, configured state and model names so another adapter/model can be

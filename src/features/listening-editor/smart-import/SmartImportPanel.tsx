@@ -38,7 +38,7 @@ export default function SmartImportPanel({
   onAnalyzed,
   analyzeLabel = 'Phân tích và tạo bản đề xuất',
   analyzedNotice,
-  initialPreferredProvider = 'auto',
+  initialPreferredProvider = 'stali:gpt-5.6-sol',
   pastedTextPlacement = 'main',
   onUpload,
   children,

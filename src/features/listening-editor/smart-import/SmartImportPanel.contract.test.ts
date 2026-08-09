@@ -44,6 +44,7 @@ test('Smart Import exposes an extensible provider selector with Gemini and ChatG
   assert.match(panelSource, /value="auto">Tự động · Gemini → ChatGPT/);
   assert.match(panelSource, /providerDefinitions\.map/);
   assert.match(panelSource, /preferredProvider/);
+  assert.match(panelSource, /initialPreferredProvider = 'stali:gpt-5\.6-sol'/);
   assert.match(panelSource, /provider\.reason \|\| 'chưa cấu hình'/);
 });
 
