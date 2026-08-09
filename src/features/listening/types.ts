@@ -193,6 +193,8 @@ export interface ListeningPart5InteractiveObject {
   label: string;
   geometry: ListeningRegion;
   interactionKinds: ['colour'];
+  /** Required by schema v2 before publish; AI/import placeholders are never trusted geometry. */
+  geometryConfirmedByTeacher?: boolean;
 }
 
 export interface ListeningPart5PaletteItem {
@@ -217,6 +219,8 @@ export interface ListeningPart5PlaceAction {
   correctPaletteItemId: string;
   targetRegion: ListeningRegion;
   relationLabel?: string;
+  /** Required by schema v2 before publish; the private drop-zone is teacher-authored. */
+  geometryConfirmedByTeacher?: boolean;
 }
 
 export type ListeningPart5Action = ListeningPart5ColourAction | ListeningPart5PlaceAction;
@@ -231,10 +235,12 @@ export interface ListeningPart5Question {
 export interface ListeningPart5SceneColourDraw extends ListeningPartBase {
   part: 5;
   displayMode: 'scene-colour-draw';
-  interactionSchemaVersion: 1;
+  interactionSchemaVersion: 1 | 2;
   sceneAssetId: string;
   sceneUrl?: string;
   colours: ListeningColour[];
+  /** Schema v2 student palette: five working colours plus one distractor. */
+  colourPaletteIds?: string[];
   interactiveObjects: ListeningPart5InteractiveObject[];
   objectPalette: ListeningPart5PaletteItem[];
   questions: ListeningPart5Question[];
@@ -352,6 +358,39 @@ export interface ListeningGradeResult {
   unansweredCount: number;
   totalCount: 25;
   questions: ListeningQuestionResult[];
+}
+
+export interface ListeningCompletedAttempt {
+  id: string;
+  score: number;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  totalCount: number;
+  completedAt?: string;
+  idempotentReplay?: boolean;
+}
+
+export interface ListeningAttemptReviewAnswer {
+  questionIndex: number;
+  part: 1 | 2 | 3 | 4 | 5;
+  questionText: string;
+  selectedAnswer: string;
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  unanswered: boolean;
+  options: string[];
+}
+
+export interface ListeningAttemptReview {
+  attemptId: string;
+  score: number;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  totalCount: number;
+  answerDetails: ListeningAttemptReviewAnswer[];
 }
 
 export const createEmptyListeningAnswers = (): ListeningAnswers => ({

@@ -118,14 +118,19 @@ export function createDefaultMoverListeningContent(): ListeningSetContent {
         schemaVersion: 1,
         part: 5,
         displayMode: 'scene-colour-draw',
-        interactionSchemaVersion: 1,
+        interactionSchemaVersion: 2,
         title: 'Part 5',
         instruction: 'Listen and colour and draw. There is one example.',
         audioAssetId: '',
         sceneAssetId: '',
         colours,
+        colourPaletteIds: colours.slice(0, 6).map(colour => colour.id),
         interactiveObjects: [],
-        objectPalette: [],
+        objectPalette: Array.from({ length: 3 }, (_, index) => ({
+          id: createMoverEditorId('p5-token'),
+          objectType: `draw-object-${index + 1}`,
+          label: index === 2 ? 'Vật nhiễu' : `Vật ${index + 1}`,
+        })),
         questions: Array.from({ length: 5 }, (_, index) => ({
           id: createMoverEditorId('p5-question'),
           questionNumber: (index + 1) as 1 | 2 | 3 | 4 | 5,
@@ -183,7 +188,10 @@ export const moverListeningEditorDefinition: ListeningEditorModuleDefinition = {
       label: 'Part 5',
       EditorComponent: MoverPart5Editor,
       validateLocal: part => part.displayMode === 'scene-colour-draw'
-        ? part.colours.length === 20 && part.questions.length === 5
+        ? part.colours.length === 20
+          && part.questions.length === 5
+          && (part.interactionSchemaVersion === 1
+            || (part.colourPaletteIds?.length === 6 && part.objectPalette.length === 3))
           ? []
           : [issue('part5', 'Part 5 cần palette 20 màu và đúng 5 câu.')]
         : part.colours.length === 6 && part.targets.length === 5

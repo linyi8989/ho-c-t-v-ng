@@ -207,20 +207,21 @@ function currentSchemaContent() {
     distractorAnswerId: answers[6].id,
   };
   const colours = MOVER_COLOUR_CATALOG.map((colour, index) => ({ id: `catalog-${index}`, ...colour }));
-  const objects = Array.from({ length: 5 }, (_, index) => ({ id: `object-${index}`, label: `Object ${index}`, geometry: region(index), interactionKinds: ['colour'] as ['colour'] }));
+  const objects = Array.from({ length: 5 }, (_, index) => ({ id: `object-${index}`, label: `Object ${index}`, geometry: region(index), interactionKinds: ['colour'] as ['colour'], geometryConfirmedByTeacher: true }));
   const palette = [
-    { id: 'star-yellow', objectType: 'star', label: 'Yellow star', colourId: colours[3].id },
-    { id: 'star-red', objectType: 'star', label: 'Red star', colourId: colours[0].id },
+    { id: 'star-yellow', objectType: 'star', label: 'Yellow star', colourId: colours[3].id, tokenAssetId: 'token-yellow-png' },
+    { id: 'star-red', objectType: 'star', label: 'Red star', colourId: colours[0].id, tokenAssetId: 'token-red-png' },
+    { id: 'lamp-blue', objectType: 'lamp', label: 'Blue lamp', colourId: colours[1].id, tokenAssetId: 'token-lamp-png' },
   ];
   content.parts[4] = {
-    part: 5, displayMode: 'scene-colour-draw', interactionSchemaVersion: 1, title: 'Part 5', instruction: 'Listen, colour and draw.', audioAssetId: 'audio-5', sceneAssetId: 'scene-5', colours, interactiveObjects: objects, objectPalette: palette,
+    part: 5, displayMode: 'scene-colour-draw', interactionSchemaVersion: 2, title: 'Part 5', instruction: 'Listen, colour and draw.', audioAssetId: 'audio-5', sceneAssetId: 'scene-5', colours, colourPaletteIds: colours.slice(0, 6).map(colour => colour.id), interactiveObjects: objects, objectPalette: palette,
     questions: ([1, 2, 3, 4, 5] as const).map((questionNumber, index) => ({
       id: `scene-question-${index}`,
       questionNumber,
       staffPrompt: `Question ${questionNumber}`,
       actions: index === 0 ? [
         { id: 'colour-action-0', type: 'colour_object' as const, correctObjectId: objects[0].id, correctColourId: colours[0].id },
-        { id: 'place-action-0', type: 'place_object' as const, correctPaletteItemId: palette[0].id, targetRegion: { shape: 'ellipse' as const, x: 0.4, y: 0.4, width: 0.2, height: 0.2 } },
+        { id: 'place-action-0', type: 'place_object' as const, correctPaletteItemId: palette[0].id, targetRegion: { shape: 'rect' as const, x: 0.4, y: 0.4, width: 0.2, height: 0.2 }, geometryConfirmedByTeacher: true },
       ] : [{ id: `colour-action-${index}`, type: 'colour_object' as const, correctObjectId: objects[index].id, correctColourId: colours[index].id }],
     })),
   };
@@ -248,8 +249,40 @@ test('current Part 3 and variable-action Part 5 validate and grade five question
   };
   const result = gradeListeningAttempt(content, answers);
   assert.equal(result.correctCount, 25);
+  const naturalInteractionAnswers: ListeningAnswers = {
+    ...answers,
+    part5: {
+      'object-0': { type: 'colour_object', objectId: 'object-0', colourId: 'catalog-0' },
+      'star-yellow': { type: 'place_object', paletteItemId: 'star-yellow', anchor: { x: 0.5, y: 0.5 } },
+      'object-1': { type: 'colour_object', objectId: 'object-1', colourId: 'catalog-1' },
+      'object-2': { type: 'colour_object', objectId: 'object-2', colourId: 'catalog-2' },
+      'object-3': { type: 'colour_object', objectId: 'object-3', colourId: 'catalog-3' },
+      'object-4': { type: 'colour_object', objectId: 'object-4', colourId: 'catalog-4' },
+    },
+  };
+  assert.equal(gradeListeningAttempt(content, naturalInteractionAnswers).correctCount, 25);
+  naturalInteractionAnswers.part5['object-0'] = { type: 'colour_object', objectId: 'object-0', colourId: 'catalog-5' };
+  assert.equal(gradeListeningAttempt(content, naturalInteractionAnswers).correctCount, 24);
+  answers.part5['place-action-0'] = { type: 'place_object', paletteItemId: 'star-yellow', anchor: { x: 0.41, y: 0.41 } };
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 25);
+  answers.part5['place-action-0'] = { type: 'place_object', paletteItemId: 'star-yellow', anchor: { x: 0.59, y: 0.59 } };
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 25);
   answers.part5['place-action-0'] = { type: 'place_object', paletteItemId: 'star-yellow', anchor: { x: 0.1, y: 0.1 } };
   assert.equal(gradeListeningAttempt(content, answers).correctCount, 24);
+});
+
+test('scene-colour-draw v1 remains valid for published legacy content', () => {
+  const content = currentSchemaContent();
+  const part5 = content.parts[4];
+  if (part5.displayMode !== 'scene-colour-draw') return;
+  part5.interactionSchemaVersion = 1;
+  delete part5.colourPaletteIds;
+  part5.objectPalette = part5.objectPalette.slice(0, 2);
+  part5.interactiveObjects.forEach(object => { delete object.geometryConfirmedByTeacher; });
+  part5.questions.forEach(question => question.actions.forEach(action => {
+    if (action.type === 'place_object') delete action.geometryConfirmedByTeacher;
+  }));
+  assert.deepEqual(validateListeningSetContent(content), []);
 });
 
 test('student sanitizer strips private mappings/targetRegion and preserves structured submissions', () => {
@@ -259,6 +292,8 @@ test('student sanitizer strips private mappings/targetRegion and preserves struc
   assert.equal(student.parts[2].distractorAnswerId, undefined);
   assert.ok(student.parts[2].exampleConnection);
   assert.ok(student.parts[4].interactiveObjects[0].geometry);
+  assert.equal(student.parts[4].interactiveObjects[0].geometryConfirmedByTeacher, undefined);
+  assert.equal(student.parts[4].colours.length, 6);
   assert.equal(student.parts[4].questions[0].staffPrompt, undefined);
   assert.equal(student.parts[4].questions[0].actions[0].correctObjectId, undefined);
   assert.equal(student.parts[4].questions[0].actions[1].targetRegion, undefined);

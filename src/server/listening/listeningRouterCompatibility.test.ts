@@ -271,6 +271,31 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(firstResult.score, 100);
   assert.equal(firstResult.correctCount, 25);
 
+  const reviewQuery = new URLSearchParams(identity).toString();
+  const reviewResponse = await fetch(
+    `${baseUrl}/api/listening/sets/legacy-mover-set/attempts/${encodeURIComponent(firstResult.id)}/review?${reviewQuery}`,
+    { headers: { 'X-Listening-Run-Secret': submission.runSecret } }
+  );
+  assert.equal(reviewResponse.status, 200);
+  const reviewResult = await reviewResponse.json() as any;
+  assert.equal(reviewResult.attemptId, firstResult.id);
+  assert.equal(reviewResult.answerDetails.length, 25);
+  assert.equal(reviewResult.answerDetails[0].userAnswer, 'Name 0');
+  assert.equal(reviewResult.answerDetails[0].correctAnswer, 'Name 0');
+  assert.equal('questionId' in reviewResult.answerDetails[0], false);
+
+  const forbiddenReviewResponse = await fetch(
+    `${baseUrl}/api/listening/sets/legacy-mover-set/attempts/${encodeURIComponent(firstResult.id)}/review?${new URLSearchParams({ guestId: 'another-guest', studentName: 'Another Student' })}`,
+    { headers: { 'X-Listening-Run-Secret': submission.runSecret } }
+  );
+  assert.equal(forbiddenReviewResponse.status, 404);
+
+  const wrongSecretReviewResponse = await fetch(
+    `${baseUrl}/api/listening/sets/legacy-mover-set/attempts/${encodeURIComponent(firstResult.id)}/review?${reviewQuery}`,
+    { headers: { 'X-Listening-Run-Secret': 'wrong-run-secret' } }
+  );
+  assert.equal(wrongSecretReviewResponse.status, 404);
+
   const storedDetailSnapshot = await db.collection('listening_attempt_details').doc(firstResult.id).get();
   assert.equal(storedDetailSnapshot.exists, true);
   const storedDetail = storedDetailSnapshot.data() as any;

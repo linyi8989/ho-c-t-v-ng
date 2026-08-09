@@ -177,6 +177,7 @@ export function normalizeListeningActivityAnswerDetails(detail: any) {
     userAnswer: formatListeningReviewAnswer(item?.userAnswer || item?.selectedAnswer),
     correctAnswer: formatListeningReviewAnswer(item?.correctAnswer),
     isCorrect: Boolean(item?.isCorrect),
+    unanswered: Boolean(item?.unanswered),
     options: Array.isArray(item?.options)
       ? item.options.map((option: unknown) => activityText(option, 500)).filter(Boolean).slice(0, 20)
       : [],

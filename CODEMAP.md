@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-03
+Last updated: 2026-08-08
 
 ## 1. Project Overview
 
@@ -1820,6 +1820,8 @@ Frontend map:
 - `src/features/listening/student/ListeningLearningArea.tsx` resolves public or
   assignment access, prepares a version-bound run, restores local progress,
   retries pending submissions, enforces an optional timer, and submits once.
+  The completed screen offers owner-only answer review and a new-attempt action;
+  retrying creates a fresh client run/ticket while preserving the completed row.
 - `ListeningPartViews.tsx` contains the five responsive part renderers and uses
   native pointer/drag interactions with click/tap fallbacks.
 - `src/App.tsx` keeps `/listening/:setId` as the legacy Mover entry, adds the
@@ -1836,6 +1838,12 @@ Backend and security:
   student snapshot without answer keys. Submit verifies actor/access/version,
   grades only on the server, and uses deterministic run identity plus a secret
   hash to make retries idempotent.
+- `GET /api/listening/sets/:id/attempts/:attemptId/review` returns display-ready
+  answer rows only after completion, only to the owning user/guest, and only
+  when the immutable detail policy has `showReviewAfterSubmit=true`. Cross-owner
+  requests remain 404, and guest review additionally requires the matching run
+  secret; playable, prepare, submit-summary, and public result
+  responses do not carry the answer key.
 - `listeningGrader.ts` performs Unicode NFKC, whitespace, case, and apostrophe
   normalization, validates the exact 25-question contract, and emits bounded
   0-100 scores. `listeningValidation.ts` enforces publish-time structure,
@@ -1989,8 +1997,8 @@ Architecture and ownership:
   its own Part. `moverDraft.test.ts` guards sibling Parts byte-for-byte.
 - `ListeningAdminModule.tsx` remains the Mover admin entry point. It coordinates
   assets, candidate state, autosave status, shell navigation, and the existing
-  set/version/publish flow. Parts 1-2 import validated analysis directly into the
-  editable working draft; Parts 3-5 retain staged candidate review.
+  set/version/publish flow. Parts 1-5 import validated analysis directly into the
+  matching editable working draft; the main Part form is the review surface.
 - The whole-exam Resource Tray implementation remains in source as a rollback
   path, but `SHOW_WHOLE_EXAM_RESOURCE_TRAY=false` hides it from the General tab.
   Per-Part Smart Import is the only visible import workflow. Its compact source
@@ -2033,8 +2041,8 @@ Mover behavior:
   Each rectangle is itself directly draggable (or movable with arrow keys), so
   there is no separate active-region selector. The teacher can move but cannot
   resize. Code randomizes five unique provisional answers. Part 1 imports them
-  into editable dropdowns for teacher correction; Part 5 retains explicit
-  candidate confirmation before applying.
+  into editable dropdowns for teacher correction; Part 5 also imports into its
+  editable answer table without a separate candidate-confirmation click.
 - Part 2 extracts a heading, optional example, five prompts, and bold answer
   variants split by `|` directly into the editable Part form. Its optional
   illustration crop uses a full-source-image mouse editor (draw, move and resize)
@@ -2094,15 +2102,15 @@ Validation ledger:
 ## 26. Listening Smart Editor five-Part role upgrade - 2026-08-08
 
 This section supersedes the Smart Import behavior notes in section 25 where they
-conflict. In particular, Parts 1-2 are direct import, while Parts 3-5 use staged
-candidate review, matching `quytac.md`.
+conflict. As updated on 2026-08-09, all five Parts direct-import validated output
+into their matching editable working Part; none of these flows auto-publishes.
 
 Source-role contract and flow:
 
 - `src/features/listening-editor/smart-import/types.ts` defines explicit
   `question`, `answer_key`, and `position_key` sources. The visible UI uses the
   fixed labels `Ảnh đề bài`, `Ảnh đáp án`, and, for Parts 1/5,
-  `Ảnh đáp án + vị trí`. Part 5 position input is optional; the other declared
+  `Ảnh đáp án + vị trí`. Part 5 requires all three image roles; the other declared
   role slots are required unless the supported Part 2/3 text fallback replaces
   only the answer-key role.
 - `SmartImportPanel.tsx` gives every role its own library selector and
@@ -2116,10 +2124,11 @@ Source-role contract and flow:
 - Provider output contains logical labels, numbers, regions, actions and
   warnings only. `service.ts` discards provider IDs; application merge code
   preserves matching IDs or creates editor IDs when an entity is new.
-- Parts 1/2 merge validated results directly into the working Part. The panel
+- Parts 1-5 merge validated results directly into the matching working Part. The panel
   rechecks `basePartHash` after analysis, and draft autosave still enforces
-  `baseRevision`. Parts 3/4/5 retain a candidate until teacher apply. No flow
-  publishes automatically, and `moverDraft.test.ts` guards sibling Parts.
+  `baseRevision`. Part 4 performs frame detection, crop and derived-asset upload
+  before committing the result. No flow publishes automatically, and
+  `moverDraft.test.ts` guards sibling Parts.
 
 Part behavior:
 
@@ -2140,8 +2149,15 @@ Part behavior:
   private scored connections and one distractor answer. Anchors are derived from
   the correct region edge and only expose a clamped vertical offset. The default
   example overlay line is off because the book image may already contain it.
-  The player makes every free picture on the selected side eligible and never
-  reads the correct mapping to highlight a destination.
+  The player makes every free unlocked picture eligible and never reads the
+  correct mapping to highlight a destination. The picture side determines the
+  final answer anchor: dragging or tapping a left picture automatically moves
+  the connection origin to the answer's left edge, and a right picture moves it
+  to the right edge, regardless of which half of the answer started the gesture.
+  Board images at least 400 px wide keep their intrinsic width (subject to
+  viewport downscaling). Smaller boards alone may upscale to
+  `min(naturalWidth * 1.5, 480px)`, preventing the previous unconditional
+  stretch to the full 5xl container.
 - Part 4 retains the three-option question/player/grader contract. Smart Import
   uses `question` for text and crop detection and `answer_key` only for numbered
   A/B/C answers. The crop review supports six blocks when present: one example
@@ -2151,16 +2167,34 @@ Part behavior:
   evidence. The public example is rendered locked and is not scored.
 - Part 5 adds the versioned `displayMode: scene-colour-draw` branch while keeping
   the legacy five-region colour branch readable/playable/gradable. The new
-  branch stores the full 20-colour catalog, public colourable object geometry,
-  a public object palette with distractors, five staff questions, and a dynamic
-  action list per question. Re-analysis appends unmatched old actions and their
-  referenced public entities for review instead of deleting them.
+  v2 branch stores the full 20-colour teacher catalog, exactly six public
+  palette colours (including a distractor), exactly three teacher-uploaded PNG
+  icons (including a distractor), public colour masks, five staff questions,
+  and a dynamic action list per question. Colour masks are normalized polygons;
+  private Draw drop-zones are normalized rectangles derived by GPT-5.6 Sol
+  from `position_key` into `question` coordinates. The main editor renders an
+  AI-filled five-question/action answer table; each action opens one inline
+  region editor. Colour uses a rough lasso whose background flood-fill joins
+  enclosed compartments, ignores internal dividers, and offers inner/outer
+  contours. Draw uses only a teacher-confirmed rectangle/square. Correct colour/icon
+  choices and compact icon upload live in each answer row; a final distractor row
+  edits the unused colour and PNG object. Re-analysis appends unmatched old
+  actions for review instead of deleting them; AI geometry is accepted only for
+  private Draw placement and never for Colour masks.
 - Part 5 `colour_object` checks both object and colour. `place_object` checks the
-  selected palette item plus backend containment in rect/ellipse/polygon target
-  geometry. A multi-action question is correct only when every action is
+  selected palette item plus backend containment of the submitted icon anchor
+  in its private rectangular target. A multi-action question is correct only when every action is
   correct, so the exam still produces exactly five Part 5 results and 25 total.
   New attempts use grading version `listening-five-part-v2`; existing immutable
   content and legacy answer branches remain readable and gradeable.
+- The Part 5 v2 student player no longer exposes question/action selectors. Six
+  colour swatches and three PNG tokens share one fixed answer dock, while only
+  the source image scrolls. Used answers leave the dock and return when their
+  painted object/token is removed. Empty colour masks are transparent hitboxes;
+  a submitted colour alone renders a clipped translucent fill, and Draw never
+  renders the private target region. New submissions are keyed by the interacted
+  public object/token; the backend grader also accepts the older action-keyed
+  shape and resolves both against private published mappings.
 
 Geometry, player and security:
 
@@ -2195,3 +2229,157 @@ Validation ledger for this change:
   static/dynamic-import notices and large-chunk warning; generated `dist`
   output was produced only by the build and was not edited manually.
 - `git diff --check`: passes.
+
+## 27. Listening Smart Import provider/reliability pass - 2026-08-08
+
+This pass addresses failures observed with real Gemini responses while keeping
+the five-Part role and security contracts from section 26.
+
+- `SmartImportPanel.tsx` now renders a capability-driven AI selector. The
+  initial registry exposes `Tự động · Gemini → ChatGPT`, Gemini and ChatGPT;
+  explicit selection is sent as `preferredProvider` and is never silently
+  changed to another provider. `/api/listening/capabilities` returns provider
+  IDs, labels, configured state and model names so another adapter/model can be
+  added without hard-coding UI options.
+- Every Part supplies a concrete JSON Schema to the vision adapter. Gemini uses
+  `responseJsonSchema`; OpenAI Responses uses a JSON-schema text format. Invalid
+  JSON is retried once. A second syntax/provider failure now fails closed with a
+  safe 502/503 response; timeout/abort returns 504. No candidate is created, no
+  direct import runs and the working draft remains unchanged. Parseable output
+  with individual uncertain fields still uses the existing unresolved/warning
+  behavior. Candidate/audit provider metadata is assigned only after valid JSON
+  is received, so an explicitly requested provider is not recorded as a false
+  success. The total request deadline defaults to 90 seconds and can be set with
+  `LISTENING_SMART_IMPORT_TIMEOUT_MS` (default 180 seconds, clamped to 15-180 seconds).
+  Diagnostics log request/Part/schema/provider/attempt, response length and a
+  short SHA-256 fingerprint. Raw output is logged only when the non-production
+  opt-in `LISTENING_SMART_IMPORT_DEBUG_RAW=true` is set.
+- Part 1 parses answer mappings independently from endpoint geometry. A missing
+  scene transform can no longer erase five valid numbered name mappings.
+  `coordinateRole=question` uses the point directly; only `position_key`
+  requires the two scene regions. Real-image reliability now uses three bounded
+  provider stages: `question + answer_key` extracts names/example/numbered
+  mappings; a question-only verification stage independently proves the printed
+  example and tightly locates five primary-subject/action landmarks; the final
+  stage receives all three role-labelled images and traces completed lines.
+  The example is accepted only with a label point outside `questionScene` and
+  the target end of the already-printed sample line inside it. Two physical line
+  endpoints plus `positionScene -> questionScene` provide cross-validation; the unique
+  endpoint inside the illustrated scene is the picture/person end, regardless
+  of whether it is visually above or below the printed name. A contradictory
+  trace never replaces the canonical question-image localization: when that localization has
+  a description, a valid subject region/point and confidence >= 0.85 it is kept
+  with an explicit teacher-review warning; otherwise the target remains
+  unresolved. A failed geometry pass preserves
+  the valid content pass and existing draft regions with diagnostic warnings.
+  Region normalization treats `shape=rect`/`ellipse` as authoritative even when
+  an OpenAI structured response also includes an empty `points: []`; previously
+  that harmless field caused both scene rectangles to be rejected as empty
+  polygons. An end-to-end smoke run with the reported three Part 1 assets and
+  explicit ChatGPT selection now preserves all six choices, maps all five names
+  and resolves 5/5 target endpoints into question-image coordinates. The
+  independent example verifier also corrects a first-pass Daisy/Fred confusion;
+  conflicting
+  traced lines remain visible as review warnings rather than silently moving a
+  node to the wrong subject. The Part 1 region editor now renders only the five
+  scored target regions and never adds the printed example as a sixth region.
+  Direct import also removes the verified example
+  label from incoming choices, so Fred cannot remain in the six draggable cards.
+- The Part 1 student view separates a non-scrolling, horizontally scrollable
+  answer dock from the vertical scene scroller. Target hitboxes remain fully
+  transparent at rest; selection/drag shows the same neutral outline on all
+  eligible regions, and a placed answer renders only its high-contrast label
+  pill. Feature-scoped CSS explicitly disables the application's global button
+  backdrop blur on these hitboxes. No target tint or UI state consults the
+  private answer mapping.
+- Part 2 always opens manual illustration cropping after analysis. AI crop is
+  only an initial hint; without it the editor starts from the full question
+  image.
+- Part 3 accepts normalized regions plus common Gemini `box_2d`/0-1000 geometry,
+  case-normalizes side values, and keeps current answer/picture/mapping slots
+  with warnings when AI fields are unusable. Vision analysis uses two bounded
+  passes: `question` alone must prove the unique printed example line with
+  `answerLabel + pictureSide + pictureRow + confidence`; endpoints are neither
+  requested nor validated because the runtime derives nodes from regions and
+  edge offsets. `answer_key` alone reads
+  the three-row/two-column grid and cannot select or replace the example. The
+  backend trusts the printed-line example, reconciles a deterministic one-to-one
+  key swap with a review warning, and preserves draft mappings for any unresolved
+  conflict. Text fallback requires an explicit
+  left/right row or three-row/two-column layout and never flattens six labels.
+  Its primary editor is now a two-image analyze/direct-import flow: validated
+  output enters the main form, which shows a human-readable example, five
+  row-major mappings and the distractor. Technical labels, 13 regions and edge
+  offsets remain available only under a collapsed advanced editor. Structural
+  validation blocks direct import until the 7-answer/6-picture/example/
+  5-mapping/distractor invariants are complete. The student overlay renders curved Bezier
+  connections while preserving side-only eligibility and answer-key secrecy.
+  The board image stays visually untouched: answer/picture regions are transparent
+  hitboxes and no endpoint dots or example overlay are rendered. Pointer Events
+  support tap-tap plus live drag preview; visible lines use a 3px stroke and an
+  invisible wider hit path so students can remove and reconnect before submit.
+- Part 4 no longer requests the 18 image crops from AI. AI reads prompts and the
+  small numbered A/B/C key; browser pixel detection remains the source of crop
+  geometry and automatically creates/merges derived images after validation.
+- Part 5 analysis is one bounded GPT-5.6 Sol pass containing `question` +
+  `answer_key` + `position_key`. The provider extracts logical Colour/Draw
+  actions and private Draw `targetRegion` values in complete question-image
+  coordinates, but never generates Colour masks. Teachers upload three PNG
+  palette objects inline beside Draw answers and create Colour masks with edge
+  snapping. One final row edits the colour/object distractors. Old unmatched
+  actions remain protected, and valid output is merged without an apply click.
+
+Regression ledger for this pass: `npm run lint` passes,
+`npm run test:listening` passes 70/70, `npm run build` passes and
+`git diff --check` passes. Existing Vite Firebase mixed-import and large-chunk
+warnings remain.
+
+## 28. Stali Smart Import model registry - 2026-08-08
+
+- `src/server/listening-smart-import/staliProvider.ts` is the backend-only
+  OpenAI-compatible Stali adapter. It calls `POST /v1/chat/completions` with a
+  bearer key, role-labelled base64 `image_url` content and the Part-specific
+  JSON Schema embedded in the text instruction. Provider output still passes
+  through the existing JSON retry, normalization and validation boundary before
+  any candidate or direct import can be produced.
+- The capability registry exposes stable selection IDs for
+  `deepseek-v4-pro`, `gpt-5.6-luna`, `gpt-5.6-sol` and `gpt-5.6-terra`.
+  Luna, Sol and Terra are selectable when `STALI_API_KEY` is configured. DeepSeek V4 Pro remains
+  visible but disabled because the current Stali documentation does not mark it
+  as Vision-capable; Smart Import never offers a text-only model for image
+  analysis.
+- Explicit Stali selection never silently falls back to Gemini or OpenAI.
+  Existing `auto` behavior remains Gemini then OpenAI, so adding Stali does not
+  change prior billing/fallback behavior. Client-supplied provider/model names
+  must match the server allowlist; the model name is never accepted directly
+  from the analyze request.
+- Backend configuration is `STALI_API_KEY` plus
+  `STALI_BASE_URL=https://api.stali.vn/v1`. No Stali key is returned by
+  capabilities, sent to the browser or logged. The adapter enforces HTTPS and
+  rejects a serialized request larger than Stali's documented 8 MB limit.
+- `ListeningSmartImportProviderDefinition` now carries optional
+  `visionEnabled` and `reason` metadata. The existing capability-driven select
+  uses these fields to explain a missing key or an unsupported Vision model;
+  there is no hard-coded Stali option in the component.
+- Focused regression coverage lives in
+  `src/server/listening-smart-import/staliProvider.test.ts` and is included in
+  `npm run test:listening`. It locks model availability, role-labelled images,
+  schema transmission, endpoint/auth/model mapping, response extraction and
+  refusal of the non-Vision DeepSeek model without making a network request.
+- Part 1 has a narrowly scoped `stali:gpt-5.6-sol` geometry path. Content/name/
+  answer mapping remains on the existing passes, while the independent example
+  check no longer asks Sol to localize five scored action regions. The final
+  geometry pass receives `question`, `answer_key`, and `position_key` in that
+  fixed order and uses a short direct-point schema: verified target number/name,
+  normalized `questionTargetPoint`, confidence, unresolved numbers and warnings.
+  Sol coordinates are taken from this three-image pass instead of being
+  overwritten by the earlier question-only localization. Other providers retain
+  the existing line-endpoint/scene cross-validation path.
+- Validation for this addition: `npm run lint` passes,
+  `npm run test:listening` passes 75/75, `npm run build` passes and
+  `git diff --check` passes. The existing Vite Firebase mixed-import and
+  large-chunk warnings remain non-blocking.
+- Validation for the Part 1 Sol direct-coordinate adjustment on 2026-08-09:
+  `npm run lint` passes, `npm run test:listening` passes 76/76, and
+  `npm run build` passes with only the existing Firebase mixed-import and
+  large-chunk warnings.

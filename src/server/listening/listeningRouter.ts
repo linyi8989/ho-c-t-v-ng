@@ -15,7 +15,10 @@ import {
   resolveListeningModuleId,
 } from '../../features/listening-library/registry.js';
 import { gradeListeningAttempt, LISTENING_GRADING_VERSION } from './listeningGrader.js';
-import { buildListeningActivityAnswerDetails } from './listeningActivity.js';
+import {
+  buildListeningActivityAnswerDetails,
+  normalizeListeningActivityAnswerDetails,
+} from './listeningActivity.js';
 import {
   sanitizeListeningAnswers,
   sanitizeListeningContentForStudent,
@@ -28,6 +31,8 @@ import {
 } from '../listening-smart-import/service.js';
 import {
   getListeningSmartImportRoleDefinitions,
+  type ListeningSmartImportProviderDefinition,
+  type ListeningSmartImportProviderPreference,
   type ListeningSmartImportSource,
 } from '../../features/listening-editor/smart-import/types.js';
 
@@ -58,11 +63,16 @@ export interface ListeningRouterDependencies {
     enabled: boolean;
     reason?: string;
     analyzeVision?: SmartImportVisionAnalyzer;
+    providers?: ListeningSmartImportProviderDefinition[];
   };
 }
 
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+const SMART_IMPORT_TIMEOUT_MS = Math.min(
+  180_000,
+  Math.max(15_000, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 180_000),
+);
 const MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
@@ -243,6 +253,9 @@ async function resolveContentAssets(db: any, content: ListeningSetContent, user:
     if (!asset || asset.kind !== reference.kind) {
       throw apiError(400, `Media "${reference.id}" không đúng loại ${reference.kind}.`);
     }
+    if (reference.role === 'part5-token' && asset.mimeType !== 'image/png') {
+      throw apiError(400, `Icon Draw "${asset.name || asset.id}" phải là file PNG.`);
+    }
   }
 
   const url = (id?: string) => id ? assets.get(id)?.url : undefined;
@@ -399,9 +412,10 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       smartImport: {
         enabled: smartImport?.enabled !== false,
         visionEnabled: Boolean(smartImport?.analyzeVision),
+        providers: smartImport?.providers || [],
         reason: smartImport?.reason || (smartImport?.analyzeVision
           ? undefined
-          : 'Chưa cấu hình GEMINI_API_KEY hoặc OPENAI_API_KEY; vẫn có thể nhập văn bản cho Part 2/3.'),
+          : 'Chưa cấu hình nhà cung cấp AI thị giác; vẫn có thể nhập văn bản cho Part 2/3.'),
       },
       upload: {
         enabled: true,
@@ -570,6 +584,15 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         });
       }
       const pastedText = text(req.body?.pastedText, 12000);
+      const preferredProvider = text(req.body?.preferredProvider || 'auto', 60) as ListeningSmartImportProviderPreference;
+      const providerIds = new Set((smartImport?.providers || []).map(provider => provider.id));
+      if (preferredProvider !== 'auto' && !providerIds.has(preferredProvider)) {
+        throw apiError(400, `Nhà cung cấp AI "${preferredProvider}" không tồn tại.`);
+      }
+      const selectedProvider = (smartImport?.providers || []).find(provider => provider.id === preferredProvider);
+      if (selectedProvider && !selectedProvider.enabled) {
+        throw apiError(503, selectedProvider.reason || `${selectedProvider.label} chưa được cấu hình trên máy chủ.`);
+      }
       const roleDefinitions = getListeningSmartImportRoleDefinitions(part as 1 | 2 | 3 | 4 | 5);
       const allowedRoles = new Set(roleDefinitions.map(definition => definition.role));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
@@ -622,6 +645,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         sources,
         pastedText,
         images,
+        preferredProvider,
         analyzeVision: smartImport?.analyzeVision,
         signal: importAbortController.signal,
       });
@@ -629,8 +653,12 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timeoutId = setTimeout(() => {
           importAbortController.abort();
-          reject(apiError(504, 'Smart Import quá thời gian xử lý 45 giây.'));
-        }, 45_000);
+          reject(apiError(
+            504,
+            `Smart Import quá thời gian xử lý ${Math.ceil(SMART_IMPORT_TIMEOUT_MS / 1000)} giây. Draft chưa được thay đổi.`,
+            { code: 'LISTENING_SMART_IMPORT_TIMEOUT' },
+          ));
+        }, SMART_IMPORT_TIMEOUT_MS);
       });
       const candidate = await Promise.race([importPromise, timeoutPromise]).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -640,7 +668,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         req.user.name,
         req.user.email,
         'ANALYZE_LISTENING_PART',
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; provider ${candidate.provider}.`
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
       res.json(candidate);
     } catch (error) {
@@ -1111,6 +1139,44 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       await batch.commit();
       const { runSecretHash: _secret, ...safeAttempt } = attempt;
       res.status(201).json(safeAttempt);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get('/sets/:id/attempts/:attemptId/review', authenticateOptionalUser, async (req, res) => {
+    try {
+      const actor = await resolveActor(req, resolveGuestProfile);
+      const attemptSnapshot = await db.collection('listening_attempts').doc(req.params.attemptId).get();
+      if (!attemptSnapshot.exists) throw apiError(404, 'Không tìm thấy lượt làm bài.');
+      const attempt = { id: attemptSnapshot.id, ...attemptSnapshot.data() } as any;
+      if (attempt.setId !== req.params.id || attempt.ownerKey !== actor.ownerKey) {
+        throw apiError(404, 'Không tìm thấy lượt làm bài.');
+      }
+      if (actor.guestId) {
+        const runSecret = text(req.headers['x-listening-run-secret'], 300);
+        if (!runSecret || !timingSafeEqual(sha256(runSecret), String(attempt.runSecretHash || ''))) {
+          throw apiError(404, 'Không tìm thấy lượt làm bài.');
+        }
+      }
+      if (attempt.status !== 'completed') throw apiError(409, 'Lượt làm bài chưa hoàn tất.');
+
+      const detailSnapshot = await db.collection('listening_attempt_details').doc(attempt.id).get();
+      if (!detailSnapshot.exists) throw apiError(404, 'Chi tiết đáp án không còn khả dụng.');
+      const detail = detailSnapshot.data() as any;
+      if (detail?.reviewPolicy?.showReviewAfterSubmit !== true) {
+        throw apiError(403, 'Bộ đề này không cho xem đáp án sau khi nộp.');
+      }
+
+      res.json({
+        attemptId: attempt.id,
+        score: Number(attempt.score || 0),
+        correctCount: Number(attempt.correctCount || 0),
+        incorrectCount: Number(attempt.incorrectCount || 0),
+        unansweredCount: Number(attempt.unansweredCount || 0),
+        totalCount: Number(attempt.totalCount || 25),
+        answerDetails: normalizeListeningActivityAnswerDetails(detail),
+      });
     } catch (error) {
       sendError(res, error);
     }

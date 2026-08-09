@@ -43,11 +43,11 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
     if (candidate.data.part !== 2) throw new Error('Dữ liệu AI không đúng Part 2.');
     onChange(importPart2Analysis(part, candidate.data));
     const questionAssetId = smartImportSourceAssetId(candidate, 'question');
-    if (candidate.data.illustrationCrop && questionAssetId) {
+    if (questionAssetId) {
       setPendingCrop({
         candidateId: candidate.id,
         sourceAssetId: questionAssetId,
-        crop: candidate.data.illustrationCrop,
+        crop: candidate.data.illustrationCrop || { x: 0, y: 0, width: 1, height: 1 },
       });
     } else {
       setPendingCrop(undefined);
@@ -96,7 +96,7 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
         <section className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
           <div>
             <p className="text-sm font-black text-slate-900">Crop tranh minh họa trên ảnh nguồn</p>
-            <p className="mt-1 text-xs font-semibold text-slate-600">AI đã đề xuất vùng ban đầu. Hãy chỉnh trực tiếp bằng chuột rồi tạo ảnh crop.</p>
+            <p className="mt-1 text-xs font-semibold text-slate-600">Hãy chọn vùng hiển thị cho học sinh. Crop AI chỉ là gợi ý; nếu AI không nhận được vùng, editor bắt đầu từ toàn ảnh.</p>
           </div>
           <VisualCropEditor
             imageUrl={assetUrl(pendingCrop.sourceAssetId)}

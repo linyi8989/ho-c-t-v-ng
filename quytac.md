@@ -136,7 +136,7 @@ Production baseline cần giữ nếu chưa có kế hoạch nâng cấp riêng:
 - AI output luôn là dữ liệu không đáng tin cậy: phải parse, normalize, runtime schema check và validation.
 - Response schema của provider không thay thế validation nghiệp vụ.
 - AI không được tự sinh ID database; code sinh ID sau normalize.
-- AI không được tự publish. Với Mover Part 1/2, sau khi `basePartHash` còn khớp, dữ liệu trích xuất được phép điền thẳng vào working draft theo quyết định nghiệp vụ ngày 2026-08-02; form soạn chính là bề mặt review và vẫn phải cho sửa/undo trước khi publish. Part 3-5 tiếp tục dùng candidate riêng cho đến khi có quyết định khác.
+- AI không được tự publish. Với Mover Parts 1-5, sau khi provider output đã parse/normalize/validate và `basePartHash` còn khớp, dữ liệu trích xuất được điền thẳng vào đúng working draft Part theo quyết định nghiệp vụ ngày 2026-08-09; form soạn chính là bề mặt review và vẫn phải cho sửa/undo trước khi publish. Part 4 tự chạy bước dò/crop/upload derived assets trong cùng lượt phân tích.
 - AI phải trả cảnh báo/unknown khi thiếu dữ kiện; không đoán đáp án để làm dữ liệu hoàn chỉnh giả tạo.
 - Prompt và extractor phải riêng theo module + Part khi cấu trúc khác nhau.
 - Whole-exam import phải điều phối các Part độc lập; một Part lỗi không hủy kết quả Part khác.
@@ -163,14 +163,25 @@ Production baseline cần giữ nếu chưa có kế hoạch nâng cấp riêng:
 - Chính sách review phải dùng cùng contract với Learning History. Nếu cho học
   sinh xem đáp án đúng sau khi hoàn thành, phải dùng `showReviewAfterSubmit`,
   kiểm tra đúng owner và giữ API công khai ở dạng summary không có answer key.
+- Màn tổng kết Listening chỉ được tải đáp án qua endpoint review hậu nộp đã kiểm
+  tra owner, run secret đối với guest và `showReviewAfterSubmit`; response playable/prepare và API kết quả
+  công khai vẫn không có answer key. `Làm lại` phải tạo `clientRunId`/ticket mới,
+  không reset, ghi đè hoặc tái sử dụng attempt vừa hoàn tất.
 - Student snapshot phải loại bỏ answer key trước khi gửi xuống client học sinh.
 - Grader phải ở backend và chấm trên immutable published version.
 - Legacy record thiếu `moduleId` được đọc như Mover; không tự rewrite hàng loạt.
 - Smart Editor phải là lớp tạo working draft, không thay đổi attempt/player/history ngoài phạm vi.
 - Listening Smart Editor tuyệt đối không dùng audio để trích xuất hoặc suy luận đáp án. Audio chỉ được upload, gắn vào Part và phát cho học sinh; request gửi AI không được chứa audio/audio transcript để tìm answer key.
-- Dữ liệu AI trích từ ảnh/text luôn phải điền vào trường soạn có thể chỉnh sửa. Part 1/2 nhập trực tiếp vào working draft sau kiểm tra hash và giáo viên/admin xem lại ngay tại form chính trước khi publish; Part 3-5 vẫn cần bước xác nhận candidate riêng.
-- Phân tích lại Part N chỉ được thay Part N; không được thay các Part còn lại. Part 1/2 có thể thay ngay working draft theo luồng direct import đã duyệt, nhưng tuyệt đối không tự publish.
+- Dữ liệu AI trích từ ảnh/text luôn phải điền vào trường soạn có thể chỉnh sửa. Parts 1-5 nhập trực tiếp vào working draft sau kiểm tra hash; không có nút ghép/apply candidate trung gian. Giáo viên/admin xem lại và sửa ngay tại form chính trước khi publish.
+- Phân tích lại Part N chỉ được thay Part N; không được thay các Part còn lại. Direct import tuyệt đối không đồng nghĩa với tự publish.
 - Part 5 mới chỉ cho giáo viên chọn màu từ catalog 20 màu tiếng Anh đã duyệt; không dùng color picker, tên màu hoặc mã HEX tự do. Dữ liệu legacy ngoài catalog vẫn phải đọc/chơi/chấm được và không bị tự rewrite khi mở editor.
+- Part 5 `scene-colour-draw` v2 dùng đúng 6 màu public (có màu nhiễu) và 3 icon PNG public (có vật nhiễu). GPT-5.6 Sol đọc đủ `question` + `answer_key` + `position_key`, điền nội dung và chuyển private Draw drop-zone về tọa độ normalized trên ảnh đề. Form chính trình bày kết quả theo từng câu/action, đặt upload icon và nút chọn vùng ngay tại đáp án Draw, đồng thời có một dòng đáp án nhiễu cho màu/vật; không tách palette thành form kỹ thuật riêng. Colour dùng lasso tự do, gộp các khoang kín, bỏ đường chia nội bộ và cho chọn bám viền trong/ngoài; Draw chỉ dùng hình chữ nhật/hình vuông. Draw được chấm đúng khi đúng icon và điểm neo thả nằm ở bất kỳ vị trí nào bên trong vùng. `targetRegion` tuyệt đối không gửi student.
+- Part 3 phải xác minh example bằng một lượt question-only: lần theo đúng một printed line từ answer giữa ảnh tới picture và trả `answerLabel + pictureSide + pictureRow + confidence`; không yêu cầu endpoint/line geometry vì runtime chỉ dùng regions và edge offsets. Lượt answer-key-only chỉ đọc lưới ba hàng hai cột (`left 1..3`, `right 1..3`) và không được chọn/thay example. Nếu key hoán đổi đúng một cặp với example thì ưu tiên printed line và hòa giải một-một kèm warning; trường hợp không chắc phải giữ mapping draft cho mục unresolved, không đoán.
+- Player Part 1 phải tách khay thẻ tên cố định khỏi vùng ảnh cuộn; chỉ scene ảnh được cuộn dọc. Target hitbox trong suốt ở trạng thái nghỉ, chỉ hiện outline trung tính cho mọi vùng eligible khi học sinh đang chọn/kéo và chỉ hiện pill chữ sau khi đặt; không phủ màu lên nhân vật và không dùng đáp án đúng để tạo trạng thái UI.
+- Player Part 3 dùng ảnh đề nguyên bản, không render sample line/node/badge/vùng phủ vì example đã in sẵn. Answer/picture region chỉ là hitbox trong suốt; line học sinh nằm trên ảnh, stroke mảnh và có hit-path vô hình để xóa. Phải hỗ trợ tap–tap lẫn Pointer Events giữ–kéo–thả với preview đi theo con trỏ; xóa/nối lại trước khi nộp vẫn giữ bất biến một answer–một picture và không tham khảo answer key.
+- Hitbox ảnh của Player Part 1 và Part 3 phải vô hiệu hóa cả background, `backdrop-filter` và `filter` từ CSS button toàn cục; đặt nền trong suốt nhưng còn blur là không đạt. Với Part 3, mọi picture chưa khóa/chưa bị chiếm đều có thể nhận thao tác; phía của picture đích quyết định cạnh answer dùng để nối. Nếu bắt đầu ở cạnh phải nhưng kéo/chạm sang picture trái thì preview và connection phải tự chuyển sang cạnh trái, và ngược lại, không dùng answer key để quyết định.
+- Board Player Part 3 có `naturalWidth >= 400px` phải giữ chiều rộng tự nhiên và chỉ được thu nhỏ theo viewport. Chỉ board dưới 400px mới được phóng, theo `min(naturalWidth × 1.5, 480px)`; tuyệt đối không kéo mọi ảnh lên đầy container. Geometry/SVG/hitbox tiếp tục dùng cùng kích thước rendered board để không lệch tọa độ.
+- Player Part 5 `scene-colour-draw` không hiển thị bộ chọn câu/action. Sáu màu và ba icon dùng chung một khay cố định; chỉ scene ảnh được cuộn. Đáp án đã thả biến khỏi khay và quay lại khi gỡ. Public Colour mask ở trạng thái trống phải hoàn toàn trong suốt; chỉ câu trả lời màu đã thả mới phủ bán trong suốt đúng polygon. Draw không được render, highlight hoặc gửi private `targetRegion`; backend tự đối chiếu object+màu hoặc icon+tọa độ với answer mapping riêng tư và phải giữ tương thích submission action-keyed cũ.
 - Không dùng một prompt/parser chung cho năm Part.
 - Không ép cùng số Part của Starter/Mover/Flyer/KET dùng chung handler.
 - Nếu thay đổi schema Part hoặc grader, phải có schema version, compatibility adapter và kế hoạch migration/rollout rõ ràng.

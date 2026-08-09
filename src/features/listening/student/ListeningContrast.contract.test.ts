@@ -31,6 +31,11 @@ const requiredPlayerHooks = [
   'listening-start-btn',
   'listening-result-screen',
   'listening-result-home-btn',
+  'listening-result-review-btn',
+  'listening-result-retry-btn',
+  'listening-review-screen',
+  'listening-review-back-btn',
+  'listening-review-retry-btn',
   'listening-exam-root',
   'listening-fullscreen-btn',
   'listening-prev-part-btn',
@@ -49,6 +54,10 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
     '#listening-start-screen #listening-prestart-back-btn',
     '#listening-start-screen #listening-start-btn',
     '#listening-result-screen #listening-result-home-btn',
+    '#listening-result-screen #listening-result-review-btn',
+    '#listening-result-screen #listening-result-retry-btn',
+    '#listening-review-screen #listening-review-back-btn',
+    '#listening-review-screen #listening-review-retry-btn',
     '#listening-exam-root #listening-fullscreen-btn',
     '#listening-exam-root button.listening-part1-choice',
     '#listening-exam-root .listening-part1-target-answer',
@@ -65,11 +74,34 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
   assert.ok(learningAreaSource.includes("data-active={currentPart === index ? 'true' : 'false'}"));
   assert.ok(partViewsSource.includes('listening-part1-choice'));
   assert.ok(partViewsSource.includes("data-state={selectedChoice === choice.id ? 'selected' : 'available'}"));
+  assert.match(learningAreaSource, /listeningApi\.getAttemptReview\(setId, result\.id/);
+  assert.match(learningAreaSource, /onClick=\{\(\) => void start\(true\)\}/);
+  assert.match(learningAreaSource, /if \(replaceCompletedAttempt\) setResult\(null\)/);
 
   const globalOverrideIndex = globalCss.indexOf('button:not(:disabled) {');
   const playerContractIndex = globalCss.indexOf('/* Listening player contrast contract');
   assert.ok(globalOverrideIndex >= 0);
   assert.ok(playerContractIndex > globalOverrideIndex, 'Player contract must come after the legacy global override');
+});
+
+test('Part 1 keeps its answer dock outside the image scroller and uses transparent target hitboxes', () => {
+  const start = partViewsSource.indexOf('export function ListeningPart1View');
+  const end = partViewsSource.indexOf('function renderPrompt');
+  const part1Source = partViewsSource.slice(start, end);
+  const dockIndex = part1Source.indexOf('listening-part1-answer-dock');
+  const scrollerIndex = part1Source.indexOf('listening-part1-image-scroller');
+
+  assert.ok(dockIndex >= 0 && scrollerIndex > dockIndex, 'Answer dock must render before and outside the image scroller');
+  assert.match(part1Source, /listening-part1-layout flex h-full min-h-0 flex-col/);
+  assert.match(part1Source, /listening-part1-answer-dock shrink-0/);
+  assert.match(part1Source, /listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto/);
+  assert.match(learningAreaSource, /currentPart === 0[\s\S]*overflow-hidden[\s\S]*overflow-y-auto/);
+  assert.match(part1Source, /data-state=\{answer \? 'filled' : activeChoice \? 'eligible' : 'idle'\}/);
+  assert.doesNotMatch(part1Source, /bg-emerald-100|bg-rose-100/, 'Target regions must not tint the source image');
+  assert.doesNotMatch(part1Source, /correctConnections|correctAnswer/, 'Part 1 target state must not consult the answer key');
+  assert.match(globalCss, /button\.listening-part1-target:not\(:disabled\)[\s\S]*background: transparent !important/);
+  assert.match(globalCss, /button\.listening-part1-target:not\(:disabled\)[\s\S]*backdrop-filter: none !important/);
+  assert.match(globalCss, /button\.listening-part1-target\[data-state="eligible"\]/);
 });
 
 test('Part 5 palette is visual-only while retaining an accessible colour name', () => {
@@ -93,6 +125,65 @@ test('Part 5 supports both click-to-colour and drag-and-drop play modes', () => 
   assert.match(part5Source, />\{index \+ 1\}<\/span>/);
   assert.doesNotMatch(part5Source, />\{target\.label\}<\/span>/, 'Stored region labels must not be rendered in the student target marker');
   assert.match(part5Source, /Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng/);
+});
+
+test('Part 5 scene mode uses one fixed consumable palette and transparent image hitboxes', () => {
+  const start = partViewsSource.indexOf('function ListeningPart5SceneView');
+  const end = partViewsSource.indexOf('export function ListeningPart5View');
+  const part5SceneSource = partViewsSource.slice(start, end);
+  const dockIndex = part5SceneSource.indexOf('listening-part5-answer-dock');
+  const scrollerIndex = part5SceneSource.indexOf('listening-part5-image-scroller');
+
+  assert.ok(dockIndex >= 0 && scrollerIndex > dockIndex, 'Part 5 answer dock must stay outside the image scroller');
+  assert.match(part5SceneSource, /listening-part5-layout flex h-full min-h-0 flex-col/);
+  assert.match(part5SceneSource, /listening-part5-answer-dock shrink-0/);
+  assert.match(part5SceneSource, /listening-part5-image-scroller min-h-0 flex-1 overflow-y-auto/);
+  assert.match(learningAreaSource, /currentPart === 4[\s\S]*displayMode === 'scene-colour-draw'/);
+  assert.doesNotMatch(part5SceneSource, /activeActionId|setActiveActionId|part\.questions\.map/);
+  assert.match(part5SceneSource, /availableColours = visibleColours\.filter\(colour => !usedColourIds\.has\(colour\.id\)\)/);
+  assert.match(part5SceneSource, /availablePaletteItems = part\.objectPalette\.filter\(item => !usedPaletteItemIds\.has\(item\.id\)\)/);
+  assert.match(part5SceneSource, /setData\('text\/listening-colour', colour\.id\)/);
+  assert.match(part5SceneSource, /setData\('text\/listening-palette', item\.id\)/);
+  assert.match(part5SceneSource, /listening-part5-object-hitbox absolute z-20 border-0 bg-transparent/);
+  assert.match(part5SceneSource, /opacity: 0\.48, mixBlendMode: 'multiply'/);
+  assert.doesNotMatch(part5SceneSource, /bg-blue-50|bg-blue-200\/70/, 'Idle interaction geometry must not wash out the source image');
+  assert.match(globalCss, /button\.listening-part5-object-hitbox:not\(:disabled\)[\s\S]*background: transparent !important/);
+});
+
+test('Part 3 supports clean click/drag connections, removal, and never consults the private answer key', () => {
+  const start = partViewsSource.indexOf('function ListeningPart3ConnectView');
+  const end = partViewsSource.indexOf('export function ListeningPart3View');
+  const part3Source = partViewsSource.slice(start, end);
+  assert.match(partViewsSource, /const part3ConnectionPath/);
+  assert.match(part3Source, /<React\.Fragment key=\{line\.id\}>/);
+  assert.match(part3Source, /strokeLinecap="round"/);
+  assert.match(part3Source, /strokeWidth="3"/);
+  assert.match(part3Source, /strokeWidth="16" pointerEvents="stroke"/);
+  assert.match(part3Source, /strokeWidth="2\.5" strokeDasharray="8 6"/);
+  assert.match(part3Source, /<svg className="pointer-events-none absolute inset-0 z-30/);
+  assert.match(part3Source, /onPointerDown=\{event => startPointerConnection\(event, answer\)\}/);
+  assert.match(part3Source, /onPointerMove=\{movePointerConnection\}/);
+  assert.match(part3Source, /onPointerUp=\{finishPointerConnection\}/);
+  assert.match(part3Source, /onClick=\{\(\) => assign\(picture\.id, selected \? \{ \.\.\.selected, side: picture\.side \} : selected\)\}/);
+  assert.match(part3Source, /onClick=\{\(\) => removeConnection\(line\.id\)\}/);
+  assert.match(part3Source, /removeSingleUseAnswer\(answers\.part3, answerId\)/);
+  assert.match(part3Source, /listening-part3-answer-hitbox/);
+  assert.match(part3Source, /listening-part3-picture-hitbox/);
+  assert.doesNotMatch(part3Source, /renderOverlayLine/, 'The example line is already printed on the source image');
+  assert.doesNotMatch(part3Source, /h-4 w-4|h-5 w-5/, 'Visible endpoint dots must not be rendered');
+  assert.doesNotMatch(part3Source, /bg-slate-100\/20/, 'Part 3 overlays must not wash out the source image');
+  assert.doesNotMatch(part3Source, /correctConnections/);
+  assert.match(part3Source, /const sideForPointer/);
+  assert.match(part3Source, /if \(hoveredPicture\) return hoveredPicture\.side/);
+  assert.match(part3Source, /assign\(picture\.id, \{ \.\.\.drag\.source, side: picture\.side \}\)/);
+  assert.doesNotMatch(part3Source, /picture\.side !== source\.side|selected\.side === picture\.side/);
+  assert.match(part3Source, /boardNaturalWidth && boardNaturalWidth < 400/);
+  assert.match(part3Source, /Math\.min\(boardNaturalWidth \* 1\.5, 480\)/);
+  assert.match(part3Source, /listening-part3-board relative isolate mx-auto w-fit max-w-full/);
+  assert.match(part3Source, /width: boardDisplayWidth \? `\$\{boardDisplayWidth\}px` : undefined/);
+  assert.match(part3Source, /!assignedPictureIds\.has\(picture\.id\)/);
+  assert.match(globalCss, /button\.listening-part3-answer-hitbox:not\(:disabled\)[\s\S]*background: transparent !important/);
+  assert.match(globalCss, /button\.listening-part3-answer-hitbox:not\(:disabled\)[\s\S]*backdrop-filter: none !important/);
 });
 
 test('Listening control colour pairs meet the WCAG AA text contrast threshold', () => {

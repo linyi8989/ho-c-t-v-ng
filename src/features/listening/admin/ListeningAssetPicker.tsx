@@ -11,6 +11,8 @@ interface ListeningAssetPickerProps {
   aiCapability?: { enabled: boolean; reason?: string };
   onChange: (assetId: string) => void;
   onUpload: (file: File, kind: ListeningAssetKind) => Promise<ListeningAsset>;
+  allowedMimeTypes?: string[];
+  compact?: boolean;
 }
 
 export function ListeningAssetPicker({
@@ -21,14 +23,22 @@ export function ListeningAssetPicker({
   aiCapability,
   onChange,
   onUpload,
+  allowedMimeTypes,
+  compact = false,
 }: ListeningAssetPickerProps) {
   const [uploading, setUploading] = useState(false);
   const selected = assets.find(asset => asset.id === value);
-  const choices = assets.filter(asset => asset.kind === kind && asset.status === 'active');
+  const choices = assets.filter(asset => asset.kind === kind
+    && asset.status === 'active'
+    && (!allowedMimeTypes?.length || allowedMimeTypes.includes(asset.mimeType)));
 
   const handleUpload = async (files: File[]) => {
     const file = files[0];
     if (!file) return;
+    if (allowedMimeTypes?.length && !allowedMimeTypes.includes(file.type)) {
+      window.alert(`File phải có định dạng: ${allowedMimeTypes.join(', ')}.`);
+      return;
+    }
     setUploading(true);
     try {
       const asset = await onUpload(file, kind);
@@ -37,6 +47,33 @@ export function ListeningAssetPicker({
       setUploading(false);
     }
   };
+
+  if (compact) {
+    return (
+      <div className="flex min-w-56 flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-2" data-listening-asset-picker-compact>
+        <label className="min-w-32 flex-1 space-y-1">
+          <span className="block text-[10px] font-black text-slate-600">{label}</span>
+          <select
+            value={value || ''}
+            onChange={event => onChange(event.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-semibold text-slate-700"
+          >
+            <option value="">Chọn từ thư viện...</option>
+            {choices.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
+          </select>
+        </label>
+        {selected && kind === 'image' && <img src={selected.url} alt="" className="h-9 w-9 rounded-lg border border-slate-200 object-contain" />}
+        <FileDropPasteInput
+          compact
+          accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
+          disabled={uploading}
+          pasteImages={false}
+          uploadLabel={kind === 'image' ? 'Tải ảnh' : 'Tải audio'}
+          onFiles={handleUpload}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
@@ -67,7 +104,7 @@ export function ListeningAssetPicker({
         )}
       </div>
       <FileDropPasteInput
-        accept={kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4'}
+        accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
         disabled={uploading}
         pasteImages={kind === 'image'}
         uploadLabel={kind === 'image' ? 'Chọn ảnh' : 'Chọn audio'}

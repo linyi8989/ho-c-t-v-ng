@@ -8,6 +8,7 @@ interface FileDropPasteInputProps {
   maxFiles?: number;
   pasteImages?: boolean;
   uploadLabel?: string;
+  compact?: boolean;
   onFiles: (files: File[]) => Promise<void> | void;
 }
 
@@ -44,6 +45,7 @@ export default function FileDropPasteInput({
   maxFiles = multiple ? 20 : 1,
   pasteImages = false,
   uploadLabel = 'Tải lên',
+  compact = false,
   onFiles,
 }: FileDropPasteInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,7 +155,7 @@ export default function FileDropPasteInput({
         }
       }}
       aria-label={pasteImages ? 'Tải, kéo thả hoặc dán ảnh từ clipboard' : 'Tải hoặc kéo thả tệp'}
-      className={`rounded-xl border-2 border-dashed p-2 outline-none transition-colors focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-200 ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}
+      className={`${compact ? 'inline-flex rounded-xl border p-0' : 'rounded-xl border-2 border-dashed p-2'} outline-none transition-colors focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-200 ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}
     >
       <input
         ref={inputRef}
@@ -164,10 +166,10 @@ export default function FileDropPasteInput({
         onChange={handleInput}
         className="hidden"
       />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[10px] font-bold text-slate-500">
+      <div className={`flex flex-wrap items-center justify-between ${compact ? '' : 'gap-2'}`}>
+        {!compact && <p className="text-[10px] font-bold text-slate-500">
           {dragActive ? 'Thả tệp vào đây' : pasteImages ? 'Kéo thả ảnh hoặc dán trực tiếp bằng Ctrl+V' : 'Kéo thả tệp vào đây'}
-        </p>
+        </p>}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -189,7 +191,7 @@ export default function FileDropPasteInput({
           )}
         </div>
       </div>
-      {message && <p role="status" className="mt-1.5 text-[10px] font-bold text-amber-700">{message}</p>}
+      {message && <p role="status" className={`${compact ? 'ml-2 self-center' : 'mt-1.5'} text-[10px] font-bold text-amber-700`}>{message}</p>}
     </div>
   );
 }

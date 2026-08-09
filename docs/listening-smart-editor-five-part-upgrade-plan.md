@@ -10,7 +10,7 @@ các bất biến trong tài liệu này, `quytac.md` và `CODEMAP.md`.
 | --- | --- | --- |
 | Part 1 | Đã chốt | Ba ảnh có vai trò cố định; bỏ hoàn toàn đáp án random |
 | Part 2 | Đã chốt | Hai ảnh có vai trò cố định; map question number sang answer number |
-| Part 3 | Đã chốt | Hai ảnh; mode nối trực tiếp trên ảnh; staged candidate |
+| Part 3 | Đã chốt | Hai ảnh; mode nối trực tiếp trên ảnh; direct import vào form chính |
 | Part 4 | Đã chốt | Một ảnh đề + một answer key; 3 crop example + 15 crop scored |
 | Part 5 | Đã chốt | Ba ảnh; mode scene colour/draw; public interaction registry và private answer mapping |
 
@@ -127,6 +127,31 @@ y = clamp(center.y - height / 2, 0, 1 - height)
 Sau đó chạy region/overlap validation hiện có. Giáo viên vẫn kéo được target và
 không resize được.
 
+Provider implementation dùng hai lượt độc lập để tránh một scene rectangle bị
+thiếu làm mất cả nội dung lẫn năm vị trí:
+
+1. Lượt `content` nhận `question + answer_key`, đọc toàn bộ tên, example,
+   năm mapping `targetNumber -> choiceLabel`, đồng thời định vị primary subject
+   từ mô tả đáp án ngay trên ảnh đề sạch. Example chỉ hợp lệ khi có `labelPoint`
+   ngoài `questionScene` và `targetPoint` trong scene, chứng minh đường mẫu đã in
+   sẵn trên ảnh đề; example bị loại khỏi sáu draggable choices.
+2. Lượt `geometry` nhận cả ba ảnh role-labelled để so sánh trực quan, nhưng chỉ
+   `position_key` được dùng làm nguồn completed-line geometry. Mỗi target trả hai
+   đầu đường trên `position_key`; backend không suy luận role theo thứ tự ảnh.
+
+Backend chọn duy nhất đầu đường nằm trong `positionScene` rồi transform sang
+`questionScene` để cross-check localization từ ảnh đề. Không
+dùng khái niệm “đầu dưới”: tên có thể nằm ở trên hoặc dưới scene; đầu đúng luôn
+là đầu phía nhân vật/hình, không phải đầu cạnh tên. Khi cả tọa độ trực tiếp và
+tọa độ transform đều có, hai kết quả phải nằm trong ngưỡng sai lệch cho phép.
+Nếu trace mâu thuẫn nhưng localization độc lập có đủ mô tả, subject region/point
+hợp lệ và confidence cao thì giữ localization trên ảnh đề kèm warning bắt buộc
+review; không dùng endpoint trace sai. Thiếu các bằng chứng này thì target vẫn
+unresolved. Lượt geometry lỗi không được xóa kết quả tên và mapping của lượt
+content; application giữ region draft cũ cho target chưa resolve. Direct-import
+còn lọc lại example theo label trước khi merge để provider output sai không thể
+đưa example vào sáu thẻ kéo.
+
 ### 3.5. Direct-import Part 1
 
 Direct-import được phép cập nhật trong Part 1:
@@ -140,7 +165,16 @@ Direct-import được phép cập nhật trong Part 1:
 Giữ nguyên `title`, `instruction`, audio và mọi Part khác. Sau import giáo viên
 vẫn sửa tên, dropdown đáp án, kéo target, undo và chạy AI lại.
 
-### 3.6. Regression test bắt buộc Part 1
+### 3.6. Player Part 1
+
+Khay sáu thẻ tên là vùng cố định, không nằm trong scroll container của ảnh đề.
+Trên màn hình hẹp khay giữ một hàng và cuộn ngang; chỉ scene ảnh được cuộn dọc.
+Target region vẫn là hitbox đủ lớn nhưng hoàn toàn trong suốt ở trạng thái nghỉ.
+Khi chọn/kéo một thẻ, mọi target chưa điền chỉ hiện cùng một outline trung tính,
+không dùng answer key. Sau khi đặt chỉ hiện pill tên tương phản cao; không tô mờ,
+không phủ xanh/đỏ lên nhân vật và không biểu đạt đúng/sai trước khi nộp.
+
+### 3.7. Regression test bắt buộc Part 1
 
 1. Nhận đúng ba role ảnh và đúng ba nhãn UI.
 2. Detect toàn bộ tên, tách example rồi còn đúng sáu choices.
@@ -157,6 +191,8 @@ vẫn sửa tên, dropdown đáp án, kéo target, undo và chạy AI lại.
 13. Stale hash/revision không ghi đè draft mới.
 14. Part 1 legacy vẫn mở/sửa/chơi/chấm/review được và student response không
     lộ answer key trước policy cho phép.
+15. Khay đáp án nằm ngoài image scroller; target hitbox không tint ảnh và mọi
+    trạng thái eligible chỉ dựa trên thao tác của học sinh.
 
 ## 4. Part 2 - yêu cầu đã chốt
 
@@ -410,11 +446,19 @@ và backend clamp `0..1`; không cho đưa node vào giữa hình hoặc sang c�
 Provider có thể trả normalized point hint, nhưng backend phải quy đổi/clamp về
 edge offset trước khi candidate được dùng.
 
-### 5.6. Staged candidate và editor
+### 5.6. Direct import và editor
 
-Part 3 mới tuân theo `quytac.md`: Parts 1/2 direct-import; Parts 3-5 dùng staged
-candidate. Mô tả CODEMAP cũ nói Parts 1-3 direct-import là trạng thái runtime cũ
-và phải được cập nhật sau khi implementation hoàn tất.
+Part 3 dùng form chính làm bề mặt review. Candidate đã normalize/validate được
+nhập ngay sau khi `basePartHash` còn khớp; giáo viên không cần bấm nút apply riêng.
+
+Provider chạy hai lượt tách biệt. Lượt `question` bắt buộc tìm đúng một đường
+example đã in sẵn và trả label answer cùng picture side/row/confidence; endpoint
+không thuộc contract vì player derive node từ region + edge offset. Lượt
+`answer_key` chỉ đọc ma trận ba hàng x
+hai cột: cột trái map `left:1..3`, cột phải map `right:1..3`; nó không có quyền
+chọn lại example. Backend ưu tiên printed-line example; một hoán đổi một-một rõ
+ràng được hòa giải kèm warning, còn mapping không chắc giữ dữ liệu draft để
+review thay vì đoán hoặc chặn toàn bộ import.
 
 Flow Part 3:
 
@@ -422,44 +466,58 @@ Flow Part 3:
 hai ảnh role-based
 -> provider
 -> backend normalize/cross-validate
--> staged candidate
--> giáo viên chỉnh regions/anchor offsets/example/mappings/distractor
 -> validate đầy đủ
 -> kiểm tra basePartHash
--> apply riêng content.parts[2]
+-> merge riêng content.parts[2]
 -> working draft có thể sửa/undo
 -> autosave theo baseRevision
 -> không tự publish
 ```
 
-Editor được phép refactor/reuse normalized image/region infrastructure hiện có,
-nhưng cần một bề mặt overlay Part 3 đủ khả năng chỉnh 13 regions, constrained
-anchor offsets, example, năm mappings và distractor. Không tạo upload system hay
-editor coordinate system song song.
+Workflow chính chỉ hiển thị hai nguồn ảnh, nút phân tích, ảnh đề gốc và kết quả
+logic dễ đọc theo thứ tự hàng từ trên xuống dưới, trái rồi phải: example, năm
+mapping được chấm và đáp án nhiễu. Giáo viên có thể sửa các select mapping ngay
+trong một khối thu gọn. Các nhãn kỹ thuật, 13 regions và constrained anchor
+offsets vẫn được giữ để cứu trường hợp nhận diện sai nhưng chỉ xuất hiện trong
+`Chỉnh nâng cao`; chúng không phải form soạn bài mặc định. Form phải giữ warning
+để dữ liệu fallback không bị trình bày nhầm là kết quả AI mới. Chỉ direct-import khi candidate thỏa đủ
+7 answers, 6 picture slots, example, 5 mapping một-một và đúng một distractor.
+Không tạo upload system hay editor coordinate system song song.
 
 ### 5.7. Player và chống lộ đáp án
 
-Ảnh đề nguyên trang là background/canonical coordinate system. Node và
-connection UI nằm trong SVG/HTML overlay; không crop sáu picture riêng và không
+Ảnh đề nguyên trang là background/canonical coordinate system. Answer/picture
+regions chỉ tạo hitbox trong suốt; không render lớp nền, blur, rectangle hoặc
+chấm node lên ảnh. Connection SVG nằm trên ảnh, còn hitbox nhận pointer nằm trên
+line mà không làm thay đổi presentation; không crop sáu picture riêng và không
 bake dữ liệu vào ảnh gốc.
 
-- Desktop: pointer drag từ answer node, preview Bezier, snap nhẹ và thả vào
-  picture node eligible.
-- Mobile/keyboard: tap/Enter/Space chọn answer node rồi chọn picture; Escape hủy.
+- Desktop/mobile: Pointer Events hỗ trợ tap answer rồi tap picture, hoặc giữ và
+  kéo trực tiếp từ nửa trái/phải của answer; preview Bezier dài theo con trỏ và
+  chỉ commit khi thả bên trong picture còn trống. Phía của picture đích tự chọn
+  cạnh answer tương ứng, nên bắt đầu bên phải rồi kéo sang picture trái sẽ tự
+  chuyển origin về cạnh trái, và ngược lại.
+- Keyboard: focus answer, ArrowLeft/ArrowRight chọn phía, rồi Enter/Space trên
+  picture eligible; Escape hủy.
 - Một answer tối đa một picture; một picture tối đa một answer; nối lại answer
   giải phóng picture cũ và thay connection cũ; không tạo duplicate.
-- Example answer/picture luôn khóa. Vì line example đã in trên fixture,
-  `renderOverlayLine=false` chỉ render trạng thái node locked/example, không vẽ
-  đè thêm đường SVG. Nguồn không có line mẫu mới bật overlay line.
+- Đường nhìn thấy dùng stroke 3px; preview 2.5px. Mỗi đường có hit-path trong
+  suốt rộng hơn để click/tap xóa và làm lại trước khi nộp.
+- Board giữ kích thước tự nhiên khi rộng từ 400px trở lên và chỉ downscale khi
+  viewport hẹp. Board dưới 400px được upscale có giới hạn theo
+  `min(naturalWidth × 1.5, 480px)`; wrapper co theo rendered image để toàn bộ
+  normalized region, anchor và SVG line vẫn dùng đúng một coordinate surface.
+- Example answer/picture luôn khóa. Line example đã in trên ảnh nên player không
+  bao giờ render thêm SVG line, chấm node, badge hoặc vùng phủ cho example;
+  `exampleConnection` chỉ giữ vai trò data/lock/grading.
 
 Eligibility tuyệt đối chỉ dựa vào luật UI và student state, không dựa vào
 `correctConnections`:
 
-- kéo từ left anchor: mọi picture node bên trái chưa khóa/chưa bị answer khác
-  chiếm đều eligible;
-- kéo từ right anchor: mọi picture node bên phải chưa khóa/chưa bị answer khác
-  chiếm đều eligible;
-- khi kéo lại một answer, picture cũ của chính answer đó được tạm giải phóng;
+- mọi picture node chưa khóa/chưa bị answer khác chiếm đều eligible;
+- khi pointer/tap chọn picture, side của picture tự chuyển preview/final answer
+  anchor sang đúng cạnh trái hoặc phải; side bắt đầu chỉ là hướng preview ban đầu;
+- click/tap đường đã nối xóa mapping và giải phóng cả answer lẫn picture;
 - player không được biết hoặc highlight picture đúng.
 
 `correctConnections` và `distractorAnswerId` phải bị loại khỏi student snapshot.
@@ -501,7 +559,8 @@ editor metadata và ảnh answer key.
 6. Provider không inject ID; code preserve ID hiện có hoặc tự sinh khi thiếu.
 7. Anchor editor clamp đúng cạnh, không tạo trạng thái node giữa/sai phía.
 8. Example khóa, không tính điểm và mặc định không vẽ đè SVG line.
-9. Eligibility chỉ dựa side/lock/student mappings, không nhận answer key.
+9. Eligibility chỉ dựa lock/student mappings, không nhận answer key; picture đích
+   tự quyết định cạnh answer dùng để nối dù gesture bắt đầu từ cạnh đối diện.
 10. Mỗi answer/picture dùng tối đa một lần; reconnect trả picture cũ; picture
     bị answer khác chiếm không eligible.
 11. Tap, drag, keyboard/focus, aria-label và semantic hooks cho root/nodes/SVG/
@@ -518,9 +577,9 @@ editor metadata và ảnh answer key.
 ### 6.1. Mục tiêu và đúng hai ảnh có role cố định
 
 Giữ cơ chế Part 4 hiện tại: AI đọc prompt/thứ tự, browser pixel detector tìm
-khung tối, crop editor chỉnh trực quan, Canvas tạo derived assets và giáo viên
-duyệt staged candidate trước khi apply. Chỉ mở rộng để tách example và tự map
-năm đáp án chấm từ answer key riêng.
+khung tối và Canvas tạo derived assets. Candidate hợp lệ được crop/upload/merge
+ngay trong lượt phân tích; giáo viên review và thay ảnh/đáp án tại form chính.
+Luồng vẫn tách example và tự map năm đáp án chấm từ answer key riêng.
 
 | Role kỹ thuật dự kiến | Nhãn UI bắt buộc | Cardinality | Mục đích |
 | --- | --- | --- | --- |
@@ -704,9 +763,10 @@ Trong flow hai role mới, năm đáp án chấm chỉ lấy từ `answer_key`. 
 ảnh đề chỉ được dùng cho example; không dùng marker câu scored để bù answer key
 thiếu. Không suy luận đáp án từ nội dung hình.
 
-### 6.7. Candidate review và apply
+### 6.7. Direct import, crop và review tại form chính
 
-Part 4 tiếp tục staged candidate theo `quytac.md`. Review hiển thị sáu card:
+Part 4 tự normalize, dò khung và tạo derived crop trong cùng lượt phân tích. Sau
+khi thành công, form chính hiển thị sáu card có thể sửa:
 
 1. `Example - không tính điểm`;
 2. câu 1;
@@ -722,18 +782,16 @@ question + answer_key roles
 -> provider
 -> backend tách example/questions và normalize answer map
 -> browser align 18 frames
--> staged editable review
 -> validate đủ 1 example + 5 questions + 18 crops
 -> kiểm tra basePartHash
 -> Canvas crop/upload 18 derived assets
--> apply riêng content.parts[3]
+-> merge riêng content.parts[3]
 -> working draft có thể sửa/undo
 -> autosave theo baseRevision
 -> không tự publish
 ```
 
-Nếu một crop/upload lỗi, không merge Part 4 không hoàn chỉnh. Giữ behavior retry/
-staging hiện có; không đổi các Part khác. Main Part 4 editor phải cho sửa/thay
+Nếu một crop/upload lỗi, không merge Part 4 không hoàn chỉnh; không đổi các Part khác. Main Part 4 editor phải cho sửa/thay
 ba ảnh và correct option của example sau khi apply, giống năm question cards.
 
 ### 6.8. Student player, sanitizer và grader
@@ -775,7 +833,7 @@ answer row hoặc thay tổng 25 câu.
 10. Ordered fallback chỉ chạy khi đủ đúng năm unnumbered answers có evidence rõ
     và bắt buộc warning; mixed partial numbering không fallback.
 11. Review preselect đúng năm answer-key mappings, hiển thị retained source khi
-    unresolved và cho giáo viên sửa A/B/C trước apply.
+    unresolved và cho giáo viên sửa A/B/C tại form chính sau direct import.
 12. Example A được lấy từ marker rõ trên ảnh đề, crop bỏ marker, hiển thị selected/
     locked cho học sinh và không tính điểm.
 13. Apply tạo đúng 18 derived assets và re-analyze/apply Part 4 không thay Parts
@@ -1003,17 +1061,17 @@ Transform mọi polygon point/corner, validate `u/v`, clamp chỉ sai số biên
 tính lại bbox. Không xác định chắc scene correspondence thì unresolved/warning,
 không dùng raw position coordinates trên question image.
 
-### 7.6. Re-analyze và staged candidate không mất dữ liệu
+### 7.6. Re-analyze và direct merge không mất dữ liệu
 
-Part 5 tiếp tục staged candidate theo `quytac.md`. Matching/merge:
+Part 5 direct-import candidate hợp lệ vào form chính theo `quytac.md`. Matching/merge:
 
 1. Match question bằng `questionNumber`.
 2. Match action bằng `type`, normalized object label/type và geometry tương đối.
 3. Chỉ preserve ID khi match duy nhất, đủ chắc chắn.
 4. Action cũ không match được phải giữ lại để review cùng warning.
 5. Action mới không match trở thành đề xuất riêng; không tự thay/xóa action cũ.
-6. Review cho giáo viên quyết định giữ, thêm, thay thế hoặc xóa thủ công.
-7. Apply mặc định không xóa action cũ nào chỉ vì lần AI mới bỏ sót.
+6. Form chính cho giáo viên quyết định giữ, thêm, thay thế hoặc xóa thủ công.
+7. Direct merge không xóa action cũ nào chỉ vì lần AI mới bỏ sót.
 
 Unresolved prompt, màu, object, token hoặc geometry giữ field/action cũ hợp lệ.
 Draft mới không có dữ liệu cũ thì để thiếu và chặn publish; không tạo action,
@@ -1025,11 +1083,9 @@ Flow:
 role-based question + answer_key + optional position_key
 -> provider
 -> backend normalize/validate/transform
--> staged candidate giữ cả unmatched-old và suggested-new
--> giáo viên sửa questions/actions/registry/palette/geometry/mappings
 -> validate đủ dữ liệu công khai và private mapping
 -> kiểm tra basePartHash
--> apply riêng content.parts[4]
+-> merge riêng content.parts[4], giữ unmatched-old
 -> working draft có thể sửa/undo
 -> autosave theo baseRevision
 -> không tự publish
@@ -1164,6 +1220,43 @@ human-readable rows, tổng hợp các sub-action nhưng không hiển thị ID 
 24. Audio/audio URL/transcript không vào prompt/provider payload.
 25. Desktop/mobile/reduced-motion, focus/aria và contrast hooks đạt contract UI.
 
+### 7.10. Điều chỉnh Part 5 Colour + Draw v2 (2026-08-09)
+
+Phần này được cập nhật theo workflow ba ảnh mới:
+
+- `question_image` là ảnh nền duy nhất gửi cho học sinh. `answer_key` và
+  `position_key` là nguồn staff bắt buộc cho GPT-5.6 Sol.
+- Sol đọc năm câu/action và chuyển riêng Draw `targetRegion` từ ảnh lời giải về
+  tọa độ normalized của ảnh đề. Draw region luôn normalize về rectangle; Sol
+  không sinh Colour mask. Nếu prompt answer key ghi rõ `Draw` nhưng model bỏ
+  action vì geometry không chắc, backend retry rồi phục hồi action logic, chỉ để
+  region unresolved cho giáo viên xác nhận.
+- Kết quả AI được hiển thị thành bảng năm câu/action dễ đọc. Ngay dưới từng đáp
+  án có nút `Vẽ để chọn vùng đáp án`; không expose lựa chọn rectangle/ellipse/
+  polygon trong workflow Part 5 chính.
+- Giáo viên upload đúng ba icon PNG cho Draw. Với Colour, giáo viên khoanh ngoài
+  vật thể bằng nét tự do; browser đóng khe line nhỏ, flood-fill nền, gộp các
+  khoang kín, bỏ divider bên trong và cho chọn viền trong/ngoài trước khi giản
+  lược contour thành polygon mượt. Với Draw, giáo viên kéo rectangle/square làm
+  private drop-zone. Đúng icon được chấm đúng ở mọi điểm neo nằm trong vùng.
+  Upload icon đúng nằm ngay cạnh nút chọn vùng Draw; màu/vật nhiễu nằm trong
+  một hàng cuối của cùng bảng đáp án, không còn mục thiết lập palette riêng.
+- Catalog soạn bài vẫn gồm 20 màu chuẩn. Palette học sinh của schema v2 có đúng
+  sáu màu (màu làm bài cộng một màu nhiễu) và đúng ba icon PNG (icon làm bài
+  cộng một icon nhiễu). Không suy ra distractor giả bằng AI.
+- Student chỉ nhận sáu màu, ba icon và public Colour masks; không nhận
+  `targetRegion`, correct object/colour/icon mapping, staff prompt hoặc cờ xác
+  nhận. Grader backend giữ contract object+màu và icon+containment hiện có.
+- Player không hiển thị năm ô chọn câu/action. Sáu swatch màu và ba icon nằm
+  chung trong một khay cố định như Part 1; chỉ ảnh đề cuộn. Học sinh kéo hoặc
+  chọn-rồi-chạm trực tiếp vào public Colour mask/scene, đáp án dùng xong biến
+  khỏi khay và quay lại khi gỡ. Mask chưa trả lời là hitbox trong suốt; chỉ màu
+  đã thả mới phủ bán trong suốt đúng polygon. Draw không render hoặc gợi ý
+  private `targetRegion`. Submission mới được khóa bằng object/token tương tác;
+  grader vẫn nhận submission cũ khóa bằng action ID qua compatibility lookup.
+- `interactionSchemaVersion: 1` và nhánh Part 5 legacy tiếp tục mở/chơi/chấm;
+  draft mới dùng `interactionSchemaVersion: 2`.
+
 ## 8. Kế hoạch triển khai sau khi đủ yêu cầu 5 Part
 
 1. Khóa schema/mode compatibility cho Part 3 và Part 5 bằng discriminated union;
@@ -1215,7 +1308,9 @@ Part 5 mode mới dùng structured submission nhưng string answers legacy vẫn
 ## 10. Kết quả triển khai
 
 - Source roles, provider payload, parser/normalizer và UI đã được triển khai cho
-  cả năm Part đúng flow: Parts 1-2 direct import; Parts 3-5 staged candidate.
+  cả năm Part. Theo quyết định UX ngày 2026-08-09, Parts 1-5 đều direct import
+  candidate hợp lệ vào đúng working Part; form chính là bề mặt review và không
+  có nút ghép/apply trung gian. Không flow nào tự publish.
 - Part 3 và Part 5 dùng discriminated mode có nhánh legacy; không migration hay
   rewrite published content cũ. New attempts dùng grading version
   `listening-five-part-v2`.
@@ -1227,3 +1322,35 @@ Part 5 mode mới dùng structured submission nhưng string answers legacy vẫn
   `npm run test:listening` pass 52/52, `npm run build` pass và
   `git diff --check` pass. Build chỉ còn các cảnh báo Vite sẵn có về Firebase
   mixed imports và kích thước chunk.
+
+## 11. Reliability follow-up từ UAT provider thật
+
+Sau khi Gemini thực tế trả dữ liệu lệch shape và JSON malformed, implementation
+được bổ sung theo nguyên tắc không đoán đã duyệt:
+
+- UI chọn AI theo provider registry từ backend: Auto, Gemini hoặc ChatGPT; lựa
+  chọn explicit được tôn trọng. Registry chứa label/model/cấu hình để mở rộng
+  provider/model sau này mà không sửa cứng danh sách UI.
+- Mỗi Part có JSON Schema riêng cho Gemini/OpenAI, retry đúng một lần khi JSON
+  sai và trả candidate unresolved có warning nếu vẫn lỗi. Diagnostic mặc định
+  chỉ ghi metadata/hash; raw chỉ được phép bằng cờ debug ngoài production.
+- Part 1 tách answer mapping khỏi geometry/scene transform, thêm lượt
+  question-only verification để chứng minh example và định vị năm action
+  landmark trước khi đối chiếu line endpoint từ đủ ba ảnh. Region parser ưu
+  tiên `shape=rect`/`ellipse`; trường `points: []` do structured output chèn thêm
+  không được phép làm rect bị hiểu nhầm thành polygon rỗng. Smoke test bằng đúng
+  ba ảnh UAT và ChatGPT đã nhận đúng sáu choices (Daisy được giữ, Fred tách làm
+  example), năm mapping và 5/5 endpoints; editor chỉ hiển thị năm vùng chấm điểm;
+  các line trace mâu thuẫn được đánh warning để giáo viên review.
+- Part 2 luôn có manual crop, kể cả khi AI không trả `illustrationCrop`.
+- Part 3 giữ partial/draft slots, normalize `box_2d` và chỉ chấp nhận text
+  fallback có layout trái/phải rõ ràng.
+- Part 4 để pixel detector quyết định 18/15 crop; AI không còn phải sinh mảng
+  crop lớn và malformed JSON không chặn crop review.
+- Part 5 chia thành pass question/public geometry và pass answer/action/position
+  để giảm response lồng nhau, sau đó backend merge và validation.
+
+Automated regression sau follow-up: lint pass, Listening tests 70/70, production
+build pass và `git diff --check` pass. UAT thực tế vẫn cần chạy lại các fixture
+Part 2-5 trên từng provider đã cấu hình; fixture Part 1 đã được smoke test thật
+với ChatGPT.

@@ -71,8 +71,24 @@ export function gradeListeningAttempt(
   }
   const part5 = content.parts[4];
   if (part5.displayMode === 'scene-colour-draw') {
+    const submittedPart5Answers = Object.values(answers.part5 || {});
     for (const question of part5.questions) {
-      const submitted = question.actions.map(action => answers.part5?.[action.id]);
+      const submitted = question.actions.map(action => {
+        const direct = answers.part5?.[action.id];
+        if (direct && typeof direct === 'object' && direct.type === action.type) return direct;
+        if (action.type === 'colour_object') {
+          return submittedPart5Answers.find(answer => (
+            answer && typeof answer === 'object'
+            && answer.type === 'colour_object'
+            && answer.objectId === action.correctObjectId
+          ));
+        }
+        return submittedPart5Answers.find(answer => (
+          answer && typeof answer === 'object'
+          && answer.type === 'place_object'
+          && answer.paletteItemId === action.correctPaletteItemId
+        ));
+      });
       const unanswered = submitted.every(answer => !answer);
       const correct = question.actions.length > 0 && question.actions.every((action, index) => {
         const answer = submitted[index];

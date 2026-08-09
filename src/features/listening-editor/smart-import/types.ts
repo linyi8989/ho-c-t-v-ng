@@ -2,6 +2,16 @@ import type { ListeningPart, ListeningRegion } from '../../listening/types';
 
 export type ListeningSmartImportPartId = 1 | 2 | 3 | 4 | 5;
 export type ListeningSmartImportSourceRole = 'question' | 'answer_key' | 'position_key';
+export type ListeningSmartImportProviderPreference = 'auto' | 'gemini' | 'openai' | (string & {});
+
+export interface ListeningSmartImportProviderDefinition {
+  id: string;
+  label: string;
+  enabled: boolean;
+  model?: string;
+  visionEnabled?: boolean;
+  reason?: string;
+}
 
 export interface ListeningSmartImportSource {
   role: ListeningSmartImportSourceRole;
@@ -23,7 +33,7 @@ export function getListeningSmartImportRoleDefinitions(part: ListeningSmartImpor
   if (part === 5) return [
     { role: 'question', label: 'Ảnh đề bài', required: true },
     { role: 'answer_key', label: 'Ảnh đáp án', required: true },
-    { role: 'position_key', label: 'Ảnh đáp án + vị trí', required: false },
+    { role: 'position_key', label: 'Ảnh đáp án + vị trí', required: true },
   ];
   return [
     { role: 'question', label: 'Ảnh đề bài', required: true },
@@ -38,6 +48,7 @@ export interface ListeningSmartImportRequest {
   pastedText?: string;
   currentPart: ListeningPart;
   basePartHash: string;
+  preferredProvider?: ListeningSmartImportProviderPreference;
 }
 
 export interface SmartImportAnchor {
@@ -54,11 +65,14 @@ export interface SmartImportCrop {
   height: number;
 }
 
+export type SmartImportResolutionSource = 'ai' | 'current-part' | 'mixed' | 'derived' | 'teacher';
+
 export interface SmartImportPart3Answer {
   label: string;
   region: ListeningRegion;
   leftAnchorOffset: number;
   rightAnchorOffset: number;
+  source?: SmartImportResolutionSource;
 }
 
 export interface SmartImportPart3Picture {
@@ -67,12 +81,7 @@ export interface SmartImportPart3Picture {
   row: 1 | 2 | 3;
   region: ListeningRegion;
   anchorOffset: number;
-}
-
-export interface SmartImportPart5Object {
-  label: string;
-  geometry: ListeningRegion;
-  confidence: number;
+  source?: SmartImportResolutionSource;
 }
 
 export interface SmartImportPart5PaletteItem {
@@ -86,7 +95,6 @@ export type SmartImportPart5Action =
       type: 'colour_object';
       objectLabel: string;
       correctColourLabel?: string;
-      geometry?: ListeningRegion;
       confidence: number;
     }
   | {
@@ -122,9 +130,10 @@ export type ListeningSmartImportData =
       part: 3;
       answers: SmartImportPart3Answer[];
       pictures: SmartImportPart3Picture[];
-      example?: { answerLabel: string; pictureSide: 'left' | 'right'; pictureRow: 1 | 2 | 3; renderOverlayLine: boolean };
-      connections: Array<{ answerLabel: string; pictureSide: 'left' | 'right'; pictureRow: 1 | 2 | 3 }>;
+      example?: { answerLabel: string; pictureSide: 'left' | 'right'; pictureRow: 1 | 2 | 3; renderOverlayLine: boolean; source?: SmartImportResolutionSource };
+      connections: Array<{ answerLabel: string; pictureSide: 'left' | 'right'; pictureRow: 1 | 2 | 3; source?: SmartImportResolutionSource }>;
       distractorLabel?: string;
+      distractorSource?: SmartImportResolutionSource;
     }
   | {
       part: 4;
@@ -143,7 +152,6 @@ export type ListeningSmartImportData =
     }
   | {
       part: 5;
-      interactiveObjects: SmartImportPart5Object[];
       paletteItems: SmartImportPart5PaletteItem[];
       questions: Array<{
         questionNumber: 1 | 2 | 3 | 4 | 5;
@@ -160,7 +168,7 @@ export interface ListeningSmartImportCandidate {
   sources: ListeningSmartImportSource[];
   /** Compatibility/read helper only; role mapping always comes from `sources`. */
   sourceImageAssetIds: string[];
-  provider: 'gemini' | 'openai' | 'local';
+  provider: string;
   warnings: string[];
   createdAt: string;
   data: ListeningSmartImportData;
@@ -170,6 +178,7 @@ export interface ListeningSmartImportCapability {
   enabled: boolean;
   visionEnabled: boolean;
   reason?: string;
+  providers?: ListeningSmartImportProviderDefinition[];
 }
 
 export const smartImportSourceAssetId = (

@@ -33,7 +33,13 @@ import { createLearningHistoryRouter } from "./src/server/learning-history/learn
 import { LISTENING_LIBRARY_SCHEMA_VERSION, resolveListeningModuleId } from "./src/features/listening-library/registry.js";
 import { createListeningLibraryRouter } from "./src/server/listening-library/router.js";
 import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
-import type { SmartImportImageInput } from "./src/server/listening-smart-import/service.js";
+import type { SmartImportImageInput, SmartImportVisionOptions } from "./src/server/listening-smart-import/service.js";
+import {
+  generateWithStaliVision,
+  getStaliSmartImportProviders,
+  isStaliProviderId,
+  STALI_DEFAULT_BASE_URL,
+} from "./src/server/listening-smart-import/staliProvider.js";
 import {
   LOCAL_AUTH_BYPASS_USER,
   isLocalServerAuthBypassAllowed,
@@ -2196,6 +2202,9 @@ const preSeedDb = async () => {
 // ============================================================================
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
+const STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
+const STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
+const STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
 
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -2223,6 +2232,9 @@ function getOpenAIKey() {
 }
 
 function sanitizeAiError(provider: string, error: any) {
+  if (error?.name === "AbortError") {
+    return `${provider}: request bị hủy do vượt thời gian xử lý.`;
+  }
   const status = error?.status || error?.statusCode || error?.response?.status;
   const message = String(error?.message || error || "Unknown AI error")
     .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***")
@@ -2283,6 +2295,7 @@ async function generateWithOpenAI(prompt: string) {
 async function generateWithOpenAIVision(
   prompt: string,
   images: SmartImportImageInput[],
+  options: SmartImportVisionOptions,
   signal?: AbortSignal
 ) {
   const apiKey = getOpenAIKey();
@@ -2310,7 +2323,14 @@ async function generateWithOpenAIVision(
           ]))
         ]
       }],
-      text: { format: { type: "text" } }
+      text: {
+        format: {
+          type: "json_schema",
+          name: options.schemaName,
+          schema: options.responseJsonSchema,
+          strict: false
+        }
+      }
     })
   });
   if (!response.ok) {
@@ -2328,11 +2348,21 @@ async function generateWithOpenAIVision(
 async function generateAiVisionJson(
   prompt: string,
   images: SmartImportImageInput[],
+  options: SmartImportVisionOptions,
   signal?: AbortSignal
 ) {
   const errors: string[] = [];
-  const gemini = getGeminiClient();
-  if (gemini) {
+  const preferred = options.preferredProvider || "auto";
+  if (!["auto", "gemini", "openai"].includes(preferred) && !isStaliProviderId(preferred)) {
+    const unsupported: any = new Error(`Nhà cung cấp AI "${preferred}" chưa được backend hỗ trợ.`);
+    unsupported.status = 400;
+    throw unsupported;
+  }
+  if (preferred === "auto" || preferred === "gemini") {
+    const gemini = getGeminiClient();
+    if (!gemini) {
+      errors.push("Gemini: GEMINI_API_KEY is not configured.");
+    } else {
     try {
       const response = await gemini.models.generateContent({
         model: GEMINI_MODEL,
@@ -2351,30 +2381,54 @@ async function generateAiVisionJson(
             ]))
           ]
         }],
-        config: { responseMimeType: "application/json", abortSignal: signal }
+        config: {
+          responseMimeType: "application/json",
+          responseJsonSchema: options.responseJsonSchema,
+          abortSignal: signal
+        }
       });
       const text = response.text?.trim();
       if (!text) throw new Error("Gemini response did not include text output.");
-      return { text, provider: "gemini" as const, errors };
+      return { text, provider: "gemini", model: GEMINI_MODEL, errors };
     } catch (error: any) {
       const message = sanitizeAiError("Gemini", error);
       errors.push(message);
-      console.warn("Gemini vision unavailable, trying OpenAI fallback:", message);
+      console.warn(`Gemini vision unavailable${preferred === "auto" ? ", trying ChatGPT fallback" : ""}:`, message);
     }
-  } else {
-    errors.push("Gemini: GEMINI_API_KEY is not configured.");
+    }
   }
-  try {
-    const text = await generateWithOpenAIVision(prompt, images, signal);
-    if (text) return { text, provider: "openai" as const, errors };
-    errors.push("OpenAI: OPENAI_API_KEY is not configured.");
-  } catch (error: any) {
-    const message = sanitizeAiError("OpenAI", error);
-    errors.push(message);
+  if (preferred === "auto" || preferred === "openai") {
+    try {
+      const text = await generateWithOpenAIVision(prompt, images, options, signal);
+      if (text) return { text, provider: "openai", model: OPENAI_MODEL, errors };
+      errors.push("OpenAI: OPENAI_API_KEY is not configured.");
+    } catch (error: any) {
+      const message = sanitizeAiError("OpenAI", error);
+      errors.push(message);
+    }
+  }
+  if (isStaliProviderId(preferred)) {
+    try {
+      const result = await generateWithStaliVision({
+        providerId: preferred,
+        prompt,
+        images,
+        options,
+        signal,
+        apiKey: STALI_API_KEY,
+        baseUrl: STALI_BASE_URL,
+      });
+      if (result) return { ...result, errors };
+      errors.push("Stali: STALI_API_KEY is not configured.");
+    } catch (error: any) {
+      if (error?.status === 400 || error?.status === 413) throw error;
+      errors.push(sanitizeAiError("Stali", error));
+    }
   }
   const unavailable = new Error("Không có nhà cung cấp AI thị giác khả dụng.") as any;
   unavailable.status = 503;
   unavailable.details = errors;
+  unavailable.code = "AI_PROVIDER_UNAVAILABLE";
   throw unavailable;
 }
 
@@ -2804,9 +2858,14 @@ app.use(
       reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false"
         ? "Smart Import đã bị tắt bằng cấu hình máy chủ."
         : undefined,
-      analyzeVision: (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY)
+      analyzeVision: (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || STALI_API_KEY)
         ? generateAiVisionJson
-        : undefined
+        : undefined,
+      providers: [
+        { id: "gemini", label: "Gemini", enabled: Boolean(process.env.GEMINI_API_KEY), visionEnabled: true, model: GEMINI_MODEL },
+        { id: "openai", label: "ChatGPT", enabled: Boolean(process.env.OPENAI_API_KEY), visionEnabled: true, model: OPENAI_MODEL },
+        ...STALI_SMART_IMPORT_PROVIDERS,
+      ]
     }
   })
 );

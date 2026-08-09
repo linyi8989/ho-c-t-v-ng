@@ -216,29 +216,45 @@ function validatePart5(part: ListeningPart5, errors: string[]) {
   validateBase(part, 5, errors);
   if (part.displayMode === 'scene-colour-draw') {
     if (!isText(part.sceneAssetId, 160)) errors.push('Part 5: thiếu tranh tương tác.');
-    if (part.interactionSchemaVersion !== 1) errors.push('Part 5: phiên bản tương tác không được hỗ trợ.');
+    if (![1, 2].includes(part.interactionSchemaVersion)) errors.push('Part 5: phiên bản tương tác không được hỗ trợ.');
     if (part.colours?.length !== 20) errors.push('Part 5: palette màu cần đủ 20 màu chuẩn.');
     const colourIds = (part.colours || []).map(colour => colour.id);
     if (!unique(colourIds) || (part.colours || []).some(colour => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
       errors.push('Part 5: màu phải có ID riêng và mã #RRGGBB hợp lệ.');
     }
+    const studentColourIds = part.interactionSchemaVersion === 2 ? (part.colourPaletteIds || []) : colourIds;
+    if (part.interactionSchemaVersion === 2 && (
+      studentColourIds.length !== 6
+      || !unique(studentColourIds)
+      || studentColourIds.some(id => !colourIds.includes(id))
+    )) errors.push('Part 5: palette học sinh cần đúng 6 màu hợp lệ, không trùng (gồm màu nhiễu).');
     if (part.questions?.length !== 5 || !unique((part.questions || []).map(question => String(question.questionNumber)))) {
       errors.push('Part 5: cần đúng 5 câu có questionNumber 1–5 không trùng.');
     }
     const objectIds = (part.interactiveObjects || []).map(object => object.id);
     const paletteIds = (part.objectPalette || []).map(item => item.id);
     if (!unique(objectIds) || !unique(paletteIds)) errors.push('Part 5: ID object/palette bị trùng.');
-    (part.interactiveObjects || []).forEach((object, index) => validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors));
+    if (part.interactionSchemaVersion === 2 && (
+      paletteIds.length !== 3
+      || part.objectPalette.some(item => !isText(item.label, 160) || !isText(item.tokenAssetId, 160))
+    )) errors.push('Part 5: Draw cần đúng 3 icon PNG đã upload (2 lựa chọn làm bài và 1 nhiễu).');
+    (part.interactiveObjects || []).forEach((object, index) => {
+      validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors);
+      if (part.interactionSchemaVersion === 2 && object.geometryConfirmedByTeacher !== true) {
+        errors.push(`Part 5 interactiveObjects[${index}]: giáo viên chưa xác nhận mask Colour.`);
+      }
+    });
     const actionIds = (part.questions || []).flatMap(question => (question.actions || []).map(action => action.id));
     if (!unique(actionIds)) errors.push('Part 5: action ID bị trùng.');
-    if ((part.questions || []).some(question => question.actions?.some(action => action.type === 'colour_object')) && objectIds.length < 2) {
+    if (part.interactionSchemaVersion === 1 && (part.questions || []).some(question => question.actions?.some(action => action.type === 'colour_object')) && objectIds.length < 2) {
       errors.push('Part 5: colour_object cần ít nhất hai public object để geometry không trở thành gợi ý đáp án.');
     }
     (part.questions || []).forEach((question, questionIndex) => {
+      if (!isText(question.staffPrompt, 1000)) errors.push(`Part 5 câu ${questionIndex + 1}: thiếu nội dung.`);
       if (!question.actions?.length) errors.push(`Part 5 câu ${questionIndex + 1}: cần ít nhất một action.`);
       question.actions?.forEach((action, actionIndex) => {
         if (action.type === 'colour_object') {
-          if (!objectIds.includes(action.correctObjectId) || !colourIds.includes(action.correctColourId)) {
+          if (!objectIds.includes(action.correctObjectId) || !colourIds.includes(action.correctColourId) || !studentColourIds.includes(action.correctColourId)) {
             errors.push(`Part 5 câu ${questionIndex + 1}, action ${actionIndex + 1}: object/màu đúng không hợp lệ.`);
           }
         } else {
@@ -246,13 +262,22 @@ function validatePart5(part: ListeningPart5, errors: string[]) {
             errors.push(`Part 5 câu ${questionIndex + 1}, action ${actionIndex + 1}: object đặt không hợp lệ.`);
           }
           validateRegion(action.targetRegion, `Part 5 questions[${questionIndex}].actions[${actionIndex}].targetRegion`, errors);
+          if (part.interactionSchemaVersion === 2 && action.geometryConfirmedByTeacher !== true) {
+            errors.push(`Part 5 câu ${questionIndex + 1}, action ${actionIndex + 1}: giáo viên chưa xác nhận drop-zone Draw.`);
+          }
           const correctItem = part.objectPalette.find(item => item.id === action.correctPaletteItemId);
-          if (!correctItem || !part.objectPalette.some(item => item.id !== correctItem.id && item.objectType === correctItem.objectType)) {
+          if (part.interactionSchemaVersion === 1 && (!correctItem || !part.objectPalette.some(item => item.id !== correctItem.id && item.objectType === correctItem.objectType))) {
             errors.push(`Part 5 câu ${questionIndex + 1}: place_object cần ít nhất một lựa chọn nhiễu cùng loại.`);
           }
         }
       });
     });
+    if (part.interactionSchemaVersion === 2) {
+      const usedColourIds = new Set(part.questions.flatMap(question => question.actions.flatMap(action => action.type === 'colour_object' ? [action.correctColourId] : [])));
+      const usedPaletteIds = new Set(part.questions.flatMap(question => question.actions.flatMap(action => action.type === 'place_object' ? [action.correctPaletteItemId] : [])));
+      if (!studentColourIds.some(id => !usedColourIds.has(id))) errors.push('Part 5: palette màu cần ít nhất một màu nhiễu không phải đáp án.');
+      if (!paletteIds.some(id => !usedPaletteIds.has(id))) errors.push('Part 5: object palette cần ít nhất một icon nhiễu không phải đáp án.');
+    }
     return;
   }
   if (!isText(part.sceneAssetId, 160)) errors.push('Part 5: thiếu tranh tô màu.');
@@ -369,6 +394,11 @@ export function sanitizeListeningContentForStudent(content: ListeningSetContent)
   copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }: any) => question);
   const part5 = copy.parts[4];
   if (part5.displayMode === 'scene-colour-draw') {
+    if (part5.interactionSchemaVersion === 2) {
+      const publicColourIds = new Set(part5.colourPaletteIds || []);
+      part5.colours = part5.colours.filter((colour: any) => publicColourIds.has(colour.id));
+    }
+    part5.interactiveObjects = part5.interactiveObjects.map(({ geometryConfirmedByTeacher: _confirmed, ...object }: any) => object);
     part5.questions = part5.questions.map((question: any) => ({
       id: question.id,
       questionNumber: question.questionNumber,

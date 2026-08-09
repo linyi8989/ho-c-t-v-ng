@@ -2393,6 +2393,38 @@ textarea::placeholder {
   box-shadow: 0 10px 22px rgba(37, 99, 235, 0.22) !important;
 }
 
+#listening-result-screen #listening-result-review-btn:not(:disabled),
+#listening-review-screen #listening-review-back-btn:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+#listening-result-screen #listening-result-review-btn:not(:disabled):hover,
+#listening-review-screen #listening-review-back-btn:not(:disabled):hover {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+}
+
+#listening-result-screen #listening-result-retry-btn:not(:disabled),
+#listening-review-screen #listening-review-retry-btn:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 10px 22px rgba(4, 120, 87, 0.2) !important;
+}
+
+#listening-result-screen #listening-result-retry-btn:not(:disabled):hover,
+#listening-review-screen #listening-review-retry-btn:not(:disabled):hover {
+  background: #065f46 !important;
+  border-color: #064e3b !important;
+}
+
 #listening-error-screen #listening-error-home-btn:not(:disabled):hover,
 #listening-name-screen #listening-confirm-name-btn:not(:disabled):hover,
 #listening-result-screen #listening-result-home-btn:not(:disabled):hover {
@@ -2474,6 +2506,48 @@ textarea::placeholder {
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.42) !important;
 }
 
+#listening-exam-root button.listening-part1-target:not(:disabled) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+#listening-exam-root button.listening-part1-target[data-state="eligible"]:not(:disabled) {
+  outline: 2px dashed rgba(2, 132, 199, 0.72);
+  outline-offset: -2px;
+}
+
+#listening-exam-root button.listening-part1-target:focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: -3px;
+}
+
+#listening-exam-root button.listening-part3-answer-hitbox:not(:disabled),
+#listening-exam-root button.listening-part3-picture-hitbox:not(:disabled) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+#listening-exam-root button.listening-part3-answer-hitbox[data-selected="true"]:not(:disabled) {
+  outline: 2px solid rgba(37, 99, 235, 0.72);
+  outline-offset: -2px;
+}
+
+#listening-exam-root button.listening-part3-answer-hitbox:focus-visible,
+#listening-exam-root button.listening-part3-picture-hitbox:focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: -3px;
+}
+
 #listening-exam-root button.listening-part-arrow:not(:disabled) {
   background: #e11d48 !important;
   border-color: #ffffff !important;
@@ -2538,10 +2612,23 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+#listening-exam-root .listening-part5-answer-dock button.listening-part5-colour-choice:not(:disabled) {
+  min-width: 4rem;
+}
+
+#listening-exam-root button.listening-part5-object-hitbox:not(:disabled) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
 #listening-error-screen #listening-error-home-btn *,
 #listening-name-screen #listening-confirm-name-btn *,
 #listening-start-screen #listening-start-btn *,
 #listening-result-screen #listening-result-home-btn *,
+#listening-result-screen #listening-result-retry-btn *,
+#listening-review-screen #listening-review-retry-btn *,
 #listening-exam-root #listening-fullscreen-btn *,
 #listening-exam-root button.listening-part-arrow *,
 #listening-exam-root button.listening-part-step[data-active="true"] *,
@@ -2552,6 +2639,8 @@ textarea::placeholder {
 }
 
 #listening-start-screen #listening-prestart-back-btn *,
+#listening-result-screen #listening-result-review-btn *,
+#listening-review-screen #listening-review-back-btn *,
 #listening-exam-root #listening-submit-btn:disabled * {
   color: currentColor !important;
   opacity: 1 !important;
@@ -2560,6 +2649,7 @@ textarea::placeholder {
 #listening-name-screen button:focus-visible,
 #listening-start-screen button:focus-visible,
 #listening-result-screen button:focus-visible,
+#listening-review-screen button:focus-visible,
 #listening-error-screen button:focus-visible,
 #listening-exam-root button:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.48) !important;

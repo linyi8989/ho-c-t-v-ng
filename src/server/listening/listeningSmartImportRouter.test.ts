@@ -44,6 +44,8 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
     status: 'active', createdAt: now, updatedAt: now,
   });
   let analyzedKinds: string[] = [];
+  let analyzedProvider = '';
+  let analyzerFailure: any;
   const authenticate: express.RequestHandler = (req, _res, next) => {
     req.user = { id: 'teacher-import', role: 'teacher', name: 'Teacher', email: 'teacher@example.com' } as any;
     next();
@@ -61,8 +63,18 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
     resolveGuestProfile: async () => null,
     smartImport: {
       enabled: true,
-      analyzeVision: async (_prompt, images) => {
+      providers: [
+        { id: 'gemini', label: 'Gemini', enabled: true, model: 'gemini-test' },
+        { id: 'openai', label: 'ChatGPT', enabled: true, model: 'gpt-test' },
+        { id: 'stali:deepseek-v4-pro', label: 'Stali · DeepSeek V4 Pro', enabled: false, visionEnabled: false, model: 'deepseek-v4-pro', reason: 'DeepSeek V4 Pro không hỗ trợ ảnh.' },
+        { id: 'stali:gpt-5.6-luna', label: 'Stali · GPT 5.6 Luna', enabled: true, visionEnabled: true, model: 'gpt-5.6-luna' },
+        { id: 'stali:gpt-5.6-sol', label: 'Stali · GPT 5.6 Sol', enabled: true, visionEnabled: true, model: 'gpt-5.6-sol' },
+        { id: 'stali:gpt-5.6-terra', label: 'Stali · GPT 5.6 Terra', enabled: true, visionEnabled: true, model: 'gpt-5.6-terra' },
+      ],
+      analyzeVision: async (_prompt, images, options) => {
         analyzedKinds = images.map(image => image.mimeType);
+        analyzedProvider = options.preferredProvider;
+        if (analyzerFailure) throw analyzerFailure;
         return {
           provider: 'gemini',
           text: JSON.stringify({
@@ -89,11 +101,12 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   const url = `http://127.0.0.1:${address.port}/api/listening/admin/smart-import/analyze`;
   const part = createDefaultMoverListeningContent().parts[1];
   const basePartHash = crypto.createHash('sha256').update(JSON.stringify(part)).digest('hex');
-  const body = (answerAssetId: string) => JSON.stringify({
+  const body = (answerAssetId: string, preferredProvider = 'openai') => JSON.stringify({
     moduleId: 'mover', part: 2, sources: [
       { role: 'question', assetId: 'owned-image' },
       { role: 'answer_key', assetId: answerAssetId },
     ], currentPart: part, basePartHash,
+    preferredProvider,
   });
 
   const rejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-audio') });
@@ -122,6 +135,46 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   assert.equal(candidate.part, 2);
   assert.equal(candidate.data.questions.length, 5);
   assert.deepEqual(analyzedKinds, ['image/png', 'image/png']);
+  assert.equal(analyzedProvider, 'openai');
+
+  const staliAccepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'stali:gpt-5.6-luna') });
+  assert.equal(staliAccepted.status, 200);
+  assert.equal(analyzedProvider, 'stali:gpt-5.6-luna');
+
+  const nonVisionRejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'stali:deepseek-v4-pro') });
+  assert.equal(nonVisionRejected.status, 503);
+  assert.match((await nonVisionRejected.json() as any).error, /không hỗ trợ ảnh/);
+
+  analyzerFailure = Object.assign(new Error('Không có nhà cung cấp AI thị giác khả dụng.'), {
+    status: 503,
+    details: ['OpenAI: fetch failed'],
+  });
+  const providerFailed = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer') });
+  assert.equal(providerFailed.status, 503);
+  const providerFailureBody = await providerFailed.json() as any;
+  assert.match(providerFailureBody.error, /Draft chưa được thay đổi/);
+  assert.deepEqual(providerFailureBody.details, ['OpenAI: fetch failed']);
+  analyzerFailure = undefined;
+
+  const capabilities = await fetch(`http://127.0.0.1:${address.port}/api/listening/capabilities`);
+  assert.equal(capabilities.status, 200);
+  assert.deepEqual((await capabilities.json() as any).smartImport.providers.map((provider: any) => provider.label), [
+    'Gemini',
+    'ChatGPT',
+    'Stali · DeepSeek V4 Pro',
+    'Stali · GPT 5.6 Luna',
+    'Stali · GPT 5.6 Sol',
+    'Stali · GPT 5.6 Terra',
+  ]);
+
+  const unknownProvider = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      moduleId: 'mover', part: 2, sources: [{ role: 'question', assetId: 'owned-image' }, { role: 'answer_key', assetId: 'owned-answer' }],
+      currentPart: part, basePartHash, preferredProvider: 'future-provider',
+    }),
+  });
+  assert.equal(unknownProvider.status, 400);
 
   const derivedResponse = await fetch(`http://127.0.0.1:${address.port}/api/listening/admin/assets`, {
     method: 'POST',

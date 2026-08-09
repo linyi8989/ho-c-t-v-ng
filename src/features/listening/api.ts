@@ -2,6 +2,8 @@ import type {
   ListeningAnswers,
   ListeningAsset,
   ListeningAssetKind,
+  ListeningAttemptReview,
+  ListeningCompletedAttempt,
   ListeningPlayableSet,
   ListeningSetContent,
 } from './types';
@@ -172,7 +174,7 @@ export const listeningApi = {
       answers: ListeningAnswers;
     }
   ) {
-    return requestJson<any>(`/api/listening/sets/${encodeURIComponent(id)}/attempts/submit`, {
+    return requestJson<ListeningCompletedAttempt>(`/api/listening/sets/${encodeURIComponent(id)}/attempts/submit`, {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -180,5 +182,24 @@ export const listeningApi = {
       },
       body: JSON.stringify(body),
     });
+  },
+  getAttemptReview(
+    id: string,
+    attemptId: string,
+    token: string | null,
+    identity: { guestId?: string; studentName?: string; runSecret?: string } = {}
+  ) {
+    const query = token ? '' : `?${new URLSearchParams({
+      guestId: identity.guestId || '',
+      studentName: identity.studentName || '',
+    }).toString()}`;
+    return requestJson<ListeningAttemptReview>(
+      `/api/listening/sets/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/review${query}`,
+      {
+        headers: token
+          ? authHeaders(token, false)
+          : { 'X-Listening-Run-Secret': identity.runSecret || '' },
+      }
+    );
   },
 };

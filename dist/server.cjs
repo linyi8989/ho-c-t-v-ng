@@ -3811,6 +3811,7 @@ function normalizeListeningActivityAnswerDetails(detail) {
     userAnswer: formatListeningReviewAnswer(item?.userAnswer || item?.selectedAnswer),
     correctAnswer: formatListeningReviewAnswer(item?.correctAnswer),
     isCorrect: Boolean(item?.isCorrect),
+    unanswered: Boolean(item?.unanswered),
     options: Array.isArray(item?.options) ? item.options.map((option) => activityText(option, 500)).filter(Boolean).slice(0, 20) : []
   }));
 }
@@ -4898,18 +4899,6 @@ function transformListeningPoint(point, sourceScene, targetScene) {
   };
   return isNormalizedPoint(transformed) ? transformed : null;
 }
-function transformListeningRegion(region, sourceScene, targetScene) {
-  if (!isValidListeningRegion(region)) return null;
-  if (region.shape === "polygon") {
-    const points = (region.points || []).map((point) => transformListeningPoint(point, sourceScene, targetScene));
-    if (points.some((point) => !point)) return null;
-    return regionFromPolygon(points);
-  }
-  const start2 = transformListeningPoint({ x: region.x, y: region.y }, sourceScene, targetScene);
-  const end = transformListeningPoint({ x: region.x + region.width, y: region.y + region.height }, sourceScene, targetScene);
-  if (!start2 || !end) return null;
-  return { shape: region.shape, x: start2.x, y: start2.y, width: end.x - start2.x, height: end.y - start2.y };
-}
 
 // src/server/listening/listeningGrader.ts
 var LISTENING_GRADING_VERSION = "listening-five-part-v2";
@@ -4956,8 +4945,16 @@ function gradeListeningAttempt(content, answers) {
   }
   const part5 = content.parts[4];
   if (part5.displayMode === "scene-colour-draw") {
+    const submittedPart5Answers = Object.values(answers.part5 || {});
     for (const question of part5.questions) {
-      const submitted = question.actions.map((action) => answers.part5?.[action.id]);
+      const submitted = question.actions.map((action) => {
+        const direct = answers.part5?.[action.id];
+        if (direct && typeof direct === "object" && direct.type === action.type) return direct;
+        if (action.type === "colour_object") {
+          return submittedPart5Answers.find((answer) => answer && typeof answer === "object" && answer.type === "colour_object" && answer.objectId === action.correctObjectId);
+        }
+        return submittedPart5Answers.find((answer) => answer && typeof answer === "object" && answer.type === "place_object" && answer.paletteItemId === action.correctPaletteItemId);
+      });
       const unanswered = submitted.every((answer) => !answer);
       const correct = question.actions.length > 0 && question.actions.every((action, index) => {
         const answer = submitted[index];
@@ -5181,29 +5178,38 @@ function validatePart5(part, errors) {
   validateBase(part, 5, errors);
   if (part.displayMode === "scene-colour-draw") {
     if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\u01B0\u01A1ng t\xE1c.");
-    if (part.interactionSchemaVersion !== 1) errors.push("Part 5: phi\xEAn b\u1EA3n t\u01B0\u01A1ng t\xE1c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    if (![1, 2].includes(part.interactionSchemaVersion)) errors.push("Part 5: phi\xEAn b\u1EA3n t\u01B0\u01A1ng t\xE1c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
     if (part.colours?.length !== 20) errors.push("Part 5: palette m\xE0u c\u1EA7n \u0111\u1EE7 20 m\xE0u chu\u1EA9n.");
     const colourIds2 = (part.colours || []).map((colour) => colour.id);
     if (!unique(colourIds2) || (part.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
       errors.push("Part 5: m\xE0u ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 m\xE3 #RRGGBB h\u1EE3p l\u1EC7.");
     }
+    const studentColourIds = part.interactionSchemaVersion === 2 ? part.colourPaletteIds || [] : colourIds2;
+    if (part.interactionSchemaVersion === 2 && (studentColourIds.length !== 6 || !unique(studentColourIds) || studentColourIds.some((id) => !colourIds2.includes(id)))) errors.push("Part 5: palette h\u1ECDc sinh c\u1EA7n \u0111\xFAng 6 m\xE0u h\u1EE3p l\u1EC7, kh\xF4ng tr\xF9ng (g\u1ED3m m\xE0u nhi\u1EC5u).");
     if (part.questions?.length !== 5 || !unique((part.questions || []).map((question) => String(question.questionNumber)))) {
       errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 c\xE2u c\xF3 questionNumber 1\u20135 kh\xF4ng tr\xF9ng.");
     }
     const objectIds = (part.interactiveObjects || []).map((object) => object.id);
     const paletteIds = (part.objectPalette || []).map((item) => item.id);
     if (!unique(objectIds) || !unique(paletteIds)) errors.push("Part 5: ID object/palette b\u1ECB tr\xF9ng.");
-    (part.interactiveObjects || []).forEach((object, index) => validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors));
+    if (part.interactionSchemaVersion === 2 && (paletteIds.length !== 3 || part.objectPalette.some((item) => !isText(item.label, 160) || !isText(item.tokenAssetId, 160)))) errors.push("Part 5: Draw c\u1EA7n \u0111\xFAng 3 icon PNG \u0111\xE3 upload (2 l\u1EF1a ch\u1ECDn l\xE0m b\xE0i v\xE0 1 nhi\u1EC5u).");
+    (part.interactiveObjects || []).forEach((object, index) => {
+      validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors);
+      if (part.interactionSchemaVersion === 2 && object.geometryConfirmedByTeacher !== true) {
+        errors.push(`Part 5 interactiveObjects[${index}]: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn mask Colour.`);
+      }
+    });
     const actionIds = (part.questions || []).flatMap((question) => (question.actions || []).map((action) => action.id));
     if (!unique(actionIds)) errors.push("Part 5: action ID b\u1ECB tr\xF9ng.");
-    if ((part.questions || []).some((question) => question.actions?.some((action) => action.type === "colour_object")) && objectIds.length < 2) {
+    if (part.interactionSchemaVersion === 1 && (part.questions || []).some((question) => question.actions?.some((action) => action.type === "colour_object")) && objectIds.length < 2) {
       errors.push("Part 5: colour_object c\u1EA7n \xEDt nh\u1EA5t hai public object \u0111\u1EC3 geometry kh\xF4ng tr\u1EDF th\xE0nh g\u1EE3i \xFD \u0111\xE1p \xE1n.");
     }
     (part.questions || []).forEach((question, questionIndex) => {
+      if (!isText(question.staffPrompt, 1e3)) errors.push(`Part 5 c\xE2u ${questionIndex + 1}: thi\u1EBFu n\u1ED9i dung.`);
       if (!question.actions?.length) errors.push(`Part 5 c\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t action.`);
       question.actions?.forEach((action, actionIndex) => {
         if (action.type === "colour_object") {
-          if (!objectIds.includes(action.correctObjectId) || !colourIds2.includes(action.correctColourId)) {
+          if (!objectIds.includes(action.correctObjectId) || !colourIds2.includes(action.correctColourId) || !studentColourIds.includes(action.correctColourId)) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: object/m\xE0u \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.`);
           }
         } else {
@@ -5211,13 +5217,22 @@ function validatePart5(part, errors) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: object \u0111\u1EB7t kh\xF4ng h\u1EE3p l\u1EC7.`);
           }
           validateRegion(action.targetRegion, `Part 5 questions[${questionIndex}].actions[${actionIndex}].targetRegion`, errors);
+          if (part.interactionSchemaVersion === 2 && action.geometryConfirmedByTeacher !== true) {
+            errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn drop-zone Draw.`);
+          }
           const correctItem = part.objectPalette.find((item) => item.id === action.correctPaletteItemId);
-          if (!correctItem || !part.objectPalette.some((item) => item.id !== correctItem.id && item.objectType === correctItem.objectType)) {
+          if (part.interactionSchemaVersion === 1 && (!correctItem || !part.objectPalette.some((item) => item.id !== correctItem.id && item.objectType === correctItem.objectType))) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}: place_object c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t l\u1EF1a ch\u1ECDn nhi\u1EC5u c\xF9ng lo\u1EA1i.`);
           }
         }
       });
     });
+    if (part.interactionSchemaVersion === 2) {
+      const usedColourIds = new Set(part.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "colour_object" ? [action.correctColourId] : [])));
+      const usedPaletteIds = new Set(part.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "place_object" ? [action.correctPaletteItemId] : [])));
+      if (!studentColourIds.some((id) => !usedColourIds.has(id))) errors.push("Part 5: palette m\xE0u c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t m\xE0u nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
+      if (!paletteIds.some((id) => !usedPaletteIds.has(id))) errors.push("Part 5: object palette c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t icon nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
+    }
     return;
   }
   if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\xF4 m\xE0u.");
@@ -5323,6 +5338,11 @@ function sanitizeListeningContentForStudent(content) {
   copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }) => question);
   const part5 = copy.parts[4];
   if (part5.displayMode === "scene-colour-draw") {
+    if (part5.interactionSchemaVersion === 2) {
+      const publicColourIds = new Set(part5.colourPaletteIds || []);
+      part5.colours = part5.colours.filter((colour) => publicColourIds.has(colour.id));
+    }
+    part5.interactiveObjects = part5.interactiveObjects.map(({ geometryConfirmedByTeacher: _confirmed, ...object }) => object);
     part5.questions = part5.questions.map((question) => ({
       id: question.id,
       questionNumber: question.questionNumber,
@@ -5375,6 +5395,7 @@ var questionNumber = (value) => {
   const parsed = integer(value);
   return parsed && parsed >= 1 && parsed <= 5 ? parsed : void 0;
 };
+var PART1_SOL_PROVIDER_ID = "stali:gpt-5.6-sol";
 function parseJson3(text3) {
   const trimmed = text3.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
@@ -5387,20 +5408,707 @@ function parseJson3(text3) {
     return JSON.parse(object.trim());
   }
 }
+function providerFailureDetails(reason) {
+  const rawDetails = Array.isArray(reason?.details) ? reason.details : Array.isArray(reason?.details?.providers) ? reason.details.providers : [];
+  const details = rawDetails.map((value) => cleanText(value, 300)).filter(Boolean).slice(0, 5);
+  if (!details.length) {
+    const fallback = cleanText(reason?.message || reason || "Nh\xE0 cung c\u1EA5p AI kh\xF4ng kh\u1EA3 d\u1EE5ng.", 300);
+    if (fallback) details.push(fallback);
+  }
+  return details;
+}
+function providerFailureError(reason, part, schemaName, signal) {
+  const aborted = signal?.aborted || reason?.name === "AbortError";
+  const error = new Error(aborted ? `Smart Import Part ${part} \u0111\xE3 b\u1ECB h\u1EE7y do qu\xE1 th\u1EDDi gian x\u1EED l\xFD.` : `Nh\xE0 cung c\u1EA5p AI kh\xF4ng ho\xE0n t\u1EA5t ph\xE2n t\xEDch Part ${part}. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`);
+  const upstreamStatus = Number(reason?.status);
+  error.status = aborted ? 504 : upstreamStatus === 503 || upstreamStatus === 504 ? upstreamStatus : 502;
+  error.details = providerFailureDetails(reason);
+  error.code = aborted ? "LISTENING_SMART_IMPORT_TIMEOUT" : "LISTENING_SMART_IMPORT_PROVIDER_FAILED";
+  error.schemaName = schemaName;
+  return error;
+}
+var textSchema = (maxLength = 1e3) => ({ type: "string", maxLength });
+var numberSchema = { type: "number", minimum: 0, maximum: 1 };
+var pointSchema = {
+  type: "object",
+  properties: { x: numberSchema, y: numberSchema },
+  required: ["x", "y"],
+  additionalProperties: false
+};
+var regionSchema = {
+  type: "object",
+  properties: {
+    shape: { type: "string", enum: ["rect", "ellipse", "polygon"] },
+    x: numberSchema,
+    y: numberSchema,
+    width: numberSchema,
+    height: numberSchema,
+    points: { type: "array", items: pointSchema, maxItems: 80 }
+  },
+  required: ["shape", "x", "y", "width", "height"],
+  additionalProperties: false
+};
+var cropSchema = {
+  type: "object",
+  properties: { x: numberSchema, y: numberSchema, width: numberSchema, height: numberSchema },
+  required: ["x", "y", "width", "height"],
+  additionalProperties: false
+};
+function responseSchemaFor(part) {
+  const numbered = { type: "integer", minimum: 1, maximum: 5 };
+  if (part === 1) return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      questionScene: regionSchema,
+      positionScene: regionSchema,
+      printedNames: { type: "array", items: { type: "object", properties: { label: textSchema(120) }, required: ["label"], additionalProperties: false }, maxItems: 12 },
+      example: { type: "object", properties: { label: textSchema(120), targetEndpoint: pointSchema, coordinateRole: { type: "string", enum: ["question", "position_key"] } }, required: ["label"], additionalProperties: false },
+      targets: { type: "array", items: { type: "object", properties: { targetNumber: numbered, visualLabel: textSchema(120), targetEndpoint: pointSchema, coordinateRole: { type: "string", enum: ["question", "position_key"] }, confidence: numberSchema }, required: ["targetNumber", "visualLabel"], additionalProperties: false }, maxItems: 5 },
+      answerMappings: { type: "array", items: { type: "object", properties: { targetNumber: numbered, visualLabel: textSchema(120), choiceLabel: textSchema(120) }, required: ["targetNumber", "choiceLabel"], additionalProperties: false }, maxItems: 5 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["printedNames", "targets", "answerMappings", "warnings"]
+  };
+  if (part === 2) return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      heading: textSchema(200),
+      instruction: textSchema(500),
+      exampleText: textSchema(500),
+      illustrationCrop: cropSchema,
+      questions: { type: "array", items: { type: "object", properties: { questionNumber: numbered, prompt: textSchema() }, required: ["questionNumber", "prompt"], additionalProperties: false }, maxItems: 5 },
+      answers: { type: "array", items: { type: "object", properties: { questionNumber: numbered, correctAnswer: textSchema(300), answerVariants: { type: "array", items: textSchema(300), maxItems: 8 } }, required: ["questionNumber"], additionalProperties: false }, maxItems: 5 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["questions", "answers", "warnings"]
+  };
+  if (part === 3) return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      questionAnswers: { type: "array", items: { type: "object", properties: { label: textSchema(160), region: regionSchema, leftAnchorOffset: numberSchema, rightAnchorOffset: numberSchema }, required: ["label"], additionalProperties: false }, maxItems: 7 },
+      questionPictures: { type: "array", items: { type: "object", properties: { label: textSchema(160), side: { type: "string", enum: ["left", "right"] }, row: { type: "integer", minimum: 1, maximum: 3 }, region: regionSchema, anchorOffset: numberSchema }, required: ["side", "row"], additionalProperties: false }, maxItems: 6 },
+      questionExample: { type: "object", properties: { answerLabel: textSchema(160), pictureSide: { type: "string", enum: ["left", "right"] }, pictureRow: { type: "integer", minimum: 1, maximum: 3 }, renderOverlayLine: { type: "boolean" } }, required: ["answerLabel", "pictureSide", "pictureRow"], additionalProperties: false },
+      answerKeyCells: { type: "array", items: { type: "object", properties: { answerLabel: textSchema(160), side: { type: "string", enum: ["left", "right"] }, row: { type: "integer", minimum: 1, maximum: 3 } }, required: ["answerLabel", "side", "row"], additionalProperties: false }, maxItems: 6 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["questionAnswers", "questionPictures", "answerKeyCells", "warnings"]
+  };
+  if (part === 4) return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      example: { type: "object", properties: { prompt: textSchema(), crops: { type: "array", items: cropSchema, maxItems: 3 }, answer: { type: "string", enum: ["A", "B", "C"] } }, required: ["prompt"], additionalProperties: false },
+      questions: { type: "array", items: { type: "object", properties: { questionNumber: numbered, prompt: textSchema(), crops: { type: "array", items: cropSchema, maxItems: 3 } }, required: ["questionNumber", "prompt"], additionalProperties: false }, maxItems: 5 },
+      answers: { type: "array", items: { type: "object", properties: { questionNumber: numbered, answer: { type: "string", enum: ["A", "B", "C"] } }, required: ["questionNumber", "answer"], additionalProperties: false }, maxItems: 5 },
+      orderedFallbackEvidence: { type: "string", enum: ["single-row", "single-column"] },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["questions", "answers", "warnings"]
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      paletteItems: { type: "array", items: { type: "object", properties: { objectType: textSchema(120), label: textSchema(160), color: textSchema(80) }, required: ["objectType", "label"], additionalProperties: false }, maxItems: 30 },
+      questions: { type: "array", items: { type: "object", properties: { questionNumber: numbered, prompt: textSchema(), actions: { type: "array", items: { type: "object", properties: { type: { type: "string", enum: ["colour_object", "place_object"] }, objectLabel: textSchema(160), objectType: textSchema(120), correctColor: textSchema(80), color: textSchema(80), targetRegion: regionSchema, relationLabel: textSchema(240), confidence: numberSchema }, required: ["type"], additionalProperties: false }, maxItems: 10 } }, required: ["questionNumber", "prompt", "actions"], additionalProperties: false }, maxItems: 5 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["paletteItems", "questions", "warnings"]
+  };
+}
+function part3PassSchema(pass) {
+  if (pass === "question") return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      questionAnswers: {
+        type: "array",
+        minItems: 7,
+        maxItems: 7,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: { label: textSchema(160), region: regionSchema, leftAnchorOffset: numberSchema, rightAnchorOffset: numberSchema },
+          required: ["label", "region"]
+        }
+      },
+      questionPictures: {
+        type: "array",
+        minItems: 6,
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: { label: textSchema(160), side: { type: "string", enum: ["left", "right"] }, row: { type: "integer", minimum: 1, maximum: 3 }, region: regionSchema, anchorOffset: numberSchema },
+          required: ["side", "row", "region"]
+        }
+      },
+      questionExample: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          resolved: { type: "boolean" },
+          lineEvidence: { type: "string", enum: ["printed-line"] },
+          answerLabel: textSchema(160),
+          pictureSide: { type: "string", enum: ["left", "right"] },
+          pictureRow: { type: "integer", minimum: 1, maximum: 3 },
+          confidence: numberSchema,
+          renderOverlayLine: { type: "boolean" }
+        },
+        required: ["resolved"]
+      },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["questionAnswers", "questionPictures", "questionExample", "warnings"]
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      layoutEvidence: { type: "string", enum: ["three-rows-two-columns"] },
+      answerKeyCells: {
+        type: "array",
+        minItems: 5,
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: { answerLabel: textSchema(160), side: { type: "string", enum: ["left", "right"] }, row: { type: "integer", minimum: 1, maximum: 3 } },
+          required: ["answerLabel", "side", "row"]
+        }
+      },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["layoutEvidence", "answerKeyCells", "warnings"]
+  };
+}
+function promptForPart3QuestionPass() {
+  return `You inspect only ROLE question for Cambridge Movers Listening Part 3. Return only JSON and never technical IDs.
+The worksheet always contains exactly seven answer labels in the centre, exactly three picture regions on the left, exactly three picture regions on the right, and exactly one pre-drawn printed example line.
+Find the example ONLY by visually tracing that existing line on ROLE question. Do not infer it from answer order, typography, likely meaning, or any answer-key convention. Return questionExample.resolved=false if the printed line cannot be traced confidently; never guess.
+For the traced line return lineEvidence="printed-line", the centre answer label it touches, the picture side and row it touches, and confidence. Do not return endpoints or line geometry. Rows are top=1, middle=2, bottom=3 independently on each side.
+Return all seven questionAnswers with normalized regions, all six questionPictures with normalized regions, questionExample, and warnings. The printed example line is already visible on the background, so renderOverlayLine must be false.`;
+}
+function promptForPart3AnswerKeyPass(questionRaw) {
+  const example = questionRaw?.questionExample;
+  const verifiedExample = `${cleanText(example?.answerLabel, 160)} -> ${cleanText(example?.pictureSide, 20)} row ${integer(example?.pictureRow) || "?"}`;
+  const labels = list(questionRaw?.questionAnswers).map((entry) => cleanText(entry?.label, 160)).filter(Boolean).join(", ");
+  return `You inspect only ROLE answer_key for Cambridge Movers Listening Part 3. Return only JSON and never technical IDs.
+Read the key as a spatial grid, never as linear OCR order: left column top/middle/bottom maps to left picture rows 1/2/3; right column top/middle/bottom maps to right picture rows 1/2/3.
+The example was independently verified from the printed line on ROLE question as: ${verifiedExample}. The seven allowed labels are: ${labels}.
+The answer key may contain all six picture cells including the example, or only the five scored cells. Preserve each cell's side and row. Do not select or change the example from this image. Do not shift rows when a cell is missing. Return layoutEvidence="three-rows-two-columns", answerKeyCells, and warnings.`;
+}
+function validatePart3QuestionResponse(raw) {
+  const answers = list(raw?.questionAnswers);
+  const pictures = list(raw?.questionPictures);
+  const answerRows = answers.flatMap((entry) => {
+    const label = cleanText(entry?.label, 160);
+    const region = normalizedRegion(entry?.region || entry);
+    return label && region ? [{ label, region }] : [];
+  });
+  const pictureRows = pictures.flatMap((entry) => {
+    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+    const row = integer(entry?.row);
+    const region = normalizedRegion(entry?.region || entry);
+    return side && row && row >= 1 && row <= 3 && region ? [{ side, row, region }] : [];
+  });
+  const issues = [];
+  if (answerRows.length !== 7 || new Set(answerRows.map((entry) => comparable(entry.label))).size !== 7) issues.push("questionAnswers ph\u1EA3i c\xF3 \u0111\xFAng 7 label/region duy nh\u1EA5t");
+  const pictureSlots = pictureRows.map((entry) => `${entry.side}:${entry.row}`);
+  if (pictureRows.length !== 6 || new Set(pictureSlots).size !== 6) issues.push("questionPictures ph\u1EA3i c\xF3 \u0111\xFAng left/right x row 1..3");
+  const example = raw?.questionExample;
+  const exampleLabel = cleanText(example?.answerLabel, 160);
+  const exampleSide = example?.pictureSide === "left" || example?.pictureSide === "right" ? example.pictureSide : void 0;
+  const exampleRow = integer(example?.pictureRow);
+  const answer = answerRows.find((entry) => comparable(entry.label) === comparable(exampleLabel));
+  const picture = pictureRows.find((entry) => entry.side === exampleSide && entry.row === exampleRow);
+  if (example?.resolved !== true || example?.lineEvidence !== "printed-line" || !answer || !picture) {
+    issues.push("questionExample ch\u01B0a ch\u1EE9ng minh \u0111\u01B0\u1EE3c \u0111\xFAng m\u1ED9t printed line t\u1EEB answer t\u1EDBi picture");
+  }
+  const confidence = Number(example?.confidence);
+  if (!Number.isFinite(confidence) || confidence < 0.55) issues.push("confidence c\u1EE7a printed example line qu\xE1 th\u1EA5p");
+  return issues.length ? issues.join("; ") : void 0;
+}
+function validatePart3AnswerKeyResponse(raw, questionRaw) {
+  const issues = [];
+  if (raw?.layoutEvidence !== "three-rows-two-columns") issues.push("answer key thi\u1EBFu evidence b\u1ED1 c\u1EE5c ba h\xE0ng hai c\u1ED9t");
+  const allowedLabels = new Set(list(questionRaw?.questionAnswers).map((entry) => comparable(entry?.label)).filter(Boolean));
+  const cells = list(raw?.answerKeyCells).flatMap((entry) => {
+    const label = cleanText(entry?.answerLabel, 160);
+    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+    const row = integer(entry?.row);
+    return label && side && row && row >= 1 && row <= 3 ? [{ label, side, row, slot: `${side}:${row}` }] : [];
+  });
+  if (![5, 6].includes(cells.length)) issues.push("answerKeyCells ph\u1EA3i c\xF3 \u0111\xFAng 5 scored cells ho\u1EB7c \u0111\u1EE7 6 cells g\u1ED3m example");
+  if (new Set(cells.map((cell) => cell.slot)).size !== cells.length) issues.push("answer key b\u1ECB tr\xF9ng side+row");
+  if (new Set(cells.map((cell) => comparable(cell.label))).size !== cells.length) issues.push("answer key b\u1ECB tr\xF9ng label");
+  if (cells.some((cell) => !allowedLabels.has(comparable(cell.label)))) issues.push("answer key ch\u1EE9a label kh\xF4ng c\xF3 tr\xEAn \u1EA3nh \u0111\u1EC1");
+  return issues.length ? issues.join("; ") : void 0;
+}
+function part1PassSchema(pass) {
+  const numbered = { type: "integer", minimum: 1, maximum: 5 };
+  if (pass === "content") return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      questionScene: regionSchema,
+      printedNames: { type: "array", items: { type: "object", properties: { label: textSchema(120) }, required: ["label"], additionalProperties: false }, maxItems: 12 },
+      example: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: textSchema(120),
+          labelPoint: pointSchema,
+          targetPoint: pointSchema,
+          confidence: numberSchema
+        },
+        required: ["label", "labelPoint", "targetPoint"]
+      },
+      answerMappings: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            targetNumber: numbered,
+            printedName: textSchema(120),
+            visualDescription: textSchema(200),
+            questionSubjectRegion: regionSchema,
+            questionActionRegion: regionSchema,
+            questionTargetPoint: pointSchema,
+            confidence: numberSchema
+          },
+          required: ["targetNumber", "printedName"]
+        }
+      },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["questionScene", "printedNames", "example", "answerMappings", "warnings"]
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      positionScene: regionSchema,
+      example: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: textSchema(120),
+          lineEndpoints: { type: "array", items: pointSchema, minItems: 2, maxItems: 2 },
+          confidence: numberSchema
+        },
+        required: ["label", "lineEndpoints", "confidence"]
+      },
+      resolvedTargets: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            targetNumber: numbered,
+            printedName: textSchema(120),
+            visualDescription: textSchema(200),
+            lineEndpoints: { type: "array", items: pointSchema, minItems: 2, maxItems: 2 },
+            questionActionRegion: regionSchema,
+            questionTargetPoint: pointSchema,
+            confidence: numberSchema
+          },
+          required: ["targetNumber", "printedName", "lineEndpoints", "questionActionRegion"]
+        }
+      },
+      unresolvedTargetNumbers: { type: "array", items: numbered, maxItems: 5 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["positionScene", "example", "resolvedTargets", "unresolvedTargetNumbers", "warnings"]
+  };
+}
+function part1GeometryContext(contentRaw) {
+  const mappings = list(contentRaw?.answerMappings).flatMap((entry) => {
+    const targetNumber = questionNumber(entry?.targetNumber);
+    const printedName = cleanText(entry?.printedName || entry?.choiceLabel || entry?.answer, 120);
+    if (!targetNumber || !printedName) return [];
+    const visualDescription = cleanText(entry?.visualDescription || entry?.visualLabel, 200);
+    return [{ targetNumber, printedName, ...visualDescription ? { visualDescription } : {} }];
+  });
+  return {
+    printedNames: list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean),
+    mappings
+  };
+}
+function part1QuestionVerificationSchema() {
+  const numbered = { type: "integer", minimum: 1, maximum: 5 };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      label: textSchema(120),
+      labelPoint: pointSchema,
+      targetPoint: pointSchema,
+      confidence: numberSchema,
+      targets: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            targetNumber: numbered,
+            visualDescription: textSchema(200),
+            questionSubjectRegion: regionSchema,
+            questionActionRegion: regionSchema,
+            confidence: numberSchema
+          },
+          required: ["targetNumber", "visualDescription", "questionSubjectRegion", "questionActionRegion", "confidence"]
+        }
+      },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["label", "labelPoint", "targetPoint", "confidence", "targets", "warnings"]
+  };
+}
+function part1SolExampleVerificationSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      label: textSchema(120),
+      labelPoint: pointSchema,
+      targetPoint: pointSchema,
+      confidence: numberSchema,
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["label", "labelPoint", "targetPoint", "confidence", "warnings"]
+  };
+}
+function part1SolGeometrySchema() {
+  const numbered = { type: "integer", minimum: 1, maximum: 5 };
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      resolvedTargets: {
+        type: "array",
+        maxItems: 5,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            targetNumber: numbered,
+            printedName: textSchema(120),
+            questionTargetPoint: pointSchema,
+            confidence: numberSchema
+          },
+          required: ["targetNumber", "printedName", "questionTargetPoint", "confidence"]
+        }
+      },
+      unresolvedTargetNumbers: { type: "array", items: numbered, maxItems: 5 },
+      warnings: { type: "array", items: textSchema(500) }
+    },
+    required: ["resolvedTargets", "unresolvedTargetNumbers", "warnings"]
+  };
+}
+function promptForPart1QuestionVerification(contentRaw) {
+  const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
+  const mappings = part1GeometryContext(contentRaw).mappings;
+  return `Independently verify geometry on only the clean ROLE question image for Cambridge Movers Listening Part 1. Return only JSON matching the schema. Never return UUIDs or technical/database IDs. The visible names are ${JSON.stringify(printedNames)}. The five numbered visual descriptions are ${JSON.stringify(mappings)}. Exactly one visible name has a pre-drawn sample line: return that name as label, labelPoint beside its printed text outside the illustrated scene, and targetPoint at the other physical end inside the scene. Do not inherit an example guess from another pass.
+For every targetNumber 1..5, copy visualDescription unchanged, tightly bound the primary person in questionSubjectRegion and tightly bound only the small visible action/contact landmark in questionActionRegion. The action landmark is where a small answer box belongs: banana at mouth, apple at hand/horse mouth, rabbit being held, reaching hands while chasing, pencil/paper while drawing, or the analogous landmark stated by visualDescription. Never use a whole body, torso, feet, secondary object or empty ground as questionActionRegion. The action region may sit immediately beside the primary person's body. Coordinates are normalized 0..1 relative to the complete ROLE question image, never relative to the illustrated-scene crop. Never return technical IDs. Use warnings rather than guessing.`;
+}
+function promptForPart1SolExampleVerification(contentRaw) {
+  const printedNames = part1GeometryContext(contentRaw).printedNames;
+  return `Inspect only IMAGE 1 (ROLE question). Visible names: ${JSON.stringify(printedNames)}.
+Find the one printed name that already has a sample line on IMAGE 1. Return that label, a point beside its printed text, and the other endpoint of the same line inside the picture. Coordinates are normalized to the complete IMAGE 1. Do not inspect the five scored targets in this step.`;
+}
+function promptForPart1SolGeometry(contentRaw) {
+  const context = part1GeometryContext(contentRaw).mappings;
+  return `IMAGE 1 is ROLE question, IMAGE 2 is ROLE answer_key, and IMAGE 3 is ROLE position_key.
+Verified mappings: ${JSON.stringify(context)}.
+Use IMAGES 2 and 3 to identify the correct person for each mapping, then locate that same person on IMAGE 1. On IMAGE 3, follow the line from printedName to its person-side endpoint; never use the name-side endpoint. Return questionTargetPoint at the equivalent point on IMAGE 1, normalized to the complete IMAGE 1.
+Do not re-read or change names, target numbers, descriptions, answers, or the example. Return only targets 1..5; exclude the example. If one target is uncertain, put only its number in unresolvedTargetNumbers instead of guessing.`;
+}
+function promptForPart1Pass(pass, contentRaw) {
+  const common = "You extract structured data for Cambridge Movers Listening Part 1. Each attached image is explicitly preceded by its technical ROLE label. Never use audio or transcript. Return only JSON matching the supplied schema. Coordinates are normalized 0..1 relative to the complete image for the named role. Never return UUIDs or technical/database/question/choice/target IDs. Do not guess unreadable text or geometry; use warnings and unresolvedTargetNumbers.";
+  if (pass === "content") return `${common}
+Only ROLE question and ROLE answer_key are supplied. From question, detect every printed name. The example is not an unused-name guess: it is the one printed name that already has a visible pre-drawn sample line on ROLE question. Return its labelPoint beside the printed name and targetPoint at the other end inside the illustrated scene. Detect all visible names first, prove and remove that example, and leave exactly six draggable choices. From each numbered answer-key line, printedName is only the person's printed name immediately after the number (for example "1 Paul and the boy..." means printedName="Paul"); visualDescription is the remaining description of the destination person/picture. Return exactly five mappings keyed by targetNumber 1..5. Never put the visual description in printedName. On the clean ROLE question image, questionSubjectRegion tightly bounds the primary person described by visualDescription. questionActionRegion tightly bounds only the small visible action/contact landmark where an answer box belongs, such as banana at mouth, apple at hand/horse mouth, rabbit being held, reaching hands while chasing, or pencil/paper while drawing. questionActionRegion must not be the whole person, torso, feet or empty ground. questionTargetPoint, when returned, is the centre of questionActionRegion. The action region may be immediately beside questionSubjectRegion but must remain near that primary person. When a secondary object is mentioned, keep questionSubjectRegion on the primary person ("girl chasing the sheep" means the girl; "boy giving an apple to the horse" means the boy). Return questionScene around only the illustrated scene and exclude every printed-name band. Every coordinate is relative to the complete ROLE question image, not relative to questionScene. Do not use ROLE answer_key for coordinates; omit uncertain optional localization fields and add a warning rather than selecting a different subject.`;
+  const context = JSON.stringify(part1GeometryContext(contentRaw));
+  return `${common}
+ROLE question, ROLE answer_key and ROLE position_key are supplied together for cross-image verification. ROLE position_key is the only source for completed line geometry; ROLE question is the canonical coordinate target and ROLE answer_key confirms the five name/description mappings.
+The verified names and numbered answer mappings are: ${context}
+For each numbered mapping, follow the line associated with printedName in position_key. Return printedName and visualDescription unchanged from the verified context. Return both physical line endpoints in lineEndpoints, in position_key coordinates. The endpoint beside the printed name is NOT the target. The target endpoint is the other endpoint, inside the illustrated scene and touching or nearest the person/picture. This is not always the lower endpoint because some printed names are below the scene.
+Independently inspect ROLE question for the single pre-drawn example line. Do not inherit or guess an example from the content pass. Return example.label plus both endpoints of that one visible line in complete ROLE question coordinates; one endpoint must be beside the printed name outside questionScene and the other must be inside questionScene.
+Use visualDescription to confirm the subject reached by the physical line. After tracing the endpoint on position_key, locate the same exact contact/action landmark on ROLE question. questionActionRegion must tightly bound only that small landmark (banana at mouth, apple at hand/horse mouth, rabbit being held, reaching hands while chasing, or pencil/paper while drawing), never a whole person, torso, feet or empty ground. questionTargetPoint, when returned, is the centre of questionActionRegion. A contact landmark may sit immediately beside the primary person's body. When visualDescription mentions a secondary object, retain the primary person's action landmark: for example use the chasing girl's reaching hands rather than the sheep, and the boy's apple/hand rather than the horse's body. Coordinates for questionActionRegion and questionTargetPoint are relative to the complete ROLE question image, not questionScene and not position_key. positionScene must bound the illustrated scene only, excluding the printed-name bands. Return resolvedTargets keyed by targetNumber, and put uncertain numbers in unresolvedTargetNumbers. Handle the example separately and never count it among the five scored targets.`;
+}
+function promptForPart5Content() {
+  return `Return only JSON matching the supplied schema. Three role-labelled images are supplied: ROLE question is the clean image shown to students, ROLE answer_key is the authoritative source for the five numbered Colour/Draw instructions, and ROLE position_key shows the completed answer positions on the same scene. Transcribe every numbered instruction from ROLE answer_key and always return all of its logical actions; one question may contain several actions. A Colour action must keep objectLabel and correctColor from the instruction. A Draw action must keep objectType, optional color and relationLabel even when its position is uncertain. Never omit an action merely because targetRegion is uncertain: omit only targetRegion and add a warning. The already-coloured illustration on ROLE question is the unscored example, never an action or palette item. paletteItems contains only Draw objects, not printed colour swatches and not invented distractors. Use only these colour labels: ${MOVER_COLOUR_CATALOG.map((colour) => colour.label).join(", ")}. For every place_object, compare position_key with question and, when certain, return a normalized rectangular targetRegion in complete ROLE question coordinates around the intended placement (for example the lamp location on the bedside table or the toy plane location between the boys). Do not return geometry for colour_object because the teacher paints those masks. Never return technical IDs. Never use audio or transcript. Add warnings instead of guessing uncertain content or Draw position.`;
+}
+function validatePart5ContentResponse(raw, attempt) {
+  if (attempt > 1) return void 0;
+  const questions = list(raw?.questions);
+  const issues = [];
+  const seenNumbers = /* @__PURE__ */ new Set();
+  questions.forEach((question) => {
+    const number2 = Number(question?.questionNumber);
+    if (!Number.isInteger(number2) || number2 < 1 || number2 > 5 || seenNumbers.has(number2)) {
+      issues.push("questionNumber ph\u1EA3i duy nh\u1EA5t trong 1..5");
+      return;
+    }
+    seenNumbers.add(number2);
+    const actions = list(question?.actions);
+    if (!actions.length) issues.push(`c\xE2u ${number2} thi\u1EBFu action`);
+    actions.forEach((action) => {
+      if (action?.type === "colour_object" && (!cleanText(action?.objectLabel, 160) || !catalogColourLabel(action?.correctColor || action?.color))) {
+        issues.push(`c\xE2u ${number2} c\xF3 Colour thi\u1EBFu objectLabel/correctColor`);
+      }
+      if (action?.type === "place_object" && !cleanText(action?.objectType, 120)) issues.push(`c\xE2u ${number2} c\xF3 Draw thi\u1EBFu objectType`);
+    });
+  });
+  if (seenNumbers.size !== 5) issues.push(`ch\u1EC9 nh\u1EADn ${seenNumbers.size}/5 c\xE2u`);
+  return issues.length ? [...new Set(issues)].join("; ") : void 0;
+}
+var normalizedCoordinate = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return Number.NaN;
+  return numeric > 1 && numeric <= 1e3 ? numeric / 1e3 : numeric;
+};
 function normalizedRect(value, minimum = 5e-3) {
-  const x = Number(value?.x);
-  const y = Number(value?.y);
-  const width = Number(value?.width);
-  const height = Number(value?.height);
+  const source = value?.boundingBox || value?.bbox || value;
+  if (Array.isArray(value?.box_2d) && value.box_2d.length === 4) {
+    const [top, left, bottom2, right2] = value.box_2d.map(normalizedCoordinate);
+    return normalizedRect({ x: left, y: top, width: right2 - left, height: bottom2 - top }, minimum);
+  }
+  const x = normalizedCoordinate(source?.x ?? source?.left);
+  const y = normalizedCoordinate(source?.y ?? source?.top);
+  const right = normalizedCoordinate(source?.right);
+  const bottom = normalizedCoordinate(source?.bottom);
+  const width = Number.isFinite(right) ? right - x : normalizedCoordinate(source?.width);
+  const height = Number.isFinite(bottom) ? bottom - y : normalizedCoordinate(source?.height);
   const region = { shape: value?.shape === "ellipse" ? "ellipse" : "rect", x, y, width, height };
   return width >= minimum && height >= minimum && isValidListeningRegion(region) ? region : void 0;
 }
 function normalizedRegion(value) {
-  if (value?.shape === "polygon" || Array.isArray(value?.points)) {
-    const points = list(value?.points).slice(0, 80).map((point) => ({ x: Number(point?.x), y: Number(point?.y) }));
+  if (value?.shape === "polygon" || !value?.shape && Array.isArray(value?.points) && value.points.length > 0) {
+    const points = list(value?.points).slice(0, 80).map((point) => ({ x: normalizedCoordinate(point?.x), y: normalizedCoordinate(point?.y) }));
     return regionFromPolygon(points) || void 0;
   }
   return normalizedRect(value);
+}
+function normalizedPoint(value) {
+  const x = normalizedCoordinate(value?.x);
+  const y = normalizedCoordinate(value?.y);
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : void 0;
+}
+function pointNearListeningRegion(point, region, margin = 0.035) {
+  return pointInListeningRegion(point, region) || point.x >= region.x - margin && point.x <= region.x + region.width + margin && point.y >= region.y - margin && point.y <= region.y + region.height + margin;
+}
+function part1QuestionActionPoint(entry) {
+  const actionRegion = normalizedRegion(entry?.questionActionRegion);
+  if (actionRegion && actionRegion.width <= 0.18 && actionRegion.height <= 0.18) {
+    return {
+      x: actionRegion.x + actionRegion.width / 2,
+      y: actionRegion.y + actionRegion.height / 2
+    };
+  }
+  return normalizedPoint(entry?.questionTargetPoint);
+}
+function hasSafePart1QuestionLocation(entry, questionScene) {
+  const point = part1QuestionActionPoint(entry);
+  const subjectRegion = normalizedRegion(entry?.questionSubjectRegion);
+  return Boolean(
+    questionScene && point && subjectRegion && subjectRegion.width <= 0.35 && subjectRegion.height <= 0.5 && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp(entry?.confidence, 0) >= 0.85 && pointInListeningRegion(point, questionScene) && pointNearListeningRegion(point, subjectRegion, 0.08)
+  );
+}
+function part1TransformedGeometryPoint(entry, expectedEntry, questionScene, positionScene) {
+  const expectedPoint = part1QuestionActionPoint(expectedEntry);
+  const subjectRegion = normalizedRegion(expectedEntry?.questionSubjectRegion);
+  const endpoints = list(entry?.lineEndpoints).map(normalizedPoint).filter(Boolean);
+  if (!expectedPoint || !subjectRegion || endpoints.length !== 2 || !questionScene || !positionScene) return void 0;
+  const inside = endpoints.filter((point) => pointInListeningRegion(point, positionScene));
+  if (inside.length !== 1) return void 0;
+  const transformed = transformListeningPoint(inside[0], positionScene, questionScene);
+  return transformed && pointInListeningRegion(transformed, questionScene) && pointNearListeningRegion(transformed, subjectRegion, 0.08) && part1PointDistance(transformed, expectedPoint) <= 0.12 ? transformed : void 0;
+}
+function part1GeometryEvidenceIsUsable(entry, expectedEntry, questionScene, positionScene) {
+  return Boolean(part1TransformedGeometryPoint(entry, expectedEntry, questionScene, positionScene));
+}
+function validatePart1ContentResponse(raw) {
+  const questionScene = normalizedRegion(raw?.questionScene);
+  const names = list(raw?.printedNames).map((value) => cleanText(value?.label ?? value?.name ?? value, 120)).filter(Boolean);
+  const exampleLabel = cleanText(raw?.example?.label || raw?.exampleLabel, 120);
+  const exampleLabelPoint = normalizedPoint(raw?.example?.labelPoint);
+  const exampleTargetPoint = normalizedPoint(raw?.example?.targetPoint);
+  const choices = names.filter((name) => comparable(name) !== comparable(exampleLabel));
+  const mappings = list(raw?.answerMappings);
+  const issues = [];
+  if (!exampleLabel || names.length !== 7 || choices.length !== 6 || new Set(names.map(comparable)).size !== 7) {
+    issues.push("content ph\u1EA3i c\xF3 b\u1EA3y printedNames duy nh\u1EA5t, g\u1ED3m m\u1ED9t example v\xE0 s\xE1u choices");
+  }
+  if (!questionScene) issues.push("content ph\u1EA3i c\xF3 questionScene h\u1EE3p l\u1EC7, kh\xF4ng g\u1ED3m d\u1EA3i t\xEAn");
+  if (!exampleLabelPoint || !exampleTargetPoint || !questionScene || pointInListeningRegion(exampleLabelPoint, questionScene) || !pointInListeningRegion(exampleTargetPoint, questionScene)) {
+    issues.push("example ph\u1EA3i \u0111\u01B0\u1EE3c ch\u1EE9ng minh b\u1EB1ng labelPoint ngo\xE0i scene v\xE0 targetPoint trong scene c\u1EE7a \u0111\u01B0\u1EDDng m\u1EABu c\xF3 s\u1EB5n");
+  }
+  const seenNumbers = /* @__PURE__ */ new Set();
+  const seenNames = /* @__PURE__ */ new Set();
+  mappings.forEach((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    const printedName = cleanText(entry?.printedName || entry?.choiceLabel, 120);
+    const key = comparable(printedName);
+    if (!number2 || seenNumbers.has(number2)) issues.push("targetNumber mapping thi\u1EBFu ho\u1EB7c tr\xF9ng");
+    else seenNumbers.add(number2);
+    if (!key || seenNames.has(key) || !choices.some((choice) => comparable(choice) === key)) issues.push("printedName mapping ph\u1EA3i kh\u1EDBp duy nh\u1EA5t m\u1ED9t choice kh\xF4ng ph\u1EA3i example");
+    else seenNames.add(key);
+  });
+  if (mappings.length !== 5 || seenNumbers.size !== 5 || seenNames.size !== 5) issues.push("content ph\u1EA3i c\xF3 \u0111\xFAng n\u0103m mapping \u0111\xE1nh s\u1ED1");
+  return issues.length ? [...new Set(issues)].join("; ") : void 0;
+}
+function verifiedPart1GeometryExample(raw, contentRaw, questionScene) {
+  const label = cleanText(raw?.example?.label, 120);
+  const expectedLabel = cleanText(contentRaw?.example?.label, 120);
+  const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
+  const endpoints = list(raw?.example?.lineEndpoints).map(normalizedPoint).filter(Boolean);
+  if (!label || !expectedLabel || comparable(label) !== comparable(expectedLabel) || !printedNames.some((name) => comparable(name) === comparable(label)) || !questionScene || endpoints.length !== 2 || clamp(raw?.example?.confidence, 0) < 0.8) return void 0;
+  const inside = endpoints.filter((point) => pointInListeningRegion(point, questionScene));
+  if (inside.length !== 1) return void 0;
+  return { label, targetPoint: inside[0], confidence: clamp(raw?.example?.confidence, 0.8) };
+}
+function verifiedPart1QuestionExample(raw, contentRaw) {
+  const questionScene = normalizedRegion(contentRaw?.questionScene);
+  const label = cleanText(raw?.label, 120);
+  const labelPoint = normalizedPoint(raw?.labelPoint);
+  const targetPoint = normalizedPoint(raw?.targetPoint);
+  const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
+  if (!questionScene || !label || !labelPoint || !targetPoint || !printedNames.some((name) => comparable(name) === comparable(label)) || clamp(raw?.confidence, 0) < 0.8 || pointInListeningRegion(labelPoint, questionScene) || !pointInListeningRegion(targetPoint, questionScene)) return void 0;
+  return { label, targetPoint, confidence: clamp(raw?.confidence, 0.8) };
+}
+function validatePart1QuestionVerification(raw, contentRaw) {
+  const issues = [];
+  const questionScene = normalizedRegion(contentRaw?.questionScene);
+  if (!verifiedPart1QuestionExample(raw, contentRaw)) {
+    issues.push("kh\xF4ng ch\u1EE9ng minh \u0111\u01B0\u1EE3c duy nh\u1EA5t t\xEAn example b\u1EB1ng \u0111\u01B0\u1EDDng m\u1EABu tr\xEAn \u1EA3nh \u0111\u1EC1");
+  }
+  const expected = new Map(list(contentRaw?.answerMappings).flatMap((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    return number2 ? [[number2, entry]] : [];
+  }));
+  const seen = /* @__PURE__ */ new Set();
+  list(raw?.targets).forEach((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    if (!number2 || seen.has(number2) || !expected.has(number2)) {
+      issues.push("question verification c\xF3 targetNumber thi\u1EBFu, tr\xF9ng ho\u1EB7c ngo\xE0i mapping");
+      return;
+    }
+    seen.add(number2);
+    if (comparable(entry?.visualDescription) !== comparable(expected.get(number2)?.visualDescription)) {
+      issues.push(`target ${number2} kh\xF4ng gi\u1EEF \u0111\xFAng visualDescription t\u1EEB content pass`);
+    }
+    if (!hasSafePart1QuestionLocation({ ...expected.get(number2), ...entry }, questionScene)) {
+      issues.push(`target ${number2} thi\u1EBFu action landmark an to\xE0n tr\xEAn \u1EA3nh \u0111\u1EC1`);
+    }
+    const expectedSubject = normalizedRegion(expected.get(number2)?.questionSubjectRegion);
+    const verifiedSubject = normalizedRegion(entry?.questionSubjectRegion);
+    if (expectedSubject && verifiedSubject) {
+      const expectedCenter = { x: expectedSubject.x + expectedSubject.width / 2, y: expectedSubject.y + expectedSubject.height / 2 };
+      const verifiedCenter = { x: verifiedSubject.x + verifiedSubject.width / 2, y: verifiedSubject.y + verifiedSubject.height / 2 };
+      if (part1PointDistance(expectedCenter, verifiedCenter) > 0.16) {
+        issues.push(`target ${number2} l\u1EC7ch primary subject so v\u1EDBi l\u01B0\u1EE3t content \u0111\u1ED9c l\u1EADp`);
+      }
+    }
+  });
+  if (seen.size !== 5 || [1, 2, 3, 4, 5].some((number2) => !seen.has(number2))) {
+    issues.push("question verification ph\u1EA3i ph\u1EE7 \u0111\xFAng targetNumber 1..5");
+  }
+  return issues.length ? [...new Set(issues)].join("; ") : void 0;
+}
+function validatePart1SolExampleVerification(raw, contentRaw) {
+  return verifiedPart1QuestionExample(raw, contentRaw) ? void 0 : "kh\xF4ng ch\u1EE9ng minh \u0111\u01B0\u1EE3c duy nh\u1EA5t t\xEAn example b\u1EB1ng \u0111\u01B0\u1EDDng m\u1EABu tr\xEAn \u1EA3nh \u0111\u1EC1";
+}
+function validatePart1SolGeometryResponse(raw, contentRaw) {
+  const questionScene = normalizedRegion(contentRaw?.questionScene);
+  const expected = new Map(list(contentRaw?.answerMappings).flatMap((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    return number2 ? [[number2, entry]] : [];
+  }));
+  const seen = /* @__PURE__ */ new Set();
+  const issues = [];
+  if (!questionScene) issues.push("content pass thi\u1EBFu questionScene h\u1EE3p l\u1EC7");
+  list(raw?.resolvedTargets).forEach((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    if (!number2 || seen.has(number2)) {
+      issues.push("resolved targetNumber thi\u1EBFu ho\u1EB7c tr\xF9ng");
+      return;
+    }
+    seen.add(number2);
+    if (!expected.has(number2) || comparable(expected.get(number2)?.printedName) !== comparable(entry?.printedName)) {
+      issues.push(`target ${number2} kh\xF4ng gi\u1EEF \u0111\xFAng printedName t\u1EEB content pass`);
+    }
+    const point = normalizedPoint(entry?.questionTargetPoint);
+    if (!point || !questionScene || !pointInListeningRegion(point, questionScene)) {
+      issues.push(`target ${number2} thi\u1EBFu questionTargetPoint h\u1EE3p l\u1EC7 tr\xEAn \u1EA3nh \u0111\u1EC1`);
+    }
+    if (clamp(entry?.confidence, 0) < 0.7) {
+      issues.push(`target ${number2} confidence th\u1EA5p; ph\u1EA3i chuy\u1EC3n target n\xE0y sang unresolved`);
+    }
+  });
+  list(raw?.unresolvedTargetNumbers).forEach((value) => {
+    const number2 = questionNumber(value);
+    if (!number2 || seen.has(number2)) {
+      issues.push("unresolved targetNumber thi\u1EBFu, tr\xF9ng ho\u1EB7c v\u1EEBa resolved v\u1EEBa unresolved");
+      return;
+    }
+    seen.add(number2);
+  });
+  if (seen.size !== 5 || [1, 2, 3, 4, 5].some((number2) => !seen.has(number2))) {
+    issues.push("resolvedTargets v\xE0 unresolvedTargetNumbers ph\u1EA3i ph\u1EE7 \u0111\xFAng 1..5");
+  }
+  return issues.length ? [...new Set(issues)].join("; ") : void 0;
+}
+function validatePart1GeometryResponse(raw, contentRaw, requireEveryResolvedTarget = false) {
+  const questionScene = normalizedRegion(contentRaw?.questionScene);
+  const positionScene = normalizedRegion(raw?.positionScene);
+  const expected = new Map(list(contentRaw?.answerMappings).flatMap((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    return number2 ? [[number2, entry]] : [];
+  }));
+  const resolved = list(raw?.resolvedTargets);
+  const unresolved = list(raw?.unresolvedTargetNumbers).flatMap((value) => {
+    const number2 = questionNumber(value);
+    return number2 ? [number2] : [];
+  });
+  const issues = [];
+  if (!questionScene) issues.push("content pass thi\u1EBFu questionScene h\u1EE3p l\u1EC7");
+  if (!positionScene) issues.push("thi\u1EBFu positionScene h\u1EE3p l\u1EC7");
+  if (!verifiedPart1GeometryExample(raw, contentRaw, questionScene)) {
+    issues.push("example geometry ph\u1EA3i \u0111\u1ED9c l\u1EADp ch\u1EE9ng minh \u0111\xFAng t\xEAn v\xE0 m\u1ED9t endpoint ngo\xE0i/m\u1ED9t endpoint trong questionScene");
+  }
+  const seenNumbers = /* @__PURE__ */ new Set();
+  let usableResolvedTargets = 0;
+  resolved.forEach((entry) => {
+    const number2 = questionNumber(entry?.targetNumber);
+    const printedName = cleanText(entry?.printedName || entry?.choiceLabel, 120);
+    if (!number2 || seenNumbers.has(number2)) {
+      issues.push("resolved targetNumber thi\u1EBFu ho\u1EB7c tr\xF9ng");
+      return;
+    }
+    seenNumbers.add(number2);
+    if (!expected.has(number2) || comparable(expected.get(number2)?.printedName) !== comparable(printedName)) {
+      issues.push(`target ${number2} kh\xF4ng gi\u1EEF \u0111\xFAng printedName t\u1EEB content pass`);
+    }
+    if (part1GeometryEvidenceIsUsable(entry, expected.get(number2), questionScene, positionScene)) usableResolvedTargets += 1;
+    else if (requireEveryResolvedTarget) issues.push(`target ${number2} kh\xF4ng kh\u1EDBp subject/scene evidence; c\u1EA7n trace l\u1EA1i \u0111\xFAng \u0111\u01B0\u1EDDng c\u1EE7a printedName`);
+  });
+  unresolved.forEach((number2) => {
+    if (seenNumbers.has(number2)) issues.push(`target ${number2} v\u1EEBa resolved v\u1EEBa unresolved`);
+    seenNumbers.add(number2);
+  });
+  if (seenNumbers.size !== 5 || [1, 2, 3, 4, 5].some((number2) => !seenNumbers.has(number2))) {
+    issues.push("resolvedTargets v\xE0 unresolvedTargetNumbers ph\u1EA3i ph\u1EE7 \u0111\xFAng 1..5");
+  }
+  if (resolved.length && usableResolvedTargets === 0) issues.push("kh\xF4ng c\xF3 resolved target n\xE0o \u0111\u1EE7 direct point v\xE0 line/scene evidence nh\u1EA5t qu\xE1n");
+  return issues.length ? [...new Set(issues)].join("; ") : void 0;
 }
 function normalizeCrop(value) {
   const region = normalizedRect(value, 0.02);
@@ -5429,9 +6137,9 @@ ROLE question supplies optional heading/instruction, the example, and exactly fi
   if (part === 3) return `${common}
 ROLE question is the full worksheet: detect seven centre answer labels/regions with left/right anchor hints, six picture regions arranged three left and three right, and the printed example connection. ROLE answer_key is a two-column by three-row mapping; preserve side+row and do not flatten OCR order. Return questionAnswers, questionPictures, questionExample, answerKeyCells and warnings. The example is unscored and the remaining unused answer is the distractor.${pasted}`;
   if (part === 4) return `${common}
-ROLE question contains one example followed by exactly five numbered questions. Each block has three framed pictures A/B/C. Return example and questions with close picture-only crops inside frame edges, excluding A/B/C text, checkbox/tick, border and prompt. ROLE answer_key supplies only scored answers 1..5 as A/B/C; map by questionNumber, never OCR index. Only the explicit example marker on the question image may set the example answer. Return {example:{prompt,crops,answer},questions:[{questionNumber,prompt,crops}],answers:[{questionNumber,answer}],orderedFallbackEvidence?}.${pasted}`;
+ROLE question contains one example followed by exactly five numbered questions. Read only the example prompt and five numbered prompts; deterministic browser pixel code handles all picture crops, so crops may be omitted. ROLE answer_key supplies only scored answers 1..5 as A/B/C; map by questionNumber, never OCR index. Only the explicit example marker on the question image may set the example answer. Return valid JSON with example, questions, answers, orderedFallbackEvidence and warnings using exactly the supplied schema.${pasted}`;
   return `${common}
-ROLE question is the canonical student scene. ROLE answer_key supplies five numbered staff prompts and their colour/draw actions. ROLE position_key, when present, shows final object/placement locations. Detect a reviewable public set of colourable interactive objects, including plausible non-answer objects already visible in the scene. Detect the number of actions per question from evidence; never assume one action or hard-code question 1. Actions are colour_object or place_object. Colours must use only: ${MOVER_COLOUR_CATALOG.map((colour) => colour.label).join(", ")}. Return questionScene, positionScene, interactiveObjects [{label,geometry,geometrySource,confidence}], optional paletteItems explicitly visible in source, questions [{questionNumber,prompt,actions:[{type,objectLabel/objectType,correctColor,color,geometry,targetRegion,geometrySource,relationLabel,confidence}]}], warnings. Do not invent distractor palette items.${pasted}`;
+ROLE question, ROLE answer_key and ROLE position_key supply Part 5 content. Detect every colour_object/place_object action and return Draw target regions in ROLE question coordinates by comparing the completed position key with the clean question. Never return Colour masks or technical IDs; teachers paint Colour regions manually. Colours must use only: ${MOVER_COLOUR_CATALOG.map((colour) => colour.label).join(", ")}.${pasted}`;
 }
 function localNumberedLines(pastedText) {
   return pastedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
@@ -5465,9 +6173,93 @@ function normalizeNumberedEntries(values, convert, warnings, label, allowOrdered
   }
   return numbered;
 }
+var part1PointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y);
+function resolvePart1TargetPoint(entry, questionScene, positionScene, warnings, warningLabel, requirePositionEvidence = false) {
+  const explicitQuestionPoint = part1QuestionActionPoint(entry);
+  const questionSubjectRegion = normalizedRegion(entry?.questionSubjectRegion);
+  let directPoint = explicitQuestionPoint;
+  if (!directPoint && entry?.coordinateRole !== "position_key") {
+    directPoint = normalizedPoint(entry?.targetEndpoint || entry?.center || {
+      x: entry?.centerX ?? entry?.x,
+      y: entry?.centerY ?? entry?.y
+    });
+  }
+  if ((entry?.questionTargetPoint || entry?.questionActionRegion) && !explicitQuestionPoint) {
+    warnings.push(`${warningLabel}: questionActionRegion/questionTargetPoint kh\xF4ng h\u1EE3p l\u1EC7.`);
+  }
+  if (directPoint && questionScene && !pointInListeningRegion(directPoint, questionScene)) {
+    warnings.push(`${warningLabel}: questionTargetPoint n\u1EB1m ngo\xE0i questionScene.`);
+    directPoint = void 0;
+  }
+  if (requirePositionEvidence && (!questionSubjectRegion || !directPoint || !pointNearListeningRegion(directPoint, questionSubjectRegion, 0.08))) {
+    warnings.push(`${warningLabel}: \u0111i\u1EC3m \u0111\xEDch kh\xF4ng \u0111\u01B0\u1EE3c x\xE1c minh n\u1EB1m tr\xEAn ho\u1EB7c s\xE1t action landmark c\u1EE7a primary subject trong \u1EA3nh \u0111\u1EC1; gi\u1EEF unresolved.`);
+    return void 0;
+  }
+  const canUseIndependentQuestionLocation = Boolean(
+    requirePositionEvidence && directPoint && questionSubjectRegion && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp(entry?.questionLocationConfidence, 0) >= 0.85
+  );
+  let positionEndpoint = normalizedPoint(entry?.positionKeyEndpoint);
+  if (!positionEndpoint && entry?.coordinateRole === "position_key") {
+    positionEndpoint = normalizedPoint(entry?.targetEndpoint || entry?.center);
+  }
+  const rawLineEndpoints = list(entry?.lineEndpoints);
+  if (rawLineEndpoints.length) {
+    const endpoints = rawLineEndpoints.map(normalizedPoint).filter(Boolean);
+    if (endpoints.length !== 2) {
+      if (!directPoint || requirePositionEvidence) warnings.push(`${warningLabel}: lineEndpoints ph\u1EA3i c\xF3 \u0111\xFAng hai \u0111i\u1EC3m h\u1EE3p l\u1EC7.`);
+    } else if (!positionScene) {
+      if (!directPoint || requirePositionEvidence) warnings.push(`${warningLabel}: thi\u1EBFu positionScene n\xEAn ch\u01B0a th\u1EC3 x\xE1c \u0111\u1ECBnh \u0111\u1EA7u ph\xEDa h\xECnh t\u1EEB hai \u0111\u1EA7u \u0111\u01B0\u1EDDng n\u1ED1i.`);
+    } else {
+      const insideScene = endpoints.filter((point) => pointInListeningRegion(point, positionScene));
+      if (insideScene.length === 1) positionEndpoint = insideScene[0];
+      else if (!directPoint || requirePositionEvidence) warnings.push(`${warningLabel}: kh\xF4ng ph\xE2n bi\u1EC7t duy nh\u1EA5t \u0111\u1EA7u ph\xEDa t\xEAn v\xE0 \u0111\u1EA7u ph\xEDa h\xECnh b\u1EB1ng positionScene.`);
+    }
+  }
+  let transformedPoint;
+  if (positionEndpoint) {
+    if (!questionScene) {
+      if (!directPoint || requirePositionEvidence) warnings.push(`${warningLabel}: thi\u1EBFu questionScene \u0111\u1EC3 quy \u0111\u1ED5i endpoint t\u1EEB \u1EA3nh \u0111\xE1p \xE1n v\u1ECB tr\xED.`);
+    } else if (!positionScene) {
+      if (!directPoint || requirePositionEvidence) warnings.push(`${warningLabel}: thi\u1EBFu positionScene \u0111\u1EC3 quy \u0111\u1ED5i endpoint t\u1EEB \u1EA3nh \u0111\xE1p \xE1n v\u1ECB tr\xED.`);
+    } else {
+      transformedPoint = transformListeningPoint(positionEndpoint, positionScene, questionScene) || void 0;
+      if (!transformedPoint) warnings.push(`${warningLabel}: endpoint ph\xEDa h\xECnh n\u1EB1m ngo\xE0i positionScene ho\u1EB7c scene transform kh\xF4ng h\u1EE3p l\u1EC7.`);
+    }
+  }
+  if (directPoint && transformedPoint && part1PointDistance(directPoint, transformedPoint) > 0.12) {
+    if (canUseIndependentQuestionLocation) {
+      warnings.push(`${warningLabel}: line/scene evidence m\xE2u thu\u1EABn; d\xF9ng localization \u0111\u1ED9c l\u1EADp confidence cao tr\xEAn \u1EA3nh \u0111\u1EC1 v\xE0 y\xEAu c\u1EA7u gi\xE1o vi\xEAn review.`);
+      return directPoint;
+    }
+    warnings.push(`${warningLabel}: v\u1ECB tr\xED tr\u1EF1c ti\u1EBFp tr\xEAn \u1EA3nh \u0111\u1EC1 m\xE2u thu\u1EABn v\u1EDBi scene transform; gi\u1EEF unresolved.`);
+    return void 0;
+  }
+  if (requirePositionEvidence && transformedPoint && questionSubjectRegion && !pointNearListeningRegion(transformedPoint, questionSubjectRegion, 0.08)) {
+    if (canUseIndependentQuestionLocation) {
+      warnings.push(`${warningLabel}: endpoint quy \u0111\u1ED5i l\u1EC7ch primary subject; d\xF9ng localization \u0111\u1ED9c l\u1EADp confidence cao tr\xEAn \u1EA3nh \u0111\u1EC1 v\xE0 y\xEAu c\u1EA7u gi\xE1o vi\xEAn review.`);
+      return directPoint;
+    }
+    warnings.push(`${warningLabel}: endpoint quy \u0111\u1ED5i kh\xF4ng n\u1EB1m tr\xEAn primary subject trong \u1EA3nh \u0111\u1EC1; gi\u1EEF unresolved.`);
+    return void 0;
+  }
+  if (requirePositionEvidence && directPoint && !transformedPoint) {
+    if (canUseIndependentQuestionLocation) {
+      warnings.push(`${warningLabel}: ch\u01B0a trace ch\u1EAFc endpoint; d\xF9ng localization \u0111\u1ED9c l\u1EADp confidence cao tr\xEAn \u1EA3nh \u0111\u1EC1 v\xE0 y\xEAu c\u1EA7u gi\xE1o vi\xEAn review.`);
+      return directPoint;
+    }
+    warnings.push(`${warningLabel}: ch\u01B0a c\xF3 endpoint/scene transform \u0111\u1EC3 x\xE1c minh v\u1ECB tr\xED tr\u1EF1c ti\u1EBFp tr\xEAn \u1EA3nh \u0111\u1EC1; gi\u1EEF unresolved.`);
+    return void 0;
+  }
+  if (directPoint) return directPoint;
+  if (transformedPoint) return transformedPoint;
+  if (!positionEndpoint && !rawLineEndpoints.length) {
+    warnings.push(`${warningLabel}: AI kh\xF4ng tr\u1EA3 questionTargetPoint ho\u1EB7c endpoint \u0111\u01B0\u1EDDng n\u1ED1i ph\xEDa h\xECnh.`);
+  }
+  return void 0;
+}
 function normalizePart1(raw, warnings) {
   const exampleLabel = cleanText(raw?.example?.label || raw?.exampleLabel, 120);
-  const allNames = list(raw?.printedNames || raw?.choices).map((value) => cleanText(value?.label ?? value, 120)).filter(Boolean);
+  const allNames = list(raw?.printedNames || raw?.choices || raw?.detectedNames || raw?.names).map((value) => cleanText(value?.label ?? value?.name ?? value, 120)).filter(Boolean);
   const seenNames = /* @__PURE__ */ new Set();
   const choices = allNames.filter((name) => {
     const key = comparable(name);
@@ -5480,47 +6272,48 @@ function normalizePart1(raw, warnings) {
   const questionScene = normalizedRegion(raw?.questionScene);
   const positionScene = normalizedRegion(raw?.positionScene);
   const mappings = list(raw?.answerMappings);
-  const rawTargets = list(raw?.targets || raw?.questionTargets || raw?.anchors);
+  const rawTargets = list(raw?.resolvedTargets || raw?.targets || raw?.questionTargets || raw?.anchors);
+  const explicitlyUnresolved = new Set(list(raw?.unresolvedTargetNumbers).flatMap((value) => {
+    const number2 = questionNumber(value);
+    return number2 ? [number2] : [];
+  }));
+  explicitlyUnresolved.forEach((number2) => warnings.push(`Part 1 target ${number2}: AI \u0111\xE1nh d\u1EA5u unresolved \u1EDF l\u01B0\u1EE3t geometry; gi\u1EEF v\xF9ng draft c\u0169.`));
   const byNumber = /* @__PURE__ */ new Map();
   rawTargets.forEach((target, index) => {
-    const number2 = questionNumber(target?.targetNumber) || (index < 5 ? index + 1 : void 0);
+    const number2 = questionNumber(target?.targetNumber) || (!raw?.geometryPassAttempted && index < 5 ? index + 1 : void 0);
     if (number2 && !byNumber.has(number2)) byNumber.set(number2, target);
+    else if (!number2) warnings.push("Part 1 geometry: b\u1ECF qua target kh\xF4ng c\xF3 targetNumber h\u1EE3p l\u1EC7; kh\xF4ng d\u1ED3n OCR index.");
   });
   const anchors = [];
   const targetChoiceLabels = Array.from({ length: 5 });
   for (let number2 = 1; number2 <= 5; number2 += 1) {
     const target = byNumber.get(number2);
-    if (!target) continue;
-    let point = {
-      x: Number(target?.targetEndpoint?.x ?? target?.centerX ?? target?.x),
-      y: Number(target?.targetEndpoint?.y ?? target?.centerY ?? target?.y)
-    };
-    if (target?.coordinateRole === "position_key" || target?.targetEndpoint) {
-      const transformed = questionScene && positionScene ? transformListeningPoint(point, positionScene, questionScene) : null;
-      if (!transformed) {
-        warnings.push(`Part 1 target ${number2}: kh\xF4ng x\xE1c \u0111\u1ECBnh \u0111\u01B0\u1EE3c scene transform/endpoint ph\xEDa h\xECnh.`);
-        continue;
-      }
-      point = transformed;
+    const visualLabel = cleanText(target?.visualDescription || target?.visualLabel || target?.label || `V\xF9ng ${number2}`, 200);
+    const mapping = mappings.find((entry) => questionNumber(entry?.targetNumber) === number2 || target && visualLabel && comparable(entry?.visualDescription || entry?.visualLabel) === comparable(visualLabel));
+    const choiceLabel = cleanText(mapping?.printedName || mapping?.choiceLabel || mapping?.answer || target?.printedName || target?.choiceLabel || target?.answer, 120);
+    const matchingChoices = choices.filter((choice) => comparable(choice) === comparable(choiceLabel));
+    if (choiceLabel && matchingChoices.length !== 1) {
+      warnings.push(`Part 1 target ${number2}: printedName "${choiceLabel}" kh\xF4ng kh\u1EDBp duy nh\u1EA5t m\u1ED9t trong s\xE1u choices; gi\u1EEF \u0111\xE1p \xE1n draft.`);
     }
-    if (![point.x, point.y].every(Number.isFinite) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-      warnings.push(`Part 1 target ${number2}: endpoint kh\xF4ng h\u1EE3p l\u1EC7.`);
+    targetChoiceLabels[number2 - 1] = matchingChoices.length === 1 ? matchingChoices[0] : void 0;
+    if (!target) continue;
+    if (target?.coordinateRole && target.coordinateRole !== "question" && target.coordinateRole !== "position_key") {
+      warnings.push(`Part 1 target ${number2}: coordinateRole kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.`);
       continue;
     }
-    const visualLabel = cleanText(target?.visualLabel || target?.label || `V\xF9ng ${number2}`, 120);
+    const requirePositionEvidence = Boolean(raw?.geometryPassAttempted) && raw?.geometryMode !== "direct-question-points";
+    const point = resolvePart1TargetPoint(target, questionScene, positionScene, warnings, `Part 1 target ${number2}`, requirePositionEvidence);
+    if (!point) {
+      continue;
+    }
     anchors.push({ targetNumber: number2, label: visualLabel, region: fixedRegionFromPoint(point), confidence: clamp(target?.confidence, 0.5) });
-    const mapping = mappings.find((entry) => questionNumber(entry?.targetNumber) === number2 || visualLabel && comparable(entry?.visualLabel) === comparable(visualLabel));
-    const choiceLabel = cleanText(mapping?.choiceLabel || target?.choiceLabel || target?.answer, 120);
-    targetChoiceLabels[number2 - 1] = choiceLabel || void 0;
   }
   if (anchors.length !== 5) warnings.push(`Part 1: ch\u1EC9 resolve \u0111\u01B0\u1EE3c ${anchors.length}/5 target endpoints.`);
   if (targetChoiceLabels.filter(Boolean).length !== 5) warnings.push("Part 1: answer key ch\u01B0a resolve \u0111\u1EE7 n\u0103m mapping; gi\u1EEF \u0111\xE1p \xE1n draft \u1EDF m\u1EE5c unresolved.");
   let example;
-  const examplePointRaw = raw?.example?.targetEndpoint || raw?.example?.center;
-  if (exampleLabel && examplePointRaw) {
-    const rawPoint = { x: Number(examplePointRaw.x), y: Number(examplePointRaw.y) };
-    const point = raw?.example?.coordinateRole === "position_key" || raw?.example?.targetEndpoint ? questionScene && positionScene ? transformListeningPoint(rawPoint, positionScene, questionScene) : null : rawPoint;
-    if (point && [point.x, point.y].every(Number.isFinite)) example = { label: exampleLabel, region: fixedRegionFromPoint(point) };
+  if (exampleLabel && raw?.example) {
+    const point = resolvePart1TargetPoint(raw.example, questionScene, positionScene, warnings, "Part 1 example", false);
+    if (point) example = { label: exampleLabel, region: fixedRegionFromPoint(point) };
   }
   return { part: 1, choices, anchors, targetChoiceLabels, ...example ? { example } : {} };
 }
@@ -5561,41 +6354,113 @@ function normalizePart2(raw, warnings) {
     questions
   };
 }
-function normalizePart3(raw, warnings) {
-  const answers = list(raw?.questionAnswers || raw?.answers).slice(0, 7).flatMap((entry) => {
-    const label = cleanText(entry?.label, 160);
-    const region = normalizedRegion(entry?.region);
-    if (!label || !region) return [];
-    return [{ label, region, leftAnchorOffset: clamp(entry?.leftAnchorOffset ?? entry?.leftAnchor?.offset, 0.5), rightAnchorOffset: clamp(entry?.rightAnchorOffset ?? entry?.rightAnchor?.offset, 0.5) }];
+function normalizePart3(raw, currentPart, warnings) {
+  const current = currentPart.part === 3 && currentPart.displayMode === "connect-image" ? currentPart : void 0;
+  const rawAnswers = list(raw?.questionAnswers || raw?.answers || raw?.answerLabels).slice(0, 7);
+  const extractedAnswers = rawAnswers.flatMap((entry, index) => {
+    const label = cleanText(entry?.label ?? entry, 160);
+    const extractedRegion = normalizedRegion(entry?.region || entry);
+    const region = extractedRegion || current?.answers[index]?.region;
+    if (!label) return [];
+    if (!extractedRegion && region) warnings.push(`Part 3 answer "${label}": gi\u1EEF region draft v\xEC AI kh\xF4ng tr\u1EA3 geometry h\u1EE3p l\u1EC7.`);
+    if (!region) return [];
+    return [{ label, region, leftAnchorOffset: clamp(entry?.leftAnchorOffset ?? entry?.leftAnchor?.offset, 0.5), rightAnchorOffset: clamp(entry?.rightAnchorOffset ?? entry?.rightAnchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
   });
-  const pictures = list(raw?.questionPictures || raw?.pictures).slice(0, 6).flatMap((entry) => {
-    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+  const answers = [...extractedAnswers];
+  (current?.answers || []).forEach((answer) => {
+    if (answers.length < 7 && !answers.some((item) => comparable(item.label) === comparable(answer.label))) {
+      answers.push({ label: answer.label, region: answer.region, leftAnchorOffset: answer.leftAnchorOffset, rightAnchorOffset: answer.rightAnchorOffset, source: "current-part" });
+    }
+  });
+  if (extractedAnswers.length !== 7 && current?.answers.length) warnings.push(`Part 3: AI nh\u1EADn ${extractedAnswers.length}/7 answer; c\xE1c slot thi\u1EBFu gi\u1EEF d\u1EEF li\u1EC7u draft \u0111\u1EC3 review.`);
+  const rawPictures = list(raw?.questionPictures || raw?.pictures || raw?.pictureRegions).slice(0, 6);
+  const extractedPictures = rawPictures.flatMap((entry) => {
+    const sideValue = cleanText(entry?.side || entry?.pictureSide, 20).toLowerCase();
+    const side = sideValue === "left" || sideValue === "right" ? sideValue : void 0;
     const row = integer(entry?.row);
-    const region = normalizedRegion(entry?.region);
+    const old = side && row ? current?.pictures.find((item) => item.side === side && item.row === row) : void 0;
+    const extractedRegion = normalizedRegion(entry?.region || entry);
+    const region = extractedRegion || old?.region;
     if (!side || !row || row < 1 || row > 3 || !region) return [];
-    return [{ label: cleanText(entry?.label || `${side}-${row}`, 160), side, row, region, anchorOffset: clamp(entry?.anchorOffset ?? entry?.anchor?.offset, 0.5) }];
+    if (!extractedRegion && old) warnings.push(`Part 3 picture ${side}-${row}: gi\u1EEF region draft v\xEC AI kh\xF4ng tr\u1EA3 geometry h\u1EE3p l\u1EC7.`);
+    return [{ label: cleanText(entry?.label || `${side}-${row}`, 160), side, row, region, anchorOffset: clamp(entry?.anchorOffset ?? entry?.anchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
   });
+  const pictures = [...extractedPictures];
+  (current?.pictures || []).forEach((picture) => {
+    if (!pictures.some((item) => item.side === picture.side && item.row === picture.row)) {
+      pictures.push({ label: picture.label, side: picture.side, row: picture.row, region: picture.region, anchorOffset: picture.anchorOffset, source: "current-part" });
+    }
+  });
+  if (extractedPictures.length !== 6 && current?.pictures.length) warnings.push(`Part 3: AI nh\u1EADn ${extractedPictures.length}/6 picture; c\xE1c slot thi\u1EBFu gi\u1EEF d\u1EEF li\u1EC7u draft \u0111\u1EC3 review.`);
   const rawExample = raw?.questionExample || raw?.example;
   const exampleSide = rawExample?.pictureSide === "left" || rawExample?.pictureSide === "right" ? rawExample.pictureSide : void 0;
   const exampleRow = integer(rawExample?.pictureRow ?? rawExample?.row);
   const exampleLabel = cleanText(rawExample?.answerLabel || rawExample?.label, 160);
-  const example = exampleLabel && exampleSide && exampleRow && exampleRow >= 1 && exampleRow <= 3 ? { answerLabel: exampleLabel, pictureSide: exampleSide, pictureRow: exampleRow, renderOverlayLine: Boolean(rawExample?.renderOverlayLine) } : void 0;
+  const exampleAnswerRegion = answers.find((answer) => comparable(answer.label) === comparable(exampleLabel))?.region;
+  const examplePictureRegion = pictures.find((picture) => picture.side === exampleSide && picture.row === exampleRow)?.region;
+  const exampleConfidence = Number(rawExample?.confidence);
+  const hasVerifiedPrintedLine = rawExample?.resolved === true && rawExample?.lineEvidence === "printed-line" && exampleAnswerRegion && examplePictureRegion && Number.isFinite(exampleConfidence) && exampleConfidence >= 0.55;
+  const detectedExample = exampleLabel && exampleSide && exampleRow && exampleRow >= 1 && exampleRow <= 3 && hasVerifiedPrintedLine ? { answerLabel: exampleLabel, pictureSide: exampleSide, pictureRow: exampleRow, renderOverlayLine: Boolean(rawExample?.renderOverlayLine), source: "ai" } : void 0;
+  const currentExampleAnswer = current?.answers.find((answer) => answer.id === current.exampleConnection.answerId);
+  const currentExamplePicture = current?.pictures.find((picture) => picture.id === current.exampleConnection.pictureId);
+  const example = detectedExample || (currentExampleAnswer && currentExamplePicture ? {
+    answerLabel: currentExampleAnswer.label,
+    pictureSide: currentExamplePicture.side,
+    pictureRow: currentExamplePicture.row,
+    renderOverlayLine: current.exampleConnection.renderOverlayLine,
+    source: "current-part"
+  } : void 0);
   const cells = list(raw?.answerKeyCells || raw?.connections).flatMap((entry) => {
-    const side = entry?.side === "left" || entry?.side === "right" ? entry.side : void 0;
+    const sideValue = cleanText(entry?.side || entry?.pictureSide, 20).toLowerCase();
+    const side = sideValue === "left" || sideValue === "right" ? sideValue : void 0;
     const row = integer(entry?.row);
-    const answerLabel = cleanText(entry?.answerLabel || entry?.label, 160);
+    const answerLabel = cleanText(entry?.answerLabel || entry?.label || entry?.answer, 160);
     if (!side || !row || row < 1 || row > 3 || !answerLabel) return [];
-    return [{ answerLabel, pictureSide: side, pictureRow: row }];
+    return [{ answerLabel, pictureSide: side, pictureRow: row, source: "ai" }];
   });
-  const connections = cells.filter((connection) => !example || !(comparable(connection.answerLabel) === comparable(example.answerLabel) && connection.pictureSide === example.pictureSide && connection.pictureRow === example.pictureRow)).slice(0, 5);
+  let detectedConnections = [];
+  if (example) {
+    const isExampleLabel = (connection) => comparable(connection.answerLabel) === comparable(example.answerLabel);
+    const isExampleSlot = (connection) => connection.pictureSide === example.pictureSide && connection.pictureRow === example.pictureRow;
+    const exactExampleCell = cells.find((connection) => isExampleLabel(connection) && isExampleSlot(connection));
+    if (exactExampleCell) {
+      detectedConnections = cells.filter((connection) => connection !== exactExampleCell).slice(0, 5);
+    } else {
+      const exampleLabelCell = cells.find(isExampleLabel);
+      const exampleSlotCell = cells.find(isExampleSlot);
+      if (exampleLabelCell && exampleSlotCell && exampleLabelCell !== exampleSlotCell) {
+        detectedConnections = [
+          ...cells.filter((connection) => connection !== exampleLabelCell && connection !== exampleSlotCell),
+          { ...exampleLabelCell, answerLabel: exampleSlotCell.answerLabel }
+        ].slice(0, 5);
+        warnings.push(`Part 3: answer key ho\xE1n \u0111\u1ED5i cell example; \u01B0u ti\xEAn printed line tr\xEAn \u1EA3nh \u0111\u1EC1 v\xE0 h\xF2a gi\u1EA3i mapping m\u1ED9t-m\u1ED9t \u0111\u1EC3 gi\xE1o vi\xEAn ki\u1EC3m tra.`);
+      } else {
+        detectedConnections = cells.filter((connection) => !isExampleLabel(connection) && !isExampleSlot(connection)).slice(0, 5);
+        if (exampleLabelCell || exampleSlotCell) {
+          warnings.push("Part 3: answer key m\xE2u thu\u1EABn example nh\u01B0ng kh\xF4ng \u0111\u1EE7 b\u1EB1ng ch\u1EE9ng \u0111\u1EC3 h\xF2a gi\u1EA3i; gi\u1EEF mapping draft cho m\u1EE5c unresolved.");
+        }
+      }
+    }
+  }
+  const connections = [...detectedConnections];
+  (current?.correctConnections || []).forEach((connection) => {
+    const answer = current.answers.find((item) => item.id === connection.answerId);
+    const picture = current.pictures.find((item) => item.id === connection.pictureId);
+    if (answer && picture && connections.length < 5 && !connections.some((item) => comparable(item.answerLabel) === comparable(answer.label) || item.pictureSide === picture.side && item.pictureRow === picture.row)) {
+      connections.push({ answerLabel: answer.label, pictureSide: picture.side, pictureRow: picture.row, source: "current-part" });
+    }
+  });
   const used = /* @__PURE__ */ new Set([...example ? [comparable(example.answerLabel)] : [], ...connections.map((connection) => comparable(connection.answerLabel))]);
   const distractors = answers.filter((answer) => !used.has(comparable(answer.label)));
-  if (answers.length !== 7) warnings.push(`Part 3: nh\u1EADn ${answers.length}/7 answer regions.`);
+  const currentDistractor = current?.answers.find((answer) => answer.id === current.distractorAnswerId)?.label;
+  const distractorLabel = distractors.length === 1 ? distractors[0].label : currentDistractor;
+  const distractorSource = distractors.length === 1 ? "derived" : currentDistractor ? "current-part" : void 0;
+  if (answers.length !== 7) warnings.push(`Part 3: candidate ch\u1EC9 c\xF3 ${answers.length}/7 answer slots.`);
   if (pictures.length !== 6 || new Set(pictures.map((picture) => `${picture.side}-${picture.row}`)).size !== 6) warnings.push("Part 3: c\u1EA7n \u0111\xFAng ba picture b\xEAn tr\xE1i v\xE0 ba b\xEAn ph\u1EA3i theo row 1-3.");
-  if (!example) warnings.push("Part 3: ch\u01B0a resolve \u0111\u01B0\u1EE3c example t\u1EEB \u1EA3nh \u0111\u1EC1.");
-  if (connections.length !== 5) warnings.push(`Part 3: resolve \u0111\u01B0\u1EE3c ${connections.length}/5 scored connections; kh\xF4ng d\xF9ng OCR order \u0111\u1EC3 b\xF9.`);
-  if (distractors.length !== 1) warnings.push("Part 3: distractor kh\xF4ng x\xE1c \u0111\u1ECBnh duy nh\u1EA5t b\u1EB1ng set difference.");
-  return { part: 3, answers, pictures, ...example ? { example } : {}, connections, distractorLabel: distractors.length === 1 ? distractors[0].label : void 0 };
+  if (!detectedExample) warnings.push("Part 3: AI ch\u01B0a ch\u1EE9ng minh \u0111\u01B0\u1EE3c example b\u1EB1ng printed line tr\xEAn \u1EA3nh \u0111\u1EC1; gi\u1EEF example draft n\u1EBFu c\xF3.");
+  if (detectedConnections.length !== 5) warnings.push(`Part 3: AI resolve \u0111\u01B0\u1EE3c ${detectedConnections.length}/5 scored connections; c\xE1c mapping thi\u1EBFu gi\u1EEF draft, kh\xF4ng d\u1ED3n OCR order.`);
+  if (distractors.length !== 1) warnings.push("Part 3: distractor AI kh\xF4ng x\xE1c \u0111\u1ECBnh duy nh\u1EA5t b\u1EB1ng set difference; gi\u1EEF draft n\u1EBFu c\xF3.");
+  return { part: 3, answers: answers.slice(0, 7), pictures: pictures.slice(0, 6), ...example ? { example } : {}, connections, distractorLabel, ...distractorSource ? { distractorSource } : {} };
 }
 function optionIndex(value) {
   const normalized = cleanText(value, 10).toUpperCase();
@@ -5632,22 +6497,27 @@ function catalogColourLabel(value) {
   const key = comparable(value);
   return MOVER_COLOUR_CATALOG.find((colour) => comparable(colour.label) === key)?.label;
 }
-function normalizePart5(raw, currentPart, warnings) {
-  const questionScene = normalizedRegion(raw?.questionScene);
-  const positionScene = normalizedRegion(raw?.positionScene);
-  const convertGeometry = (value, sourceRole) => {
-    const region = normalizedRegion(value);
-    if (!region) return void 0;
-    if (sourceRole !== "position_key") return region;
-    if (!positionScene || !questionScene) return void 0;
-    return transformListeningRegion(region, positionScene, questionScene) || void 0;
+function explicitDrawActionFromPrompt(staffPrompt) {
+  const drawMatch = staffPrompt.match(/^\s*draw\s+(.+?)\s*[.!?]*$/i);
+  if (!drawMatch) return void 0;
+  let body = drawMatch[1].replace(/^(?:a|an|the)\s+/i, "").trim();
+  const relationMatch = body.match(/\s+((?:on|onto|in|inside|under|below|above|over|between|beside|by|near|next to|behind|in front of|at)\b.*)$/i);
+  const relationLabel = relationMatch?.[1]?.trim();
+  if (relationMatch?.index !== void 0) body = body.slice(0, relationMatch.index).trim();
+  const words = body.split(/\s+/).filter(Boolean);
+  const colourLabel = catalogColourLabel(words[0]);
+  const objectType = cleanText(colourLabel ? words.slice(1).join(" ") : body, 120);
+  if (!objectType) return void 0;
+  return {
+    type: "place_object",
+    objectType,
+    ...colourLabel ? { colourLabel } : {},
+    ...relationLabel ? { relationLabel } : {},
+    confidence: 0.5
   };
-  const interactiveObjects = list(raw?.interactiveObjects).flatMap((entry) => {
-    const label = cleanText(entry?.label, 160);
-    const geometry = convertGeometry(entry?.geometry, entry?.geometrySource);
-    if (!label || !geometry) return [];
-    return [{ label, geometry, confidence: clamp(entry?.confidence, 0.5) }];
-  });
+}
+function normalizePart5(raw, currentPart, warnings) {
+  const seenPaletteItems = /* @__PURE__ */ new Set();
   const paletteItems = list(raw?.paletteItems).flatMap((entry) => {
     const objectType = cleanText(entry?.objectType, 120);
     const label = cleanText(entry?.label || entry?.objectType, 160);
@@ -5655,6 +6525,9 @@ function normalizePart5(raw, currentPart, warnings) {
     const rawColour = cleanText(entry?.color || entry?.colour, 80);
     const colourLabel = rawColour ? catalogColourLabel(rawColour) : void 0;
     if (rawColour && !colourLabel) warnings.push(`Part 5 palette "${label}": m\xE0u ngo\xE0i catalog n\xEAn \u0111\u1EC3 unresolved.`);
+    const key = `${comparable(objectType)}|${comparable(label)}|${comparable(colourLabel)}`;
+    if (seenPaletteItems.has(key)) return [];
+    seenPaletteItems.add(key);
     return [{ objectType, label, ...colourLabel ? { colourLabel } : {} }];
   });
   const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
@@ -5666,19 +6539,30 @@ function normalizePart5(raw, currentPart, warnings) {
         const rawColour = cleanText(action?.correctColor || action?.color, 80);
         const correctColourLabel = catalogColourLabel(rawColour);
         if (rawColour && !correctColourLabel) warnings.push(`Part 5 "${objectLabel}": m\xE0u "${rawColour}" ngo\xE0i catalog.`);
-        const geometry = convertGeometry(action?.geometry, action?.geometrySource);
-        return objectLabel ? [{ type: "colour_object", objectLabel, ...correctColourLabel ? { correctColourLabel } : {}, ...geometry ? { geometry } : {}, confidence }] : [];
+        return objectLabel ? [{ type: "colour_object", objectLabel, ...correctColourLabel ? { correctColourLabel } : {}, confidence }] : [];
       }
       if (action?.type === "place_object") {
         const objectType = cleanText(action?.objectType, 120);
         const rawColour = cleanText(action?.color || action?.correctColor, 80);
         const colourLabel = rawColour ? catalogColourLabel(rawColour) : void 0;
         if (rawColour && !colourLabel) warnings.push(`Part 5 object "${objectType}": m\xE0u "${rawColour}" ngo\xE0i catalog.`);
-        const targetRegion = convertGeometry(action?.targetRegion, action?.geometrySource);
+        const normalizedTarget = normalizedRegion(action?.targetRegion);
+        const targetRegion = normalizedTarget ? {
+          shape: "rect",
+          x: normalizedTarget.x,
+          y: normalizedTarget.y,
+          width: normalizedTarget.width,
+          height: normalizedTarget.height
+        } : void 0;
         return objectType ? [{ type: "place_object", objectType, ...colourLabel ? { colourLabel } : {}, ...targetRegion ? { targetRegion } : {}, relationLabel: cleanText(action?.relationLabel, 240) || void 0, confidence }] : [];
       }
       return [];
     });
+    const recoveredDraw = staffPrompt && !actions.some((action) => action.type === "place_object") ? explicitDrawActionFromPrompt(staffPrompt) : void 0;
+    if (recoveredDraw) {
+      actions.push(recoveredDraw);
+      warnings.push("Part 5: ph\u1EE5c h\u1ED3i action Draw t\u1EEB c\xE2u l\u1EC7nh r\xF5 r\xE0ng trong answer key; gi\xE1o vi\xEAn c\u1EA7n ch\u1ECDn/x\xE1c nh\u1EADn v\xF9ng ch\u1EEF nh\u1EADt.");
+    }
     return staffPrompt ? { staffPrompt, actions } : void 0;
   }, warnings, "Part 5 questions");
   const questions = [1, 2, 3, 4, 5].flatMap((number2) => {
@@ -5689,16 +6573,21 @@ function normalizePart5(raw, currentPart, warnings) {
   questions.forEach((question) => {
     if (!question.actions.length) warnings.push(`Part 5 c\xE2u ${question.questionNumber}: ch\u01B0a resolve \u0111\u01B0\u1EE3c action n\xE0o.`);
     question.actions.forEach((action, index) => {
-      if (action.type === "colour_object" && (!action.correctColourLabel || !action.geometry && !interactiveObjects.some((object) => comparable(object.label) === comparable(action.objectLabel)))) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: thi\u1EBFu m\xE0u ho\u1EB7c object geometry ch\u1EAFc ch\u1EAFn.`);
-      if (action.type === "place_object" && !action.targetRegion) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: thi\u1EBFu target region; kh\xF4ng \u0111o\xE1n v\u1ECB tr\xED.`);
+      if (action.type === "colour_object" && !action.correctColourLabel) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: thi\u1EBFu m\xE0u ch\u1EAFc ch\u1EAFn.`);
+      if (action.type === "place_object" && !action.targetRegion) warnings.push(`Part 5 c\xE2u ${question.questionNumber} action ${index + 1}: Sol ch\u01B0a x\xE1c \u0111\u1ECBnh ch\u1EAFc v\u1ECB tr\xED Draw tr\xEAn \u1EA3nh \u0111\u1EC1.`);
     });
   });
   const placeActions = questions.flatMap((question) => question.actions).filter((action) => action.type === "place_object");
   const colourActions = questions.flatMap((question) => question.actions).filter((action) => action.type === "colour_object");
-  const requestedColourObjects = new Set(colourActions.map((action) => comparable(action.objectLabel)));
-  if (colourActions.length && interactiveObjects.length <= requestedColourObjects.size) {
-    warnings.push("Part 5: public geometry ch\u01B0a c\xF3 object nhi\u1EC5u ngo\xE0i c\xE1c object \u0111\u01B0\u1EE3c h\u1ECFi; gi\xE1o vi\xEAn ph\u1EA3i b\u1ED5 sung tr\u01B0\u1EDBc khi publish.");
-  }
+  placeActions.forEach((action) => {
+    if (paletteItems.some((item) => comparable(item.objectType) === comparable(action.objectType) && (!action.colourLabel || comparable(item.colourLabel) === comparable(action.colourLabel)))) return;
+    paletteItems.push({
+      objectType: action.objectType,
+      label: [action.colourLabel, action.objectType].filter(Boolean).join(" "),
+      ...action.colourLabel ? { colourLabel: action.colourLabel } : {}
+    });
+  });
+  if (colourActions.length) warnings.push("Part 5: gi\xE1o vi\xEAn ph\u1EA3i t\xF4/x\xE1c nh\u1EADn c\xE1c v\xF9ng Colour; AI kh\xF4ng t\u1EF1 t\u1EA1o mask Colour.");
   const paletteTypes = new Set(paletteItems.map((item) => comparable(item.objectType)));
   if (placeActions.some((action) => !paletteTypes.has(comparable(action.objectType)))) warnings.push("Part 5: palette thi\u1EBFu token \u0111\xFAng cho \xEDt nh\u1EA5t m\u1ED9t place action; gi\xE1o vi\xEAn ph\u1EA3i b\u1ED5 sung.");
   if (placeActions.length && paletteItems.length <= new Set(placeActions.map((action) => comparable(action.objectType))).size) warnings.push("Part 5: object palette ch\u01B0a c\xF3 distractor; kh\xF4ng t\u1EF1 t\u1EA1o object gi\u1EA3.");
@@ -5719,19 +6608,36 @@ function normalizePart5(raw, currentPart, warnings) {
       if (!matched) warnings.push(`Part 5 c\xE2u ${question.questionNumber}: gi\u1EEF action c\u0169 ${action.id} v\xEC l\u1EA7n ph\xE2n t\xEDch m\u1EDBi kh\xF4ng match ch\u1EAFc ch\u1EAFn.`);
     }));
   }
-  return { part: 5, interactiveObjects, paletteItems, questions };
+  return { part: 5, paletteItems, questions };
 }
 function normalizeData(part, raw, currentPart, warnings) {
   if (part === 1) return normalizePart1(raw, warnings);
   if (part === 2) return normalizePart2(raw, warnings);
-  if (part === 3) return normalizePart3(raw, warnings);
+  if (part === 3) return normalizePart3(raw, currentPart, warnings);
   if (part === 4) return normalizePart4(raw, warnings);
   return normalizePart5(raw, currentPart, warnings);
 }
 function localFallback(part, text3) {
   const rows = localNumberedLines(text3);
   if (part === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
-  if (part === 3) return { answerKeyCells: rows.map((row) => ({ label: row.value })) };
+  if (part === 3) {
+    const lines = text3.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const explicit = lines.flatMap((line) => {
+      const match = line.match(/^(left|right)\s*([1-3])\s*[:=\-]\s*(.+)$/i);
+      return match ? [{ side: match[1].toLowerCase(), row: Number(match[2]), answerLabel: match[3].trim() }] : [];
+    });
+    if (explicit.length === lines.length && explicit.length > 0) return { answerKeyCells: explicit };
+    const rowPairs = lines.map((line) => line.split(/\t|\s{2,}|\s*\|\s*/).map((value) => value.trim()).filter(Boolean));
+    if (rowPairs.length === 3 && rowPairs.every((row) => row.length === 2)) {
+      return {
+        answerKeyCells: rowPairs.flatMap((row, index) => [
+          { side: "left", row: index + 1, answerLabel: row[0] },
+          { side: "right", row: index + 1, answerLabel: row[1] }
+        ])
+      };
+    }
+    return { answerKeyCells: [], warnings: ["Part 3 fallback text c\u1EA7n ba d\xF2ng hai c\u1ED9t, ho\u1EB7c c\xFA ph\xE1p left/right + row; kh\xF4ng suy lu\u1EADn t\u1EEB s\xE1u d\xF2ng ph\u1EB3ng."] };
+  }
   return {};
 }
 async function createListeningSmartImportCandidate(input) {
@@ -5739,10 +6645,226 @@ async function createListeningSmartImportCandidate(input) {
   let provider = "local";
   let raw;
   if (input.images.length && input.analyzeVision) {
-    const result = await input.analyzeVision(promptFor(input.part, input.pastedText), input.images, input.signal);
-    provider = result.provider;
-    raw = parseJson3(result.text);
-    if (result.errors?.length) warnings.push(...result.errors.map((value) => cleanText(value, 240)));
+    const requestId = `limport-analysis-${import_node_crypto3.default.randomUUID()}`;
+    const usedProviders = /* @__PURE__ */ new Set();
+    const analyzeAndParse = async (prompt, images, schema, schemaName, validateResponse) => {
+      let parsed;
+      let lastParseError = "";
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const retryInstruction = attempt === 1 ? "" : `
+Your previous response was not valid for the required JSON schema and extraction invariants${lastParseError ? `: ${lastParseError}` : ""}. Re-check the source images and re-emit the facts using the supplied schema. Do not add markdown or prose and do not guess missing values; use explicit unresolved fields where supported.`;
+        let result;
+        try {
+          result = await input.analyzeVision(prompt + retryInstruction, images, {
+            preferredProvider: input.preferredProvider || "auto",
+            responseJsonSchema: schema,
+            schemaName,
+            requestId,
+            attempt
+          }, input.signal);
+          if (process.env.LISTENING_SMART_IMPORT_DEBUG_RAW === "true" && process.env.NODE_ENV !== "production") {
+            console.warn(`[ListeningSmartImport] request=${requestId} schema=${schemaName} attempt=${attempt} raw=${result.text.slice(0, 2e4)}`);
+          }
+        } catch (reason) {
+          const details = providerFailureDetails(reason);
+          lastParseError = details.join(" | ");
+          console.warn(`[ListeningSmartImport] request=${requestId} part=${input.part} schema=${schemaName} attempt=${attempt} provider-error: ${lastParseError}`);
+          if (input.signal?.aborted || reason?.name === "AbortError" || attempt === 2) {
+            throw providerFailureError(reason, input.part, schemaName, input.signal);
+          }
+          continue;
+        }
+        try {
+          parsed = parseJson3(result.text);
+          const validationError = validateResponse?.(parsed, attempt);
+          if (validationError) throw new Error(validationError);
+          provider = result.provider;
+          usedProviders.add(result.provider);
+          if (result.errors?.length) warnings.push(...result.errors.map((value) => cleanText(value, 240)));
+          if (attempt > 1) warnings.push(`Part ${input.part}: ${provider} \u0111\xE3 tr\u1EA3 JSON h\u1EE3p l\u1EC7 sau l\u1EA7n retry ${schemaName}.`);
+          break;
+        } catch (reason) {
+          const returnedProvider = cleanText(result.provider, 60) || "AI";
+          lastParseError = cleanText(reason?.message || "JSON kh\xF4ng h\u1EE3p l\u1EC7.", 240);
+          const digest = import_node_crypto3.default.createHash("sha256").update(result.text).digest("hex").slice(0, 16);
+          console.warn(`[ListeningSmartImport] request=${requestId} part=${input.part} schema=${schemaName} provider=${returnedProvider} attempt=${attempt} invalid-response length=${result.text.length} sha256=${digest}: ${lastParseError}`);
+          if (attempt === 2) {
+            const invalidJsonError = new Error(`Nh\xE0 cung c\u1EA5p AI tr\u1EA3 d\u1EEF li\u1EC7u kh\xF4ng h\u1EE3p l\u1EC7 cho Part ${input.part}. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`);
+            invalidJsonError.status = 502;
+            invalidJsonError.code = "LISTENING_SMART_IMPORT_INVALID_JSON";
+            invalidJsonError.details = [`${returnedProvider}: ${lastParseError}`];
+            throw invalidJsonError;
+          }
+        }
+      }
+      return parsed;
+    };
+    if (input.part === 1) {
+      const useSolDirectGeometry = input.preferredProvider === PART1_SOL_PROVIDER_ID;
+      const contentImages = input.images.filter((image) => image.role === "question" || image.role === "answer_key");
+      const questionImages = input.images.filter((image) => image.role === "question");
+      const geometryImages = useSolDirectGeometry ? ["question", "answer_key", "position_key"].flatMap((role) => input.images.filter((image) => image.role === role)) : input.images.filter((image) => image.role === "question" || image.role === "answer_key" || image.role === "position_key");
+      const contentRaw = await analyzeAndParse(
+        promptForPart1Pass("content"),
+        contentImages,
+        part1PassSchema("content"),
+        "listening_mover_part_1_content",
+        validatePart1ContentResponse
+      );
+      const questionRaw = await analyzeAndParse(
+        useSolDirectGeometry ? promptForPart1SolExampleVerification(contentRaw) : promptForPart1QuestionVerification(contentRaw),
+        questionImages,
+        useSolDirectGeometry ? part1SolExampleVerificationSchema() : part1QuestionVerificationSchema(),
+        "listening_mover_part_1_question_verification",
+        (parsed) => useSolDirectGeometry ? validatePart1SolExampleVerification(parsed, contentRaw) : validatePart1QuestionVerification(parsed, contentRaw)
+      );
+      const verifiedExample = verifiedPart1QuestionExample(questionRaw, contentRaw);
+      const verifiedTargets = new Map(list(useSolDirectGeometry ? [] : questionRaw?.targets).flatMap((entry) => {
+        const number2 = questionNumber(entry?.targetNumber);
+        return number2 ? [[number2, entry]] : [];
+      }));
+      const verifiedContentRaw = {
+        ...contentRaw,
+        example: verifiedExample ? { label: verifiedExample.label, labelPoint: questionRaw?.labelPoint, targetPoint: verifiedExample.targetPoint, confidence: verifiedExample.confidence } : contentRaw?.example,
+        answerMappings: list(contentRaw?.answerMappings).map((entry) => {
+          const number2 = questionNumber(entry?.targetNumber);
+          return { ...entry, ...number2 ? verifiedTargets.get(number2) : {} };
+        })
+      };
+      let geometryRaw = { resolvedTargets: [], unresolvedTargetNumbers: [1, 2, 3, 4, 5], warnings: [] };
+      try {
+        geometryRaw = await analyzeAndParse(
+          useSolDirectGeometry ? promptForPart1SolGeometry(verifiedContentRaw) : promptForPart1Pass("geometry", verifiedContentRaw),
+          geometryImages,
+          useSolDirectGeometry ? part1SolGeometrySchema() : part1PassSchema("geometry"),
+          "listening_mover_part_1_geometry",
+          (parsed, attempt) => useSolDirectGeometry ? validatePart1SolGeometryResponse(parsed, verifiedContentRaw) : validatePart1GeometryResponse(parsed, verifiedContentRaw, attempt === 1)
+        );
+      } catch (reason) {
+        if (input.signal?.aborted || reason?.name === "AbortError" || reason?.code === "LISTENING_SMART_IMPORT_TIMEOUT") throw reason;
+        const details = providerFailureDetails(reason).join(" | ");
+        warnings.push(`Part 1 geometry: AI kh\xF4ng ho\xE0n t\u1EA5t l\u01B0\u1EE3t x\xE1c \u0111\u1ECBnh v\u1ECB tr\xED; v\u1EABn nh\u1EADp t\xEAn/\u0111\xE1p \xE1n v\xE0 gi\u1EEF nguy\xEAn c\xE1c v\xF9ng c\u0169.${details ? ` ${details}` : ""}`);
+      }
+      if (verifiedExample && comparable(verifiedExample.label) !== comparable(contentRaw?.example?.label)) {
+        warnings.push(`Part 1: example \u0111\u01B0\u1EE3c l\u01B0\u1EE3t ki\u1EC3m ch\u1EE9ng \u0111\u1ED9c l\u1EADp s\u1EEDa t\u1EEB "${cleanText(contentRaw?.example?.label, 120)}" th\xE0nh "${verifiedExample.label}".`);
+      }
+      const contentExample = verifiedExample;
+      const questionScene = normalizedRegion(verifiedContentRaw?.questionScene);
+      const positionScene = normalizedRegion(geometryRaw?.positionScene);
+      const localizedMappings = new Map(list(verifiedContentRaw?.answerMappings).flatMap((entry) => {
+        const number2 = questionNumber(entry?.targetNumber);
+        return number2 ? [[number2, entry]] : [];
+      }));
+      const geometryTargets = new Map(list(geometryRaw?.resolvedTargets).flatMap((entry) => {
+        const number2 = questionNumber(entry?.targetNumber);
+        return number2 ? [[number2, entry]] : [];
+      }));
+      const resolvedTargets = [...localizedMappings].flatMap(([number2, mapping]) => {
+        const geometry = geometryTargets.get(number2);
+        if (useSolDirectGeometry) {
+          const questionTargetPoint = normalizedPoint(geometry?.questionTargetPoint);
+          if (!geometry || !questionTargetPoint || !questionScene || !pointInListeningRegion(questionTargetPoint, questionScene)) return [];
+          return [{
+            ...mapping,
+            ...geometry,
+            coordinateRole: "question",
+            questionActionRegion: void 0,
+            questionTargetPoint,
+            targetNumber: number2
+          }];
+        }
+        if (!geometry && !hasSafePart1QuestionLocation(mapping, questionScene)) return [];
+        const verifiedGeometryPoint = geometry && part1TransformedGeometryPoint(geometry, mapping, questionScene, positionScene);
+        const verifiedQuestionPoint = part1QuestionActionPoint(mapping);
+        return [{
+          ...mapping,
+          questionLocationConfidence: mapping?.confidence,
+          ...geometry,
+          questionActionRegion: mapping.questionActionRegion,
+          questionTargetPoint: verifiedQuestionPoint || verifiedGeometryPoint,
+          targetNumber: number2
+        }];
+      });
+      const unresolvedFromGeometry = new Set(list(geometryRaw?.unresolvedTargetNumbers).flatMap((value) => {
+        const number2 = questionNumber(value);
+        return number2 ? [number2] : [];
+      }));
+      const unresolvedTargetNumbers = [1, 2, 3, 4, 5].filter((number2) => {
+        if (useSolDirectGeometry) {
+          return !geometryTargets.has(number2) || unresolvedFromGeometry.has(number2);
+        }
+        const mapping = localizedMappings.get(number2);
+        return (!geometryTargets.has(number2) || unresolvedFromGeometry.has(number2)) && !hasSafePart1QuestionLocation(mapping, questionScene);
+      });
+      const exampleTargetPoint = normalizedPoint(contentExample?.targetPoint);
+      raw = {
+        ...verifiedContentRaw,
+        questionScene: verifiedContentRaw?.questionScene,
+        positionScene: geometryRaw?.positionScene,
+        resolvedTargets,
+        unresolvedTargetNumbers,
+        geometryPassAttempted: true,
+        ...useSolDirectGeometry ? { geometryMode: "direct-question-points" } : {},
+        example: contentExample && exampleTargetPoint ? { label: cleanText(contentExample?.label, 120), questionTargetPoint: exampleTargetPoint, confidence: clamp(contentExample?.confidence, 0.9) } : void 0,
+        warnings: [...list(contentRaw?.warnings), ...list(questionRaw?.warnings), ...list(geometryRaw?.warnings)]
+      };
+    } else if (input.part === 3) {
+      const questionImages = input.images.filter((image) => image.role === "question");
+      const answerKeyImages = input.images.filter((image) => image.role === "answer_key");
+      const questionRaw = await analyzeAndParse(
+        promptForPart3QuestionPass(),
+        questionImages,
+        part3PassSchema("question"),
+        "listening_mover_part_3_question_example",
+        validatePart3QuestionResponse
+      );
+      let answerKeyRaw;
+      if (answerKeyImages.length) {
+        answerKeyRaw = await analyzeAndParse(
+          promptForPart3AnswerKeyPass(questionRaw),
+          answerKeyImages,
+          part3PassSchema("answer_key"),
+          "listening_mover_part_3_answer_key",
+          (parsed) => validatePart3AnswerKeyResponse(parsed, questionRaw)
+        );
+      } else if (input.pastedText) {
+        answerKeyRaw = localFallback(3, input.pastedText);
+        const validationError = validatePart3AnswerKeyResponse({ layoutEvidence: "three-rows-two-columns", ...answerKeyRaw }, questionRaw);
+        if (validationError) {
+          const invalidFallbackError = new Error(`V\u0103n b\u1EA3n answer key Part 3 kh\xF4ng kh\u1EDBp example \u0111\xE3 x\xE1c minh: ${validationError}`);
+          invalidFallbackError.status = 422;
+          invalidFallbackError.code = "LISTENING_SMART_IMPORT_INVALID_PART3_FALLBACK";
+          throw invalidFallbackError;
+        }
+        answerKeyRaw = { layoutEvidence: "three-rows-two-columns", ...answerKeyRaw };
+      } else {
+        const missingKeyError = new Error("Part 3 c\u1EA7n \u1EA2nh \u0111\xE1p \xE1n ho\u1EB7c fallback v\u0103n b\u1EA3n ba h\xE0ng hai c\u1ED9t.");
+        missingKeyError.status = 400;
+        throw missingKeyError;
+      }
+      raw = {
+        ...questionRaw,
+        ...answerKeyRaw,
+        warnings: [...list(questionRaw?.warnings), ...list(answerKeyRaw?.warnings)]
+      };
+    } else if (input.part === 5) {
+      const contentImages = ["question", "answer_key", "position_key"].flatMap((role) => input.images.filter((image) => image.role === role));
+      raw = await analyzeAndParse(
+        promptForPart5Content(),
+        contentImages,
+        responseSchemaFor(5),
+        "listening_mover_part_5_content",
+        validatePart5ContentResponse
+      );
+    } else {
+      raw = await analyzeAndParse(
+        promptFor(input.part, input.pastedText),
+        input.images,
+        responseSchemaFor(input.part),
+        `listening_mover_part_${input.part}`
+      );
+    }
+    if (usedProviders.size > 1) provider = [...usedProviders].join("+");
   } else if (input.pastedText && (input.part === 2 || input.part === 3)) {
     raw = localFallback(input.part, input.pastedText);
     warnings.push(`Part ${input.part}: \u0111ang d\xF9ng fallback v\u0103n b\u1EA3n th\u1EE7 c\xF4ng thay cho \u1EA3nh answer key.`);
@@ -5755,6 +6877,7 @@ async function createListeningSmartImportCandidate(input) {
     error.status = 400;
     throw error;
   }
+  warnings.push(...list(raw?.warnings).map((value) => cleanText(value, 500)).filter(Boolean));
   const data = normalizeData(input.part, raw, input.currentPart, warnings);
   return {
     id: `limport-${import_node_crypto3.default.randomUUID()}`,
@@ -5780,7 +6903,7 @@ function getListeningSmartImportRoleDefinitions(part) {
   if (part === 5) return [
     { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true },
-    { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: false }
+    { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: true }
   ];
   return [
     { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
@@ -5791,6 +6914,10 @@ function getListeningSmartImportRoleDefinitions(part) {
 // src/server/listening/listeningRouter.ts
 var IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 var AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+var SMART_IMPORT_TIMEOUT_MS = Math.min(
+  18e4,
+  Math.max(15e3, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 18e4)
+);
 var MIME_EXTENSIONS = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -5956,6 +7083,9 @@ async function resolveContentAssets(db, content, user) {
     if (!asset || asset.kind !== reference.kind) {
       throw apiError(400, `Media "${reference.id}" kh\xF4ng \u0111\xFAng lo\u1EA1i ${reference.kind}.`);
     }
+    if (reference.role === "part5-token" && asset.mimeType !== "image/png") {
+      throw apiError(400, `Icon Draw "${asset.name || asset.id}" ph\u1EA3i l\xE0 file PNG.`);
+    }
   }
   const url = (id) => id ? assets.get(id)?.url : void 0;
   clone.coverUrl = url(clone.coverAssetId);
@@ -6112,7 +7242,8 @@ function createListeningRouter(dependencies) {
       smartImport: {
         enabled: smartImport?.enabled !== false,
         visionEnabled: Boolean(smartImport?.analyzeVision),
-        reason: smartImport?.reason || (smartImport?.analyzeVision ? void 0 : "Ch\u01B0a c\u1EA5u h\xECnh GEMINI_API_KEY ho\u1EB7c OPENAI_API_KEY; v\u1EABn c\xF3 th\u1EC3 nh\u1EADp v\u0103n b\u1EA3n cho Part 2/3.")
+        providers: smartImport?.providers || [],
+        reason: smartImport?.reason || (smartImport?.analyzeVision ? void 0 : "Ch\u01B0a c\u1EA5u h\xECnh nh\xE0 cung c\u1EA5p AI th\u1ECB gi\xE1c; v\u1EABn c\xF3 th\u1EC3 nh\u1EADp v\u0103n b\u1EA3n cho Part 2/3.")
       },
       upload: {
         enabled: true,
@@ -6265,6 +7396,15 @@ function createListeningRouter(dependencies) {
         });
       }
       const pastedText = text(req.body?.pastedText, 12e3);
+      const preferredProvider = text(req.body?.preferredProvider || "auto", 60);
+      const providerIds = new Set((smartImport?.providers || []).map((provider) => provider.id));
+      if (preferredProvider !== "auto" && !providerIds.has(preferredProvider)) {
+        throw apiError(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
+      }
+      const selectedProvider = (smartImport?.providers || []).find((provider) => provider.id === preferredProvider);
+      if (selectedProvider && !selectedProvider.enabled) {
+        throw apiError(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh tr\xEAn m\xE1y ch\u1EE7.`);
+      }
       const roleDefinitions = getListeningSmartImportRoleDefinitions(part);
       const allowedRoles = new Set(roleDefinitions.map((definition) => definition.role));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
@@ -6317,6 +7457,7 @@ function createListeningRouter(dependencies) {
         sources,
         pastedText,
         images,
+        preferredProvider,
         analyzeVision: smartImport?.analyzeVision,
         signal: importAbortController.signal
       });
@@ -6324,8 +7465,12 @@ function createListeningRouter(dependencies) {
       const timeoutPromise = new Promise((_resolve, reject) => {
         timeoutId = setTimeout(() => {
           importAbortController.abort();
-          reject(apiError(504, "Smart Import qu\xE1 th\u1EDDi gian x\u1EED l\xFD 45 gi\xE2y."));
-        }, 45e3);
+          reject(apiError(
+            504,
+            `Smart Import qu\xE1 th\u1EDDi gian x\u1EED l\xFD ${Math.ceil(SMART_IMPORT_TIMEOUT_MS / 1e3)} gi\xE2y. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`,
+            { code: "LISTENING_SMART_IMPORT_TIMEOUT" }
+          ));
+        }, SMART_IMPORT_TIMEOUT_MS);
       });
       const candidate = await Promise.race([importPromise, timeoutPromise]).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -6335,7 +7480,7 @@ function createListeningRouter(dependencies) {
         req.user.name,
         req.user.email,
         "ANALYZE_LISTENING_PART",
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; provider ${candidate.provider}.`
+        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
       res.json(candidate);
     } catch (error) {
@@ -6775,6 +7920,41 @@ function createListeningRouter(dependencies) {
       sendError(res, error);
     }
   });
+  router.get("/sets/:id/attempts/:attemptId/review", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const actor = await resolveActor(req, resolveGuestProfile2);
+      const attemptSnapshot = await db.collection("listening_attempts").doc(req.params.attemptId).get();
+      if (!attemptSnapshot.exists) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const attempt = { id: attemptSnapshot.id, ...attemptSnapshot.data() };
+      if (attempt.setId !== req.params.id || attempt.ownerKey !== actor.ownerKey) {
+        throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      }
+      if (actor.guestId) {
+        const runSecret = text(req.headers["x-listening-run-secret"], 300);
+        if (!runSecret || !timingSafeEqual(sha256(runSecret), String(attempt.runSecretHash || ""))) {
+          throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+        }
+      }
+      if (attempt.status !== "completed") throw apiError(409, "L\u01B0\u1EE3t l\xE0m b\xE0i ch\u01B0a ho\xE0n t\u1EA5t.");
+      const detailSnapshot = await db.collection("listening_attempt_details").doc(attempt.id).get();
+      if (!detailSnapshot.exists) throw apiError(404, "Chi ti\u1EBFt \u0111\xE1p \xE1n kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng.");
+      const detail = detailSnapshot.data();
+      if (detail?.reviewPolicy?.showReviewAfterSubmit !== true) {
+        throw apiError(403, "B\u1ED9 \u0111\u1EC1 n\xE0y kh\xF4ng cho xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
+      }
+      res.json({
+        attemptId: attempt.id,
+        score: Number(attempt.score || 0),
+        correctCount: Number(attempt.correctCount || 0),
+        incorrectCount: Number(attempt.incorrectCount || 0),
+        unansweredCount: Number(attempt.unansweredCount || 0),
+        totalCount: Number(attempt.totalCount || 25),
+        answerDetails: normalizeListeningActivityAnswerDetails(detail)
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
   router.get("/sets/:id/my-attempts", authenticateOptionalUser2, async (req, res) => {
     try {
       const actor = await resolveActor(req, resolveGuestProfile2);
@@ -6836,6 +8016,157 @@ function createListeningLibraryRouter() {
     });
   });
   return router;
+}
+
+// src/server/listening-smart-import/staliProvider.ts
+var STALI_DEFAULT_BASE_URL = "https://api.stali.vn/v1";
+var STALI_MAX_REQUEST_BYTES = 8 * 1024 * 1024;
+var STALI_MODELS = [
+  {
+    id: "stali:deepseek-v4-pro",
+    label: "Stali \xB7 DeepSeek V4 Pro",
+    model: "deepseek-v4-pro",
+    visionEnabled: false
+  },
+  {
+    id: "stali:gpt-5.6-luna",
+    label: "Stali \xB7 GPT 5.6 Luna",
+    model: "gpt-5.6-luna",
+    visionEnabled: true
+  },
+  {
+    id: "stali:gpt-5.6-sol",
+    label: "Stali \xB7 GPT 5.6 Sol",
+    model: "gpt-5.6-sol",
+    visionEnabled: true
+  },
+  {
+    id: "stali:gpt-5.6-terra",
+    label: "Stali \xB7 GPT 5.6 Terra",
+    model: "gpt-5.6-terra",
+    visionEnabled: true
+  }
+];
+function getStaliSmartImportProviders(apiKey) {
+  const configured = Boolean(apiKey?.trim());
+  return STALI_MODELS.map((definition) => {
+    const enabled = configured && definition.visionEnabled;
+    const reason = !definition.visionEnabled ? `${definition.label} hi\u1EC7n kh\xF4ng h\u1ED7 tr\u1EE3 \u1EA3nh (Vision) theo t\xE0i li\u1EC7u Stali n\xEAn kh\xF4ng th\u1EC3 d\xF9ng cho Smart Import.` : !configured ? `${definition.label} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh STALI_API_KEY tr\xEAn m\xE1y ch\u1EE7.` : void 0;
+    return {
+      id: definition.id,
+      label: definition.label,
+      model: definition.model,
+      visionEnabled: definition.visionEnabled,
+      enabled,
+      ...reason ? { reason } : {}
+    };
+  });
+}
+function resolveStaliVisionModel(providerId) {
+  return STALI_MODELS.find((definition) => definition.id === providerId && definition.visionEnabled);
+}
+function isStaliProviderId(providerId) {
+  return STALI_MODELS.some((definition) => definition.id === providerId);
+}
+function normalizeStaliBaseUrl(value) {
+  const candidate = String(value || STALI_DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error("STALI_BASE_URL kh\xF4ng ph\u1EA3i URL h\u1EE3p l\u1EC7.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("STALI_BASE_URL ph\u1EA3i d\xF9ng HTTPS.");
+  }
+  return candidate;
+}
+function extractStaliChatCompletionText(data) {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? item.text : "").filter(Boolean).join("\n").trim();
+  }
+  return "";
+}
+function buildStaliVisionRequest(model, prompt, images, options) {
+  return {
+    model,
+    stream: false,
+    max_tokens: 16384,
+    messages: [
+      {
+        role: "system",
+        content: "Return only one valid JSON value matching the supplied schema. Do not return markdown, prose, UUIDs, database IDs, question IDs, choice IDs, or any invented value."
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `${prompt}
+
+REQUIRED JSON SCHEMA (${options.schemaName}):
+${JSON.stringify(options.responseJsonSchema)}`
+          },
+          ...images.flatMap((image) => [
+            { type: "text", text: `IMAGE ROLE: ${image.role}` },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${image.mimeType};base64,${image.data.toString("base64")}`
+              }
+            }
+          ])
+        ]
+      }
+    ]
+  };
+}
+async function generateWithStaliVision(input) {
+  const definition = resolveStaliVisionModel(input.providerId);
+  if (!definition) {
+    const error = new Error(`Model Stali "${input.providerId}" kh\xF4ng h\u1ED7 tr\u1EE3 Smart Import b\u1EB1ng \u1EA3nh.`);
+    error.status = 400;
+    throw error;
+  }
+  const apiKey = input.apiKey?.trim();
+  if (!apiKey) return null;
+  const requestBody = JSON.stringify(buildStaliVisionRequest(
+    definition.model,
+    input.prompt,
+    input.images,
+    input.options
+  ));
+  if (Buffer.byteLength(requestBody, "utf8") > STALI_MAX_REQUEST_BYTES) {
+    const error = new Error("T\u1ED5ng \u1EA3nh v\xE0 prompt v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n 8 MB c\u1EE7a Stali. H\xE3y n\xE9n ho\u1EB7c c\u1EAFt g\u1ECDn \u1EA3nh ngu\u1ED3n r\u1ED3i ph\xE2n t\xEDch l\u1EA1i.");
+    error.status = 413;
+    throw error;
+  }
+  const fetchImpl = input.fetchImpl || fetch;
+  const response = await fetchImpl(`${normalizeStaliBaseUrl(input.baseUrl)}/chat/completions`, {
+    method: "POST",
+    signal: input.signal,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: requestBody
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const error = new Error(errorText.slice(0, 1e3) || `Stali request failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const data = await response.json();
+  const text3 = extractStaliChatCompletionText(data);
+  if (!text3) throw new Error("Stali response did not include text output.");
+  return {
+    text: text3,
+    provider: definition.id,
+    model: definition.model
+  };
 }
 
 // src/lib/localAuthBypass.ts
@@ -9190,6 +10521,9 @@ var preSeedDb = async () => {
 };
 var GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 var OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
+var STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
+var STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
+var STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
 var getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -9214,6 +10548,9 @@ function getOpenAIKey() {
   return apiKey;
 }
 function sanitizeAiError(provider, error) {
+  if (error?.name === "AbortError") {
+    return `${provider}: request b\u1ECB h\u1EE7y do v\u01B0\u1EE3t th\u1EDDi gian x\u1EED l\xFD.`;
+  }
   const status = error?.status || error?.statusCode || error?.response?.status;
   const message = String(error?.message || error || "Unknown AI error").replace(/sk-[A-Za-z0-9_-]+/g, "sk-***").slice(0, 240);
   return status ? `${provider} ${status}: ${message}` : `${provider}: ${message}`;
@@ -9260,7 +10597,7 @@ async function generateWithOpenAI(prompt) {
   }
   return text3;
 }
-async function generateWithOpenAIVision(prompt, images, signal) {
+async function generateWithOpenAIVision(prompt, images, options, signal) {
   const apiKey = getOpenAIKey();
   if (!apiKey) return null;
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -9286,7 +10623,14 @@ async function generateWithOpenAIVision(prompt, images, signal) {
           ])
         ]
       }],
-      text: { format: { type: "text" } }
+      text: {
+        format: {
+          type: "json_schema",
+          name: options.schemaName,
+          schema: options.responseJsonSchema,
+          strict: false
+        }
+      }
     })
   });
   if (!response.ok) {
@@ -9300,52 +10644,85 @@ async function generateWithOpenAIVision(prompt, images, signal) {
   if (!text3) throw new Error("OpenAI response did not include text output.");
   return text3;
 }
-async function generateAiVisionJson(prompt, images, signal) {
+async function generateAiVisionJson(prompt, images, options, signal) {
   const errors = [];
-  const gemini = getGeminiClient();
-  if (gemini) {
-    try {
-      const response = await gemini.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [{
-          role: "user",
-          parts: [
-            { text: prompt },
-            ...images.flatMap((image) => [
-              { text: `IMAGE ROLE: ${image.role}` },
-              {
-                inlineData: {
-                  mimeType: image.mimeType,
-                  data: image.data.toString("base64")
-                }
-              }
-            ])
-          ]
-        }],
-        config: { responseMimeType: "application/json", abortSignal: signal }
-      });
-      const text3 = response.text?.trim();
-      if (!text3) throw new Error("Gemini response did not include text output.");
-      return { text: text3, provider: "gemini", errors };
-    } catch (error) {
-      const message = sanitizeAiError("Gemini", error);
-      errors.push(message);
-      console.warn("Gemini vision unavailable, trying OpenAI fallback:", message);
-    }
-  } else {
-    errors.push("Gemini: GEMINI_API_KEY is not configured.");
+  const preferred = options.preferredProvider || "auto";
+  if (!["auto", "gemini", "openai"].includes(preferred) && !isStaliProviderId(preferred)) {
+    const unsupported = new Error(`Nh\xE0 cung c\u1EA5p AI "${preferred}" ch\u01B0a \u0111\u01B0\u1EE3c backend h\u1ED7 tr\u1EE3.`);
+    unsupported.status = 400;
+    throw unsupported;
   }
-  try {
-    const text3 = await generateWithOpenAIVision(prompt, images, signal);
-    if (text3) return { text: text3, provider: "openai", errors };
-    errors.push("OpenAI: OPENAI_API_KEY is not configured.");
-  } catch (error) {
-    const message = sanitizeAiError("OpenAI", error);
-    errors.push(message);
+  if (preferred === "auto" || preferred === "gemini") {
+    const gemini = getGeminiClient();
+    if (!gemini) {
+      errors.push("Gemini: GEMINI_API_KEY is not configured.");
+    } else {
+      try {
+        const response = await gemini.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              ...images.flatMap((image) => [
+                { text: `IMAGE ROLE: ${image.role}` },
+                {
+                  inlineData: {
+                    mimeType: image.mimeType,
+                    data: image.data.toString("base64")
+                  }
+                }
+              ])
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseJsonSchema: options.responseJsonSchema,
+            abortSignal: signal
+          }
+        });
+        const text3 = response.text?.trim();
+        if (!text3) throw new Error("Gemini response did not include text output.");
+        return { text: text3, provider: "gemini", model: GEMINI_MODEL, errors };
+      } catch (error) {
+        const message = sanitizeAiError("Gemini", error);
+        errors.push(message);
+        console.warn(`Gemini vision unavailable${preferred === "auto" ? ", trying ChatGPT fallback" : ""}:`, message);
+      }
+    }
+  }
+  if (preferred === "auto" || preferred === "openai") {
+    try {
+      const text3 = await generateWithOpenAIVision(prompt, images, options, signal);
+      if (text3) return { text: text3, provider: "openai", model: OPENAI_MODEL, errors };
+      errors.push("OpenAI: OPENAI_API_KEY is not configured.");
+    } catch (error) {
+      const message = sanitizeAiError("OpenAI", error);
+      errors.push(message);
+    }
+  }
+  if (isStaliProviderId(preferred)) {
+    try {
+      const result = await generateWithStaliVision({
+        providerId: preferred,
+        prompt,
+        images,
+        options,
+        signal,
+        apiKey: STALI_API_KEY,
+        baseUrl: STALI_BASE_URL
+      });
+      if (result) return { ...result, errors };
+      errors.push("Stali: STALI_API_KEY is not configured.");
+    } catch (error) {
+      if (error?.status === 400 || error?.status === 413) throw error;
+      errors.push(sanitizeAiError("Stali", error));
+    }
   }
   const unavailable = new Error("Kh\xF4ng c\xF3 nh\xE0 cung c\u1EA5p AI th\u1ECB gi\xE1c kh\u1EA3 d\u1EE5ng.");
   unavailable.status = 503;
   unavailable.details = errors;
+  unavailable.code = "AI_PROVIDER_UNAVAILABLE";
   throw unavailable;
 }
 async function generateAiText(prompt, geminiConfig) {
@@ -9712,7 +11089,12 @@ app2.use(
     smartImport: {
       enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
       reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false" ? "Smart Import \u0111\xE3 b\u1ECB t\u1EAFt b\u1EB1ng c\u1EA5u h\xECnh m\xE1y ch\u1EE7." : void 0,
-      analyzeVision: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY ? generateAiVisionJson : void 0
+      analyzeVision: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || STALI_API_KEY ? generateAiVisionJson : void 0,
+      providers: [
+        { id: "gemini", label: "Gemini", enabled: Boolean(process.env.GEMINI_API_KEY), visionEnabled: true, model: GEMINI_MODEL },
+        { id: "openai", label: "ChatGPT", enabled: Boolean(process.env.OPENAI_API_KEY), visionEnabled: true, model: OPENAI_MODEL },
+        ...STALI_SMART_IMPORT_PROVIDERS
+      ]
     }
   })
 );

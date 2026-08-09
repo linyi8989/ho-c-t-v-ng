@@ -6,10 +6,12 @@ import {
   ChevronRight,
   Clock3,
   Expand,
+  Eye,
   Headphones,
   Home,
   Lightbulb,
   LoaderCircle,
+  RotateCcw,
   Send,
   Trophy,
 } from 'lucide-react';
@@ -24,7 +26,12 @@ import {
 import { createClientLearningRun } from '../../../lib/learningRuns';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../../lib/studentIdentity';
 import { listeningApi } from '../api';
-import type { ListeningAnswers, ListeningPlayableSet } from '../types';
+import type {
+  ListeningAnswers,
+  ListeningAttemptReview,
+  ListeningCompletedAttempt,
+  ListeningPlayableSet,
+} from '../types';
 import { createEmptyListeningAnswers } from '../types';
 import {
   ListeningPart1View,
@@ -77,7 +84,11 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const [answers, setAnswers] = useState<ListeningAnswers>(() => createEmptyListeningAnswers());
   const [currentPart, setCurrentPart] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<ListeningCompletedAttempt | null>(null);
+  const [review, setReview] = useState<ListeningAttemptReview | null>(null);
+  const [reviewRunSecret, setReviewRunSecret] = useState('');
+  const [showReview, setShowReview] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -162,7 +173,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     setError('');
   };
 
-  const start = async () => {
+  const start = async (replaceCompletedAttempt = false) => {
     if (!playable || !identityReady) return;
     setLoading(true);
     setError('');
@@ -189,10 +200,37 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
       setRun(nextRun);
       setAnswers(nextRun.answers);
       setCurrentPart(0);
+      if (replaceCompletedAttempt) setResult(null);
+      setReview(null);
+      setReviewRunSecret('');
+      setShowReview(false);
     } catch (error: any) {
       setError(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openReview = async () => {
+    if (!result || reviewLoading) return;
+    if (review) {
+      setShowReview(true);
+      return;
+    }
+    setReviewLoading(true);
+    setError('');
+    try {
+      const loadedReview = await listeningApi.getAttemptReview(setId, result.id, token, {
+        guestId,
+        studentName,
+        runSecret: reviewRunSecret,
+      });
+      setReview(loadedReview);
+      setShowReview(true);
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -215,6 +253,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         studentName,
         answers,
       });
+      setReviewRunSecret(run.runSecret);
       setResult(completed);
       setRun(null);
       if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
@@ -247,6 +286,8 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }, [run?.clientRunId]);
 
   const part = playable?.content.parts[currentPart];
+  const partUsesInternalScroller = currentPart === 0
+    || (currentPart === 4 && playable?.content.parts[4]?.displayMode === 'scene-colour-draw');
   const progress = answeredCount(answers);
   const partViews = part ? [
     <ListeningPart1View key={1} part={playable!.content.parts[0]} answers={answers} onAnswers={setAnswers} />,
@@ -306,6 +347,49 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
       </div>
     );
   }
+  if (result && showReview && review) {
+    return (
+      <div id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
+        <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl sm:max-h-[calc(100vh-2.5rem)]">
+          <header className="shrink-0 border-b border-slate-200 px-5 py-4 text-left sm:px-7">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[.16em] text-blue-600">Đáp án sau khi nộp</p>
+                <h1 className="mt-1 text-2xl font-black text-slate-900">Kết quả chi tiết</h1>
+              </div>
+              <div className="rounded-2xl bg-blue-50 px-5 py-2 text-center">
+                <span className="text-3xl font-black text-blue-700">{review.score}</span>
+                <span className="font-black text-slate-400">/100</span>
+              </div>
+            </div>
+          </header>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 sm:p-6">
+            {review.answerDetails.map((item, index) => (
+              <article key={`${item.part}-${item.questionIndex}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-wide text-blue-600">Part {item.part} · Câu {review.answerDetails.slice(0, index + 1).filter(answer => answer.part === item.part).length}</p>
+                    <h2 className="mt-1 font-black text-slate-900">{item.questionText}</h2>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-black ${item.unanswered ? 'bg-amber-100 text-amber-800' : item.isCorrect ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                    {item.unanswered ? 'Bỏ trống' : item.isCorrect ? 'Đúng' : 'Sai'}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                  <p className="rounded-xl bg-slate-50 px-3 py-2"><span className="font-bold text-slate-500">Bạn trả lời:</span> <span className="font-black text-slate-800">{item.userAnswer || 'Bỏ trống'}</span></p>
+                  <p className="rounded-xl bg-emerald-50 px-3 py-2"><span className="font-bold text-emerald-700">Đáp án đúng:</span> <span className="font-black text-emerald-900">{item.correctAnswer || 'Chưa có dữ liệu hiển thị'}</span></p>
+                </div>
+              </article>
+            ))}
+          </div>
+          <footer className="grid shrink-0 gap-2 border-t border-slate-200 bg-white p-4 sm:grid-cols-2 sm:px-6">
+            <button id="listening-review-back-btn" type="button" onClick={() => setShowReview(false)} className="listening-secondary-action rounded-2xl border border-blue-300 py-3 font-black text-blue-700"><ArrowLeft size={16} className="mr-2 inline" /> Quay lại tổng kết</button>
+            <button id="listening-review-retry-btn" type="button" onClick={() => void start(true)} className="listening-retry-action rounded-2xl bg-emerald-600 py-3 font-black text-white"><RotateCcw size={16} className="mr-2 inline" /> Làm lại</button>
+          </footer>
+        </div>
+      </div>
+    );
+  }
   if (result) {
     return (
       <div id="listening-result-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
@@ -318,7 +402,14 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
             <div className="rounded-2xl bg-rose-50 p-3"><p className="text-2xl font-black text-rose-700">{result.incorrectCount}</p><p className="text-xs font-bold text-rose-600">Sai</p></div>
             <div className="rounded-2xl bg-amber-50 p-3"><p className="text-2xl font-black text-amber-700">{result.unansweredCount}</p><p className="text-xs font-bold text-amber-600">Bỏ trống</p></div>
           </div>
-          <button id="listening-result-home-btn" onClick={onBack} className="listening-primary-action mt-7 w-full rounded-2xl bg-blue-600 py-3 font-black text-white"><Home size={16} className="mr-2 inline" /> Về trang chủ</button>
+          {error && <p className="mt-4 text-sm font-bold text-rose-600">{error}</p>}
+          <div className="mt-7 grid gap-3">
+            <button id="listening-result-home-btn" type="button" onClick={onBack} className="listening-primary-action w-full rounded-2xl bg-blue-600 py-3 font-black text-white"><Home size={16} className="mr-2 inline" /> Về trang chủ</button>
+            <button id="listening-result-review-btn" type="button" onClick={() => void openReview()} disabled={reviewLoading} className="listening-review-action w-full rounded-2xl border border-blue-300 bg-white py-3 font-black text-blue-700">
+              {reviewLoading ? <LoaderCircle size={16} className="mr-2 inline animate-spin" /> : <Eye size={16} className="mr-2 inline" />} Xem đáp án
+            </button>
+            <button id="listening-result-retry-btn" type="button" onClick={() => void start(true)} className="listening-retry-action w-full rounded-2xl bg-emerald-600 py-3 font-black text-white"><RotateCcw size={16} className="mr-2 inline" /> Làm lại</button>
+          </div>
         </div>
       </div>
     );
@@ -338,7 +429,9 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
           <p className="text-lg font-black uppercase text-slate-950">{part?.instruction}</p>
           {part?.audioUrl && <audio src={part.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}
         </div>
-        <div className="max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1">{partViews[currentPart]}</div>
+        <div className={partUsesInternalScroller
+          ? 'h-[calc(100vh-290px)] min-h-[400px] overflow-hidden p-1'
+          : 'max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1'}>{partViews[currentPart]}</div>
       </main>
       <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
         <button id="listening-prev-part-btn" type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>

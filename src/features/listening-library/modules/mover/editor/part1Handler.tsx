@@ -16,10 +16,11 @@ export default function MoverPart1Editor(props: MoverPartEditorProps<ListeningPa
     onImportCandidateChange(undefined);
     onImportCandidateApplied();
   };
-  const regionItems = [
-    ...part.targets.map((target, index) => ({ id: target.id, label: part.choices.find(choice => choice.id === target.choiceId)?.label || `Vùng ${index + 1}`, region: target.region })),
-    ...(part.example ? [{ id: part.example.id, label: `Example: ${part.example.label || ''}`, region: part.example.region }] : []),
-  ];
+  const regionItems = part.targets.map((target, index) => ({
+    id: target.id,
+    label: part.choices.find(choice => choice.id === target.choiceId)?.label || `Vùng ${index + 1}`,
+    region: target.region,
+  }));
   return <div className="space-y-5">
     <MoverPartBaseEditor {...props} />
     <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} onCandidateChange={onImportCandidateChange} onAnalyzed={importAnalysis} analyzeLabel="Phân tích ba ảnh và nhập vào Part 1" onUpload={onUpload} />
@@ -30,7 +31,6 @@ export default function MoverPart1Editor(props: MoverPartEditorProps<ListeningPa
     <FixedRegionEditor imageUrl={assetUrl(part.sceneAssetId)} items={regionItems} onChange={items => onChange({
       ...part,
       targets: part.targets.map(target => ({ ...target, region: items.find(item => item.id === target.id)?.region || target.region })),
-      ...(part.example ? { example: { ...part.example, region: items.find(item => item.id === part.example?.id)?.region || part.example.region } } : {}),
     })} />
   </div>;
 }

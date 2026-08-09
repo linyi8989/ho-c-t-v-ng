@@ -13,6 +13,7 @@ Bật/tắt Smart Import:
 
 ```env
 LISTENING_SMART_IMPORT_ENABLED=true
+LISTENING_SMART_IMPORT_TIMEOUT_MS=180000
 ```
 
 Đặt `false` sẽ vô hiệu hóa endpoint phân tích và các nút phân tích, nhưng editor thủ công, upload media, player, grader và lịch sử vẫn hoạt động.
@@ -24,11 +25,17 @@ GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1
+STALI_API_KEY=
+STALI_BASE_URL=https://api.stali.vn/v1
 ```
 
-Thứ tự chạy là Gemini trước, OpenAI sau. Khi không có cả hai key, Part 2/3 vẫn có thể parse pasted text cục bộ; Parts 1/4/5 không chạy phân tích ảnh và giáo viên vẫn soạn tay được.
+Chế độ `Tự động` giữ thứ tự Gemini trước, OpenAI sau. Khi có `STALI_API_KEY`, giáo viên có thể chọn riêng `GPT 5.6 Luna`, `GPT 5.6 Sol` hoặc `GPT 5.6 Terra` của Stali; lựa chọn rõ ràng không tự fallback sang provider khác. `DeepSeek V4 Pro` vẫn hiện trong registry nhưng bị khóa cho Smart Import vì tài liệu Stali hiện không gắn nhãn Vision cho model này. Khi không có bất kỳ key AI thị giác nào, Part 2/3 vẫn có thể parse pasted text cục bộ; Parts 1/4/5 không chạy phân tích ảnh và giáo viên vẫn soạn tay được.
+
+Stali dùng endpoint OpenAI-compatible `POST /v1/chat/completions`, header `Authorization: Bearer`, ảnh `image_url` dạng data URL và giới hạn toàn bộ request 8 MB. Key chỉ nằm ở backend; không đưa `STALI_API_KEY` vào biến `VITE_*`, frontend, log hay tài liệu có giá trị thật.
 
 Không đưa key vào biến `VITE_*`, frontend hoặc log. Thư mục `LISTENING_MEDIA_DIR` phải nằm ngoài thư mục release và được mount persistent; ảnh crop Part 2/4 cũng được lưu tại đây.
+
+`LISTENING_SMART_IMPORT_TIMEOUT_MS` là deadline tổng của một lượt phân tích, mặc định 180 giây và được giới hạn trong khoảng 15-180 giây. Provider timeout, lỗi mạng hoặc JSON sai sau lần retry phải trả lỗi cho editor; backend không tạo candidate rỗng và không thay working draft.
 
 ## 2. Build và kiểm tra trước deploy
 
