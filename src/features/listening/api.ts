@@ -89,6 +89,12 @@ export const listeningApi = {
       headers: authHeaders(token),
     });
   },
+  cloneSet(token: string, id: string) {
+    return requestJson<any>(`/api/listening/admin/sets/${encodeURIComponent(id)}/clone`, {
+      method: 'POST',
+      headers: authHeaders(token),
+    });
+  },
   archiveSet(token: string, id: string) {
     return requestJson<any>(`/api/listening/admin/sets/${encodeURIComponent(id)}`, {
       method: 'DELETE',

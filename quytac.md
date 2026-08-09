@@ -191,6 +191,10 @@ Kế hoạch Smart Editor chi tiết nằm tại `docs/listening-smart-editor-pl
 
 ## 11. UI và CSS
 
+- Các kho bài quản trị có cùng chức năng phải dùng cùng component thao tác, không tự tạo một bộ icon/nút riêng theo từng module. Kho Ngữ pháp và mọi kho Listening hiện tại/tương lai dùng thứ tự cố định: `Play` → `Sửa` → `Sao chép` → `Kết quả` → `Xóa`; nguồn giao diện chuẩn là `src/components/admin/LibraryRowControls.tsx`.
+- Kho Listening phải có cột `Link` tách khỏi cột thao tác. Bản `assignment` có token hiển thị nút `Link riêng` kèm thao tác copy; bản `public` chỉ hiển thị `Công khai` và không có nút copy; bản `draft` hiển thị `Chưa xuất bản` và không tạo link học sinh.
+- `Sao chép` Listening luôn tạo working draft mới, không sao chép published version, share token, attempt, history hoặc kết quả. `Xóa` trên kho Listening chỉ là archive có thể phục hồi và tuyệt đối không được xóa vật lý published content/attempt/history.
+- Module Listening thêm sau này phải tái sử dụng contract nút/cột Link chung này qua adapter của kho, trừ khi có yêu cầu nghiệp vụ được duyệt rõ ràng khác với contract chung.
 - Đọc `src/index.css` trước khi sửa giao diện vì global selectors có thể ghi đè Tailwind classes.
 - Giữ nền sáng và độ tương phản đọc được.
 - Disabled control vẫn phải nhìn thấy; không dùng chữ gần trùng màu nền.

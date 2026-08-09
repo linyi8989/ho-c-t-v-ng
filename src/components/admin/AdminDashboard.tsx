@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 import ListeningLibraryAdmin from '../../features/listening-library/admin/ListeningLibraryAdmin';
+import { LibraryLinkStatus, LibraryRowActions } from './LibraryRowControls';
 import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
@@ -3031,29 +3032,25 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-xs font-semibold text-gray-600">{formatVietnamDateTime(set.createdAt)}</td>
                             <td className="px-4 py-4">
-                              {visibility === 'assignment' && grammarLink ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard?.writeText(grammarLink);
-                                    showNotification('Đã copy link grammar riêng.');
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[10px] font-black text-indigo-700 hover:bg-indigo-100"
-                                  title="Copy link grammar riêng"
-                                >
-                                  <Copy size={13} />
-                                  Link riêng
-                                </button>
-                              ) : <span className="text-xs text-gray-300">--</span>}
+                              <LibraryLinkStatus
+                                visibility={visibility}
+                                privateUrl={grammarLink}
+                                onCopyPrivateLink={() => {
+                                  navigator.clipboard?.writeText(grammarLink);
+                                  showNotification('Đã copy link grammar riêng.');
+                                }}
+                              />
                             </td>
                             <td className="px-4 py-4">
-                              <div className="flex flex-wrap gap-1.5">
-                                <button type="button" onClick={() => onViewGrammarAsStudent?.(set)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-700 hover:bg-emerald-100"><Play size={13} />Play</button>
-                                <button type="button" onClick={() => handleEditGrammarSet(set)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-black text-blue-700 hover:bg-blue-100">Sửa</button>
-                                <button type="button" onClick={() => handleCloneGrammarSet(set)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-black text-indigo-700 hover:bg-indigo-100">Sao chép</button>
-                                <button type="button" onClick={() => handleLoadGrammarResults(set)} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-black text-amber-700 hover:bg-amber-100">Kết quả</button>
-                                <button type="button" onClick={() => handleDeleteGrammarSet(set)} className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-black text-rose-700 hover:bg-rose-100">Xóa</button>
-                              </div>
+                              <LibraryRowActions
+                                onPlay={() => onViewGrammarAsStudent?.(set)}
+                                onEdit={() => handleEditGrammarSet(set)}
+                                onClone={() => handleCloneGrammarSet(set)}
+                                onResults={() => handleLoadGrammarResults(set)}
+                                onDelete={() => handleDeleteGrammarSet(set)}
+                                playDisabled={!onViewGrammarAsStudent}
+                                playTitle={onViewGrammarAsStudent ? 'Play' : 'Chưa thể mở bài học'}
+                              />
                             </td>
                           </tr>
                         );

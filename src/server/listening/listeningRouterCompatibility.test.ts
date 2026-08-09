@@ -191,11 +191,20 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   });
 
   const pass: express.RequestHandler = (_req, _res, next) => next();
+  const authenticateTeacher: express.RequestHandler = (req, _res, next) => {
+    (req as any).user = {
+      id: 'teacher-1',
+      name: 'Teacher One',
+      email: 'teacher-one@example.test',
+      role: 'teacher',
+    };
+    next();
+  };
   const app = express();
   app.use(express.json());
   app.use('/api/listening', createListeningRouter({
     db,
-    authenticateUser: pass,
+    authenticateUser: authenticateTeacher,
     authenticateOptionalUser: pass,
     requireStaff: pass,
     mediaDir: path.join(temporaryDirectory, 'media'),
@@ -217,6 +226,47 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   });
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const cloneResponse = await fetch(`${baseUrl}/api/listening/admin/sets/legacy-mover-set/clone`, {
+    method: 'POST',
+  });
+  assert.equal(cloneResponse.status, 201);
+  const clonedSet = await cloneResponse.json() as any;
+  assert.notEqual(clonedSet.id, 'legacy-mover-set');
+  assert.equal(clonedSet.title, 'Legacy Movers fixture (Bản sao)');
+  assert.equal(clonedSet.status, 'draft');
+  assert.equal(clonedSet.visibility, 'draft');
+  assert.equal(clonedSet.draftRevision, 1);
+  assert.equal(clonedSet.ownerId, 'teacher-1');
+  assert.equal(clonedSet.draftContent.title, clonedSet.title);
+  assert.equal(clonedSet.draftContent.parts[0].choices[0].id, fixture.content.parts[0].choices[0].id);
+  assert.equal('shareToken' in clonedSet, false);
+  assert.equal('publishedVersionId' in clonedSet, false);
+
+  const sourceAfterClone = await db.collection('listening_sets').doc('legacy-mover-set').get();
+  assert.equal(sourceAfterClone.data()?.title, fixture.content.title);
+  assert.equal(sourceAfterClone.data()?.status, 'published');
+  const versionsAfterClone = await db.collection('listening_set_versions').get();
+  assert.equal(versionsAfterClone.size, 1, 'Cloning must not duplicate immutable published versions');
+
+  const futureCloneResponse = await fetch(`${baseUrl}/api/listening/admin/sets/future-ket-set/clone`, {
+    method: 'POST',
+  });
+  assert.equal(futureCloneResponse.status, 404);
+
+  const archiveCloneResponse = await fetch(`${baseUrl}/api/listening/admin/sets/${encodeURIComponent(clonedSet.id)}`, {
+    method: 'DELETE',
+  });
+  assert.equal(archiveCloneResponse.status, 200);
+  assert.deepEqual(await archiveCloneResponse.json(), {
+    success: true,
+    recoverable: true,
+    status: 'archived',
+    updatedAt: (await db.collection('listening_sets').doc(clonedSet.id).get()).data()?.updatedAt,
+  });
+  const archivedClone = await db.collection('listening_sets').doc(clonedSet.id).get();
+  assert.equal(archivedClone.data()?.status, 'archived');
+  assert.equal(versionsAfterClone.size, 1);
 
   const listResponse = await fetch(`${baseUrl}/api/listening/sets`);
   assert.equal(listResponse.status, 200);

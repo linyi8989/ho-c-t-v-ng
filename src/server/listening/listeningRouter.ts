@@ -726,6 +726,69 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
     }
   });
 
+  router.post('/admin/sets/:id/clone', authenticateUser, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
+      const sourceSet = await getSet(db, req.params.id);
+      if (!sourceSet || !belongsToMoverModule(sourceSet)) {
+        throw apiError(404, 'Không tìm thấy bộ đề nghe.');
+      }
+      if (!canManageSet(req.user, sourceSet)) {
+        throw apiError(403, 'Bạn không có quyền sao chép bộ đề này.');
+      }
+      if (sourceSet.status === 'archived') {
+        throw apiError(409, 'Bộ đề đã được lưu trữ.');
+      }
+
+      let sourceContent = sourceSet.draftContent as ListeningSetContent | undefined;
+      if (!sourceContent && sourceSet.publishedVersionId) {
+        const publishedVersion = await getVersion(db, sourceSet.publishedVersionId);
+        sourceContent = publishedVersion?.content as ListeningSetContent | undefined;
+      }
+      if (!sourceContent || sourceContent.schemaVersion !== LISTENING_LIBRARY_SCHEMA_VERSION) {
+        throw apiError(409, 'Bộ đề nguồn không có bản nội dung tương thích để sao chép.');
+      }
+
+      const suffix = ' (Bản sao)';
+      const sourceTitle = text(sourceSet.title || sourceContent.title, 160) || 'Bộ đề nghe';
+      const cloneTitle = `${sourceTitle.slice(0, 160 - suffix.length).trim()}${suffix}`;
+      const content = withMoverContentMetadata({
+        ...structuredClone(sourceContent),
+        title: cloneTitle,
+      });
+      const now = nowIso();
+      const clone = {
+        id: identifier('listen'),
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        ownerId: req.user.id,
+        createdBy: req.user.id,
+        title: cloneTitle,
+        description: text(content.description, 2000),
+        level: text(content.level, 80),
+        status: 'draft',
+        visibility: 'draft',
+        draftRevision: 1,
+        draftContent: content,
+        validationErrors: validateListeningSetContent(content),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.collection('listening_sets').doc(clone.id).set(clone);
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        'CLONE_LISTENING_SET',
+        `Sao chép bộ đề nghe "${sourceSet.title}" thành "${clone.title}".`,
+      );
+      res.status(201).json(clone);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.get('/admin/sets/:id', authenticateUser, requireStaff, async (req, res) => {
     try {
       const set = await getSet(db, req.params.id);

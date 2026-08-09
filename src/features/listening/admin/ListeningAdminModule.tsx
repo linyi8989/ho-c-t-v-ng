@@ -1,13 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Archive,
-  BarChart3,
-  Clipboard,
-  Edit3,
-  Eye,
   Plus,
   X,
 } from 'lucide-react';
+import { LibraryLinkStatus, LibraryRowActions } from '../../../components/admin/LibraryRowControls';
 import ListeningEditorShell from '../../listening-editor/shell/ListeningEditorShell';
 import { EditorField, EditorTextArea } from '../../listening-editor/shared/EditorFields';
 import { useListeningDraft } from '../../listening-editor/draft/useListeningDraft';
@@ -26,6 +22,7 @@ import { listeningApi } from '../api';
 import type {
   ListeningAsset,
   ListeningPart,
+  ListeningSetSummary,
   ListeningVisibility,
 } from '../types';
 import { ListeningAssetPicker } from './ListeningAssetPicker';
@@ -38,7 +35,7 @@ export const createDefaultListeningContent = createDefaultMoverListeningContent;
 const SHOW_WHOLE_EXAM_RESOURCE_TRAY = false;
 
 export default function ListeningAdminModule({ token }: ListeningAdminModuleProps) {
-  const [sets, setSets] = useState<any[]>([]);
+  const [sets, setSets] = useState<ListeningSetSummary[]>([]);
   const [assets, setAssets] = useState<ListeningAsset[]>([]);
   const [capabilities, setCapabilities] = useState<any>(null);
   const [editingId, setEditingId] = useState('');
@@ -245,17 +242,30 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
       setBusy(false);
     }
   };
-  const archiveSet = async (set: any) => {
-    if (!window.confirm(`Lưu trữ bộ đề "${set.title}"? Kết quả cũ vẫn được giữ.`)) return;
+  const archiveSet = async (set: ListeningSetSummary) => {
+    if (!window.confirm(`Xóa bộ đề "${set.title}" khỏi kho? Bộ đề sẽ được lưu trữ để có thể phục hồi; kết quả cũ vẫn được giữ.`)) return;
     try {
       await listeningApi.archiveSet(token, set.id);
       await load();
-      setMessage({ text: 'Đã lưu trữ bộ đề; dữ liệu có thể phục hồi trong cơ sở dữ liệu.' });
+      setMessage({ text: 'Đã xóa bộ đề khỏi kho và chuyển sang lưu trữ; dữ liệu vẫn có thể phục hồi.' });
     } catch (error: any) {
       setMessage({ text: error.message, error: true });
     }
   };
-  const showResults = async (set: any) => {
+  const cloneSet = async (set: ListeningSetSummary) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const cloned = await listeningApi.cloneSet(token, set.id);
+      await load();
+      setMessage({ text: `Đã sao chép "${set.title}" thành "${cloned.title}". Bản sao đang ở trạng thái nháp.` });
+    } catch (error: any) {
+      setMessage({ text: error.message, error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const showResults = async (set: ListeningSetSummary) => {
     setBusy(true);
     try {
       const data = await fetch(`/api/listening/admin/sets/${encodeURIComponent(set.id)}/results`, {
@@ -273,11 +283,20 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
       setBusy(false);
     }
   };
-  const previewUrl = (set: any) => {
+  const previewUrl = (set: ListeningSetSummary) => {
     const query = set.visibility === 'assignment' && set.shareToken
       ? `?accessToken=${encodeURIComponent(set.shareToken)}`
       : '';
     return `${window.location.origin}/listening/${set.id}${query}`;
+  };
+  const copyPrivateLink = async (set: ListeningSetSummary) => {
+    try {
+      if (!navigator.clipboard) throw new Error('Trình duyệt không hỗ trợ sao chép tự động.');
+      await navigator.clipboard.writeText(previewUrl(set));
+      setMessage({ text: `Đã sao chép link riêng của "${set.title}".` });
+    } catch (error: any) {
+      setMessage({ text: error.message || 'Không thể sao chép link riêng.', error: true });
+    }
   };
 
   const inEditor = Boolean(editingId) || content.title !== '__library__';
@@ -425,10 +444,10 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
           </button>
         </div>
         {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
-        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full min-w-[820px] text-left text-sm">
+        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[1080px] text-left text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
-              <tr><th className="p-4">Bộ đề</th><th className="p-4">Trình độ</th><th className="p-4">Phiên bản</th><th className="p-4">Trạng thái</th><th className="p-4 text-right">Thao tác</th></tr>
+              <tr><th className="p-4">Bộ đề</th><th className="p-4">Trình độ</th><th className="p-4">Phiên bản</th><th className="p-4">Trạng thái</th><th className="p-4">Link</th><th className="p-4">Thao tác</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sets.filter(set => set.status !== 'archived').map(set => (
@@ -438,17 +457,28 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
                   <td className="p-4 font-bold text-slate-600">{set.publishedVersionNumber ? `v${set.publishedVersionNumber}` : 'Chưa xuất bản'}</td>
                   <td className="p-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${set.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{set.status === 'published' ? 'Đã xuất bản' : 'Bản nháp'}</span></td>
                   <td className="p-4">
-                    <div className="flex justify-end gap-1">
-                      <button type="button" title="Sửa" onClick={() => editSet(set.id)} className="rounded-xl p-2 text-blue-700 hover:bg-blue-50"><Edit3 size={16} /></button>
-                      {set.status === 'published' && <button type="button" title="Xem như học sinh" onClick={() => window.open(previewUrl(set), '_blank', 'noopener,noreferrer')} className="rounded-xl p-2 text-emerald-700 hover:bg-emerald-50"><Eye size={16} /></button>}
-                      {set.visibility === 'assignment' && set.shareToken && <button type="button" title="Sao chép link" onClick={() => navigator.clipboard?.writeText(previewUrl(set))} className="rounded-xl p-2 text-violet-700 hover:bg-violet-50"><Clipboard size={16} /></button>}
-                      <button type="button" title="Kết quả" onClick={() => showResults(set)} className="rounded-xl p-2 text-amber-700 hover:bg-amber-50"><BarChart3 size={16} /></button>
-                      <button type="button" title="Lưu trữ" onClick={() => archiveSet(set)} className="rounded-xl p-2 text-rose-700 hover:bg-rose-50"><Archive size={16} /></button>
-                    </div>
+                    <LibraryLinkStatus
+                      visibility={set.visibility}
+                      privateUrl={set.visibility === 'assignment' && set.shareToken ? previewUrl(set) : undefined}
+                      onCopyPrivateLink={set.visibility === 'assignment' && set.shareToken ? () => copyPrivateLink(set) : undefined}
+                    />
+                  </td>
+                  <td className="p-4">
+                    <LibraryRowActions
+                      onPlay={() => window.open(previewUrl(set), '_blank', 'noopener,noreferrer')}
+                      onEdit={() => editSet(set.id)}
+                      onClone={() => cloneSet(set)}
+                      onResults={() => showResults(set)}
+                      onDelete={() => archiveSet(set)}
+                      playDisabled={set.status !== 'published'}
+                      disabled={busy}
+                      playTitle={set.status === 'published' ? 'Play' : 'Cần xuất bản trước khi mở bài học'}
+                      deleteTitle="Xóa khỏi kho (lưu trữ có thể phục hồi)"
+                    />
                   </td>
                 </tr>
               ))}
-              {!sets.filter(set => set.status !== 'archived').length && <tr><td colSpan={5} className="p-10 text-center text-sm font-semibold text-slate-400">Chưa có bộ đề nghe.</td></tr>}
+              {!sets.filter(set => set.status !== 'archived').length && <tr><td colSpan={6} className="p-10 text-center text-sm font-semibold text-slate-400">Chưa có bộ đề nghe.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -2385,3 +2385,31 @@ warnings remain.
   `npm run lint` passes, `npm run test:listening` passes 76/76, and
   `npm run build` passes with only the existing Firebase mixed-import and
   large-chunk warnings.
+
+## 29. Shared Grammar/Listening library row controls - 2026-08-10
+
+- `src/components/admin/LibraryRowControls.tsx` is the shared presentation
+  contract for resource-library row actions and link state. Grammar and every
+  active/future Listening admin adapter must render the fixed action order:
+  `Play`, `Sửa`, `Sao chép`, `Kết quả`, `Xóa`.
+- The shared link cell has three explicit states. `assignment` renders a
+  copyable `Link riêng` button only when a token-backed URL exists; `public`
+  renders the non-copyable label `Công khai`; `draft` renders
+  `Chưa xuất bản` and exposes no student URL.
+- Mover Listening adds `POST /api/listening/admin/sets/:id/clone`. It creates a
+  new owner-scoped draft from the source working content, or from the immutable
+  published snapshot for a legacy set without `draftContent`. Internal content
+  and asset reference IDs are preserved so references remain coherent, while
+  the new set receives a fresh set ID and no published version, share token,
+  assignment slug, attempt, history or result row.
+- Listening's visible `Xóa` action continues to call the recoverable archive
+  endpoint. It changes only the set status to `archived`; immutable versions,
+  attempts, details and asset files are not deleted.
+- UI/static regression coverage lives in
+  `src/features/listening-library/admin/ListeningLibraryAdmin.contract.test.ts`;
+  clone, module isolation and recoverable archive behavior are covered by
+  `src/server/listening/listeningRouterCompatibility.test.ts`.
+- Validation for this pass: `npm run lint` passes,
+  `npm run test:listening` passes 91/91, and `npm run build` passes. The build
+  generated `index-GNOHXLht.js` and retains the existing Firebase mixed-import
+  and large-chunk warnings.

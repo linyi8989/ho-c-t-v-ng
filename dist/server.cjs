@@ -7533,6 +7533,66 @@ function createListeningRouter(dependencies) {
       sendError(res, error);
     }
   });
+  router.post("/admin/sets/:id/clone", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const sourceSet = await getSet(db, req.params.id);
+      if (!sourceSet || !belongsToMoverModule(sourceSet)) {
+        throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 nghe.");
+      }
+      if (!canManageSet(req.user, sourceSet)) {
+        throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n sao ch\xE9p b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      }
+      if (sourceSet.status === "archived") {
+        throw apiError(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+      }
+      let sourceContent = sourceSet.draftContent;
+      if (!sourceContent && sourceSet.publishedVersionId) {
+        const publishedVersion = await getVersion(db, sourceSet.publishedVersionId);
+        sourceContent = publishedVersion?.content;
+      }
+      if (!sourceContent || sourceContent.schemaVersion !== LISTENING_LIBRARY_SCHEMA_VERSION) {
+        throw apiError(409, "B\u1ED9 \u0111\u1EC1 ngu\u1ED3n kh\xF4ng c\xF3 b\u1EA3n n\u1ED9i dung t\u01B0\u01A1ng th\xEDch \u0111\u1EC3 sao ch\xE9p.");
+      }
+      const suffix = " (B\u1EA3n sao)";
+      const sourceTitle = text(sourceSet.title || sourceContent.title, 160) || "B\u1ED9 \u0111\u1EC1 nghe";
+      const cloneTitle = `${sourceTitle.slice(0, 160 - suffix.length).trim()}${suffix}`;
+      const content = withMoverContentMetadata({
+        ...structuredClone(sourceContent),
+        title: cloneTitle
+      });
+      const now = nowIso2();
+      const clone = {
+        id: identifier("listen"),
+        moduleId: DEFAULT_LISTENING_MODULE_ID,
+        schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        moduleSchemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
+        ownerId: req.user.id,
+        createdBy: req.user.id,
+        title: cloneTitle,
+        description: text(content.description, 2e3),
+        level: text(content.level, 80),
+        status: "draft",
+        visibility: "draft",
+        draftRevision: 1,
+        draftContent: content,
+        validationErrors: validateListeningSetContent(content),
+        createdAt: now,
+        updatedAt: now
+      };
+      await db.collection("listening_sets").doc(clone.id).set(clone);
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "CLONE_LISTENING_SET",
+        `Sao ch\xE9p b\u1ED9 \u0111\u1EC1 nghe "${sourceSet.title}" th\xE0nh "${clone.title}".`
+      );
+      res.status(201).json(clone);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
   router.get("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
     try {
       const set = await getSet(db, req.params.id);
