@@ -40,7 +40,7 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
   const [pendingCrop, setPendingCrop] = useState<PendingIllustrationCrop>();
 
   const importAnalysis = (candidate: ListeningSmartImportCandidate) => {
-    if (candidate.data.part !== 2) throw new Error('Dữ liệu AI không đúng Part 2.');
+    if (candidate.data.part !== 2) throw new Error('Dữ liệu phân tích không đúng Part 2.');
     onChange(importPart2Analysis(part, candidate.data));
     const questionAssetId = smartImportSourceAssetId(candidate, 'question');
     if (questionAssetId) {

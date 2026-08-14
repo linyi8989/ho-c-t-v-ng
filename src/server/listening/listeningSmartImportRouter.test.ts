@@ -64,19 +64,15 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
     smartImport: {
       enabled: true,
       providers: [
-        { id: 'gemini', label: 'Gemini', enabled: true, model: 'gemini-test' },
-        { id: 'openai', label: 'ChatGPT', enabled: true, model: 'gpt-test' },
-        { id: 'stali:deepseek-v4-pro', label: 'Stali · DeepSeek V4 Pro', enabled: false, visionEnabled: false, model: 'deepseek-v4-pro', reason: 'DeepSeek V4 Pro không hỗ trợ ảnh.' },
-        { id: 'stali:gpt-5.6-luna', label: 'Stali · GPT 5.6 Luna', enabled: true, visionEnabled: true, model: 'gpt-5.6-luna' },
-        { id: 'stali:gpt-5.6-sol', label: 'Stali · GPT 5.6 Sol', enabled: true, visionEnabled: true, model: 'gpt-5.6-sol' },
-        { id: 'stali:gpt-5.6-terra', label: 'Stali · GPT 5.6 Terra', enabled: true, visionEnabled: true, model: 'gpt-5.6-terra' },
+        { id: 'stali:gpt-5.6-sol', label: 'Stali · ChatGPT 5.6 Sol', enabled: true, visionEnabled: true, model: 'gpt-5.6-sol' },
+        { id: 'devquota:gpt-5.6-sol', label: 'DevQuota · ChatGPT 5.6 Sol', enabled: true, visionEnabled: true, model: 'gpt-5.6-sol' },
       ],
       analyzeVision: async (_prompt, images, options) => {
         analyzedKinds = images.map(image => image.mimeType);
         analyzedProvider = options.preferredProvider;
         if (analyzerFailure) throw analyzerFailure;
         return {
-          provider: 'gemini',
+          provider: options.preferredProvider,
           text: JSON.stringify({
             heading: 'ABC',
             questions: Array.from({ length: 5 }, (_, index) => ({
@@ -101,7 +97,7 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   const url = `http://127.0.0.1:${address.port}/api/listening/admin/smart-import/analyze`;
   const part = createDefaultMoverListeningContent().parts[1];
   const basePartHash = crypto.createHash('sha256').update(JSON.stringify(part)).digest('hex');
-  const body = (answerAssetId: string, preferredProvider = 'openai') => JSON.stringify({
+  const body = (answerAssetId: string, preferredProvider = 'stali:gpt-5.6-sol') => JSON.stringify({
     moduleId: 'mover', part: 2, sources: [
       { role: 'question', assetId: 'owned-image' },
       { role: 'answer_key', assetId: answerAssetId },
@@ -135,36 +131,32 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   assert.equal(candidate.part, 2);
   assert.equal(candidate.data.questions.length, 5);
   assert.deepEqual(analyzedKinds, ['image/png', 'image/png']);
-  assert.equal(analyzedProvider, 'openai');
+  assert.equal(analyzedProvider, 'stali:gpt-5.6-sol');
 
-  const staliAccepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'stali:gpt-5.6-luna') });
-  assert.equal(staliAccepted.status, 200);
-  assert.equal(analyzedProvider, 'stali:gpt-5.6-luna');
+  const devQuotaAccepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'devquota:gpt-5.6-sol') });
+  assert.equal(devQuotaAccepted.status, 200);
+  assert.equal(analyzedProvider, 'devquota:gpt-5.6-sol');
 
-  const nonVisionRejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'stali:deepseek-v4-pro') });
-  assert.equal(nonVisionRejected.status, 503);
-  assert.match((await nonVisionRejected.json() as any).error, /không hỗ trợ ảnh/);
+  const removedProviderRejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'gemini') });
+  assert.equal(removedProviderRejected.status, 400);
+  assert.match((await removedProviderRejected.json() as any).error, /không tồn tại/);
 
   analyzerFailure = Object.assign(new Error('Không có nhà cung cấp AI thị giác khả dụng.'), {
     status: 503,
-    details: ['OpenAI: fetch failed'],
+    details: ['Stali: fetch failed'],
   });
   const providerFailed = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer') });
   assert.equal(providerFailed.status, 503);
   const providerFailureBody = await providerFailed.json() as any;
   assert.match(providerFailureBody.error, /Draft chưa được thay đổi/);
-  assert.deepEqual(providerFailureBody.details, ['OpenAI: fetch failed']);
+  assert.deepEqual(providerFailureBody.details, ['Stali: fetch failed']);
   analyzerFailure = undefined;
 
   const capabilities = await fetch(`http://127.0.0.1:${address.port}/api/listening/capabilities`);
   assert.equal(capabilities.status, 200);
   assert.deepEqual((await capabilities.json() as any).smartImport.providers.map((provider: any) => provider.label), [
-    'Gemini',
-    'ChatGPT',
-    'Stali · DeepSeek V4 Pro',
-    'Stali · GPT 5.6 Luna',
-    'Stali · GPT 5.6 Sol',
-    'Stali · GPT 5.6 Terra',
+    'Stali · ChatGPT 5.6 Sol',
+    'DevQuota · ChatGPT 5.6 Sol',
   ]);
 
   const unknownProvider = await fetch(url, {

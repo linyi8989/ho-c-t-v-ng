@@ -5395,7 +5395,11 @@ var questionNumber = (value) => {
   const parsed = integer(value);
   return parsed && parsed >= 1 && parsed <= 5 ? parsed : void 0;
 };
-var PART1_SOL_PROVIDER_ID = "stali:gpt-5.6-sol";
+var DEFAULT_SMART_IMPORT_AI_PROVIDER_ID = "stali:gpt-5.6-sol";
+var PART1_SOL_PROVIDER_IDS = /* @__PURE__ */ new Set([
+  "stali:gpt-5.6-sol",
+  "devquota:gpt-5.6-sol"
+]);
 function parseJson3(text3) {
   const trimmed = text3.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
@@ -6643,6 +6647,7 @@ function localFallback(part, text3) {
 async function createListeningSmartImportCandidate(input) {
   const warnings = [];
   let provider = "local";
+  const selectedProvider = input.preferredProvider || DEFAULT_SMART_IMPORT_AI_PROVIDER_ID;
   let raw;
   if (input.images.length && input.analyzeVision) {
     const requestId = `limport-analysis-${import_node_crypto3.default.randomUUID()}`;
@@ -6656,7 +6661,7 @@ Your previous response was not valid for the required JSON schema and extraction
         let result;
         try {
           result = await input.analyzeVision(prompt + retryInstruction, images, {
-            preferredProvider: input.preferredProvider || "auto",
+            preferredProvider: selectedProvider,
             responseJsonSchema: schema,
             schemaName,
             requestId,
@@ -6700,7 +6705,7 @@ Your previous response was not valid for the required JSON schema and extraction
       return parsed;
     };
     if (input.part === 1) {
-      const useSolDirectGeometry = input.preferredProvider === PART1_SOL_PROVIDER_ID;
+      const useSolDirectGeometry = PART1_SOL_PROVIDER_IDS.has(selectedProvider);
       const contentImages = input.images.filter((image) => image.role === "question" || image.role === "answer_key");
       const questionImages = input.images.filter((image) => image.role === "question");
       const geometryImages = useSolDirectGeometry ? ["question", "answer_key", "position_key"].flatMap((role) => input.images.filter((image) => image.role === role)) : input.images.filter((image) => image.role === "question" || image.role === "answer_key" || image.role === "position_key");
@@ -7396,9 +7401,9 @@ function createListeningRouter(dependencies) {
         });
       }
       const pastedText = text(req.body?.pastedText, 12e3);
-      const preferredProvider = text(req.body?.preferredProvider || "auto", 60);
+      const preferredProvider = text(req.body?.preferredProvider || "stali:gpt-5.6-sol", 60);
       const providerIds = new Set((smartImport?.providers || []).map((provider) => provider.id));
-      if (preferredProvider !== "auto" && !providerIds.has(preferredProvider)) {
+      if (!providerIds.has(preferredProvider)) {
         throw apiError(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
       }
       const selectedProvider = (smartImport?.providers || []).find((provider) => provider.id === preferredProvider);
@@ -8078,32 +8083,131 @@ function createListeningLibraryRouter() {
   return router;
 }
 
+// src/server/listening-smart-import/devQuotaProvider.ts
+var DEVQUOTA_PROVIDER_ID = "devquota:gpt-5.6-sol";
+var DEVQUOTA_MODEL = "gpt-5.6-sol";
+var DEVQUOTA_DEFAULT_BASE_URL = "https://sv.devquote.shop/v1";
+var DEVQUOTA_MAX_REQUEST_BYTES = 42 * 1024 * 1024;
+function getDevQuotaSmartImportProviders(apiKey) {
+  const enabled = Boolean(apiKey?.trim());
+  return [{
+    id: DEVQUOTA_PROVIDER_ID,
+    label: "DevQuota \xB7 ChatGPT 5.6 Sol",
+    model: DEVQUOTA_MODEL,
+    visionEnabled: true,
+    enabled,
+    ...!enabled ? { reason: "DevQuota \xB7 ChatGPT 5.6 Sol ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh DEVQUOTA_API_KEY tr\xEAn m\xE1y ch\u1EE7." } : {}
+  }];
+}
+function isDevQuotaProviderId(providerId) {
+  return providerId === DEVQUOTA_PROVIDER_ID;
+}
+function normalizeDevQuotaBaseUrl(value) {
+  const candidate = String(value || DEVQUOTA_DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error("DEVQUOTA_BASE_URL kh\xF4ng ph\u1EA3i URL h\u1EE3p l\u1EC7.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("DEVQUOTA_BASE_URL ph\u1EA3i d\xF9ng HTTPS.");
+  }
+  return candidate;
+}
+function extractDevQuotaResponseText(data) {
+  if (typeof data?.output_text === "string") return data.output_text.trim();
+  const chunks = [];
+  for (const item of Array.isArray(data?.output) ? data.output : []) {
+    for (const content of Array.isArray(item?.content) ? item.content : []) {
+      if (typeof content?.text === "string") chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+function buildDevQuotaVisionRequest(prompt, images, options) {
+  return {
+    model: DEVQUOTA_MODEL,
+    instructions: "Return only one valid JSON value matching the supplied schema. Do not return markdown, prose, UUIDs, database IDs, question IDs, choice IDs, or any invented value.",
+    input: [{
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: `${prompt}
+
+REQUIRED JSON SCHEMA (${options.schemaName}):
+${JSON.stringify(options.responseJsonSchema)}`
+        },
+        ...images.flatMap((image) => [
+          { type: "input_text", text: `IMAGE ROLE: ${image.role}` },
+          {
+            type: "input_image",
+            image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+            detail: "high"
+          }
+        ])
+      ]
+    }],
+    text: {
+      format: {
+        type: "json_schema",
+        name: options.schemaName,
+        schema: options.responseJsonSchema,
+        strict: false
+      }
+    },
+    max_output_tokens: 16384
+  };
+}
+async function generateWithDevQuotaVision(input) {
+  if (!isDevQuotaProviderId(input.providerId)) {
+    const error = new Error(`Model DevQuota "${input.providerId}" kh\xF4ng h\u1ED7 tr\u1EE3 Smart Import b\u1EB1ng \u1EA3nh.`);
+    error.status = 400;
+    throw error;
+  }
+  const apiKey = input.apiKey?.trim();
+  if (!apiKey) return null;
+  const requestBody = JSON.stringify(buildDevQuotaVisionRequest(input.prompt, input.images, input.options));
+  if (Buffer.byteLength(requestBody, "utf8") > DEVQUOTA_MAX_REQUEST_BYTES) {
+    const error = new Error("T\u1ED5ng \u1EA3nh v\xE0 prompt v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n request an to\xE0n 42 MB c\u1EE7a adapter DevQuota. H\xE3y n\xE9n ho\u1EB7c c\u1EAFt g\u1ECDn \u1EA3nh ngu\u1ED3n r\u1ED3i ph\xE2n t\xEDch l\u1EA1i.");
+    error.status = 413;
+    throw error;
+  }
+  const fetchImpl = input.fetchImpl || fetch;
+  const response = await fetchImpl(`${normalizeDevQuotaBaseUrl(input.baseUrl)}/responses`, {
+    method: "POST",
+    signal: input.signal,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: requestBody
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    const error = new Error(errorText.slice(0, 1e3) || `DevQuota request failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const data = await response.json();
+  const text3 = extractDevQuotaResponseText(data);
+  if (!text3) throw new Error("DevQuota response did not include text output.");
+  return {
+    text: text3,
+    provider: DEVQUOTA_PROVIDER_ID,
+    model: DEVQUOTA_MODEL
+  };
+}
+
 // src/server/listening-smart-import/staliProvider.ts
 var STALI_DEFAULT_BASE_URL = "https://api.stali.vn/v1";
 var STALI_MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 var STALI_MODELS = [
   {
-    id: "stali:deepseek-v4-pro",
-    label: "Stali \xB7 DeepSeek V4 Pro",
-    model: "deepseek-v4-pro",
-    visionEnabled: false
-  },
-  {
-    id: "stali:gpt-5.6-luna",
-    label: "Stali \xB7 GPT 5.6 Luna",
-    model: "gpt-5.6-luna",
-    visionEnabled: true
-  },
-  {
     id: "stali:gpt-5.6-sol",
-    label: "Stali \xB7 GPT 5.6 Sol",
+    label: "Stali \xB7 ChatGPT 5.6 Sol",
     model: "gpt-5.6-sol",
-    visionEnabled: true
-  },
-  {
-    id: "stali:gpt-5.6-terra",
-    label: "Stali \xB7 GPT 5.6 Terra",
-    model: "gpt-5.6-terra",
     visionEnabled: true
   }
 ];
@@ -10584,6 +10688,9 @@ var OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
 var STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
 var STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
 var STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
+var DEVQUOTA_API_KEY = process.env.DEVQUOTA_API_KEY?.trim() || "";
+var DEVQUOTA_BASE_URL = process.env.DEVQUOTA_BASE_URL?.trim() || DEVQUOTA_DEFAULT_BASE_URL;
+var DEVQUOTA_SMART_IMPORT_PROVIDERS = getDevQuotaSmartImportProviders(DEVQUOTA_API_KEY);
 var getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -10657,109 +10764,13 @@ async function generateWithOpenAI(prompt) {
   }
   return text3;
 }
-async function generateWithOpenAIVision(prompt, images, options, signal) {
-  const apiKey = getOpenAIKey();
-  if (!apiKey) return null;
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    signal,
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      input: [{
-        role: "user",
-        content: [
-          { type: "input_text", text: prompt },
-          ...images.flatMap((image) => [
-            { type: "input_text", text: `IMAGE ROLE: ${image.role}` },
-            {
-              type: "input_image",
-              image_url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
-              detail: "high"
-            }
-          ])
-        ]
-      }],
-      text: {
-        format: {
-          type: "json_schema",
-          name: options.schemaName,
-          schema: options.responseJsonSchema,
-          strict: false
-        }
-      }
-    })
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    const error = new Error(errorText || `OpenAI request failed with status ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  const data = await response.json();
-  const text3 = extractOpenAIText(data);
-  if (!text3) throw new Error("OpenAI response did not include text output.");
-  return text3;
-}
 async function generateAiVisionJson(prompt, images, options, signal) {
   const errors = [];
-  const preferred = options.preferredProvider || "auto";
-  if (!["auto", "gemini", "openai"].includes(preferred) && !isStaliProviderId(preferred)) {
+  const preferred = options.preferredProvider || "stali:gpt-5.6-sol";
+  if (!isStaliProviderId(preferred) && !isDevQuotaProviderId(preferred)) {
     const unsupported = new Error(`Nh\xE0 cung c\u1EA5p AI "${preferred}" ch\u01B0a \u0111\u01B0\u1EE3c backend h\u1ED7 tr\u1EE3.`);
     unsupported.status = 400;
     throw unsupported;
-  }
-  if (preferred === "auto" || preferred === "gemini") {
-    const gemini = getGeminiClient();
-    if (!gemini) {
-      errors.push("Gemini: GEMINI_API_KEY is not configured.");
-    } else {
-      try {
-        const response = await gemini.models.generateContent({
-          model: GEMINI_MODEL,
-          contents: [{
-            role: "user",
-            parts: [
-              { text: prompt },
-              ...images.flatMap((image) => [
-                { text: `IMAGE ROLE: ${image.role}` },
-                {
-                  inlineData: {
-                    mimeType: image.mimeType,
-                    data: image.data.toString("base64")
-                  }
-                }
-              ])
-            ]
-          }],
-          config: {
-            responseMimeType: "application/json",
-            responseJsonSchema: options.responseJsonSchema,
-            abortSignal: signal
-          }
-        });
-        const text3 = response.text?.trim();
-        if (!text3) throw new Error("Gemini response did not include text output.");
-        return { text: text3, provider: "gemini", model: GEMINI_MODEL, errors };
-      } catch (error) {
-        const message = sanitizeAiError("Gemini", error);
-        errors.push(message);
-        console.warn(`Gemini vision unavailable${preferred === "auto" ? ", trying ChatGPT fallback" : ""}:`, message);
-      }
-    }
-  }
-  if (preferred === "auto" || preferred === "openai") {
-    try {
-      const text3 = await generateWithOpenAIVision(prompt, images, options, signal);
-      if (text3) return { text: text3, provider: "openai", model: OPENAI_MODEL, errors };
-      errors.push("OpenAI: OPENAI_API_KEY is not configured.");
-    } catch (error) {
-      const message = sanitizeAiError("OpenAI", error);
-      errors.push(message);
-    }
   }
   if (isStaliProviderId(preferred)) {
     try {
@@ -10777,6 +10788,24 @@ async function generateAiVisionJson(prompt, images, options, signal) {
     } catch (error) {
       if (error?.status === 400 || error?.status === 413) throw error;
       errors.push(sanitizeAiError("Stali", error));
+    }
+  }
+  if (isDevQuotaProviderId(preferred)) {
+    try {
+      const result = await generateWithDevQuotaVision({
+        providerId: preferred,
+        prompt,
+        images,
+        options,
+        signal,
+        apiKey: DEVQUOTA_API_KEY,
+        baseUrl: DEVQUOTA_BASE_URL
+      });
+      if (result) return { ...result, errors };
+      errors.push("DevQuota: DEVQUOTA_API_KEY is not configured.");
+    } catch (error) {
+      if (error?.status === 400 || error?.status === 413) throw error;
+      errors.push(sanitizeAiError("DevQuota", error));
     }
   }
   const unavailable = new Error("Kh\xF4ng c\xF3 nh\xE0 cung c\u1EA5p AI th\u1ECB gi\xE1c kh\u1EA3 d\u1EE5ng.");
@@ -11149,11 +11178,10 @@ app2.use(
     smartImport: {
       enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
       reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false" ? "Smart Import \u0111\xE3 b\u1ECB t\u1EAFt b\u1EB1ng c\u1EA5u h\xECnh m\xE1y ch\u1EE7." : void 0,
-      analyzeVision: process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || STALI_API_KEY ? generateAiVisionJson : void 0,
+      analyzeVision: STALI_API_KEY || DEVQUOTA_API_KEY ? generateAiVisionJson : void 0,
       providers: [
-        { id: "gemini", label: "Gemini", enabled: Boolean(process.env.GEMINI_API_KEY), visionEnabled: true, model: GEMINI_MODEL },
-        { id: "openai", label: "ChatGPT", enabled: Boolean(process.env.OPENAI_API_KEY), visionEnabled: true, model: OPENAI_MODEL },
-        ...STALI_SMART_IMPORT_PROVIDERS
+        ...STALI_SMART_IMPORT_PROVIDERS,
+        ...DEVQUOTA_SMART_IMPORT_PROVIDERS
       ]
     }
   })

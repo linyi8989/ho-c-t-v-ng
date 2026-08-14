@@ -76,6 +76,7 @@ test('Part 1 keeps three explicit image roles, separates example, and maps label
     sources: roles,
     pastedText: '',
     images: roles.map(source => image(source.role)),
+    preferredProvider: 'test:generic-vision',
     analyzeVision: async (prompt, images, options) => {
       assert.match(prompt, /Never return UUIDs/);
       calls.push({ roles: images.map(entry => entry.role), schemaName: options.schemaName });
@@ -196,12 +197,68 @@ test('Part 1 Sol uses all three images with a short direct-coordinate prompt and
   assert.equal(candidate.data.example?.label, 'Fred');
 });
 
+test('Part 1 DevQuota Sol uses the same direct-question-point geometry contract as Stali Sol', async () => {
+  const part = createDefaultMoverListeningContent().parts[0];
+  const roles = sources('question', 'answer_key', 'position_key');
+  const labels = ['Paul', 'John', 'Jill', 'Sally', 'Daisy'];
+  const passRoles: ListeningSmartImportSourceRole[][] = [];
+  const candidate = await createListeningSmartImportCandidate({
+    part: 1,
+    currentPart: part,
+    basePartHash: 'hash',
+    sources: roles,
+    pastedText: '',
+    images: roles.map(source => image(source.role)),
+    preferredProvider: 'devquota:gpt-5.6-sol',
+    analyzeVision: async (_prompt, images, options) => {
+      passRoles.push(images.map(entry => entry.role));
+      assert.equal(options.preferredProvider, 'devquota:gpt-5.6-sol');
+      if (options.schemaName.endsWith('_content')) {
+        return { provider: 'devquota:gpt-5.6-sol', text: JSON.stringify({
+          questionScene: { shape: 'rect', x: .1, y: .1, width: .8, height: .8 },
+          printedNames: ['Fred', 'Daisy', 'John', 'Sally', 'Paul', 'Jill', 'Jane'],
+          example: part1Example(),
+          answerMappings: labels.map((printedName, index) => ({
+            targetNumber: index + 1,
+            printedName,
+            visualDescription: `subject-${index + 1}`,
+          })),
+          warnings: [],
+        }) };
+      }
+      if (options.schemaName.endsWith('_question_verification')) {
+        return { provider: 'devquota:gpt-5.6-sol', text: JSON.stringify(part1ExampleVerification()) };
+      }
+      assert.ok((options.responseJsonSchema as any).properties.resolvedTargets.items.properties.questionTargetPoint);
+      assert.equal((options.responseJsonSchema as any).properties.positionScene, undefined);
+      return { provider: 'devquota:gpt-5.6-sol', text: JSON.stringify({
+        resolvedTargets: labels.map((printedName, index) => ({
+          targetNumber: index + 1,
+          printedName,
+          questionTargetPoint: { x: .25 + index * .12, y: .5 },
+          confidence: .95,
+        })),
+        unresolvedTargetNumbers: [],
+        warnings: [],
+      }) };
+    },
+  });
+
+  assert.deepEqual(passRoles, [
+    ['question', 'answer_key'],
+    ['question'],
+    ['question', 'answer_key', 'position_key'],
+  ]);
+  assert.equal(candidate.provider, 'devquota:gpt-5.6-sol');
+  assert.equal(candidate.data.part === 1 ? candidate.data.anchors.length : 0, 5);
+});
+
 test('Part 1 preserves numbered answer mappings when position geometry cannot be transformed', async () => {
   const part = createDefaultMoverListeningContent().parts[0];
   const roles = sources('question', 'answer_key', 'position_key');
   let calls = 0;
   const candidate = await createListeningSmartImportCandidate({
-    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)),
+    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)), preferredProvider: 'test:generic-vision',
     analyzeVision: async (_prompt, _images, options) => {
       calls += 1;
       if (options.schemaName.endsWith('_content')) return { provider: 'gemini', text: JSON.stringify({
@@ -226,7 +283,7 @@ test('Part 1 retries and rejects direct-only geometry without required scene evi
   const part = createDefaultMoverListeningContent().parts[0];
   const roles = sources('question', 'answer_key', 'position_key');
   const candidate = await createListeningSmartImportCandidate({
-    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)),
+    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)), preferredProvider: 'test:generic-vision',
     analyzeVision: async (_prompt, _images, options) => ({ provider: 'openai', text: JSON.stringify(options.schemaName.endsWith('_content') ? {
       questionScene: { shape: 'rect', x: .1, y: .1, width: .8, height: .8 },
       printedNames: ['Fred', 'Daisy', 'John', 'Sally', 'Paul', 'Jill', 'Jane'], example: part1Example(),
@@ -247,7 +304,7 @@ test('Part 1 selects the unique line endpoint inside the illustrated scene and r
   const part = createDefaultMoverListeningContent().parts[0];
   const roles = sources('question', 'answer_key', 'position_key');
   const candidate = await createListeningSmartImportCandidate({
-    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)),
+    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)), preferredProvider: 'test:generic-vision',
     analyzeVision: async (_prompt, _images, options) => ({ provider: 'openai', text: JSON.stringify(options.schemaName.endsWith('_content') ? {
       questionScene: { shape: 'rect', x: .1, y: .1, width: .8, height: .8 },
       printedNames: ['Fred', 'Daisy', 'John', 'Sally', 'Paul', 'Jill', 'Jane'], example: part1Example(),
@@ -279,7 +336,7 @@ test('Part 1 keeps a high-confidence clean-question localization when one traced
   const roles = sources('question', 'answer_key', 'position_key');
   const labels = ['Paul', 'John', 'Jill', 'Sally', 'Daisy'];
   const candidate = await createListeningSmartImportCandidate({
-    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)),
+    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)), preferredProvider: 'test:generic-vision',
     analyzeVision: async (_prompt, _images, options) => ({ provider: 'openai', text: JSON.stringify(options.schemaName.endsWith('_content') ? {
       questionScene: { shape: 'rect', x: .1, y: .1, width: .8, height: .8 },
       printedNames: ['Fred', 'Daisy', 'John', 'Sally', 'Paul', 'Jill', 'Jane'], example: part1Example(),
@@ -316,7 +373,7 @@ test('Part 1 keeps an action contact point immediately beside the primary subjec
   const roles = sources('question', 'answer_key', 'position_key');
   const labels = ['Paul', 'John', 'Jill', 'Sally', 'Jane'];
   const candidate = await createListeningSmartImportCandidate({
-    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)),
+    part: 1, currentPart: part, basePartHash: 'hash', sources: roles, pastedText: '', images: roles.map(source => image(source.role)), preferredProvider: 'test:generic-vision',
     analyzeVision: async (_prompt, _images, options) => ({ provider: 'openai', text: JSON.stringify(options.schemaName.endsWith('_content') ? {
       questionScene: { shape: 'rect', x: .1, y: .1, width: .8, height: .8 },
       printedNames: ['Fred', 'Daisy', 'John', 'Sally', 'Paul', 'Jill', 'Jane'],

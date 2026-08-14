@@ -16,27 +16,9 @@ interface StaliModelDefinition {
 
 const STALI_MODELS: readonly StaliModelDefinition[] = [
   {
-    id: 'stali:deepseek-v4-pro',
-    label: 'Stali · DeepSeek V4 Pro',
-    model: 'deepseek-v4-pro',
-    visionEnabled: false,
-  },
-  {
-    id: 'stali:gpt-5.6-luna',
-    label: 'Stali · GPT 5.6 Luna',
-    model: 'gpt-5.6-luna',
-    visionEnabled: true,
-  },
-  {
     id: 'stali:gpt-5.6-sol',
-    label: 'Stali · GPT 5.6 Sol',
+    label: 'Stali · ChatGPT 5.6 Sol',
     model: 'gpt-5.6-sol',
-    visionEnabled: true,
-  },
-  {
-    id: 'stali:gpt-5.6-terra',
-    label: 'Stali · GPT 5.6 Terra',
-    model: 'gpt-5.6-terra',
     visionEnabled: true,
   },
 ] as const;

@@ -105,9 +105,9 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
 
       <section className="space-y-4" data-part5-answer-table>
         <div>
-          <h4 className="text-sm font-black text-slate-950">Bảng đáp án AI · Part 5</h4>
+          <h4 className="text-sm font-black text-slate-950">Bảng đáp án đã nhập · Part 5</h4>
           <p className="text-[11px] font-semibold text-slate-500">
-            AI điền nội dung thô từ ba ảnh. Giáo viên chỉ cần kiểm tra từng dòng và khoanh lại vùng đáp án nếu cần.
+            Thông số bên ngoài hoặc AI điền nội dung thô. Giáo viên kiểm tra từng dòng và khoanh lại vùng đáp án nếu cần.
           </p>
         </div>
 
@@ -116,7 +116,7 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
             <div className="grid gap-3 border-b border-slate-100 bg-slate-50/70 p-4 md:grid-cols-[72px_1fr]">
               <span className="self-center text-xs font-black text-slate-500">Câu {question.questionNumber}</span>
               <EditorField
-                label="Nội dung AI nhận diện"
+                label="Nội dung nhận diện hoặc đã nhập"
                 value={question.staffPrompt}
                 onChange={staffPrompt => updateQuestion(question.id, current => ({ ...current, staffPrompt }))}
               />
@@ -297,12 +297,12 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
               {question.actions.length === 0 && /^\s*draw\b/i.test(question.staffPrompt) && (
                 <div className="grid gap-3 p-4 md:grid-cols-[90px_1fr_auto] md:items-center" data-part5-draw-recovery-row>
                   <span className="inline-flex w-fit rounded-full bg-sky-100 px-3 py-1.5 text-[11px] font-black text-sky-800">Draw</span>
-                  <p className="text-xs font-semibold text-amber-700">Câu lệnh ghi rõ Draw nhưng AI chưa tạo action. Có thể phục hồi dòng Draw mà không đoán vị trí.</p>
+                  <p className="text-xs font-semibold text-amber-700">Câu lệnh ghi rõ Draw nhưng nguồn phân tích chưa tạo action. Có thể phục hồi dòng Draw mà không đoán vị trí.</p>
                   <button type="button" onClick={() => addPlaceAction(question.id)} className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs font-black text-sky-800">Tạo Draw và chọn vùng</button>
                 </div>
               )}
               {question.actions.length === 0 && !/^\s*draw\b/i.test(question.staffPrompt) && (
-                <p className="p-4 text-xs font-semibold text-amber-700">AI chưa nhận ra action của câu này. Dữ liệu chưa được đoán; giáo viên có thể thêm thủ công bên dưới.</p>
+                <p className="p-4 text-xs font-semibold text-amber-700">Nguồn phân tích chưa nhận ra action của câu này. Dữ liệu chưa được đoán; giáo viên có thể thêm thủ công bên dưới.</p>
               )}
             </div>
 

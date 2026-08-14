@@ -10,7 +10,7 @@ import {
 } from './staliProvider';
 
 const options = {
-  preferredProvider: 'stali:gpt-5.6-luna',
+  preferredProvider: 'stali:gpt-5.6-sol',
   responseJsonSchema: {
     type: 'object',
     properties: { warnings: { type: 'array', items: { type: 'string' } } },
@@ -28,28 +28,21 @@ const images = [{
   data: Buffer.from('fixture-image'),
 }];
 
-test('Stali Smart Import registry exposes the requested models and enables only configured Vision models', () => {
+test('Stali Smart Import registry exposes only ChatGPT 5.6 Sol', () => {
   const withoutKey = getStaliSmartImportProviders(undefined);
-  assert.deepEqual(withoutKey.map(provider => provider.model), [
-    'deepseek-v4-pro',
-    'gpt-5.6-luna',
-    'gpt-5.6-sol',
-    'gpt-5.6-terra',
-  ]);
+  assert.deepEqual(withoutKey.map(provider => provider.model), ['gpt-5.6-sol']);
   assert.ok(withoutKey.every(provider => !provider.enabled));
 
   const withKey = getStaliSmartImportProviders('server-only-key');
-  assert.equal(withKey.find(provider => provider.model === 'deepseek-v4-pro')?.enabled, false);
-  assert.match(withKey.find(provider => provider.model === 'deepseek-v4-pro')?.reason || '', /không hỗ trợ ảnh/);
-  assert.equal(withKey.find(provider => provider.model === 'gpt-5.6-luna')?.enabled, true);
-  assert.equal(withKey.find(provider => provider.model === 'gpt-5.6-sol')?.enabled, true);
-  assert.equal(withKey.find(provider => provider.model === 'gpt-5.6-terra')?.enabled, true);
+  assert.deepEqual(withKey.map(provider => [provider.id, provider.enabled]), [['stali:gpt-5.6-sol', true]]);
   assert.equal(resolveStaliVisionModel('stali:deepseek-v4-pro'), undefined);
+  assert.equal(resolveStaliVisionModel('stali:gpt-5.6-luna'), undefined);
+  assert.equal(resolveStaliVisionModel('stali:gpt-5.6-terra'), undefined);
 });
 
 test('Stali vision request keeps role-labelled images and the required JSON schema', () => {
-  const payload = buildStaliVisionRequest('gpt-5.6-luna', 'Analyze these sources.', images, options);
-  assert.equal(payload.model, 'gpt-5.6-luna');
+  const payload = buildStaliVisionRequest('gpt-5.6-sol', 'Analyze these sources.', images, options);
+  assert.equal(payload.model, 'gpt-5.6-sol');
   const content = payload.messages[1].content as Array<any>;
   assert.equal(content[1].text, 'IMAGE ROLE: question');
   assert.match(content[2].image_url.url, /^data:image\/png;base64,/);
@@ -62,10 +55,10 @@ test('Stali adapter calls the documented OpenAI-compatible endpoint and returns 
   let authorization = '';
   let postedModel = '';
   const result = await generateWithStaliVision({
-    providerId: 'stali:gpt-5.6-terra',
+    providerId: 'stali:gpt-5.6-sol',
     prompt: 'Analyze.',
     images,
-    options: { ...options, preferredProvider: 'stali:gpt-5.6-terra' },
+    options: { ...options, preferredProvider: 'stali:gpt-5.6-sol' },
     apiKey: 'server-only-key',
     fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
       calledUrl = String(url);
@@ -80,11 +73,11 @@ test('Stali adapter calls the documented OpenAI-compatible endpoint and returns 
 
   assert.equal(calledUrl, `${STALI_DEFAULT_BASE_URL}/chat/completions`);
   assert.equal(authorization, 'Bearer server-only-key');
-  assert.equal(postedModel, 'gpt-5.6-terra');
+  assert.equal(postedModel, 'gpt-5.6-sol');
   assert.deepEqual(result, {
     text: '{"warnings":[]}',
-    provider: 'stali:gpt-5.6-terra',
-    model: 'gpt-5.6-terra',
+    provider: 'stali:gpt-5.6-sol',
+    model: 'gpt-5.6-sol',
   });
 });
 
@@ -93,7 +86,7 @@ test('Stali text extraction accepts string and OpenAI content-part responses', (
   assert.equal(extractStaliChatCompletionText({ choices: [{ message: { content: [{ type: 'text', text: '{"ok":' }, { type: 'text', text: 'true}' }] } }] }), '{"ok":\ntrue}');
 });
 
-test('Stali adapter rejects non-Vision models before making a request', async () => {
+test('Stali adapter rejects removed models before making a request', async () => {
   let called = false;
   await assert.rejects(() => generateWithStaliVision({
     providerId: 'stali:deepseek-v4-pro',

@@ -5,6 +5,8 @@ import { getListeningSmartImportRoleDefinitions } from './types';
 
 const panelSource = readFileSync(new URL('./SmartImportPanel.tsx', import.meta.url), 'utf8');
 const typesSource = readFileSync(new URL('./types.ts', import.meta.url), 'utf8');
+const externalPart1Source = readFileSync(new URL('./part1ExternalImport.ts', import.meta.url), 'utf8');
+const externalParametersSource = readFileSync(new URL('./externalParametersImport.ts', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../../listening/admin/ListeningAdminModule.tsx', import.meta.url), 'utf8');
 const part2Source = readFileSync(new URL('../../listening-library/modules/mover/editor/part2Handler.tsx', import.meta.url), 'utf8');
 const part3Source = readFileSync(new URL('../../listening-library/modules/mover/editor/part3Handler.tsx', import.meta.url), 'utf8');
@@ -37,15 +39,55 @@ test('role slots are explicit, use FileDropPasteInput, and exclude assets select
   assert.match(panelSource, /<FileDropPasteInput/);
 });
 
-test('Smart Import exposes an extensible provider selector with Gemini and ChatGPT labels supplied by capabilities', () => {
+test('Smart Import exposes exactly external parameters plus Stali and DevQuota ChatGPT 5.6 Sol', () => {
   assert.match(typesSource, /ListeningSmartImportProviderDefinition/);
   assert.match(typesSource, /providers\?: ListeningSmartImportProviderDefinition\[\]/);
-  assert.match(panelSource, /aria-label="Chọn AI xử lý Smart Import"/);
-  assert.match(panelSource, /value="auto">Tự động · Gemini → ChatGPT/);
+  assert.match(panelSource, /aria-label="Chọn nguồn xử lý Smart Import"/);
+  assert.match(panelSource, /const SMART_IMPORT_AI_PROVIDER_IDS = \[/);
+  assert.match(panelSource, /'stali:gpt-5\.6-sol'/);
+  assert.match(panelSource, /'devquota:gpt-5\.6-sol'/);
+  assert.match(panelSource, /SMART_IMPORT_AI_PROVIDER_FALLBACKS/);
+  assert.match(panelSource, /chưa được backend hiện tại công bố/);
+  assert.doesNotMatch(panelSource, /value="auto"/);
+  assert.doesNotMatch(panelSource, /'gemini'/);
+  assert.doesNotMatch(panelSource, /'openai'/);
+  assert.doesNotMatch(panelSource, /gpt-5\.6-(?:luna|terra)/);
+  assert.doesNotMatch(panelSource, /deepseek-v4-pro/);
   assert.match(panelSource, /providerDefinitions\.map/);
   assert.match(panelSource, /preferredProvider/);
-  assert.match(panelSource, /initialPreferredProvider = 'stali:gpt-5\.6-sol'/);
+  assert.match(panelSource, /initialPreferredProvider = EXTERNAL_PARAMETERS_PROVIDER/);
   assert.match(panelSource, /provider\.reason \|\| 'chưa cấu hình'/);
+});
+
+test('Part 1 defaults to one-image external parameters and merges through the existing direct-import callback', () => {
+  assert.match(part1Source, /initialPreferredProvider=\{PART1_EXTERNAL_PROVIDER\}/);
+  assert.match(panelSource, /<option value=\{EXTERNAL_PARAMETERS_PROVIDER\}>Thông số bên ngoài<\/option>/);
+  assert.match(panelSource, /allRoleDefinitions\.filter\(definition => definition\.role === 'question'\)/);
+  assert.match(panelSource, /data-part-external-parameters=\{part\.part\}/);
+  assert.match(panelSource, /parseExternalParametersImport\(part\.part, externalParameters/);
+  assert.match(panelSource, /provider: EXTERNAL_PARAMETERS_PROVIDER/);
+  assert.match(panelSource, /sources: \[\{ role: 'question', assetId: questionAssetId \}\]/);
+  assert.match(panelSource, /latestOnAnalyzedRef\.current\(next\)/);
+  assert.match(panelSource, /`Kiểm tra và ghép vào Part \$\{part\.part\}`/);
+  assert.match(externalPart1Source, /coordinateSpace === 'pixel'.*rawX \/ imageWidth/);
+  assert.doesNotMatch(externalPart1Source, /\/ 1000/);
+});
+
+test('Parts 2-5 external parameters use only the question image and dispatch to strict versioned parsers', () => {
+  assert.match(externalParametersSource, /mover-part2-external-v1/);
+  assert.match(externalParametersSource, /mover-part3-external-v1/);
+  assert.match(externalParametersSource, /mover-part4-external-v1/);
+  assert.match(externalParametersSource, /mover-part5-external-v1/);
+  assert.match(externalParametersSource, /if \(part === 2\) return parsePart2/);
+  assert.match(externalParametersSource, /if \(part === 3\) return parsePart3/);
+  assert.match(externalParametersSource, /if \(part === 4\) return parsePart4/);
+  assert.match(externalParametersSource, /return parsePart5/);
+  assert.match(panelSource, /const externalMode = preferredProvider === EXTERNAL_PARAMETERS_PROVIDER/);
+  assert.match(panelSource, /currentPart: part/);
+  assert.doesNotMatch(panelSource, /part\.part === 1 && preferredProvider ===/);
+  assert.match(part4Source, /invalidQuestionCropData && incoming\.provider === EXTERNAL_PARAMETERS_PROVIDER/);
+  assert.match(part4Source, /alignedExample && !invalidExampleCropData/);
+  assert.match(part4Source, /part\.questions\.map\(question => question\.options\.map\(option => option\.imageAssetId\)\)/);
 });
 
 test('Part 2 always keeps manual illustration cropping available after analysis even without an AI crop hint', () => {
@@ -66,7 +108,7 @@ test('Parts 1-5 import a validated analysis directly into their editable draft',
   assert.match(part4Source, /onAnalyzed=\{importAnalysis\}/);
   assert.match(part5Source, /onAnalyzed=\{importAnalysis\}/);
   assert.match(part4Source, /Phân tích, crop và nhập Part 4/);
-  assert.match(part5Source, /GPT-5\.6 Sol đọc 3 ảnh và nhập Part 5/);
+  assert.match(part5Source, /Phân tích ảnh và nhập Part 5/);
 });
 
 test('Part 3 keeps the two-image AI workflow compact and edits the imported result in the main form', () => {
@@ -79,9 +121,10 @@ test('Part 3 keeps the two-image AI workflow compact and edits the imported resu
   assert.match(panelSource, /pastedTextPlacement === 'advanced'/);
 });
 
-test('Part 5 uses Sol for three-image Draw placement and edge-snapped manual Colour masks', () => {
+test('Part 5 keeps the three-image AI fallback and edge-snapped manual Colour masks', () => {
   assert.deepEqual(getListeningSmartImportRoleDefinitions(5).map(role => [role.role, role.required]), [['question', true], ['answer_key', true], ['position_key', true]]);
-  assert.match(part5SceneSource, /Bảng đáp án AI · Part 5/);
+  assert.match(part5SceneSource, /Bảng đáp án đã nhập · Part 5/);
+  assert.match(part5SceneSource, /Thông số bên ngoài hoặc AI điền nội dung thô/);
   assert.match(part5SceneSource, /Vẽ để chọn vùng đáp án/);
   assert.match(part5SceneSource, /data-part5-distractor-row/);
   assert.match(part5SceneSource, /Màu nhiễu/);
@@ -92,6 +135,6 @@ test('Part 5 uses Sol for three-image Draw placement and edge-snapped manual Col
   assert.match(part5SceneSource, /<ListeningRegionEditor\s+freehandOnly\s+edgeSnap/);
   assert.match(part5SceneSource, /<ListeningRegionEditor\s+rectangleOnly\s+imageUrl/);
   assert.match(part5SceneSource, /data-part5-draw-recovery-row/);
-  assert.match(part5Source, /initialPreferredProvider="stali:gpt-5\.6-sol"/);
-  assert.match(part5Source, /GPT-5\.6 Sol đọc 3 ảnh và nhập Part 5/);
+  assert.doesNotMatch(part5Source, /initialPreferredProvider="stali:gpt-5\.6-sol"/);
+  assert.match(part5Source, /analyzeLabel="Phân tích ảnh và nhập Part 5"/);
 });

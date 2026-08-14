@@ -6,6 +6,7 @@ import SmartImportPanel from '../../../../listening-editor/smart-import/SmartImp
 import { cropListeningImage } from '../../../../listening-editor/smart-import/cropImage';
 import VisualCropEditor from '../../../../listening-editor/smart-import/VisualCropEditor';
 import { hashListeningPart } from '../../../../listening-editor/smart-import/hash';
+import { EXTERNAL_PARAMETERS_PROVIDER } from '../../../../listening-editor/smart-import/externalParametersImport';
 import { detectPart4Frames, groupPart4Frames } from '../../../../listening-editor/smart-import/part4FrameDetection';
 import type { ListeningSmartImportCandidate, SmartImportCrop } from '../../../../listening-editor/smart-import/types';
 import { smartImportSourceAssetId } from '../../../../listening-editor/smart-import/types';
@@ -60,7 +61,7 @@ export default function MoverPart4Editor(props: MoverPartEditorProps<ListeningPa
   };
 
   const alignCandidateToBlackFrames = async (incoming: ListeningSmartImportCandidate, keepForReview = true) => {
-    if (incoming.data.part !== 4) throw new Error('Dữ liệu AI không đúng Part 4.');
+    if (incoming.data.part !== 4) throw new Error('Dữ liệu phân tích không đúng Part 4.');
     const sourceId = smartImportSourceAssetId(incoming, 'question');
     const url = assetUrl(sourceId);
     if (!url) throw new Error('Thiếu ảnh đề bài Part 4.');
@@ -98,7 +99,7 @@ export default function MoverPart4Editor(props: MoverPartEditorProps<ListeningPa
   };
 
   const importAnalysis = async (incoming: ListeningSmartImportCandidate) => {
-    if (incoming.data.part !== 4) throw new Error('Dữ liệu AI không đúng Part 4.');
+    if (incoming.data.part !== 4) throw new Error('Dữ liệu phân tích không đúng Part 4.');
     const aligned = await alignCandidateToBlackFrames(incoming, false);
     if (!aligned || aligned.data.part !== 4) throw new Error('Không thể chuẩn hóa dữ liệu Part 4.');
     const sourceAssetId = smartImportSourceAssetId(aligned, 'question');
@@ -123,8 +124,23 @@ export default function MoverPart4Editor(props: MoverPartEditorProps<ListeningPa
     } : undefined;
     const invalid = (crop: SmartImportCrop) => Object.values(crop).some(value => !Number.isFinite(value))
       || crop.width < 0.01 || crop.height < 0.01 || crop.x < 0 || crop.y < 0 || crop.x + crop.width > 1 || crop.y + crop.height > 1;
-    if (alignedQuestions.some(question => !question.prompt.trim() || question.crops.length !== 3 || question.crops.some(invalid))
-      || (alignedExample && alignedExample.crops.some(invalid))) {
+    const invalidQuestionCropData = alignedQuestions.some(question => !question.prompt.trim() || question.crops.length !== 3 || question.crops.some(invalid));
+    const invalidExampleCropData = Boolean(alignedExample && (alignedExample.crops.length !== 3 || alignedExample.crops.some(invalid)));
+    if (invalidQuestionCropData && incoming.provider === EXTERNAL_PARAMETERS_PROVIDER) {
+      if (await hashListeningPart(latestPartRef.current) !== aligned.basePartHash) {
+        throw new Error('Part 4 đã thay đổi trong lúc dò khung. Không ghi đè draft mới; hãy ghép lại.');
+      }
+      onChange(applyPart4Analysis(part, {
+        ...aligned.data,
+        ...(alignedExample ? { example: alignedExample } : {}),
+        questions: alignedQuestions,
+      }, part.questions.map(question => question.options.map(option => option.imageAssetId)), part.example?.options.map(option => option.imageAssetId)));
+      setAlignmentNotice('Không nhận đủ khung đen; đã ghép nội dung và đáp án nhưng giữ nguyên ảnh lựa chọn để giáo viên chọn/chỉnh thủ công.');
+      onImportCandidateChange(undefined);
+      onImportCandidateApplied();
+      return;
+    }
+    if (invalidQuestionCropData || (invalidExampleCropData && incoming.provider !== EXTERNAL_PARAMETERS_PROVIDER)) {
       throw new Error('Part 4 cần đủ ba crop A/B/C hợp lệ cho example và từng câu 1–5.');
     }
     const uploadCrops = async (crops: SmartImportCrop[], prefix: string) => {
@@ -142,7 +158,11 @@ export default function MoverPart4Editor(props: MoverPartEditorProps<ListeningPa
         uploadedQuestions.push(await uploadCrops(alignedQuestions[index].crops, `part4-${aligned.id}-q${index + 1}`));
       }
       let exampleOptionAssetIds: string[] | undefined;
-      if (alignedExample) exampleOptionAssetIds = await uploadCrops(alignedExample.crops, `part4-${aligned.id}-example`);
+      if (alignedExample && !invalidExampleCropData) {
+        exampleOptionAssetIds = await uploadCrops(alignedExample.crops, `part4-${aligned.id}-example`);
+      } else if (alignedExample && incoming.provider === EXTERNAL_PARAMETERS_PROVIDER) {
+        exampleOptionAssetIds = part.example?.options.map(option => option.imageAssetId);
+      }
       if (await hashListeningPart(latestPartRef.current) !== aligned.basePartHash) {
         throw new Error('Part 4 đã thay đổi trong lúc crop/upload. Không ghi đè draft mới; hãy phân tích lại.');
       }
@@ -220,7 +240,7 @@ export default function MoverPart4Editor(props: MoverPartEditorProps<ListeningPa
 
   return <div className="space-y-5">
     <MoverPartBaseEditor {...props} />
-    <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} onCandidateChange={onImportCandidateChange} onAnalyzed={importAnalysis} analyzeLabel="Phân tích, crop và nhập Part 4" analyzedNotice="Đã đọc answer key, tự tách 15/18 hình và nhập trực tiếp vào bài soạn. Hãy kiểm tra các lựa chọn bên dưới." onUpload={onUpload} />
+    <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} onCandidateChange={onImportCandidateChange} onAnalyzed={importAnalysis} analyzeLabel="Phân tích, crop và nhập Part 4" analyzedNotice="Đã nhập nội dung và đáp án Part 4. Hãy kiểm tra ảnh A/B/C bên dưới; nếu không nhận đủ khung, hệ thống giữ nguyên ảnh cũ để giáo viên chọn lại." onUpload={onUpload} />
     {(applying || aligning) && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs font-bold text-sky-800">{applying ? 'Đang crop và tải các hình Part 4…' : 'Đang dò khung ảnh Part 4…'} {alignmentNotice}</p>}
     {part.example && renderQuestionEditor(part.example, 0, true)}
     {part.questions.map((question, index) => renderQuestionEditor(question, index))}

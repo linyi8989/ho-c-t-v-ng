@@ -1,9 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Trash2, X } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { FileJson, Sparkles, Trash2, X } from 'lucide-react';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset, ListeningPart } from '../../listening/types';
 import { hashListeningPart } from './hash';
+import {
+  EXTERNAL_PARAMETERS_PROVIDER,
+  externalParametersHelp,
+  externalParametersTemplate,
+  parseExternalParametersImport,
+} from './externalParametersImport';
 import {
   getListeningSmartImportRoleDefinitions,
   type ListeningSmartImportCandidate,
@@ -28,6 +34,20 @@ interface SmartImportPanelProps {
   children?: React.ReactNode;
 }
 
+const SMART_IMPORT_AI_PROVIDER_IDS = [
+  'stali:gpt-5.6-sol',
+  'devquota:gpt-5.6-sol',
+] as const;
+
+const SMART_IMPORT_AI_PROVIDER_FALLBACKS = {
+  'stali:gpt-5.6-sol': { label: 'Stali · ChatGPT 5.6 Sol', model: 'gpt-5.6-sol' },
+  'devquota:gpt-5.6-sol': { label: 'DevQuota · ChatGPT 5.6 Sol', model: 'gpt-5.6-sol' },
+} as const;
+
+const isVisibleSmartImportProvider = (providerId: string) => (
+  (SMART_IMPORT_AI_PROVIDER_IDS as readonly string[]).includes(providerId)
+);
+
 export default function SmartImportPanel({
   token,
   part,
@@ -38,7 +58,7 @@ export default function SmartImportPanel({
   onAnalyzed,
   analyzeLabel = 'Phân tích và tạo bản đề xuất',
   analyzedNotice,
-  initialPreferredProvider = 'stali:gpt-5.6-sol',
+  initialPreferredProvider = EXTERNAL_PARAMETERS_PROVIDER,
   pastedTextPlacement = 'main',
   onUpload,
   children,
@@ -46,31 +66,28 @@ export default function SmartImportPanel({
   const initialSources = Object.fromEntries((candidate?.sources || []).map(source => [source.role, source.assetId]));
   const [sourceByRole, setSourceByRole] = useState<Partial<Record<ListeningSmartImportSourceRole, string>>>(initialSources);
   const [pastedText, setPastedText] = useState('');
+  const [externalParameters, setExternalParameters] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [lastWarnings, setLastWarnings] = useState<string[]>(candidate?.warnings || []);
   const [preferredProvider, setPreferredProvider] = useState<ListeningSmartImportProviderPreference>(() => (
-    initialPreferredProvider === 'auto'
-    || capability?.providers?.some(provider => provider.id === initialPreferredProvider && provider.enabled && provider.visionEnabled)
+    initialPreferredProvider === EXTERNAL_PARAMETERS_PROVIDER
+    || isVisibleSmartImportProvider(initialPreferredProvider)
       ? initialPreferredProvider
-      : 'auto'
+      : EXTERNAL_PARAMETERS_PROVIDER
   ));
   const latestPartRef = useRef(part);
-  const providerTouchedRef = useRef(false);
   const latestOnAnalyzedRef = useRef(onAnalyzed);
   const latestOnCandidateChangeRef = useRef(onCandidateChange);
   latestPartRef.current = part;
   latestOnAnalyzedRef.current = onAnalyzed;
   latestOnCandidateChangeRef.current = onCandidateChange;
-  useEffect(() => {
-    if (providerTouchedRef.current || initialPreferredProvider === 'auto') return;
-    if (capability?.providers?.some(provider => provider.id === initialPreferredProvider && provider.enabled && provider.visionEnabled)) {
-      setPreferredProvider(initialPreferredProvider);
-    }
-  }, [capability?.providers, initialPreferredProvider]);
-
-  const roleDefinitions = useMemo(() => getListeningSmartImportRoleDefinitions(part.part), [part.part]);
+  const allRoleDefinitions = useMemo(() => getListeningSmartImportRoleDefinitions(part.part), [part.part]);
+  const externalMode = preferredProvider === EXTERNAL_PARAMETERS_PROVIDER;
+  const roleDefinitions = externalMode
+    ? allRoleDefinitions.filter(definition => definition.role === 'question')
+    : allRoleDefinitions;
   const imageAssets = assets.filter(asset => asset.kind === 'image' && asset.status === 'active');
   const sources = roleDefinitions.flatMap(definition => {
     const assetId = sourceByRole[definition.role];
@@ -80,17 +97,49 @@ export default function SmartImportPanel({
   const localAnswerFallback = (part.part === 2 || part.part === 3)
     && Boolean(sourceByRole.question)
     && Boolean(pastedText.trim());
-  const canAnalyze = capability?.enabled !== false
-    && (localAnswerFallback || (missingRequired.length === 0 && Boolean(capability?.visionEnabled)));
-  const providerDefinitions = capability?.providers || [];
-  const providerDisplayName = (providerId: string) => providerId.split('+').map(id => (
-    providerDefinitions.find(provider => provider.id === id)?.label || (id === 'openai' ? 'ChatGPT' : id)
-  )).join(' + ');
+  const providerDefinitions = SMART_IMPORT_AI_PROVIDER_IDS.map(providerId => {
+    const provider = capability?.providers?.find(definition => definition.id === providerId);
+    return provider || {
+      id: providerId,
+      ...SMART_IMPORT_AI_PROVIDER_FALLBACKS[providerId],
+      enabled: false,
+      visionEnabled: true,
+      reason: `${SMART_IMPORT_AI_PROVIDER_FALLBACKS[providerId].label} chưa được backend hiện tại công bố. Hãy cập nhật hoặc restart server.`,
+    };
+  });
+  const selectedProvider = providerDefinitions.find(provider => provider.id === preferredProvider);
+  const canAnalyze = externalMode
+    ? missingRequired.length === 0 && Boolean(externalParameters.trim())
+    : Boolean(selectedProvider?.enabled && selectedProvider.visionEnabled !== false)
+      && capability?.enabled !== false
+      && (localAnswerFallback || (missingRequired.length === 0 && Boolean(capability?.visionEnabled)));
+  const providerDisplayName = (providerId: string) => providerId === EXTERNAL_PARAMETERS_PROVIDER
+    ? 'Thông số bên ngoài'
+    : providerDefinitions.find(provider => provider.id === providerId)?.label || providerId;
   const supportsPastedText = part.part === 2 || part.part === 3;
-  const pastedTextEditor = supportsPastedText && pastedTextPlacement !== 'hidden' ? (
+  const pastedTextEditor = supportsPastedText && !externalMode && pastedTextPlacement !== 'hidden' ? (
     <label className="block space-y-1 rounded-xl border border-sky-200 bg-sky-50 p-3">
       <span className="text-xs font-black text-slate-700">Văn bản answer key hỗ trợ — fallback thủ công, không thay âm thầm role ảnh</span>
       <textarea value={pastedText} onChange={event => { setPastedText(event.target.value); invalidateCandidate(); }} rows={4} maxLength={12000} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" />
+    </label>
+  ) : null;
+  const externalParametersEditor = externalMode ? (
+    <label className="block space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3" data-part-external-parameters={part.part}>
+      <span className="block text-xs font-black text-emerald-900">Thông số Part {part.part} bên ngoài · JSON mover-part{part.part}-external-v1</span>
+      <span className="block text-[11px] font-semibold leading-relaxed text-emerald-800">
+        {externalParametersHelp[part.part]}
+      </span>
+      <textarea
+        value={externalParameters}
+        disabled={busy}
+        onChange={event => { setExternalParameters(event.target.value); invalidateCandidate(); }}
+        rows={12}
+        maxLength={50_000}
+        spellCheck={false}
+        placeholder={externalParametersTemplate(part.part)}
+        className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+        aria-label={`Thông số bên ngoài Part ${part.part}`}
+      />
     </label>
   ) : null;
 
@@ -135,6 +184,49 @@ export default function SmartImportPanel({
       setBusy(false);
     }
   };
+  const mergeExternalParameters = async () => {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const questionAssetId = sourceByRole.question;
+      const questionAsset = imageAssets.find(asset => asset.id === questionAssetId);
+      if (!questionAssetId || !questionAsset) throw new Error('Hãy chọn Ảnh đề bài trước khi ghép thông số.');
+      const basePartHash = await hashListeningPart(part);
+      const parsed = parseExternalParametersImport(part.part, externalParameters, {
+        assetWidth: questionAsset.width,
+        assetHeight: questionAsset.height,
+        currentPart: part,
+      });
+      const next: ListeningSmartImportCandidate = {
+        id: globalThis.crypto?.randomUUID?.() || `part${part.part}-external-${Date.now()}`,
+        moduleId: 'mover',
+        part: part.part,
+        basePartHash,
+        sources: [{ role: 'question', assetId: questionAssetId }],
+        sourceImageAssetIds: [questionAssetId],
+        provider: EXTERNAL_PARAMETERS_PROVIDER,
+        warnings: parsed.warnings,
+        createdAt: new Date().toISOString(),
+        data: parsed.data,
+      };
+      if (await hashListeningPart(latestPartRef.current) !== basePartHash) {
+        throw new Error(`Part ${part.part} đã thay đổi trong lúc kiểm tra thông số. Hãy ghép lại để tránh ghi đè dữ liệu mới.`);
+      }
+      setLastWarnings(next.warnings);
+      if (latestOnAnalyzedRef.current) {
+        await latestOnAnalyzedRef.current(next);
+        setNotice(`Đã kiểm tra và ghép thông số bên ngoài vào Part ${part.part}. Hãy xem lại dữ liệu và hoàn tất bước crop/geometry nếu có.`);
+      } else {
+        latestOnCandidateChangeRef.current(next);
+      }
+    } catch (reason: any) {
+      const details = Array.isArray(reason?.details) ? reason.details.join(' · ') : '';
+      setError([reason?.message || 'Không thể ghép thông số bên ngoài.', details].filter(Boolean).join(' — '));
+    } finally {
+      setBusy(false);
+    }
+  };
   const uploadForRole = async (role: ListeningSmartImportSourceRole, incoming: File[]) => {
     const file = incoming[0];
     if (!file) return;
@@ -154,7 +246,7 @@ export default function SmartImportPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[.14em] text-violet-700">Smart Import · Part {part.part}</p>
-          <p className="mt-1 text-xs font-semibold text-slate-600">Mỗi ảnh có vai trò riêng. Audio và transcript không bao giờ được gửi để tìm đáp án.</p>
+          <p className="mt-1 text-xs font-semibold text-slate-600">{externalMode ? 'Chế độ thông số bên ngoài chỉ dùng một ảnh đề và không gọi nhà cung cấp AI.' : 'Mỗi ảnh có vai trò riêng. Audio và transcript không bao giờ được gửi để tìm đáp án.'}</p>
         </div>
         {candidate && (
           <button type="button" onClick={() => { setLastWarnings([]); onCandidateChange(undefined); }} className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-700">
@@ -218,18 +310,22 @@ export default function SmartImportPanel({
           <div className="mt-3">{pastedTextEditor}</div>
         </details>
       )}
+      {externalParametersEditor}
 
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2">
-          <span className="text-xs font-black text-slate-700">AI xử lý</span>
+          <span className="text-xs font-black text-slate-700">Nguồn xử lý</span>
           <select
             value={preferredProvider}
             disabled={busy || localAnswerFallback}
-            onChange={event => { providerTouchedRef.current = true; setPreferredProvider(event.target.value as ListeningSmartImportProviderPreference); }}
+            onChange={event => {
+              setPreferredProvider(event.target.value as ListeningSmartImportProviderPreference);
+              invalidateCandidate();
+            }}
             className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700"
-            aria-label="Chọn AI xử lý Smart Import"
+            aria-label="Chọn nguồn xử lý Smart Import"
           >
-            <option value="auto">Tự động · Gemini → ChatGPT</option>
+            <option value={EXTERNAL_PARAMETERS_PROVIDER}>Thông số bên ngoài</option>
             {providerDefinitions.map(provider => (
               <option key={provider.id} value={provider.id} disabled={!provider.enabled}>
                 {provider.label}{provider.model ? ` · ${provider.model}` : ''}{provider.enabled ? '' : ` · ${provider.reason || 'chưa cấu hình'}`}
@@ -237,10 +333,21 @@ export default function SmartImportPanel({
             ))}
           </select>
         </label>
-        <button type="button" disabled={busy || !canAnalyze} onClick={() => void analyze()} title={!canAnalyze ? capability?.reason || `Còn thiếu ${missingRequired.map(item => item.label).join(', ')}` : undefined} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-          <Sparkles size={14} /> {busy ? 'Đang phân tích…' : analyzeLabel}
+        <button
+          type="button"
+          disabled={busy || !canAnalyze}
+          onClick={() => void (externalMode ? mergeExternalParameters() : analyze())}
+          title={!canAnalyze
+            ? externalMode
+              ? missingRequired.length ? `Còn thiếu ${missingRequired.map(item => item.label).join(', ')}` : 'Chưa nhập JSON thông số bên ngoài.'
+              : selectedProvider?.reason || capability?.reason || `Còn thiếu ${missingRequired.map(item => item.label).join(', ')}`
+            : undefined}
+          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {externalMode ? <FileJson size={14} /> : <Sparkles size={14} />}
+          {busy ? externalMode ? 'Đang kiểm tra và ghép…' : 'Đang phân tích…' : externalMode ? `Kiểm tra và ghép vào Part ${part.part}` : analyzeLabel}
         </button>
-        {!capability?.visionEnabled && sources.length > 0 && !localAnswerFallback && <span className="text-xs font-bold text-amber-700">Backend chưa có AI thị giác.</span>}
+        {!externalMode && !capability?.visionEnabled && sources.length > 0 && !localAnswerFallback && <span className="text-xs font-bold text-amber-700">Backend chưa có AI thị giác.</span>}
       </div>
       {error && <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">{error}</p>}
       {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{notice}</p>}

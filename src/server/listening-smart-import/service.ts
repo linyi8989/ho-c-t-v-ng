@@ -74,7 +74,11 @@ const questionNumber = (value: unknown) => {
   const parsed = integer(value);
   return parsed && parsed >= 1 && parsed <= 5 ? parsed as 1 | 2 | 3 | 4 | 5 : undefined;
 };
-const PART1_SOL_PROVIDER_ID = 'stali:gpt-5.6-sol';
+const DEFAULT_SMART_IMPORT_AI_PROVIDER_ID = 'stali:gpt-5.6-sol';
+const PART1_SOL_PROVIDER_IDS = new Set([
+  'stali:gpt-5.6-sol',
+  'devquota:gpt-5.6-sol',
+]);
 
 function parseJson(text: string) {
   const trimmed = text.trim();
@@ -1460,6 +1464,7 @@ function localFallback(part: ListeningSmartImportPartId, text: string) {
 export async function createListeningSmartImportCandidate(input: CreateCandidateInput): Promise<ListeningSmartImportCandidate> {
   const warnings: string[] = [];
   let provider: ListeningSmartImportCandidate['provider'] = 'local';
+  const selectedProvider = input.preferredProvider || DEFAULT_SMART_IMPORT_AI_PROVIDER_ID;
   let raw: any;
   if (input.images.length && input.analyzeVision) {
     const requestId = `limport-analysis-${crypto.randomUUID()}`;
@@ -1478,7 +1483,7 @@ export async function createListeningSmartImportCandidate(input: CreateCandidate
         let result: SmartImportVisionResult;
         try {
           result = await input.analyzeVision!(prompt + retryInstruction, images, {
-            preferredProvider: input.preferredProvider || 'auto',
+            preferredProvider: selectedProvider,
             responseJsonSchema: schema,
             schemaName,
             requestId,
@@ -1522,7 +1527,7 @@ export async function createListeningSmartImportCandidate(input: CreateCandidate
       return parsed;
     };
     if (input.part === 1) {
-      const useSolDirectGeometry = input.preferredProvider === PART1_SOL_PROVIDER_ID;
+      const useSolDirectGeometry = PART1_SOL_PROVIDER_IDS.has(selectedProvider);
       const contentImages = input.images.filter(image => image.role === 'question' || image.role === 'answer_key');
       const questionImages = input.images.filter(image => image.role === 'question');
       const geometryImages = useSolDirectGeometry

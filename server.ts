@@ -35,6 +35,12 @@ import { createListeningLibraryRouter } from "./src/server/listening-library/rou
 import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
 import type { SmartImportImageInput, SmartImportVisionOptions } from "./src/server/listening-smart-import/service.js";
 import {
+  DEVQUOTA_DEFAULT_BASE_URL,
+  generateWithDevQuotaVision,
+  getDevQuotaSmartImportProviders,
+  isDevQuotaProviderId,
+} from "./src/server/listening-smart-import/devQuotaProvider.js";
+import {
   generateWithStaliVision,
   getStaliSmartImportProviders,
   isStaliProviderId,
@@ -2205,6 +2211,9 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
 const STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
 const STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
 const STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
+const DEVQUOTA_API_KEY = process.env.DEVQUOTA_API_KEY?.trim() || "";
+const DEVQUOTA_BASE_URL = process.env.DEVQUOTA_BASE_URL?.trim() || DEVQUOTA_DEFAULT_BASE_URL;
+const DEVQUOTA_SMART_IMPORT_PROVIDERS = getDevQuotaSmartImportProviders(DEVQUOTA_API_KEY);
 
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -2352,60 +2361,11 @@ async function generateAiVisionJson(
   signal?: AbortSignal
 ) {
   const errors: string[] = [];
-  const preferred = options.preferredProvider || "auto";
-  if (!["auto", "gemini", "openai"].includes(preferred) && !isStaliProviderId(preferred)) {
+  const preferred = options.preferredProvider || "stali:gpt-5.6-sol";
+  if (!isStaliProviderId(preferred) && !isDevQuotaProviderId(preferred)) {
     const unsupported: any = new Error(`Nhà cung cấp AI "${preferred}" chưa được backend hỗ trợ.`);
     unsupported.status = 400;
     throw unsupported;
-  }
-  if (preferred === "auto" || preferred === "gemini") {
-    const gemini = getGeminiClient();
-    if (!gemini) {
-      errors.push("Gemini: GEMINI_API_KEY is not configured.");
-    } else {
-    try {
-      const response = await gemini.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [{
-          role: "user",
-          parts: [
-            { text: prompt },
-            ...images.flatMap(image => ([
-              { text: `IMAGE ROLE: ${image.role}` },
-              {
-                inlineData: {
-                  mimeType: image.mimeType,
-                  data: image.data.toString("base64")
-                }
-              }
-            ]))
-          ]
-        }],
-        config: {
-          responseMimeType: "application/json",
-          responseJsonSchema: options.responseJsonSchema,
-          abortSignal: signal
-        }
-      });
-      const text = response.text?.trim();
-      if (!text) throw new Error("Gemini response did not include text output.");
-      return { text, provider: "gemini", model: GEMINI_MODEL, errors };
-    } catch (error: any) {
-      const message = sanitizeAiError("Gemini", error);
-      errors.push(message);
-      console.warn(`Gemini vision unavailable${preferred === "auto" ? ", trying ChatGPT fallback" : ""}:`, message);
-    }
-    }
-  }
-  if (preferred === "auto" || preferred === "openai") {
-    try {
-      const text = await generateWithOpenAIVision(prompt, images, options, signal);
-      if (text) return { text, provider: "openai", model: OPENAI_MODEL, errors };
-      errors.push("OpenAI: OPENAI_API_KEY is not configured.");
-    } catch (error: any) {
-      const message = sanitizeAiError("OpenAI", error);
-      errors.push(message);
-    }
   }
   if (isStaliProviderId(preferred)) {
     try {
@@ -2423,6 +2383,24 @@ async function generateAiVisionJson(
     } catch (error: any) {
       if (error?.status === 400 || error?.status === 413) throw error;
       errors.push(sanitizeAiError("Stali", error));
+    }
+  }
+  if (isDevQuotaProviderId(preferred)) {
+    try {
+      const result = await generateWithDevQuotaVision({
+        providerId: preferred,
+        prompt,
+        images,
+        options,
+        signal,
+        apiKey: DEVQUOTA_API_KEY,
+        baseUrl: DEVQUOTA_BASE_URL,
+      });
+      if (result) return { ...result, errors };
+      errors.push("DevQuota: DEVQUOTA_API_KEY is not configured.");
+    } catch (error: any) {
+      if (error?.status === 400 || error?.status === 413) throw error;
+      errors.push(sanitizeAiError("DevQuota", error));
     }
   }
   const unavailable = new Error("Không có nhà cung cấp AI thị giác khả dụng.") as any;
@@ -2858,13 +2836,12 @@ app.use(
       reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false"
         ? "Smart Import đã bị tắt bằng cấu hình máy chủ."
         : undefined,
-      analyzeVision: (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || STALI_API_KEY)
+      analyzeVision: (STALI_API_KEY || DEVQUOTA_API_KEY)
         ? generateAiVisionJson
         : undefined,
       providers: [
-        { id: "gemini", label: "Gemini", enabled: Boolean(process.env.GEMINI_API_KEY), visionEnabled: true, model: GEMINI_MODEL },
-        { id: "openai", label: "ChatGPT", enabled: Boolean(process.env.OPENAI_API_KEY), visionEnabled: true, model: OPENAI_MODEL },
         ...STALI_SMART_IMPORT_PROVIDERS,
+        ...DEVQUOTA_SMART_IMPORT_PROVIDERS,
       ]
     }
   })

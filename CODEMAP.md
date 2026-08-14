@@ -2235,9 +2235,11 @@ Validation ledger for this change:
 This pass addresses failures observed with real Gemini responses while keeping
 the five-Part role and security contracts from section 26.
 
-- `SmartImportPanel.tsx` now renders a capability-driven AI selector. Mover
-  defaults to `Stali · GPT 5.6 Sol` whenever that Vision provider is configured,
-  and otherwise keeps the safe available-provider fallback. The registry still
+- `SmartImportPanel.tsx` now renders a capability-driven AI selector. Parts 2-5
+  default to `Stali · GPT 5.6 Sol` whenever that Vision provider is configured,
+  while Part 1 currently defaults to the validated local `Thông số bên ngoài`
+  mode described in section 30. AI selections otherwise keep the safe
+  available-provider fallback. The registry still
   exposes `Tự động · Gemini → ChatGPT`, Gemini, ChatGPT and configured Stali models;
   explicit selection is sent as `preferredProvider` and is never silently
   changed to another provider. `/api/listening/capabilities` returns provider
@@ -2291,9 +2293,12 @@ the five-Part role and security contracts from section 26.
   answer dock from the vertical scene scroller. Target hitboxes remain fully
   transparent at rest; selection/drag shows the same neutral outline on all
   eligible regions, and a placed answer renders only its high-contrast label
-  pill. Feature-scoped CSS explicitly disables the application's global button
-  backdrop blur on these hitboxes. No target tint or UI state consults the
-  private answer mapping.
+  pill. The legacy global glass-button selector explicitly excludes the
+  transparent Part 1, Part 3 and Part 5 scene hitboxes; feature-scoped CSS also
+  keeps their background, border and filters neutral. This source-level
+  exclusion is required because the production CSS optimizer may collapse a
+  later `backdrop-filter: none` reset while retaining the global blur. No target
+  tint or UI state consults the private answer mapping.
 - Part 2 always opens manual illustration cropping after analysis. AI crop is
   only an initial hint; without it the editor starts from the full question
   image.
@@ -2413,3 +2418,104 @@ warnings remain.
   `npm run test:listening` passes 91/91, and `npm run build` passes. The build
   generated `index-GNOHXLht.js` and retains the existing Firebase mixed-import
   and large-chunk warnings.
+
+## 30. Part 1 external-parameters direct import - 2026-08-14
+
+- Part 1 Smart Import temporarily defaults to `Thông số bên ngoài`, displayed
+  before the AI providers. This mode shows only the existing `question` image
+  role, uses the current asset picker/FileDropPasteInput path, and never calls
+  Gemini, OpenAI or Stali. Switching back to an AI provider restores the three
+  existing Part 1 image roles without deleting or archiving selected assets.
+- The accepted contract is strict JSON `mover-part1-external-v1`: explicit
+  `coordinateSpace`, optional/required `imageSize` as appropriate, exactly seven
+  unique people with points, one sample, five unique numbered answers and one
+  explicit distractor. Markdown-fenced JSON is accepted; free-form prose and
+  unknown/technical ID fields are rejected.
+- Pixel coordinates are divided by the declared real image width and height.
+  They are never implicitly treated as a 0-1000 scale. When asset dimensions
+  are available they must match `imageSize`; normalized coordinates must remain
+  in 0..1. The parser creates the existing 0.12 x 0.055 normalized Part 1 target
+  regions around each point.
+- Valid external data is converted to the existing Part 1
+  `choices + anchors + targetChoiceLabels + example` contract and passed through
+  `importPart1Analysis`. The selected question asset becomes the scene image;
+  existing choice/target IDs are preserved and application code creates missing
+  IDs. Sample is excluded from the six draggable choices, the distractor is
+  forced to the sixth slot, and only the five numbered answers become scored
+  targets. The merge checks `basePartHash`, changes only the working Part 1
+  draft and never publishes.
+- Parser and merge regression coverage lives in
+  `src/features/listening-editor/smart-import/part1ExternalImport.test.ts`; UI
+  wiring is locked by `SmartImportPanel.contract.test.ts`.
+
+## 31. Parts 2-5 external-parameters direct import - 2026-08-14
+
+- `Thông số bên ngoài` is now the first and temporary default Smart Import
+  source for every Mover Part. In this mode `SmartImportPanel` shows only the
+  existing `question` image role plus strict versioned JSON, creates a local
+  candidate with provider `external-parameters`, and never calls the Smart
+  Import API. Selecting an AI provider restores the normal Part-specific image
+  roles; detaching a role never deletes or archives its asset.
+- `externalParametersImport.ts` dispatches strict contracts
+  `mover-part2-external-v1` through `mover-part5-external-v1`. It strips an
+  optional Markdown JSON fence, rejects unknown/technical ID fields, normalizes
+  text and coordinates, validates numbered mappings, and emits bounded root
+  cause errors plus non-destructive warnings. The panel rechecks `basePartHash`
+  before passing the local candidate into the existing direct-import callback.
+- Part 2 external data contains heading/instruction/example plus exactly five
+  numbered prompts and accepted-answer variants. It never supplies an internal
+  blank ID or illustration crop. `importPart2Analysis` preserves IDs and the
+  existing Part 2 handler still opens `VisualCropEditor` on the selected
+  question image.
+- Part 3 external data contains seven unique answer labels/regions, all six
+  left/right row slots, the printed example, five scored mappings and the one
+  set-difference distractor. Fresh drafts require valid pixel/normalized
+  regions. Re-import may omit a region only when a unique matching answer or
+  picture slot already exists in the current connect-image draft; that geometry
+  is then preserved with a warning. Edge anchor offsets are never requested
+  from the external source and default to/preserve the application value.
+- Part 4 external data contains only the optional example and five numbered
+  prompt + A/B/C answers. Crop arrays start empty and the existing black-frame
+  detector remains authoritative for 15/18 derived crops. If frame detection
+  cannot produce valid groups, external import merges only the logical content
+  and answer mapping while preserving every existing option image for manual
+  correction; it never uploads guessed default crops.
+- Part 5 external data contains the Draw palette descriptions and five numbered
+  questions with variable `colour_object`/`place_object` actions. Colours must
+  resolve to the existing 20-colour catalog. External Colour geometry is not
+  accepted; the teacher still paints edge-snapped masks. Draw `targetRegion` is
+  optional normalized data, while missing regions keep old geometry or remain
+  unconfirmed for the existing rectangle editor. Icon PNG upload and teacher
+  confirmation remain in the current Part 5 editor, and unmatched old actions
+  remain reviewable instead of being deleted.
+- Regression coverage is in
+  `src/features/listening-editor/smart-import/externalParametersImport.test.ts`
+  plus `SmartImportPanel.contract.test.ts`, alongside the existing per-Part
+  direct-import, crop, legacy, grader and student-sanitizer tests.
+
+## 32. DevQuota and restricted Smart Import provider registry - 2026-08-14
+
+- The Smart Import source selector is intentionally restricted to exactly three
+  entries, in order: `Thông số bên ngoài`, `Stali · ChatGPT 5.6 Sol`, and
+  `DevQuota · ChatGPT 5.6 Sol`. The older `auto`, Gemini, direct OpenAI,
+  DeepSeek, Luna, and Terra choices are no longer advertised or accepted by the
+  Listening Smart Import route. Explicit provider selection never falls back to
+  another provider.
+- `src/server/listening-smart-import/devQuotaProvider.ts` is the backend-only
+  DevQuota adapter. It uses the documented Responses-compatible base URL
+  `https://sv.devquote.shop/v1`, calls `POST /responses`, sends role-labelled
+  `input_text`/`input_image` content, and requests the same Part-specific JSON
+  Schema used by the existing validation pipeline. Only model
+  `gpt-5.6-sol` is allowlisted.
+- DevQuota configuration is `DEVQUOTA_API_KEY` plus optional
+  `DEVQUOTA_BASE_URL`; Stali remains `STALI_API_KEY` plus `STALI_BASE_URL`.
+  Both keys stay on the server and capability responses contain only provider
+  IDs, labels, enabled state, reason, and model metadata. Both adapters require
+  HTTPS and preserve the shared timeout, abort, quota, image-role, JSON retry,
+  normalize/validate, stale-hash, and direct-import boundaries.
+- Part 1 treats either allowlisted GPT 5.6 Sol provider as the same direct-point
+  geometry class, so switching from Stali to DevQuota does not fall back to the
+  older endpoint/scene-transform prompt contract. Parts 2-5 retain their
+  existing provider-independent parse and merge flows.
+- Focused coverage is in `devQuotaProvider.test.ts`, `staliProvider.test.ts`,
+  `listeningSmartImportRouter.test.ts`, and `SmartImportPanel.contract.test.ts`.

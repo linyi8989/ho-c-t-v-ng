@@ -2,7 +2,7 @@ import type { ListeningPart, ListeningRegion } from '../../listening/types';
 
 export type ListeningSmartImportPartId = 1 | 2 | 3 | 4 | 5;
 export type ListeningSmartImportSourceRole = 'question' | 'answer_key' | 'position_key';
-export type ListeningSmartImportProviderPreference = 'auto' | 'gemini' | 'openai' | (string & {});
+export type ListeningSmartImportProviderPreference = 'stali:gpt-5.6-sol' | 'devquota:gpt-5.6-sol' | (string & {});
 
 export interface ListeningSmartImportProviderDefinition {
   id: string;

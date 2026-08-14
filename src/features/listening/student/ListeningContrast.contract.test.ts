@@ -43,6 +43,13 @@ const requiredPlayerHooks = [
   'listening-submit-btn',
 ];
 
+const transparentListeningHitboxes = [
+  'listening-part1-target',
+  'listening-part3-answer-hitbox',
+  'listening-part3-picture-hitbox',
+  'listening-part5-object-hitbox',
+];
+
 test('Listening player controls keep stable feature-scoped contrast hooks', () => {
   for (const hook of requiredPlayerHooks) {
     assert.ok(learningAreaSource.includes(`id="${hook}"`), `Missing UI hook: ${hook}`);
@@ -82,6 +89,20 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
   const playerContractIndex = globalCss.indexOf('/* Listening player contrast contract');
   assert.ok(globalOverrideIndex >= 0);
   assert.ok(playerContractIndex > globalOverrideIndex, 'Player contract must come after the legacy global override');
+});
+
+test('Legacy glass-button rules never blur transparent Listening scene hitboxes', () => {
+  const glassButtonSelectors = globalCss.match(/button:not\(\.bg-indigo-600\)[^{]+(?=\s*\{)/g) ?? [];
+  assert.equal(glassButtonSelectors.length, 2, 'Expected the normal and hover glass-button selectors');
+
+  for (const selector of glassButtonSelectors) {
+    for (const className of transparentListeningHitboxes) {
+      assert.ok(
+        selector.includes(`:not(.${className})`),
+        `Glass-button selector must exclude .${className}`,
+      );
+    }
+  }
 });
 
 test('Part 1 keeps its answer dock outside the image scroller and uses transparent target hitboxes', () => {

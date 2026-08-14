@@ -584,9 +584,9 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         });
       }
       const pastedText = text(req.body?.pastedText, 12000);
-      const preferredProvider = text(req.body?.preferredProvider || 'auto', 60) as ListeningSmartImportProviderPreference;
+      const preferredProvider = text(req.body?.preferredProvider || 'stali:gpt-5.6-sol', 60) as ListeningSmartImportProviderPreference;
       const providerIds = new Set((smartImport?.providers || []).map(provider => provider.id));
-      if (preferredProvider !== 'auto' && !providerIds.has(preferredProvider)) {
+      if (!providerIds.has(preferredProvider)) {
         throw apiError(400, `Nhà cung cấp AI "${preferredProvider}" không tồn tại.`);
       }
       const selectedProvider = (smartImport?.providers || []).find(provider => provider.id === preferredProvider);

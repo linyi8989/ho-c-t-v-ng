@@ -202,8 +202,10 @@ h1, h2, h3 {
   transform: translateY(-1px) !important;
 }
 
-/* Convert Secondary / general buttons to clear glass buttons */
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500) {
+/* Convert Secondary / general buttons to clear glass buttons.
+   Listening scene hitboxes must remain pixel-transparent so they never blur
+   the source illustration underneath. */
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox) {
   background: rgba(255, 255, 255, 0.04) !important;
   backdrop-filter: blur(8px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -211,7 +213,7 @@ button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emera
   transition: all 0.25s ease !important;
 }
 
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):hover {
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):hover {
   background: rgba(255, 255, 255, 0.09) !important;
   border-color: rgba(255, 255, 255, 0.16) !important;
   transform: translateY(-1px);

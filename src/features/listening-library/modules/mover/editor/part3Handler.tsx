@@ -213,7 +213,7 @@ function CandidatePart3Review({ data, imageUrl, onChange, onApply }: { data: Par
 export default function MoverPart3Editor(props: MoverPartEditorProps<ListeningPart3>) {
   const { part, token, assets, smartImportCapability, onImportCandidateChange, onImportCandidateApplied, onUpload, onChange } = props;
   const importAnalysis = (candidate: ListeningSmartImportCandidate) => {
-    if (candidate.data.part !== 3) throw new Error('Dữ liệu AI không đúng Part 3.');
+    if (candidate.data.part !== 3) throw new Error('Dữ liệu phân tích không đúng Part 3.');
     const issues = validatePart3ImportData(candidate.data);
     if (issues.length) {
       throw new Error(`Part 3 chưa đủ điều kiện tự nhập: ${issues.join(' · ')}`);
