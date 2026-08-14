@@ -383,6 +383,129 @@ export interface ListeningAttemptReviewAnswer {
   options: string[];
 }
 
+export type ListeningVisualReviewState = 'correct' | 'incorrect' | 'unanswered';
+
+export interface ListeningVisualReviewBaseItem {
+  questionIndex: number;
+  state: ListeningVisualReviewState;
+  userAnswer: string;
+  correctAnswer: string;
+}
+
+export interface ListeningVisualReviewPicture {
+  label: string;
+  side: ListeningConnectionSide;
+  row: 1 | 2 | 3;
+  region: ListeningRegion;
+  anchorOffset: number;
+}
+
+export interface ListeningVisualReviewOption {
+  label: string;
+  alt: string;
+  imageUrl?: string;
+}
+
+export interface ListeningVisualReviewColour {
+  label: string;
+  value: string;
+}
+
+export interface ListeningVisualReviewPaletteItem {
+  label: string;
+  tokenUrl?: string;
+}
+
+export type ListeningVisualReviewPart =
+  | {
+      part: 1;
+      mode: 'scene-targets';
+      imageUrl?: string;
+      items: Array<ListeningVisualReviewBaseItem & { region: ListeningRegion }>;
+    }
+  | {
+      part: 2;
+      mode: 'text-questions';
+      imageUrl?: string;
+      heading: string;
+      exampleText?: string;
+      items: Array<ListeningVisualReviewBaseItem & { prompt: string }>;
+    }
+  | {
+      part: 3;
+      mode: 'connect-image';
+      imageUrl?: string;
+      items: Array<ListeningVisualReviewBaseItem & {
+        answerLabel: string;
+        answerRegion: ListeningRegion;
+        leftAnchorOffset: number;
+        rightAnchorOffset: number;
+        userPicture?: ListeningVisualReviewPicture;
+        correctPicture: ListeningVisualReviewPicture;
+      }>;
+    }
+  | {
+      part: 3;
+      mode: 'image-options';
+      imageUrl?: string;
+      items: Array<ListeningVisualReviewBaseItem & {
+        prompt: string;
+        options: ListeningVisualReviewOption[];
+        selectedOptionIndex: number;
+        correctOptionIndex: number;
+      }>;
+    }
+  | {
+      part: 4;
+      mode: 'image-options';
+      items: Array<ListeningVisualReviewBaseItem & {
+        prompt: string;
+        options: ListeningVisualReviewOption[];
+        selectedOptionIndex: number;
+        correctOptionIndex: number;
+      }>;
+    }
+  | {
+      part: 5;
+      mode: 'scene-colour';
+      imageUrl?: string;
+      items: Array<ListeningVisualReviewBaseItem & {
+        region: ListeningRegion;
+        userColour?: ListeningVisualReviewColour;
+        correctColour: ListeningVisualReviewColour;
+      }>;
+    }
+  | {
+      part: 5;
+      mode: 'scene-colour-draw';
+      imageUrl?: string;
+      items: Array<ListeningVisualReviewBaseItem & {
+        prompt: string;
+        actions: Array<
+          | {
+              type: 'colour';
+              state: ListeningVisualReviewState;
+              region: ListeningRegion;
+              userColour?: ListeningVisualReviewColour;
+              correctColour: ListeningVisualReviewColour;
+            }
+          | {
+              type: 'place';
+              state: ListeningVisualReviewState;
+              userAnchor?: { x: number; y: number };
+              correctAnchor: { x: number; y: number };
+              userItem?: ListeningVisualReviewPaletteItem;
+              correctItem: ListeningVisualReviewPaletteItem;
+            }
+        >;
+      }>;
+    };
+
+export interface ListeningVisualReviewSnapshot {
+  schemaVersion: 2;
+  parts: ListeningVisualReviewPart[];
+}
+
 export interface ListeningAttemptReview {
   attemptId: string;
   score: number;
@@ -391,6 +514,7 @@ export interface ListeningAttemptReview {
   unansweredCount: number;
   totalCount: number;
   answerDetails: ListeningAttemptReviewAnswer[];
+  visualReview?: ListeningVisualReviewSnapshot;
 }
 
 export const createEmptyListeningAnswers = (): ListeningAnswers => ({

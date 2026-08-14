@@ -7,7 +7,10 @@ import type {
   ListeningGradeResult,
   ListeningSetContent,
 } from '../../features/listening/types';
-import { buildListeningActivityAnswerDetails } from '../listening/listeningActivity';
+import {
+  buildListeningActivityAnswerDetails,
+  buildListeningVisualReviewSnapshot,
+} from '../listening/listeningActivity';
 import type {
   LearningHistoryAssignmentGroup,
   LearningHistoryFilterOption,
@@ -423,6 +426,12 @@ export async function findAttemptDetail(attemptId: string) {
           data.answers as ListeningAnswers,
           data.questions as ListeningGradeResult['questions'],
         );
+        const visualReview = buildListeningVisualReviewSnapshot(
+          version.content as ListeningSetContent,
+          data.answers as ListeningAnswers,
+          data.questions as ListeningGradeResult['questions'],
+          answerDetails,
+        );
         data = {
           ...data,
           answerDetails,
@@ -431,6 +440,10 @@ export async function findAttemptDetail(attemptId: string) {
             questionText: item.questionText,
             part: item.part,
           })),
+          extraDetails: {
+            ...(data.extraDetails && typeof data.extraDetails === 'object' ? data.extraDetails : {}),
+            visualReview,
+          },
         };
       }
     } catch {

@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const learningAreaSource = readFileSync(new URL('./ListeningLearningArea.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./ListeningPartViews.tsx', import.meta.url), 'utf8');
+const visualReviewSource = readFileSync(new URL('../review/ListeningVisualReview.tsx', import.meta.url), 'utf8');
+const historyDetailSource = readFileSync(new URL('../../../components/history/HistoryDetailModal.tsx', import.meta.url), 'utf8');
 const globalCss = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
 
 const hexToRgb = (hex: string) => {
@@ -205,6 +207,66 @@ test('Part 3 supports clean click/drag connections, removal, and never consults 
   assert.match(part3Source, /!assignedPictureIds\.has\(picture\.id\)/);
   assert.match(globalCss, /button\.listening-part3-answer-hitbox:not\(:disabled\)[\s\S]*background: transparent !important/);
   assert.match(globalCss, /button\.listening-part3-answer-hitbox:not\(:disabled\)[\s\S]*backdrop-filter: none !important/);
+});
+
+test('completed Listening attempts share one visual result renderer with Learning History', () => {
+  assert.match(learningAreaSource, /import ListeningVisualReview from '\.\.\/review\/ListeningVisualReview'/);
+  assert.match(learningAreaSource, /review\.visualReview/);
+  assert.match(learningAreaSource, /<ListeningVisualReview snapshot=\{review\.visualReview\}/);
+  assert.match(historyDetailSource, /import ListeningVisualReview, \{[\s\S]*isListeningVisualReviewSnapshot,[\s\S]*\} from '\.\.\/\.\.\/features\/listening\/review\/ListeningVisualReview'/);
+  assert.match(historyDetailSource, /<ListeningVisualReview snapshot=\{visualReview\} compact/);
+  assert.match(visualReviewSource, /data-listening-visual-review/);
+  assert.match(visualReviewSource, /CheckCircle2/);
+  assert.match(visualReviewSource, /XCircle/);
+  assert.match(visualReviewSource, /item\.state !== 'correct' && item\.correctAnswer/);
+  assert.match(visualReviewSource, /className="block h-auto max-w-full"/);
+  assert.doesNotMatch(visualReviewSource, /className="block h-auto w-full/);
+  assert.match(visualReviewSource, /source\.schemaVersion !== 2/);
+  assert.match(visualReviewSource, /listening-review-part-tab/);
+  assert.match(visualReviewSource, /data-active=\{item\.part === activePart \? 'true' : 'false'\}/);
+  assert.match(visualReviewSource, /listening-review-part-nav-left/);
+  assert.match(visualReviewSource, /listening-review-part-nav-right/);
+  assert.match(visualReviewSource, /listening-review-part-shell relative px-12 sm:px-16/);
+  assert.match(visualReviewSource, /listening-review-part-content min-w-0/);
+  assert.match(visualReviewSource, /h-12 w-12[\s\S]*sm:h-14 sm:w-14/);
+  assert.match(visualReviewSource, /<ChevronLeft size=\{32\} strokeWidth=\{3\}/);
+  assert.match(visualReviewSource, /<ChevronRight size=\{32\} strokeWidth=\{3\}/);
+  assert.match(visualReviewSource, /<ChevronLeft/);
+  assert.match(visualReviewSource, /<ChevronRight/);
+  assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-tab\[data-active="false"\]/);
+  assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-tab\[data-active="true"\]/);
+  assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-nav:not\(:disabled\)/);
+  assert.match(globalCss, /:not\(\.listening-review-part-tab\):not\(\.listening-review-part-nav\)/);
+  assert.match(globalCss, /listening-review-part-tab\[aria-selected="true"\]/);
+  assert.match(globalCss, /background-color: #1e40af !important/);
+  assert.match(globalCss, /backdrop-filter: none !important/);
+});
+
+test('Part 3 visual review separates routes into lanes and explains mistakes with lines only', () => {
+  const start = visualReviewSource.indexOf('function Part3ConnectReview');
+  const end = visualReviewSource.indexOf('type ImageOptionsPart');
+  const routingStart = visualReviewSource.indexOf('const PART3_REVIEW_LANE_RATIOS');
+  const part3ReviewSource = visualReviewSource.slice(routingStart, end);
+
+  assert.match(part3ReviewSource, /PART3_REVIEW_LANE_RATIOS = \[0\.24, 0\.5, 0\.76\]/);
+  assert.match(part3ReviewSource, /const questionLanes = new Map<number, Set<number>>/);
+  assert.match(part3ReviewSource, /line\.laneReuseIndex = laneLoads\[laneIndex\]/);
+  assert.match(part3ReviewSource, /colour: item\.state === 'correct' \? '#2563eb' : '#e11d48'/);
+  assert.match(part3ReviewSource, /colour: '#16a34a',[\s\S]*dashed: true/);
+  assert.match(part3ReviewSource, /strokeDasharray=\{line\.dashed \? '8 6' : undefined\}/);
+  assert.doesNotMatch(part3ReviewSource, /<StateIcon/);
+  assert.doesNotMatch(part3ReviewSource, /Đúng:/);
+});
+
+test('Part 5 visual review hides placement coordinates and redundant correct-answer text', () => {
+  const start = visualReviewSource.indexOf('function Part5SceneReview');
+  const end = visualReviewSource.indexOf('function ReviewPart');
+  const part5ReviewSource = visualReviewSource.slice(start, end);
+
+  assert.match(part5ReviewSource, /const displayedUserAnswer = \(item\.userAnswer \|\| actionAnswer\)/);
+  assert.match(part5ReviewSource, /\.replace\(\/\\s\*@/);
+  assert.doesNotMatch(part5ReviewSource, /item\.correctAnswer/);
+  assert.doesNotMatch(part5ReviewSource, /Đáp án đúng:/);
 });
 
 test('Listening control colour pairs meet the WCAG AA text contrast threshold', () => {

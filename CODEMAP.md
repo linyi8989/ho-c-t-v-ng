@@ -1881,6 +1881,21 @@ SQLite and history integration:
   Part 1/5 receive human ordinal labels and Part 2 `{{blank-*}}` tokens render as
   `_____`. Admin and Student History also suppress internal IDs defensively when
   an immutable legacy version cannot be reconstructed.
+- `src/features/listening/review/ListeningVisualReview.tsx` is the shared visual
+  result renderer for the post-submit screen and Learning History. New submits
+  persist a versioned `visualReview` presentation snapshot inside bounded
+  attempt `extraDetails`; legacy completed attempts rebuild it from their raw
+  answers plus immutable published version at read time without rewriting old
+  rows. The renderer reuses original images, marks correct work with a green
+  check, marks wrong work with a red X, and places the correct answer directly
+  below a wrong or unanswered response across Parts 1-5.
+- Visual review snapshots contain only display-safe normalized geometry. Part 1
+  includes exactly five scored targets and excludes the printed example. Part 3
+  excludes the locked example overlay. Part 5 Draw stores only a derived safe
+  display anchor for the correct icon and never stores or returns private
+  `targetRegion`. Playable/prepare/submit-summary/public results never include
+  `visualReview`; when captured review policy denies answers, History strips the
+  whole snapshot recursively.
 - The owner of a completed Listening attempt can review `correctAnswer` in
   Student History. New attempt details persist the standardized
   `showReviewAfterSubmit=true` policy; the read adapter applies the same policy
@@ -2492,6 +2507,12 @@ warnings remain.
   `src/features/listening-editor/smart-import/externalParametersImport.test.ts`
   plus `SmartImportPanel.contract.test.ts`, alongside the existing per-Part
   direct-import, crop, legacy, grader and student-sanitizer tests.
+- `externalParametersModelInstructions(part)` composes a model-facing prompt
+  from the same per-Part help, strict rules and versioned JSON template used by
+  the external parser. `SmartImportPanel` exposes it through a visible copy
+  button for every Part, with Clipboard API, legacy copy fallback, manual-copy
+  fallback and transient success feedback. Copying never edits the JSON input,
+  candidate, selected assets or working draft.
 
 ## 32. DevQuota and restricted Smart Import provider registry - 2026-08-14
 
@@ -2519,3 +2540,50 @@ warnings remain.
   existing provider-independent parse and merge flows.
 - Focused coverage is in `devQuotaProvider.test.ts`, `staliProvider.test.ts`,
   `listeningSmartImportRouter.test.ts`, and `SmartImportPanel.contract.test.ts`.
+
+## 33. Listening visual-review navigation and Part 3/5 corrections - 2026-08-14
+
+- `ListeningVisualReview.tsx` remains the shared renderer for the immediate
+  post-submit screen and Learning History. Its Part tabs and new previous/next
+  side-arrow buttons use feature-scoped contrast hooks in `index.css`, after
+  the legacy global button overrides, so active and inactive labels cannot fade
+  into the background. The arrows change the same `activePart` state as the
+  tabs and are disabled at Part 1/Part 5 boundaries.
+- Connect-image Part 3 review no longer overlays status icons or answer labels
+  on a small source image. A correct student connection remains blue; an
+  incorrect connection is red and the corresponding correct connection is a
+  green dashed curve. An unanswered connection renders only the green dashed
+  correct curve. Each left/right corridor is split into three deterministic
+  routing lanes; the wrong and correct paths for one question prefer different
+  lanes, while reused lanes receive alternating micro-offsets. The printed
+  example remains untouched.
+- Part 5 now resolves structured submissions through one backend helper shared
+  by grading and review projection. It accepts direct `actionId` submissions
+  and the player’s natural `objectId`/`paletteItemId` keys. For Draw, an item
+  placed inside the action target is associated with that action even when the
+  palette item is wrong; it is therefore `incorrect`, never `unanswered`.
+  Question-level review text is built from the resolved colour/object choices,
+  while the client can also summarize action data for compatibility. Draw
+  coordinates remain in the structured submission for grading but are removed
+  from display strings; Part 5 cards do not repeat `correctAnswer` because the
+  staff prompt already states the required colour/object.
+- The review tabs and arrows are excluded from the high-specificity legacy
+  glass-button selector itself, in addition to their feature-scoped rules.
+  Inactive tabs now use a solid pale-blue surface and dark-blue label; active
+  tabs use a raised dark-blue surface, white label and explicit selected ring.
+  Enabled arrows use larger solid-blue controls in reserved left/right gutters
+  outside the Part content, so they never cover an image or answer card.
+  Disabled boundary arrows remain opaque and visible rather than disappearing.
+- The presentation snapshot is now `schemaVersion: 2`. Stored v1 snapshots are
+  rejected by the normalizer and rebuilt from the immutable published version,
+  stored answers and grade rows. No attempt, score, published content or image
+  asset is rewritten during this compatibility rebuild.
+- `scripts/start-local-test.mjs` supplies harmless Firebase client placeholders
+  only when the developer shell has no Firebase environment. Firebase modules
+  can therefore initialize before the loopback-only auth bypass takes over,
+  instead of leaving `#root` blank with `auth/invalid-api-key`. Real configured
+  values still win, and production startup is unchanged.
+- Validation for this pass: `npm run lint` passes, `npm run test:listening`
+  passes 120/120, the focused Learning History normalizer suite passes 7/7,
+  `npm run test:local-auth` passes 3/3, and `npm run build` passes. The existing
+  Firebase mixed-import and large-chunk build warnings remain non-blocking.

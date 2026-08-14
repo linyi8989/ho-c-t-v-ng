@@ -2,6 +2,8 @@ import type {
   ListeningAnswers,
   ListeningGradeResult,
   ListeningPart2Question,
+  ListeningPart5Action,
+  ListeningPart5Answer,
   ListeningQuestionResult,
   ListeningSetContent,
 } from '../../features/listening/types.js';
@@ -31,6 +33,72 @@ function gradeTextQuestion(
     );
   });
   return { correct, unanswered };
+}
+
+export function resolveListeningPart5SubmittedActions(
+  actions: ListeningPart5Action[],
+  answers: ListeningAnswers['part5'],
+): Map<string, ListeningPart5Answer> {
+  type StructuredAnswer = Exclude<ListeningPart5Answer, string>;
+  type PlaceAction = Extract<ListeningPart5Action, { type: 'place_object' }>;
+  type PlaceAnswer = Extract<ListeningPart5Answer, { type: 'place_object' }>;
+  const submittedAnswers = Object.values(answers || {}).filter((answer): answer is StructuredAnswer => (
+    Boolean(answer) && typeof answer === 'object'
+  ));
+  const resolved = new Map<string, ListeningPart5Answer>();
+  const usedAnswers = new Set<StructuredAnswer>();
+  const assign = (action: ListeningPart5Action, answer: StructuredAnswer | undefined) => {
+    if (!answer || usedAnswers.has(answer)) return false;
+    resolved.set(action.id, answer);
+    usedAnswers.add(answer);
+    return true;
+  };
+
+  actions.forEach(action => {
+    const direct = answers?.[action.id];
+    if (direct && typeof direct === 'object' && direct.type === action.type) assign(action, direct);
+  });
+
+  actions.filter(action => action.type === 'colour_object').forEach(action => {
+    if (resolved.has(action.id) || action.type !== 'colour_object') return;
+    assign(action, submittedAnswers.find(answer => (
+      !usedAnswers.has(answer)
+      && answer.type === 'colour_object'
+      && answer.objectId === action.correctObjectId
+    )));
+  });
+
+  const placeActions = actions.filter((action): action is PlaceAction => action.type === 'place_object');
+  const placeAnswers = submittedAnswers.filter((answer): answer is PlaceAnswer => answer.type === 'place_object');
+  placeActions.forEach(action => {
+    if (resolved.has(action.id)) return;
+    const inside = placeAnswers.filter(answer => (
+      !usedAnswers.has(answer) && pointInListeningRegion(answer.anchor, action.targetRegion)
+    ));
+    assign(action, inside.find(answer => answer.paletteItemId === action.correctPaletteItemId) || inside[0]);
+  });
+  placeActions.forEach(action => {
+    if (resolved.has(action.id)) return;
+    assign(action, placeAnswers.find(answer => (
+      !usedAnswers.has(answer) && answer.paletteItemId === action.correctPaletteItemId
+    )));
+  });
+
+  const nearestPairs = placeActions.flatMap(action => {
+    if (resolved.has(action.id)) return [];
+    const targetX = action.targetRegion.x + action.targetRegion.width / 2;
+    const targetY = action.targetRegion.y + action.targetRegion.height / 2;
+    return placeAnswers.flatMap(answer => {
+      if (usedAnswers.has(answer)) return [];
+      const distance = (answer.anchor.x - targetX) ** 2 + (answer.anchor.y - targetY) ** 2;
+      return [{ action, answer, distance }];
+    });
+  }).sort((left, right) => left.distance - right.distance);
+  nearestPairs.forEach(({ action, answer }) => {
+    if (!resolved.has(action.id) && !usedAnswers.has(answer)) assign(action, answer);
+  });
+
+  return resolved;
 }
 
 export function gradeListeningAttempt(
@@ -71,24 +139,12 @@ export function gradeListeningAttempt(
   }
   const part5 = content.parts[4];
   if (part5.displayMode === 'scene-colour-draw') {
-    const submittedPart5Answers = Object.values(answers.part5 || {});
+    const resolvedPart5Answers = resolveListeningPart5SubmittedActions(
+      part5.questions.flatMap(question => question.actions),
+      answers.part5,
+    );
     for (const question of part5.questions) {
-      const submitted = question.actions.map(action => {
-        const direct = answers.part5?.[action.id];
-        if (direct && typeof direct === 'object' && direct.type === action.type) return direct;
-        if (action.type === 'colour_object') {
-          return submittedPart5Answers.find(answer => (
-            answer && typeof answer === 'object'
-            && answer.type === 'colour_object'
-            && answer.objectId === action.correctObjectId
-          ));
-        }
-        return submittedPart5Answers.find(answer => (
-          answer && typeof answer === 'object'
-          && answer.type === 'place_object'
-          && answer.paletteItemId === action.correctPaletteItemId
-        ));
-      });
+      const submitted = question.actions.map(action => resolvedPart5Answers.get(action.id));
       const unanswered = submitted.every(answer => !answer);
       const correct = question.actions.length > 0 && question.actions.every((action, index) => {
         const answer = submitted[index];

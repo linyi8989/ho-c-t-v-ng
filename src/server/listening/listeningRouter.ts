@@ -17,7 +17,9 @@ import {
 import { gradeListeningAttempt, LISTENING_GRADING_VERSION } from './listeningGrader.js';
 import {
   buildListeningActivityAnswerDetails,
+  buildListeningVisualReviewSnapshot,
   normalizeListeningActivityAnswerDetails,
+  normalizeListeningVisualReviewSnapshot,
 } from './listeningActivity.js';
 import {
   sanitizeListeningAnswers,
@@ -1168,6 +1170,12 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         updatedAt: completedAt,
       };
       const answerDetails = buildListeningActivityAnswerDetails(version.content, answers, grade.questions);
+      const visualReview = buildListeningVisualReviewSnapshot(
+        version.content,
+        answers,
+        grade.questions,
+        answerDetails,
+      );
       const detail = {
         id: attemptId,
         attemptId,
@@ -1186,6 +1194,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           setId: ticket.setId,
           versionId: ticket.versionId,
           gradingVersion: LISTENING_GRADING_VERSION,
+          visualReview,
         },
         reviewPolicy: {
           showReviewAfterSubmit: true,
@@ -1231,6 +1240,22 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         throw apiError(403, 'Bộ đề này không cho xem đáp án sau khi nộp.');
       }
 
+      let visualReview = normalizeListeningVisualReviewSnapshot(detail?.extraDetails?.visualReview);
+      if (!visualReview && detail?.answers && Array.isArray(detail?.questions)) {
+        const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ''));
+        if (version?.content) {
+          try {
+            visualReview = buildListeningVisualReviewSnapshot(
+              version.content,
+              detail.answers as ListeningAnswers,
+              detail.questions,
+            );
+          } catch {
+            // Legacy malformed content keeps the existing text review fallback.
+          }
+        }
+      }
+
       res.json({
         attemptId: attempt.id,
         score: Number(attempt.score || 0),
@@ -1239,6 +1264,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         unansweredCount: Number(attempt.unansweredCount || 0),
         totalCount: Number(attempt.totalCount || 25),
         answerDetails: normalizeListeningActivityAnswerDetails(detail),
+        ...(visualReview ? { visualReview } : {}),
       });
     } catch (error) {
       sendError(res, error);

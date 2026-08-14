@@ -52,6 +52,8 @@ function stripReviewSecrets(value: unknown): unknown {
     'modelanswer',
     'referenceanswer',
     'solution',
+    'visualreview',
+    'visualreviewsnapshot',
   ]);
   const safe: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {

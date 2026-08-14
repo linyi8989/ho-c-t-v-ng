@@ -607,3 +607,54 @@ const templates: Record<ListeningSmartImportPartId, unknown> = {
 
 export const externalParametersTemplate = (part: ListeningSmartImportPartId) => JSON.stringify(templates[part], null, 2);
 
+const externalParametersModelRules: Record<ListeningSmartImportPartId, string[]> = {
+  1: [
+    'Đọc đúng 7 tên xuất hiện trên ảnh đề: 1 sample và 6 choices còn lại.',
+    'people phải có đúng 7 phần tử; mỗi phần tử dùng point: { x, y } là tâm nhân vật trên ảnh đề.',
+    'sample là tên có đường nối mẫu in sẵn; không đưa sample vào 5 answers hoặc distractor.',
+    'answers phải có đúng questionNumber 1..5, không trùng số; distractor là tên duy nhất còn lại.',
+    'Nếu coordinateSpace là pixel, imageSize.width/height phải đúng kích thước pixel thật của ảnh đính kèm.',
+  ],
+  2: [
+    'Tách example riêng và trả đúng 5 questions được chấm theo questionNumber 1..5.',
+    'Mỗi question gồm prompt và acceptedAnswers; một đáp án hợp lệ thì array có một phần tử, nhiều biến thể thì thêm từng biến thể vào cùng array.',
+    'Giữ nguyên chữ, số hoặc chữ+số như 4b; không đoán đáp án không chắc chắn.',
+    'Không trả crop hoặc geometry; giáo viên sẽ chọn vùng tranh minh họa trong editor.',
+  ],
+  3: [
+    'Trả đúng 7 answer ở giữa và 6 picture theo lưới left/right, row 1..3.',
+    'Region là rectangle { x, y, width, height }; với normalized mọi giá trị phải nằm trong 0..1 và bám theo ảnh đề.',
+    'Tách đúng example từ đường nối in sẵn; example không được xuất hiện trong 5 connections.',
+    'connections phải có đúng 5 mapping một-một; distractorLabel là answer duy nhất còn lại.',
+    'Không trả anchor offset; code tự đặt anchor theo cạnh của region.',
+  ],
+  4: [
+    'Tách example riêng và trả đúng 5 questions theo questionNumber 1..5.',
+    'correctAnswer chỉ được là A, B hoặc C và phải mapping theo số câu, không theo thứ tự OCR đơn thuần.',
+    'Không trả crop hoặc option ID; code hiện tại tiếp tục dò khung và tách hình từ ảnh đề.',
+  ],
+  5: [
+    'Trả đúng 5 questions theo questionNumber 1..5; mỗi câu có thể có một hoặc nhiều actions.',
+    'Action chỉ nhận type colour_object hoặc place_object; không hard-code số action của từng câu.',
+    'Màu phải dùng tên màu tiếng Anh thuộc catalog; không tạo mã HEX hoặc màu tự do.',
+    'paletteItems tối đa 3 vật kéo thả và phải bao gồm objectType tương ứng với mọi action Draw.',
+    'Không tạo Colour mask hoặc icon PNG. targetRegion của Draw có thể bỏ qua khi không chắc; giáo viên sẽ xác nhận geometry trong editor.',
+  ],
+};
+
+export const externalParametersModelInstructions = (part: ListeningSmartImportPartId) => [
+  `Hãy phân tích ảnh đề bài Listening Mover Part ${part} được đính kèm.`,
+  '',
+  `Chỉ trả về một JSON object hợp lệ theo schema mover-part${part}-external-v1.`,
+  'Không dùng Markdown hoặc code fence. Không giải thích trước hay sau JSON.',
+  'Không sinh ID kỹ thuật, UUID, database ID hoặc trường ngoài cấu trúc được cung cấp.',
+  'Không dùng audio hoặc transcript để suy luận đáp án. Không đoán dữ liệu không chắc chắn.',
+  'Hãy thay toàn bộ giá trị minh họa trong JSON mẫu bằng dữ liệu thật đọc từ ảnh đính kèm.',
+  '',
+  `Yêu cầu Part ${part}:`,
+  ...externalParametersModelRules[part].map(rule => `- ${rule}`),
+  `- ${externalParametersHelp[part]}`,
+  '',
+  'JSON mẫu đúng cấu trúc:',
+  externalParametersTemplate(part),
+].join('\n');

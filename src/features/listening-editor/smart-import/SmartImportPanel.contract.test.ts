@@ -73,6 +73,22 @@ test('Part 1 defaults to one-image external parameters and merges through the ex
   assert.doesNotMatch(externalPart1Source, /\/ 1000/);
 });
 
+test('external parameter editor copies the complete per-Part model guide without changing the draft', () => {
+  assert.match(panelSource, /externalParametersModelInstructions/);
+  assert.match(panelSource, /navigator\.clipboard\?\.writeText\) throw[\s\S]*navigator\.clipboard\.writeText\(instructions\)/);
+  assert.match(panelSource, /document\.execCommand\('copy'\)/);
+  assert.match(panelSource, /window\.prompt\('Trình duyệt không thể sao chép tự động/);
+  assert.match(panelSource, /className="external-parameters-copy-button/);
+  assert.match(panelSource, /Sao chép hướng dẫn cho AI/);
+  assert.match(panelSource, /Đã sao chép/);
+  assert.match(panelSource, /<Copy size=\{15\}/);
+  assert.match(panelSource, /<Check size=\{15\}/);
+  const copyHandlerStart = panelSource.indexOf('const copyExternalInstructions');
+  const copyHandlerEnd = panelSource.indexOf('const externalParametersEditor');
+  const copyHandler = panelSource.slice(copyHandlerStart, copyHandlerEnd);
+  assert.doesNotMatch(copyHandler, /setExternalParameters|onCandidateChange|parseExternalParametersImport/);
+});
+
 test('Parts 2-5 external parameters use only the question image and dispatch to strict versioned parsers', () => {
   assert.match(externalParametersSource, /mover-part2-external-v1/);
   assert.match(externalParametersSource, /mover-part3-external-v1/);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   LOCAL_AUTH_BYPASS_TOKEN,
@@ -31,4 +32,10 @@ test('server bypass is impossible in production or from a non-loopback client', 
   assert.equal(isLocalServerAuthBypassAllowed({ ...safeRequest, bearerToken: 'wrong-token' }), false);
   assert.equal(isLoopbackAddress('::1'), true);
   assert.equal(isLoopbackHostname('127.10.20.30'), true);
+});
+
+test('local launcher supplies harmless Firebase placeholders when deployment config is absent', () => {
+  const launcher = readFileSync(new URL('../../scripts/start-local-test.mjs', import.meta.url), 'utf8');
+  assert.match(launcher, /VITE_FIREBASE_API_KEY: process\.env\.VITE_FIREBASE_API_KEY \|\| 'local-test-api-key'/);
+  assert.match(launcher, /VITE_FIREBASE_PROJECT_ID: process\.env\.VITE_FIREBASE_PROJECT_ID \|\| 'local-test'/);
 });

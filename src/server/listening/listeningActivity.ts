@@ -1,8 +1,16 @@
 import type {
   ListeningAnswers,
   ListeningGradeResult,
+  ListeningPart3ConnectPicture,
+  ListeningPart5Answer,
   ListeningSetContent,
+  ListeningVisualReviewBaseItem,
+  ListeningVisualReviewPart,
+  ListeningVisualReviewPicture,
+  ListeningVisualReviewSnapshot,
+  ListeningVisualReviewState,
 } from '../../features/listening/types.js';
+import { pointInListeningRegion } from '../../features/listening/geometry.js';
 import {
   LISTENING_LIBRARY_SCHEMA_VERSION,
   resolveListeningModuleId,
@@ -11,6 +19,7 @@ import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation.js';
+import { resolveListeningPart5SubmittedActions } from './listeningGrader.js';
 
 const activityText = (value: unknown, max = 1000) => String(value ?? '').trim().slice(0, max);
 
@@ -125,9 +134,13 @@ export function buildListeningActivityAnswerDetails(
   const part5 = content.parts[4];
   const part5Options = part5.colours.map(colour => colour.label);
   if (part5.displayMode === 'scene-colour-draw') {
+    const resolvedPart5Answers = resolveListeningPart5SubmittedActions(
+      part5.questions.flatMap(question => question.actions),
+      answers.part5,
+    );
     part5.questions.forEach((question, index) => {
       const userAnswer = question.actions.map(action => {
-        const answer = answers.part5[action.id];
+        const answer = resolvedPart5Answers.get(action.id);
         if (!answer || typeof answer === 'string') return activityText(answer, 500);
         if (answer.type === 'colour_object') {
           const object = part5.interactiveObjects.find(item => item.id === answer.objectId)?.label || answer.objectId;
@@ -135,7 +148,7 @@ export function buildListeningActivityAnswerDetails(
           return `${object}: ${colour}`;
         }
         const item = part5.objectPalette.find(entry => entry.id === answer.paletteItemId)?.label || answer.paletteItemId;
-        return `${item} @ ${answer.anchor.x.toFixed(3)}, ${answer.anchor.y.toFixed(3)}`;
+        return item;
       }).filter(Boolean).join(' | ');
       const correctAnswer = question.actions.map(action => {
         if (action.type === 'colour_object') {
@@ -161,6 +174,242 @@ export function buildListeningActivityAnswerDetails(
   }
 
   return details;
+}
+
+function visualReviewState(detail: Record<string, unknown> | undefined): ListeningVisualReviewState {
+  if (detail?.unanswered) return 'unanswered';
+  return detail?.isCorrect ? 'correct' : 'incorrect';
+}
+
+function visualReviewBase(
+  detail: Record<string, unknown> | undefined,
+  questionIndex: number,
+): ListeningVisualReviewBaseItem {
+  return {
+    questionIndex,
+    state: visualReviewState(detail),
+    userAnswer: activityText(detail?.userAnswer || detail?.selectedAnswer, 1000),
+    correctAnswer: activityText(detail?.correctAnswer, 1000),
+  };
+}
+
+function visualReviewPicture(
+  picture: ListeningPart3ConnectPicture,
+): ListeningVisualReviewPicture {
+  return {
+    label: activityText(picture?.label || `${picture?.side || ''} ${picture?.row || ''}`, 200),
+    side: picture.side,
+    row: picture.row,
+    region: structuredClone(picture.region),
+    anchorOffset: Number(picture.anchorOffset),
+  };
+}
+
+export function buildListeningVisualReviewSnapshot(
+  content: ListeningSetContent,
+  answers: ListeningAnswers,
+  questions: ListeningGradeResult['questions'],
+  suppliedAnswerDetails?: Array<Record<string, unknown>>,
+): ListeningVisualReviewSnapshot {
+  const details = suppliedAnswerDetails || buildListeningActivityAnswerDetails(content, answers, questions);
+  const detailAt = (index: number) => details[index];
+  const part1 = content.parts[0];
+  const part2 = content.parts[1];
+  const part3 = content.parts[2];
+  const part4 = content.parts[3];
+  const part5 = content.parts[4];
+  type SceneReviewAction = Extract<
+    ListeningVisualReviewPart,
+    { part: 5; mode: 'scene-colour-draw' }
+  >['items'][number]['actions'][number];
+  const resolvedScenePart5Answers: Map<string, ListeningPart5Answer> = part5.displayMode === 'scene-colour-draw'
+    ? resolveListeningPart5SubmittedActions(
+        part5.questions.flatMap(question => question.actions),
+        answers.part5,
+      )
+    : new Map();
+
+  const reviewPart1 = {
+    part: 1 as const,
+    mode: 'scene-targets' as const,
+    imageUrl: part1.sceneUrl,
+    items: part1.targets.map((target, index) => ({
+      ...visualReviewBase(detailAt(index), index),
+      region: structuredClone(target.region),
+    })),
+  };
+  const reviewPart2 = {
+    part: 2 as const,
+    mode: 'text-questions' as const,
+    imageUrl: part2.illustrationUrl,
+    heading: activityText(part2.heading, 500),
+    exampleText: activityText(part2.exampleText, 1000) || undefined,
+    items: part2.questions.map((question, index) => ({
+      ...visualReviewBase(detailAt(index + 5), index + 5),
+      prompt: formatListeningReviewQuestion(question.prompt, 2, index + 5),
+    })),
+  };
+
+  const reviewPart3 = part3.displayMode === 'connect-image'
+    ? {
+        part: 3 as const,
+        mode: 'connect-image' as const,
+        imageUrl: part3.boardUrl,
+        items: part3.correctConnections.flatMap((connection, index) => {
+          const answer = part3.answers.find(item => item.id === connection.answerId);
+          const correctPicture = part3.pictures.find(item => item.id === connection.pictureId);
+          if (!answer || !correctPicture) return [];
+          const submittedPicture = part3.pictures.find(item => (
+            item.id === answers.part3[connection.answerId]
+          ));
+          return [{
+            ...visualReviewBase(detailAt(index + 10), index + 10),
+            answerLabel: activityText(answer.label, 300),
+            answerRegion: structuredClone(answer.region),
+            leftAnchorOffset: Number(answer.leftAnchorOffset),
+            rightAnchorOffset: Number(answer.rightAnchorOffset),
+            ...(submittedPicture ? { userPicture: visualReviewPicture(submittedPicture) } : {}),
+            correctPicture: visualReviewPicture(correctPicture),
+          }];
+        }),
+      }
+    : {
+        part: 3 as const,
+        mode: 'image-options' as const,
+        imageUrl: part3.displayMode === 'composite' ? part3.boardUrl : undefined,
+        items: part3.items.map((item, index) => ({
+          ...visualReviewBase(detailAt(index + 10), index + 10),
+          prompt: activityText(item.label, 500),
+          options: part3.options.map((option, optionIndex) => ({
+            label: String.fromCharCode(65 + optionIndex),
+            alt: activityText(option.label, 500),
+            imageUrl: option.imageUrl,
+          })),
+          selectedOptionIndex: part3.options.findIndex(option => option.id === answers.part3[item.id]),
+          correctOptionIndex: part3.options.findIndex(option => option.id === item.correctOptionId),
+        })),
+      };
+
+  const reviewPart4 = {
+    part: 4 as const,
+    mode: 'image-options' as const,
+    items: part4.questions.map((question, index) => ({
+      ...visualReviewBase(detailAt(index + 15), index + 15),
+      prompt: activityText(question.prompt, 1000),
+      options: question.options.map((option, optionIndex) => ({
+        label: String.fromCharCode(65 + optionIndex),
+        alt: activityText(option.alt, 500),
+        imageUrl: option.imageUrl,
+      })),
+      selectedOptionIndex: question.options.findIndex(option => option.id === answers.part4[question.id]),
+      correctOptionIndex: question.options.findIndex(option => option.id === question.correctOptionId),
+    })),
+  };
+
+  const reviewPart5 = part5.displayMode === 'scene-colour-draw'
+    ? {
+        part: 5 as const,
+        mode: 'scene-colour-draw' as const,
+        imageUrl: part5.sceneUrl,
+        items: part5.questions.map((question, index) => {
+          const actions = question.actions.reduce<SceneReviewAction[]>((reviewActions, action) => {
+            const submitted = resolvedScenePart5Answers.get(action.id);
+            if (action.type === 'colour_object') {
+              const object = part5.interactiveObjects.find(item => item.id === action.correctObjectId);
+              const correctColour = part5.colours.find(item => item.id === action.correctColourId);
+              if (!object || !correctColour) return reviewActions;
+              const userColour = submitted && typeof submitted === 'object' && submitted.type === 'colour_object'
+                ? part5.colours.find(item => item.id === submitted.colourId)
+                : undefined;
+              const correct = Boolean(
+                submitted && typeof submitted === 'object' && submitted.type === 'colour_object'
+                && submitted.objectId === action.correctObjectId
+                && submitted.colourId === action.correctColourId
+              );
+              reviewActions.push({
+                type: 'colour' as const,
+                state: !submitted ? 'unanswered' as const : correct ? 'correct' as const : 'incorrect' as const,
+                region: structuredClone(object.geometry),
+                ...(userColour ? { userColour: { label: activityText(userColour.label, 200), value: activityText(userColour.value, 50) } } : {}),
+                correctColour: { label: activityText(correctColour.label, 200), value: activityText(correctColour.value, 50) },
+              });
+              return reviewActions;
+            }
+            const correctItem = part5.objectPalette.find(item => item.id === action.correctPaletteItemId);
+            if (!correctItem) return reviewActions;
+            const placeAnswer = submitted && typeof submitted === 'object' && submitted.type === 'place_object'
+              ? submitted
+              : undefined;
+            const userItem = placeAnswer
+              ? part5.objectPalette.find(item => item.id === placeAnswer.paletteItemId)
+              : undefined;
+            const correct = Boolean(
+              placeAnswer
+              && placeAnswer.paletteItemId === action.correctPaletteItemId
+              && pointInListeningRegion(placeAnswer.anchor, action.targetRegion)
+            );
+            reviewActions.push({
+              type: 'place' as const,
+              state: !placeAnswer ? 'unanswered' as const : correct ? 'correct' as const : 'incorrect' as const,
+              ...(placeAnswer ? { userAnchor: { ...placeAnswer.anchor } } : {}),
+              correctAnchor: {
+                x: Math.max(0, Math.min(1, action.targetRegion.x + action.targetRegion.width / 2)),
+                y: Math.max(0, Math.min(1, action.targetRegion.y + action.targetRegion.height / 2)),
+              },
+              ...(userItem ? { userItem: { label: activityText(userItem.label, 200), tokenUrl: userItem.tokenUrl } } : {}),
+              correctItem: { label: activityText(correctItem.label, 200), tokenUrl: correctItem.tokenUrl },
+            });
+            return reviewActions;
+          }, []);
+          const state: ListeningVisualReviewState = actions.length > 0 && actions.every(action => action.state === 'correct')
+            ? 'correct'
+            : actions.length === 0 || actions.every(action => action.state === 'unanswered')
+              ? 'unanswered'
+              : 'incorrect';
+          return {
+            ...visualReviewBase(detailAt(index + 20), index + 20),
+            state,
+            prompt: activityText(question.staffPrompt, 1000),
+            actions,
+          };
+        }),
+      }
+    : {
+        part: 5 as const,
+        mode: 'scene-colour' as const,
+        imageUrl: part5.sceneUrl,
+        items: part5.targets.flatMap((target, index) => {
+          const correctColour = part5.colours.find(colour => colour.id === target.correctColourId);
+          if (!correctColour) return [];
+          const submittedColourId = typeof answers.part5[target.id] === 'string'
+            ? answers.part5[target.id] as string
+            : '';
+          const userColour = part5.colours.find(colour => colour.id === submittedColourId);
+          return [{
+            ...visualReviewBase(detailAt(index + 20), index + 20),
+            region: structuredClone(target.region),
+            ...(userColour ? { userColour: { label: activityText(userColour.label, 200), value: activityText(userColour.value, 50) } } : {}),
+            correctColour: { label: activityText(correctColour.label, 200), value: activityText(correctColour.value, 50) },
+          }];
+        }),
+      };
+
+  return {
+    schemaVersion: 2,
+    parts: [reviewPart1, reviewPart2, reviewPart3, reviewPart4, reviewPart5],
+  };
+}
+
+export function normalizeListeningVisualReviewSnapshot(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  if (source.schemaVersion !== 2 || !Array.isArray(source.parts) || source.parts.length !== 5) return undefined;
+  const serialized = JSON.stringify(source);
+  if (serialized.length > 750_000 || /"targetRegion"\s*:/i.test(serialized)) return undefined;
+  const partNumbers = source.parts.map(part => Number((part as any)?.part));
+  if (partNumbers.some((part, index) => part !== index + 1)) return undefined;
+  if (source.parts.some(part => !Array.isArray((part as any)?.items) || (part as any).items.length > 25)) return undefined;
+  return structuredClone(source) as unknown as ListeningVisualReviewSnapshot;
 }
 
 export function normalizeListeningActivityAnswerDetails(detail: any) {

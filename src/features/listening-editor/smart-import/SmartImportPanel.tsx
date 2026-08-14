@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { FileJson, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Copy, FileJson, Sparkles, Trash2, X } from 'lucide-react';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset, ListeningPart } from '../../listening/types';
@@ -7,6 +7,7 @@ import { hashListeningPart } from './hash';
 import {
   EXTERNAL_PARAMETERS_PROVIDER,
   externalParametersHelp,
+  externalParametersModelInstructions,
   externalParametersTemplate,
   parseExternalParametersImport,
 } from './externalParametersImport';
@@ -67,6 +68,7 @@ export default function SmartImportPanel({
   const [sourceByRole, setSourceByRole] = useState<Partial<Record<ListeningSmartImportSourceRole, string>>>(initialSources);
   const [pastedText, setPastedText] = useState('');
   const [externalParameters, setExternalParameters] = useState('');
+  const [instructionsCopied, setInstructionsCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -123,9 +125,50 @@ export default function SmartImportPanel({
       <textarea value={pastedText} onChange={event => { setPastedText(event.target.value); invalidateCandidate(); }} rows={4} maxLength={12000} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" />
     </label>
   ) : null;
+  const copyExternalInstructions = async () => {
+    const instructions = externalParametersModelInstructions(part.part);
+    setError('');
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(instructions);
+    } catch {
+      const fallback = document.createElement('textarea');
+      fallback.value = instructions;
+      fallback.setAttribute('readonly', '');
+      fallback.style.position = 'fixed';
+      fallback.style.left = '-9999px';
+      let copied = false;
+      try {
+        document.body.appendChild(fallback);
+        fallback.select();
+        copied = document.execCommand('copy');
+      } finally {
+        fallback.remove();
+      }
+      if (!copied) {
+        window.prompt('Trình duyệt không thể sao chép tự động. Hãy nhấn Ctrl+C để sao chép hướng dẫn:', instructions);
+        setError('Trình duyệt không thể xác nhận sao chép tự động. Hướng dẫn đã được mở để bạn sao chép thủ công.');
+        return;
+      }
+    }
+    setInstructionsCopied(true);
+    setNotice(`Đã sao chép toàn bộ hướng dẫn và JSON mẫu Part ${part.part}. Hãy đính kèm ảnh đề khi gửi cho model bên ngoài.`);
+    window.setTimeout(() => setInstructionsCopied(false), 2200);
+  };
   const externalParametersEditor = externalMode ? (
-    <label className="block space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3" data-part-external-parameters={part.part}>
-      <span className="block text-xs font-black text-emerald-900">Thông số Part {part.part} bên ngoài · JSON mover-part{part.part}-external-v1</span>
+    <div className="block space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3" data-part-external-parameters={part.part}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="block text-xs font-black text-emerald-900">Thông số Part {part.part} bên ngoài · JSON mover-part{part.part}-external-v1</span>
+        <button
+          type="button"
+          onClick={() => void copyExternalInstructions()}
+          className="external-parameters-copy-button inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-black"
+          aria-label={`Sao chép hướng dẫn thông số bên ngoài Part ${part.part}`}
+        >
+          {instructionsCopied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+          {instructionsCopied ? 'Đã sao chép' : 'Sao chép hướng dẫn cho AI'}
+        </button>
+      </div>
       <span className="block text-[11px] font-semibold leading-relaxed text-emerald-800">
         {externalParametersHelp[part.part]}
       </span>
@@ -140,7 +183,7 @@ export default function SmartImportPanel({
         className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
         aria-label={`Thông số bên ngoài Part ${part.part}`}
       />
-    </label>
+    </div>
   ) : null;
 
   const invalidateCandidate = () => {

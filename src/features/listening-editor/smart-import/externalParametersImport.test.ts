@@ -9,9 +9,25 @@ import {
 } from '../../listening-library/modules/mover/editor/directImport';
 import {
   ExternalParametersImportError,
+  externalParametersModelInstructions,
   externalParametersTemplate,
   parseExternalParametersImport,
 } from './externalParametersImport';
+
+test('external parameter model guides cover all five strict schemas without Markdown wrappers', () => {
+  for (const part of [1, 2, 3, 4, 5] as const) {
+    const guide = externalParametersModelInstructions(part);
+    assert.match(guide, new RegExp(`mover-part${part}-external-v1`));
+    assert.match(guide, new RegExp(`Listening Mover Part ${part}`));
+    assert.match(guide, /Không sinh ID kỹ thuật, UUID, database ID/);
+    assert.match(guide, /Không dùng audio hoặc transcript/);
+    assert.ok(guide.endsWith(externalParametersTemplate(part)));
+    assert.doesNotMatch(guide, /```/);
+  }
+  assert.match(externalParametersModelInstructions(1), /point: \{ x, y \}/);
+  assert.match(externalParametersModelInstructions(3), /bảy|7 answer/iu);
+  assert.match(externalParametersModelInstructions(5), /targetRegion của Draw có thể bỏ qua/);
+});
 
 test('Part 2 external parameters preserve IDs, variants and the manual crop handoff', () => {
   const current = createDefaultMoverListeningContent().parts[1];

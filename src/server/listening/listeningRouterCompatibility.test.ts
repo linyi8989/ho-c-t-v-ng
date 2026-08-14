@@ -8,11 +8,14 @@ import test from 'node:test';
 import express from 'express';
 import type { ListeningAnswers, ListeningSetContent } from '../../features/listening/types';
 import {
+  buildListeningVisualReviewSnapshot,
   listeningAttemptToActivity,
+  normalizeListeningVisualReviewSnapshot,
   resolveListeningActivityDetailForStaff,
 } from './listeningActivity';
 import { containsInternalListeningDisplayValue } from '../../features/listening/reviewPresentation';
 import { createListeningRouter } from './listeningRouter';
+import { gradeListeningAttempt } from './listeningGrader';
 
 function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswers } {
   const region = (index: number) => ({
@@ -137,6 +140,54 @@ function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswe
     },
   };
 }
+
+test('visual Listening review preserves wrong/correct display data for Parts 1-5 without private geometry', () => {
+  const fixture = moverFixture();
+  fixture.content.parts[0].example = {
+    id: 'part-1-example',
+    choiceId: fixture.content.parts[0].choices[5].id,
+    label: 'Example',
+    region: { shape: 'rect', x: 0.75, y: 0.75, width: 0.1, height: 0.1 },
+  };
+  const answers = structuredClone(fixture.answers);
+  answers.part1[fixture.content.parts[0].targets[0].id] = fixture.content.parts[0].choices[1].id;
+  delete answers.part1[fixture.content.parts[0].targets[1].id];
+  answers.part2[fixture.content.parts[1].questions[0].id][fixture.content.parts[1].questions[0].blanks[0].id] = 'wrong';
+  answers.part3['p3-0'] = 'location-1';
+  answers.part4['p4-0'] = 'p4-0-0';
+  answers.part5['p5-0'] = 'colour-1';
+  const grade = gradeListeningAttempt(fixture.content, answers);
+  const visualReview = buildListeningVisualReviewSnapshot(fixture.content, answers, grade.questions);
+  const part1 = visualReview.parts[0];
+
+  assert.equal(part1.mode, 'scene-targets');
+  assert.equal(part1.items.length, 5, 'The unscored example must never become a review item');
+  assert.equal(part1.items[0].state, 'incorrect');
+  assert.equal(part1.items[0].userAnswer, 'Name 1');
+  assert.equal(part1.items[0].correctAnswer, 'Name 0');
+  assert.equal(part1.items[1].state, 'unanswered');
+  assert.equal(part1.items[1].correctAnswer, 'Name 1');
+  assert.equal(visualReview.parts[1].items[0].state, 'incorrect');
+  assert.equal(visualReview.parts[1].items[0].correctAnswer, 'answer 0');
+  assert.equal(visualReview.parts[2].items[0].state, 'incorrect');
+  assert.equal(visualReview.parts[2].items[0].correctAnswer, 'A');
+  assert.equal(visualReview.parts[3].items[0].state, 'incorrect');
+  assert.equal(visualReview.parts[3].items[0].correctAnswer, 'Option 1');
+  assert.equal(visualReview.parts[4].items[0].state, 'incorrect');
+  assert.equal(visualReview.parts[4].items[0].correctAnswer, 'Colour 0');
+  assert.equal(normalizeListeningVisualReviewSnapshot(visualReview)?.schemaVersion, 2);
+  assert.equal(JSON.stringify(visualReview).includes('targetRegion'), false);
+
+  const staleSnapshot = structuredClone(visualReview) as any;
+  staleSnapshot.schemaVersion = 1;
+  assert.equal(normalizeListeningVisualReviewSnapshot(staleSnapshot), undefined);
+
+  const forgedSnapshot = structuredClone(visualReview) as any;
+  forgedSnapshot.parts[4].items[0].targetRegion = {
+    shape: 'rect', x: 0, y: 0, width: 1, height: 1,
+  };
+  assert.equal(normalizeListeningVisualReviewSnapshot(forgedSnapshot), undefined);
+});
 
 test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotently', async t => {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vhomework-listening-router-'));
@@ -288,6 +339,7 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(playable.content.parts.every((part: any) => part.schemaVersion === 1), true);
   assert.equal('choiceId' in playable.content.parts[0].targets[0], false);
   assert.equal('acceptedAnswers' in playable.content.parts[1].questions[0].blanks[0], false);
+  assert.equal(JSON.stringify(playable).includes('visualReview'), false);
 
   const identity = { guestId: 'guest-compatibility', studentName: 'Lan Anh' };
   const prepareResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/prepare`, {
@@ -333,6 +385,11 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(reviewResult.answerDetails[0].userAnswer, 'Name 0');
   assert.equal(reviewResult.answerDetails[0].correctAnswer, 'Name 0');
   assert.equal('questionId' in reviewResult.answerDetails[0], false);
+  assert.equal(reviewResult.visualReview.schemaVersion, 2);
+  assert.equal(reviewResult.visualReview.parts.length, 5);
+  assert.equal(reviewResult.visualReview.parts[0].items.length, 5);
+  assert.equal(reviewResult.visualReview.parts[0].items[0].state, 'correct');
+  assert.equal(JSON.stringify(reviewResult.visualReview).includes('targetRegion'), false);
 
   const forbiddenReviewResponse = await fetch(
     `${baseUrl}/api/listening/sets/legacy-mover-set/attempts/${encodeURIComponent(firstResult.id)}/review?${new URLSearchParams({ guestId: 'another-guest', studentName: 'Another Student' })}`,
@@ -355,6 +412,8 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(storedDetail.answerDetails[0].questionText, 'Part 1 · Vị trí nhân vật 1');
   assert.equal(storedDetail.answerDetails[5].questionText, 'Question _____');
   assert.equal(storedDetail.reviewPolicy.showReviewAfterSubmit, true);
+  assert.equal(storedDetail.extraDetails.visualReview.schemaVersion, 2);
+  assert.equal(storedDetail.extraDetails.visualReview.parts.length, 5);
   assert.equal(storedDetail.answerDetails.some((item: any) => (
     containsInternalListeningDisplayValue(item.questionText)
     || containsInternalListeningDisplayValue(item.userAnswer)
@@ -383,6 +442,9 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).questionText, 'Part 1 · Vị trí nhân vật 1');
   assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).userAnswer, 'Name 0');
   assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).correctAnswer, 'Name 0');
+  assert.equal((studentHistoryDetail.detail?.extraDetails as any)?.visualReview?.schemaVersion, 2);
+  assert.equal((studentHistoryDetail.detail?.extraDetails as any)?.visualReview?.parts?.length, 5);
+  assert.equal(JSON.stringify((studentHistoryDetail.detail?.extraDetails as any)?.visualReview).includes('targetRegion'), false);
   await assert.rejects(
     historyService.getLearningHistoryDetail({
       id: 'another-guest',

@@ -21,6 +21,9 @@ import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation';
+import ListeningVisualReview, {
+  isListeningVisualReviewSnapshot,
+} from '../../features/listening/review/ListeningVisualReview';
 
 interface HistoryDetailModalProps {
   open: boolean;
@@ -365,6 +368,13 @@ export default function HistoryDetailModal({
   const warnings = Array.isArray(response?.detail?.warnings)
     ? response.detail.warnings.filter(warning => typeof warning === 'string')
     : [];
+  const extraDetails = response?.detail?.extraDetails;
+  const visualReviewCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
+    ? (extraDetails as Record<string, unknown>).visualReview
+    : undefined;
+  const visualReview = attempt.sourceType === 'listening' && isListeningVisualReviewSnapshot(visualReviewCandidate)
+    ? visualReviewCandidate
+    : undefined;
 
   return (
     <div
@@ -454,6 +464,8 @@ export default function HistoryDetailModal({
             </div>
           ) : detailStatus !== 'available' || !response?.detail ? (
             <DetailStatusMessage status={detailStatus} />
+          ) : visualReview ? (
+            <ListeningVisualReview snapshot={visualReview} compact />
           ) : entries.length === 0 ? (
             <DetailStatusMessage status="missing" />
           ) : (

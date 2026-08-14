@@ -205,7 +205,7 @@ h1, h2, h3 {
 /* Convert Secondary / general buttons to clear glass buttons.
    Listening scene hitboxes must remain pixel-transparent so they never blur
    the source illustration underneath. */
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox) {
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.external-parameters-copy-button) {
   background: rgba(255, 255, 255, 0.04) !important;
   backdrop-filter: blur(8px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -213,7 +213,7 @@ button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emera
   transition: all 0.25s ease !important;
 }
 
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):hover {
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.external-parameters-copy-button):hover {
   background: rgba(255, 255, 255, 0.09) !important;
   border-color: rgba(255, 255, 255, 0.16) !important;
   transform: translateY(-1px);
@@ -2678,4 +2678,112 @@ textarea::placeholder {
 [data-listening-smart-import] button.smart-import-remove-source svg {
   color: currentColor !important;
   opacity: 1 !important;
+}
+
+[data-listening-smart-import] button.external-parameters-copy-button:not(:disabled) {
+  background: #047857 !important;
+  background-color: #047857 !important;
+  border-color: #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 4px 10px rgba(4, 120, 87, 0.22) !important;
+}
+
+[data-listening-smart-import] button.external-parameters-copy-button:not(:disabled):hover {
+  background: #065f46 !important;
+  background-color: #065f46 !important;
+  border-color: #064e3b !important;
+  color: #ffffff !important;
+}
+
+[data-listening-smart-import] button.external-parameters-copy-button * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+/* Listening post-submit review controls must remain readable after the legacy
+   global glass-button overrides. Both the result screen and Learning History
+   reuse these hooks. */
+[data-listening-visual-review] button.listening-review-part-tab[data-active="false"]:not(:disabled) {
+  background: #dbeafe !important;
+  background-color: #dbeafe !important;
+  background-image: none !important;
+  border: 2px solid #2563eb !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 3px 8px rgba(30, 64, 175, 0.2) !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-tab[data-active="true"]:not(:disabled),
+[data-listening-visual-review] button.listening-review-part-tab[aria-selected="true"]:not(:disabled) {
+  background: #1e40af !important;
+  background-color: #1e40af !important;
+  background-image: none !important;
+  border: 3px solid #93c5fd !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: translateY(-2px) scale(1.05) !important;
+  box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.5), 0 8px 18px rgba(30, 64, 175, 0.34) !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-nav:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-color: #1d4ed8 !important;
+  background-image: none !important;
+  border: 3px solid #bfdbfe !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 10px 24px rgba(30, 64, 175, 0.38) !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-nav:not(:disabled):hover {
+  background: #1d4ed8 !important;
+  border-color: #1e3a8a !important;
+  color: #ffffff !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-nav:disabled {
+  background: #e2e8f0 !important;
+  background-color: #e2e8f0 !important;
+  background-image: none !important;
+  border: 2px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 4px 10px rgba(71, 85, 105, 0.14) !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-tab *,
+[data-listening-visual-review] button.listening-review-part-nav * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+[data-listening-visual-review] button.listening-review-part-tab[data-active="true"] .listening-review-part-tab-label,
+[data-listening-visual-review] button.listening-review-part-tab[aria-selected="true"] .listening-review-part-tab-label {
+  color: #ffffff !important;
+  font-weight: 900 !important;
+}
+
+[data-listening-visual-review] button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.45) !important;
+  outline-offset: 3px !important;
 }

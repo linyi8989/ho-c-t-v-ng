@@ -40,6 +40,7 @@ import {
   ListeningPart4View,
   ListeningPart5View,
 } from './ListeningPartViews';
+import ListeningVisualReview from '../review/ListeningVisualReview';
 
 interface ListeningLearningAreaProps {
   setId: string;
@@ -364,7 +365,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
             </div>
           </header>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 sm:p-6">
-            {review.answerDetails.map((item, index) => (
+            {review.visualReview ? <ListeningVisualReview snapshot={review.visualReview} /> : review.answerDetails.map((item, index) => (
               <article key={`${item.part}-${item.questionIndex}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -406,7 +407,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
           <div className="mt-7 grid gap-3">
             <button id="listening-result-home-btn" type="button" onClick={onBack} className="listening-primary-action w-full rounded-2xl bg-blue-600 py-3 font-black text-white"><Home size={16} className="mr-2 inline" /> Về trang chủ</button>
             <button id="listening-result-review-btn" type="button" onClick={() => void openReview()} disabled={reviewLoading} className="listening-review-action w-full rounded-2xl border border-blue-300 bg-white py-3 font-black text-blue-700">
-              {reviewLoading ? <LoaderCircle size={16} className="mr-2 inline animate-spin" /> : <Eye size={16} className="mr-2 inline" />} Xem đáp án
+              {reviewLoading ? <LoaderCircle size={16} className="mr-2 inline animate-spin" /> : <Eye size={16} className="mr-2 inline" />} Xem kết quả
             </button>
             <button id="listening-result-retry-btn" type="button" onClick={() => void start(true)} className="listening-retry-action w-full rounded-2xl bg-emerald-600 py-3 font-black text-white"><RotateCcw size={16} className="mr-2 inline" /> Làm lại</button>
           </div>

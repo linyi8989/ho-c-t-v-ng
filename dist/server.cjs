@@ -3551,6 +3551,91 @@ var import_express = __toESM(require("express"), 1);
 // src/server/learning-history/learningHistoryAuth.ts
 var import_node_crypto2 = __toESM(require("node:crypto"), 1);
 
+// src/features/listening/geometry.ts
+var EPSILON = 1e-7;
+var isNormalizedPoint = (point) => Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+function polygonArea(points) {
+  if (points.length < 3) return 0;
+  return Math.abs(points.reduce((sum, point, index) => {
+    const next = points[(index + 1) % points.length];
+    return sum + point.x * next.y - next.x * point.y;
+  }, 0)) / 2;
+}
+var orientation = (a, b, c) => (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+var onSegment = (a, b, c) => b.x <= Math.max(a.x, c.x) + EPSILON && b.x + EPSILON >= Math.min(a.x, c.x) && b.y <= Math.max(a.y, c.y) + EPSILON && b.y + EPSILON >= Math.min(a.y, c.y);
+function segmentsIntersect(a, b, c, d) {
+  const values = [orientation(a, b, c), orientation(a, b, d), orientation(c, d, a), orientation(c, d, b)];
+  if ((values[0] > EPSILON && values[1] < -EPSILON || values[0] < -EPSILON && values[1] > EPSILON) && (values[2] > EPSILON && values[3] < -EPSILON || values[2] < -EPSILON && values[3] > EPSILON)) return true;
+  return Math.abs(values[0]) <= EPSILON && onSegment(a, c, b) || Math.abs(values[1]) <= EPSILON && onSegment(a, d, b) || Math.abs(values[2]) <= EPSILON && onSegment(c, a, d) || Math.abs(values[3]) <= EPSILON && onSegment(c, b, d);
+}
+function polygonSelfIntersects(points) {
+  for (let first = 0; first < points.length; first += 1) {
+    const firstNext = (first + 1) % points.length;
+    for (let second = first + 1; second < points.length; second += 1) {
+      const secondNext = (second + 1) % points.length;
+      if (first === second || firstNext === second || secondNext === first) continue;
+      if (first === 0 && secondNext === 0) continue;
+      if (segmentsIntersect(points[first], points[firstNext], points[second], points[secondNext])) return true;
+    }
+  }
+  return false;
+}
+function regionFromPolygon(points) {
+  if (points.length < 3 || points.some((point) => !isNormalizedPoint(point))) return null;
+  if (polygonArea(points) <= EPSILON || polygonSelfIntersects(points)) return null;
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  const width = Math.max(...xs) - x;
+  const height = Math.max(...ys) - y;
+  if (width <= EPSILON || height <= EPSILON) return null;
+  return { shape: "polygon", x, y, width, height, points: points.map((point) => ({ ...point })) };
+}
+function isValidListeningRegion(region) {
+  if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) return false;
+  if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return false;
+  if (region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) return false;
+  if (region.x + region.width > 1 + EPSILON || region.y + region.height > 1 + EPSILON) return false;
+  if (region.shape !== "polygon") return true;
+  const normalized = regionFromPolygon(region.points || []);
+  if (!normalized) return false;
+  return Math.abs(normalized.x - region.x) <= EPSILON && Math.abs(normalized.y - region.y) <= EPSILON && Math.abs(normalized.width - region.width) <= EPSILON && Math.abs(normalized.height - region.height) <= EPSILON;
+}
+function pointInListeningRegion(point, region) {
+  if (!isNormalizedPoint(point)) return false;
+  if (region.shape === "ellipse") {
+    const rx = region.width / 2;
+    const ry = region.height / 2;
+    if (rx <= 0 || ry <= 0) return false;
+    const dx = (point.x - region.x - rx) / rx;
+    const dy = (point.y - region.y - ry) / ry;
+    return dx * dx + dy * dy <= 1 + EPSILON;
+  }
+  if (region.shape === "polygon" && region.points?.length) {
+    let inside = false;
+    for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
+      const a = region.points[index];
+      const b = region.points[previous];
+      const crosses = a.y > point.y !== b.y > point.y && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y || EPSILON) + a.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+  return point.x >= region.x - EPSILON && point.x <= region.x + region.width + EPSILON && point.y >= region.y - EPSILON && point.y <= region.y + region.height + EPSILON;
+}
+function transformListeningPoint(point, sourceScene, targetScene) {
+  if (!isValidListeningRegion(sourceScene) || !isValidListeningRegion(targetScene)) return null;
+  const u = (point.x - sourceScene.x) / sourceScene.width;
+  const v = (point.y - sourceScene.y) / sourceScene.height;
+  if (!Number.isFinite(u) || !Number.isFinite(v) || u < -EPSILON || u > 1 + EPSILON || v < -EPSILON || v > 1 + EPSILON) return null;
+  const transformed = {
+    x: targetScene.x + Math.min(1, Math.max(0, u)) * targetScene.width,
+    y: targetScene.y + Math.min(1, Math.max(0, v)) * targetScene.height
+  };
+  return isNormalizedPoint(transformed) ? transformed : null;
+}
+
 // src/features/listening-library/registry.ts
 var DEFAULT_LISTENING_MODULE_ID = "mover";
 var LISTENING_LIBRARY_SCHEMA_VERSION = 1;
@@ -3674,6 +3759,137 @@ function formatListeningReviewAnswer(value) {
   return INTERNAL_LISTENING_ID.test(source) ? "Kh\xF4ng c\xF3 d\u1EEF li\u1EC7u hi\u1EC3n th\u1ECB" : source;
 }
 
+// src/server/listening/listeningGrader.ts
+var LISTENING_GRADING_VERSION = "listening-five-part-v2";
+function normalizeListeningTextAnswer(value) {
+  return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
+}
+function gradeTextQuestion(question, answer) {
+  let unanswered = true;
+  const correct = question.blanks.every((blank) => {
+    const actual = normalizeListeningTextAnswer(answer?.[blank.id]);
+    if (actual) unanswered = false;
+    return Boolean(actual) && blank.acceptedAnswers.some(
+      (accepted) => normalizeListeningTextAnswer(accepted) === actual
+    );
+  });
+  return { correct, unanswered };
+}
+function resolveListeningPart5SubmittedActions(actions, answers) {
+  const submittedAnswers = Object.values(answers || {}).filter((answer) => Boolean(answer) && typeof answer === "object");
+  const resolved = /* @__PURE__ */ new Map();
+  const usedAnswers = /* @__PURE__ */ new Set();
+  const assign = (action, answer) => {
+    if (!answer || usedAnswers.has(answer)) return false;
+    resolved.set(action.id, answer);
+    usedAnswers.add(answer);
+    return true;
+  };
+  actions.forEach((action) => {
+    const direct = answers?.[action.id];
+    if (direct && typeof direct === "object" && direct.type === action.type) assign(action, direct);
+  });
+  actions.filter((action) => action.type === "colour_object").forEach((action) => {
+    if (resolved.has(action.id) || action.type !== "colour_object") return;
+    assign(action, submittedAnswers.find((answer) => !usedAnswers.has(answer) && answer.type === "colour_object" && answer.objectId === action.correctObjectId));
+  });
+  const placeActions = actions.filter((action) => action.type === "place_object");
+  const placeAnswers = submittedAnswers.filter((answer) => answer.type === "place_object");
+  placeActions.forEach((action) => {
+    if (resolved.has(action.id)) return;
+    const inside = placeAnswers.filter((answer) => !usedAnswers.has(answer) && pointInListeningRegion(answer.anchor, action.targetRegion));
+    assign(action, inside.find((answer) => answer.paletteItemId === action.correctPaletteItemId) || inside[0]);
+  });
+  placeActions.forEach((action) => {
+    if (resolved.has(action.id)) return;
+    assign(action, placeAnswers.find((answer) => !usedAnswers.has(answer) && answer.paletteItemId === action.correctPaletteItemId));
+  });
+  const nearestPairs = placeActions.flatMap((action) => {
+    if (resolved.has(action.id)) return [];
+    const targetX = action.targetRegion.x + action.targetRegion.width / 2;
+    const targetY = action.targetRegion.y + action.targetRegion.height / 2;
+    return placeAnswers.flatMap((answer) => {
+      if (usedAnswers.has(answer)) return [];
+      const distance = (answer.anchor.x - targetX) ** 2 + (answer.anchor.y - targetY) ** 2;
+      return [{ action, answer, distance }];
+    });
+  }).sort((left, right) => left.distance - right.distance);
+  nearestPairs.forEach(({ action, answer }) => {
+    if (!resolved.has(action.id) && !usedAnswers.has(answer)) assign(action, answer);
+  });
+  return resolved;
+}
+function gradeListeningAttempt(content, answers) {
+  const questions = [];
+  const push = (part, questionId, correct, unanswered) => questions.push({ part, questionId, correct, unanswered });
+  for (const target of content.parts[0].targets) {
+    const actual = answers.part1?.[target.id] || "";
+    push(1, target.id, actual === target.choiceId, !actual);
+  }
+  for (const question of content.parts[1].questions) {
+    const result = gradeTextQuestion(question, answers.part2?.[question.id]);
+    push(2, question.id, result.correct, result.unanswered);
+  }
+  const part3 = content.parts[2];
+  if (part3.displayMode === "connect-image") {
+    for (const connection of part3.correctConnections) {
+      const actual = answers.part3?.[connection.answerId] || "";
+      push(3, connection.answerId, actual === connection.pictureId, !actual);
+    }
+  } else {
+    for (const item of part3.items) {
+      const actual = answers.part3?.[item.id] || "";
+      push(3, item.id, actual === item.correctOptionId, !actual);
+    }
+  }
+  for (const question of content.parts[3].questions) {
+    const actual = answers.part4?.[question.id] || "";
+    push(4, question.id, actual === question.correctOptionId, !actual);
+  }
+  const part5 = content.parts[4];
+  if (part5.displayMode === "scene-colour-draw") {
+    const resolvedPart5Answers = resolveListeningPart5SubmittedActions(
+      part5.questions.flatMap((question) => question.actions),
+      answers.part5
+    );
+    for (const question of part5.questions) {
+      const submitted = question.actions.map((action) => resolvedPart5Answers.get(action.id));
+      const unanswered = submitted.every((answer) => !answer);
+      const correct = question.actions.length > 0 && question.actions.every((action, index) => {
+        const answer = submitted[index];
+        if (action.type === "colour_object") {
+          return Boolean(
+            answer && typeof answer === "object" && answer.type === "colour_object" && answer.objectId === action.correctObjectId && answer.colourId === action.correctColourId
+          );
+        }
+        return Boolean(
+          answer && typeof answer === "object" && answer.type === "place_object" && answer.paletteItemId === action.correctPaletteItemId && pointInListeningRegion(answer.anchor, action.targetRegion)
+        );
+      });
+      push(5, question.id, correct, unanswered);
+    }
+  } else {
+    for (const target of part5.targets) {
+      const actual = answers.part5?.[target.id] || "";
+      push(5, target.id, actual === target.correctColourId, !actual);
+    }
+  }
+  if (questions.length !== 25) {
+    throw new Error(`Published listening version must contain exactly 25 questions; received ${questions.length}.`);
+  }
+  const correctCount = questions.filter((question) => question.correct).length;
+  const unansweredCount = questions.filter((question) => question.unanswered).length;
+  const incorrectCount = questions.length - correctCount - unansweredCount;
+  return {
+    score: Math.round(correctCount / 25 * 100),
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    totalCount: 25,
+    questions
+  };
+}
+
 // src/server/listening/listeningActivity.ts
 var activityText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
 function labelForId(items, id, getLabel) {
@@ -3761,9 +3977,13 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
   const part5 = content.parts[4];
   const part5Options = part5.colours.map((colour) => colour.label);
   if (part5.displayMode === "scene-colour-draw") {
+    const resolvedPart5Answers = resolveListeningPart5SubmittedActions(
+      part5.questions.flatMap((question) => question.actions),
+      answers.part5
+    );
     part5.questions.forEach((question, index) => {
       const userAnswer = question.actions.map((action) => {
-        const answer = answers.part5[action.id];
+        const answer = resolvedPart5Answers.get(action.id);
         if (!answer || typeof answer === "string") return activityText(answer, 500);
         if (answer.type === "colour_object") {
           const object = part5.interactiveObjects.find((item2) => item2.id === answer.objectId)?.label || answer.objectId;
@@ -3771,7 +3991,7 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
           return `${object}: ${colour}`;
         }
         const item = part5.objectPalette.find((entry) => entry.id === answer.paletteItemId)?.label || answer.paletteItemId;
-        return `${item} @ ${answer.anchor.x.toFixed(3)}, ${answer.anchor.y.toFixed(3)}`;
+        return item;
       }).filter(Boolean).join(" | ");
       const correctAnswer = question.actions.map((action) => {
         if (action.type === "colour_object") {
@@ -3796,6 +4016,194 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
     });
   }
   return details;
+}
+function visualReviewState(detail) {
+  if (detail?.unanswered) return "unanswered";
+  return detail?.isCorrect ? "correct" : "incorrect";
+}
+function visualReviewBase(detail, questionIndex) {
+  return {
+    questionIndex,
+    state: visualReviewState(detail),
+    userAnswer: activityText(detail?.userAnswer || detail?.selectedAnswer, 1e3),
+    correctAnswer: activityText(detail?.correctAnswer, 1e3)
+  };
+}
+function visualReviewPicture(picture) {
+  return {
+    label: activityText(picture?.label || `${picture?.side || ""} ${picture?.row || ""}`, 200),
+    side: picture.side,
+    row: picture.row,
+    region: structuredClone(picture.region),
+    anchorOffset: Number(picture.anchorOffset)
+  };
+}
+function buildListeningVisualReviewSnapshot(content, answers, questions, suppliedAnswerDetails) {
+  const details = suppliedAnswerDetails || buildListeningActivityAnswerDetails(content, answers, questions);
+  const detailAt = (index) => details[index];
+  const part1 = content.parts[0];
+  const part2 = content.parts[1];
+  const part3 = content.parts[2];
+  const part4 = content.parts[3];
+  const part5 = content.parts[4];
+  const resolvedScenePart5Answers = part5.displayMode === "scene-colour-draw" ? resolveListeningPart5SubmittedActions(
+    part5.questions.flatMap((question) => question.actions),
+    answers.part5
+  ) : /* @__PURE__ */ new Map();
+  const reviewPart1 = {
+    part: 1,
+    mode: "scene-targets",
+    imageUrl: part1.sceneUrl,
+    items: part1.targets.map((target, index) => ({
+      ...visualReviewBase(detailAt(index), index),
+      region: structuredClone(target.region)
+    }))
+  };
+  const reviewPart2 = {
+    part: 2,
+    mode: "text-questions",
+    imageUrl: part2.illustrationUrl,
+    heading: activityText(part2.heading, 500),
+    exampleText: activityText(part2.exampleText, 1e3) || void 0,
+    items: part2.questions.map((question, index) => ({
+      ...visualReviewBase(detailAt(index + 5), index + 5),
+      prompt: formatListeningReviewQuestion(question.prompt, 2, index + 5)
+    }))
+  };
+  const reviewPart3 = part3.displayMode === "connect-image" ? {
+    part: 3,
+    mode: "connect-image",
+    imageUrl: part3.boardUrl,
+    items: part3.correctConnections.flatMap((connection, index) => {
+      const answer = part3.answers.find((item) => item.id === connection.answerId);
+      const correctPicture = part3.pictures.find((item) => item.id === connection.pictureId);
+      if (!answer || !correctPicture) return [];
+      const submittedPicture = part3.pictures.find((item) => item.id === answers.part3[connection.answerId]);
+      return [{
+        ...visualReviewBase(detailAt(index + 10), index + 10),
+        answerLabel: activityText(answer.label, 300),
+        answerRegion: structuredClone(answer.region),
+        leftAnchorOffset: Number(answer.leftAnchorOffset),
+        rightAnchorOffset: Number(answer.rightAnchorOffset),
+        ...submittedPicture ? { userPicture: visualReviewPicture(submittedPicture) } : {},
+        correctPicture: visualReviewPicture(correctPicture)
+      }];
+    })
+  } : {
+    part: 3,
+    mode: "image-options",
+    imageUrl: part3.displayMode === "composite" ? part3.boardUrl : void 0,
+    items: part3.items.map((item, index) => ({
+      ...visualReviewBase(detailAt(index + 10), index + 10),
+      prompt: activityText(item.label, 500),
+      options: part3.options.map((option, optionIndex2) => ({
+        label: String.fromCharCode(65 + optionIndex2),
+        alt: activityText(option.label, 500),
+        imageUrl: option.imageUrl
+      })),
+      selectedOptionIndex: part3.options.findIndex((option) => option.id === answers.part3[item.id]),
+      correctOptionIndex: part3.options.findIndex((option) => option.id === item.correctOptionId)
+    }))
+  };
+  const reviewPart4 = {
+    part: 4,
+    mode: "image-options",
+    items: part4.questions.map((question, index) => ({
+      ...visualReviewBase(detailAt(index + 15), index + 15),
+      prompt: activityText(question.prompt, 1e3),
+      options: question.options.map((option, optionIndex2) => ({
+        label: String.fromCharCode(65 + optionIndex2),
+        alt: activityText(option.alt, 500),
+        imageUrl: option.imageUrl
+      })),
+      selectedOptionIndex: question.options.findIndex((option) => option.id === answers.part4[question.id]),
+      correctOptionIndex: question.options.findIndex((option) => option.id === question.correctOptionId)
+    }))
+  };
+  const reviewPart5 = part5.displayMode === "scene-colour-draw" ? {
+    part: 5,
+    mode: "scene-colour-draw",
+    imageUrl: part5.sceneUrl,
+    items: part5.questions.map((question, index) => {
+      const actions = question.actions.reduce((reviewActions, action) => {
+        const submitted = resolvedScenePart5Answers.get(action.id);
+        if (action.type === "colour_object") {
+          const object = part5.interactiveObjects.find((item) => item.id === action.correctObjectId);
+          const correctColour = part5.colours.find((item) => item.id === action.correctColourId);
+          if (!object || !correctColour) return reviewActions;
+          const userColour = submitted && typeof submitted === "object" && submitted.type === "colour_object" ? part5.colours.find((item) => item.id === submitted.colourId) : void 0;
+          const correct2 = Boolean(
+            submitted && typeof submitted === "object" && submitted.type === "colour_object" && submitted.objectId === action.correctObjectId && submitted.colourId === action.correctColourId
+          );
+          reviewActions.push({
+            type: "colour",
+            state: !submitted ? "unanswered" : correct2 ? "correct" : "incorrect",
+            region: structuredClone(object.geometry),
+            ...userColour ? { userColour: { label: activityText(userColour.label, 200), value: activityText(userColour.value, 50) } } : {},
+            correctColour: { label: activityText(correctColour.label, 200), value: activityText(correctColour.value, 50) }
+          });
+          return reviewActions;
+        }
+        const correctItem = part5.objectPalette.find((item) => item.id === action.correctPaletteItemId);
+        if (!correctItem) return reviewActions;
+        const placeAnswer = submitted && typeof submitted === "object" && submitted.type === "place_object" ? submitted : void 0;
+        const userItem = placeAnswer ? part5.objectPalette.find((item) => item.id === placeAnswer.paletteItemId) : void 0;
+        const correct = Boolean(
+          placeAnswer && placeAnswer.paletteItemId === action.correctPaletteItemId && pointInListeningRegion(placeAnswer.anchor, action.targetRegion)
+        );
+        reviewActions.push({
+          type: "place",
+          state: !placeAnswer ? "unanswered" : correct ? "correct" : "incorrect",
+          ...placeAnswer ? { userAnchor: { ...placeAnswer.anchor } } : {},
+          correctAnchor: {
+            x: Math.max(0, Math.min(1, action.targetRegion.x + action.targetRegion.width / 2)),
+            y: Math.max(0, Math.min(1, action.targetRegion.y + action.targetRegion.height / 2))
+          },
+          ...userItem ? { userItem: { label: activityText(userItem.label, 200), tokenUrl: userItem.tokenUrl } } : {},
+          correctItem: { label: activityText(correctItem.label, 200), tokenUrl: correctItem.tokenUrl }
+        });
+        return reviewActions;
+      }, []);
+      const state = actions.length > 0 && actions.every((action) => action.state === "correct") ? "correct" : actions.length === 0 || actions.every((action) => action.state === "unanswered") ? "unanswered" : "incorrect";
+      return {
+        ...visualReviewBase(detailAt(index + 20), index + 20),
+        state,
+        prompt: activityText(question.staffPrompt, 1e3),
+        actions
+      };
+    })
+  } : {
+    part: 5,
+    mode: "scene-colour",
+    imageUrl: part5.sceneUrl,
+    items: part5.targets.flatMap((target, index) => {
+      const correctColour = part5.colours.find((colour) => colour.id === target.correctColourId);
+      if (!correctColour) return [];
+      const submittedColourId = typeof answers.part5[target.id] === "string" ? answers.part5[target.id] : "";
+      const userColour = part5.colours.find((colour) => colour.id === submittedColourId);
+      return [{
+        ...visualReviewBase(detailAt(index + 20), index + 20),
+        region: structuredClone(target.region),
+        ...userColour ? { userColour: { label: activityText(userColour.label, 200), value: activityText(userColour.value, 50) } } : {},
+        correctColour: { label: activityText(correctColour.label, 200), value: activityText(correctColour.value, 50) }
+      }];
+    })
+  };
+  return {
+    schemaVersion: 2,
+    parts: [reviewPart1, reviewPart2, reviewPart3, reviewPart4, reviewPart5]
+  };
+}
+function normalizeListeningVisualReviewSnapshot(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const source = value;
+  if (source.schemaVersion !== 2 || !Array.isArray(source.parts) || source.parts.length !== 5) return void 0;
+  const serialized = JSON.stringify(source);
+  if (serialized.length > 75e4 || /"targetRegion"\s*:/i.test(serialized)) return void 0;
+  const partNumbers = source.parts.map((part) => Number(part?.part));
+  if (partNumbers.some((part, index) => part !== index + 1)) return void 0;
+  if (source.parts.some((part) => !Array.isArray(part?.items) || part.items.length > 25)) return void 0;
+  return structuredClone(source);
 }
 function normalizeListeningActivityAnswerDetails(detail) {
   if (!Array.isArray(detail?.answerDetails)) return [];
@@ -4258,6 +4666,12 @@ async function findAttemptDetail(attemptId) {
             data.answers,
             data.questions
           );
+          const visualReview = buildListeningVisualReviewSnapshot(
+            version.content,
+            data.answers,
+            data.questions,
+            answerDetails
+          );
           data = {
             ...data,
             answerDetails,
@@ -4265,7 +4679,11 @@ async function findAttemptDetail(attemptId) {
               questionId: item.questionId,
               questionText: item.questionText,
               part: item.part
-            }))
+            })),
+            extraDetails: {
+              ...data.extraDetails && typeof data.extraDetails === "object" ? data.extraDetails : {},
+              visualReview
+            }
           };
         }
       } catch {
@@ -4421,7 +4839,9 @@ function stripReviewSecrets(value) {
     "expectedanswer",
     "modelanswer",
     "referenceanswer",
-    "solution"
+    "solution",
+    "visualreview",
+    "visualreviewsnapshot"
   ]);
   const safe = {};
   for (const [key, child] of Object.entries(value)) {
@@ -4814,182 +5234,6 @@ function createLearningHistoryRouter(options) {
 
 // src/server/listening-library/router.ts
 var import_express3 = __toESM(require("express"), 1);
-
-// src/features/listening/geometry.ts
-var EPSILON = 1e-7;
-var isNormalizedPoint = (point) => Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
-function polygonArea(points) {
-  if (points.length < 3) return 0;
-  return Math.abs(points.reduce((sum, point, index) => {
-    const next = points[(index + 1) % points.length];
-    return sum + point.x * next.y - next.x * point.y;
-  }, 0)) / 2;
-}
-var orientation = (a, b, c) => (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
-var onSegment = (a, b, c) => b.x <= Math.max(a.x, c.x) + EPSILON && b.x + EPSILON >= Math.min(a.x, c.x) && b.y <= Math.max(a.y, c.y) + EPSILON && b.y + EPSILON >= Math.min(a.y, c.y);
-function segmentsIntersect(a, b, c, d) {
-  const values = [orientation(a, b, c), orientation(a, b, d), orientation(c, d, a), orientation(c, d, b)];
-  if ((values[0] > EPSILON && values[1] < -EPSILON || values[0] < -EPSILON && values[1] > EPSILON) && (values[2] > EPSILON && values[3] < -EPSILON || values[2] < -EPSILON && values[3] > EPSILON)) return true;
-  return Math.abs(values[0]) <= EPSILON && onSegment(a, c, b) || Math.abs(values[1]) <= EPSILON && onSegment(a, d, b) || Math.abs(values[2]) <= EPSILON && onSegment(c, a, d) || Math.abs(values[3]) <= EPSILON && onSegment(c, b, d);
-}
-function polygonSelfIntersects(points) {
-  for (let first = 0; first < points.length; first += 1) {
-    const firstNext = (first + 1) % points.length;
-    for (let second = first + 1; second < points.length; second += 1) {
-      const secondNext = (second + 1) % points.length;
-      if (first === second || firstNext === second || secondNext === first) continue;
-      if (first === 0 && secondNext === 0) continue;
-      if (segmentsIntersect(points[first], points[firstNext], points[second], points[secondNext])) return true;
-    }
-  }
-  return false;
-}
-function regionFromPolygon(points) {
-  if (points.length < 3 || points.some((point) => !isNormalizedPoint(point))) return null;
-  if (polygonArea(points) <= EPSILON || polygonSelfIntersects(points)) return null;
-  const xs = points.map((point) => point.x);
-  const ys = points.map((point) => point.y);
-  const x = Math.min(...xs);
-  const y = Math.min(...ys);
-  const width = Math.max(...xs) - x;
-  const height = Math.max(...ys) - y;
-  if (width <= EPSILON || height <= EPSILON) return null;
-  return { shape: "polygon", x, y, width, height, points: points.map((point) => ({ ...point })) };
-}
-function isValidListeningRegion(region) {
-  if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) return false;
-  if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return false;
-  if (region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) return false;
-  if (region.x + region.width > 1 + EPSILON || region.y + region.height > 1 + EPSILON) return false;
-  if (region.shape !== "polygon") return true;
-  const normalized = regionFromPolygon(region.points || []);
-  if (!normalized) return false;
-  return Math.abs(normalized.x - region.x) <= EPSILON && Math.abs(normalized.y - region.y) <= EPSILON && Math.abs(normalized.width - region.width) <= EPSILON && Math.abs(normalized.height - region.height) <= EPSILON;
-}
-function pointInListeningRegion(point, region) {
-  if (!isNormalizedPoint(point)) return false;
-  if (region.shape === "ellipse") {
-    const rx = region.width / 2;
-    const ry = region.height / 2;
-    if (rx <= 0 || ry <= 0) return false;
-    const dx = (point.x - region.x - rx) / rx;
-    const dy = (point.y - region.y - ry) / ry;
-    return dx * dx + dy * dy <= 1 + EPSILON;
-  }
-  if (region.shape === "polygon" && region.points?.length) {
-    let inside = false;
-    for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
-      const a = region.points[index];
-      const b = region.points[previous];
-      const crosses = a.y > point.y !== b.y > point.y && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y || EPSILON) + a.x;
-      if (crosses) inside = !inside;
-    }
-    return inside;
-  }
-  return point.x >= region.x - EPSILON && point.x <= region.x + region.width + EPSILON && point.y >= region.y - EPSILON && point.y <= region.y + region.height + EPSILON;
-}
-function transformListeningPoint(point, sourceScene, targetScene) {
-  if (!isValidListeningRegion(sourceScene) || !isValidListeningRegion(targetScene)) return null;
-  const u = (point.x - sourceScene.x) / sourceScene.width;
-  const v = (point.y - sourceScene.y) / sourceScene.height;
-  if (!Number.isFinite(u) || !Number.isFinite(v) || u < -EPSILON || u > 1 + EPSILON || v < -EPSILON || v > 1 + EPSILON) return null;
-  const transformed = {
-    x: targetScene.x + Math.min(1, Math.max(0, u)) * targetScene.width,
-    y: targetScene.y + Math.min(1, Math.max(0, v)) * targetScene.height
-  };
-  return isNormalizedPoint(transformed) ? transformed : null;
-}
-
-// src/server/listening/listeningGrader.ts
-var LISTENING_GRADING_VERSION = "listening-five-part-v2";
-function normalizeListeningTextAnswer(value) {
-  return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
-}
-function gradeTextQuestion(question, answer) {
-  let unanswered = true;
-  const correct = question.blanks.every((blank) => {
-    const actual = normalizeListeningTextAnswer(answer?.[blank.id]);
-    if (actual) unanswered = false;
-    return Boolean(actual) && blank.acceptedAnswers.some(
-      (accepted) => normalizeListeningTextAnswer(accepted) === actual
-    );
-  });
-  return { correct, unanswered };
-}
-function gradeListeningAttempt(content, answers) {
-  const questions = [];
-  const push = (part, questionId, correct, unanswered) => questions.push({ part, questionId, correct, unanswered });
-  for (const target of content.parts[0].targets) {
-    const actual = answers.part1?.[target.id] || "";
-    push(1, target.id, actual === target.choiceId, !actual);
-  }
-  for (const question of content.parts[1].questions) {
-    const result = gradeTextQuestion(question, answers.part2?.[question.id]);
-    push(2, question.id, result.correct, result.unanswered);
-  }
-  const part3 = content.parts[2];
-  if (part3.displayMode === "connect-image") {
-    for (const connection of part3.correctConnections) {
-      const actual = answers.part3?.[connection.answerId] || "";
-      push(3, connection.answerId, actual === connection.pictureId, !actual);
-    }
-  } else {
-    for (const item of part3.items) {
-      const actual = answers.part3?.[item.id] || "";
-      push(3, item.id, actual === item.correctOptionId, !actual);
-    }
-  }
-  for (const question of content.parts[3].questions) {
-    const actual = answers.part4?.[question.id] || "";
-    push(4, question.id, actual === question.correctOptionId, !actual);
-  }
-  const part5 = content.parts[4];
-  if (part5.displayMode === "scene-colour-draw") {
-    const submittedPart5Answers = Object.values(answers.part5 || {});
-    for (const question of part5.questions) {
-      const submitted = question.actions.map((action) => {
-        const direct = answers.part5?.[action.id];
-        if (direct && typeof direct === "object" && direct.type === action.type) return direct;
-        if (action.type === "colour_object") {
-          return submittedPart5Answers.find((answer) => answer && typeof answer === "object" && answer.type === "colour_object" && answer.objectId === action.correctObjectId);
-        }
-        return submittedPart5Answers.find((answer) => answer && typeof answer === "object" && answer.type === "place_object" && answer.paletteItemId === action.correctPaletteItemId);
-      });
-      const unanswered = submitted.every((answer) => !answer);
-      const correct = question.actions.length > 0 && question.actions.every((action, index) => {
-        const answer = submitted[index];
-        if (action.type === "colour_object") {
-          return Boolean(
-            answer && typeof answer === "object" && answer.type === "colour_object" && answer.objectId === action.correctObjectId && answer.colourId === action.correctColourId
-          );
-        }
-        return Boolean(
-          answer && typeof answer === "object" && answer.type === "place_object" && answer.paletteItemId === action.correctPaletteItemId && pointInListeningRegion(answer.anchor, action.targetRegion)
-        );
-      });
-      push(5, question.id, correct, unanswered);
-    }
-  } else {
-    for (const target of part5.targets) {
-      const actual = answers.part5?.[target.id] || "";
-      push(5, target.id, actual === target.correctColourId, !actual);
-    }
-  }
-  if (questions.length !== 25) {
-    throw new Error(`Published listening version must contain exactly 25 questions; received ${questions.length}.`);
-  }
-  const correctCount = questions.filter((question) => question.correct).length;
-  const unansweredCount = questions.filter((question) => question.unanswered).length;
-  const incorrectCount = questions.length - correctCount - unansweredCount;
-  return {
-    score: Math.round(correctCount / 25 * 100),
-    correctCount,
-    incorrectCount,
-    unansweredCount,
-    totalCount: 25,
-    questions
-  };
-}
 
 // src/server/listening/listeningRouter.ts
 var import_crypto = __toESM(require("crypto"), 1);
@@ -7947,6 +8191,12 @@ function createListeningRouter(dependencies) {
         updatedAt: completedAt
       };
       const answerDetails = buildListeningActivityAnswerDetails(version.content, answers, grade.questions);
+      const visualReview = buildListeningVisualReviewSnapshot(
+        version.content,
+        answers,
+        grade.questions,
+        answerDetails
+      );
       const detail = {
         id: attemptId,
         attemptId,
@@ -7964,7 +8214,8 @@ function createListeningRouter(dependencies) {
           schemaVersion: Number(ticket.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
           setId: ticket.setId,
           versionId: ticket.versionId,
-          gradingVersion: LISTENING_GRADING_VERSION
+          gradingVersion: LISTENING_GRADING_VERSION,
+          visualReview
         },
         reviewPolicy: {
           showReviewAfterSubmit: true,
@@ -8007,6 +8258,20 @@ function createListeningRouter(dependencies) {
       if (detail?.reviewPolicy?.showReviewAfterSubmit !== true) {
         throw apiError(403, "B\u1ED9 \u0111\u1EC1 n\xE0y kh\xF4ng cho xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
       }
+      let visualReview = normalizeListeningVisualReviewSnapshot(detail?.extraDetails?.visualReview);
+      if (!visualReview && detail?.answers && Array.isArray(detail?.questions)) {
+        const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ""));
+        if (version?.content) {
+          try {
+            visualReview = buildListeningVisualReviewSnapshot(
+              version.content,
+              detail.answers,
+              detail.questions
+            );
+          } catch {
+          }
+        }
+      }
       res.json({
         attemptId: attempt.id,
         score: Number(attempt.score || 0),
@@ -8014,7 +8279,8 @@ function createListeningRouter(dependencies) {
         incorrectCount: Number(attempt.incorrectCount || 0),
         unansweredCount: Number(attempt.unansweredCount || 0),
         totalCount: Number(attempt.totalCount || 25),
-        answerDetails: normalizeListeningActivityAnswerDetails(detail)
+        answerDetails: normalizeListeningActivityAnswerDetails(detail),
+        ...visualReview ? { visualReview } : {}
       });
     } catch (error) {
       sendError(res, error);

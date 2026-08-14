@@ -204,7 +204,13 @@ test('detail normalizer strips answer keys and explanations when snapshot denies
     }]),
     question_snapshots_json: '[]',
     option_snapshots_json: '[]',
-    extra_details_json: '{}',
+    extra_details_json: JSON.stringify({
+      harmless: 'kept',
+      visualReview: {
+        schemaVersion: 1,
+        parts: [{ correctAnswer: 'B', privateGeometry: { x: 0.5, y: 0.5 } }],
+      },
+    }),
     review_policy_json: JSON.stringify({ showReviewAfterSubmit: false }),
   });
   const answer = detail.answerDetails[0] as Record<string, unknown>;
@@ -213,6 +219,8 @@ test('detail normalizer strips answer keys and explanations when snapshot denies
   assert.equal('correctAnswer' in answer, false);
   assert.equal('acceptedAnswers' in answer, false);
   assert.equal('explanation' in answer, false);
+  assert.equal(detail.extraDetails.harmless, 'kept');
+  assert.equal('visualReview' in detail.extraDetails, false);
 });
 
 test('detail normalizer handles malformed JSON and strips nested snake-case answer keys', () => {
