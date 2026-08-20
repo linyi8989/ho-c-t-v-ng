@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit2, Edit3, Trash2, Copy, Search, Filter, BookOpen, Layers, Users,
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
-  Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, MoreHorizontal, Headphones
+  Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, ChevronDown, MoreHorizontal, Headphones,
+  SlidersHorizontal
 } from 'lucide-react';
 import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
@@ -578,6 +579,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [vocabResultsSet, setVocabResultsSet] = useState<VocabSet | null>(null);
   const [vocabResults, setVocabResults] = useState<GameSession[]>([]);
   const [isVocabResultsLoading, setIsVocabResultsLoading] = useState(false);
+  const [vocabResultsNameFilter, setVocabResultsNameFilter] = useState('');
+  const [vocabResultsGameFilter, setVocabResultsGameFilter] = useState('');
+  const [vocabResultsGameDropdownOpen, setVocabResultsGameDropdownOpen] = useState(false);
   const [grammarResultsSet, setGrammarResultsSet] = useState<GrammarSet | null>(null);
   const [grammarResults, setGrammarResults] = useState<any[]>([]);
 
@@ -973,9 +977,16 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       .catch(err => showNotification(err.message, 'error'));
   };
 
+  const resetVocabResultsFilters = () => {
+    setVocabResultsNameFilter('');
+    setVocabResultsGameFilter('');
+    setVocabResultsGameDropdownOpen(false);
+  };
+
   const handleLoadVocabResults = (set: VocabSet) => {
     setVocabResultsSet(set);
     setVocabResults([]);
+    resetVocabResultsFilters();
     setIsVocabResultsLoading(true);
     authFetch(`/api/admin/vocab-sets/${set.id}/results`)
       .then(async res => {
@@ -1839,6 +1850,32 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       normalizeActivitySearchText(res.studentName || '').includes(keyword)
     );
   }, [completedActivityResults, activitySearch]);
+
+  const filteredVocabResults = React.useMemo(() => {
+    const keyword = normalizeActivitySearchText(vocabResultsNameFilter);
+
+    return vocabResults.filter(session => {
+      const nameMatches = !keyword || normalizeActivitySearchText(session.studentName || '').includes(keyword);
+      const gameMatches = !vocabResultsGameFilter || session.gameId === vocabResultsGameFilter;
+      return nameMatches && gameMatches;
+    });
+  }, [vocabResults, vocabResultsNameFilter, vocabResultsGameFilter]);
+
+  const vocabResultGameOptions = React.useMemo(() => {
+    const labelsByGameId = new Map<string, string>();
+
+    vocabResults.forEach(session => {
+      if (!session.gameId || labelsByGameId.has(session.gameId)) return;
+      const configuredGame = GAMES_LIST.find(game => game.gameId === session.gameId);
+      labelsByGameId.set(session.gameId, session.gameName || configuredGame?.title || session.gameId);
+    });
+
+    return Array.from(labelsByGameId, ([gameId, title]) => ({ gameId, title }));
+  }, [vocabResults]);
+
+  const hasVocabResultsFilter = Boolean(
+    normalizeActivitySearchText(vocabResultsNameFilter) || vocabResultsGameFilter
+  );
 
   const leaderboardClassOptions = React.useMemo(() => {
     const byId = new Map<string, string>();
@@ -2819,19 +2856,91 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   <div>
                     <h3 className="font-black text-gray-900">Kết quả: {vocabResultsSet.title}</h3>
                     <p className="text-xs text-gray-500">
-                      {isVocabResultsLoading ? 'Đang tải kết quả...' : `${vocabResults.length} lượt chơi`}
+                      {isVocabResultsLoading
+                        ? 'Đang tải kết quả...'
+                        : hasVocabResultsFilter
+                          ? `Hiển thị ${filteredVocabResults.length}/${vocabResults.length} lượt chơi`
+                          : `${vocabResults.length} lượt chơi`}
                     </p>
                   </div>
                   <button
                     onClick={() => {
                       setVocabResultsSet(null);
                       setVocabResults([]);
+                      resetVocabResultsFilters();
                     }}
                     className="p-2 rounded-xl border border-gray-200 text-gray-600"
                     aria-label="Đóng bảng kết quả"
                   >
                     <X size={16} />
                   </button>
+                </div>
+                <div className="flex flex-col gap-2 pb-2 sm:flex-row">
+                  <div className="relative flex-1">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      id="vocab-results-name-filter"
+                      type="text"
+                      value={vocabResultsNameFilter}
+                      onChange={event => setVocabResultsNameFilter(event.target.value)}
+                      placeholder="Tìm theo tên học sinh..."
+                      aria-label="Tìm kết quả theo tên học sinh"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm font-bold text-gray-800 outline-none transition-all placeholder:text-gray-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-50"
+                    />
+                  </div>
+                  <div className="relative">
+                    <button
+                      id="vocab-results-game-filter-btn"
+                      type="button"
+                      onClick={() => setVocabResultsGameDropdownOpen(open => !open)}
+                      className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-gray-700 hover:bg-gray-100"
+                      aria-haspopup="listbox"
+                      aria-expanded={vocabResultsGameDropdownOpen}
+                      aria-controls="vocab-results-game-filter-options"
+                    >
+                      <SlidersHorizontal size={15} />
+                      {vocabResultsGameFilter
+                        ? vocabResultGameOptions.find(game => game.gameId === vocabResultsGameFilter)?.title || vocabResultsGameFilter
+                        : 'Tất cả trò chơi'}
+                      <ChevronDown size={13} />
+                    </button>
+                    {vocabResultsGameDropdownOpen && (
+                      <div
+                        id="vocab-results-game-filter-options"
+                        className="absolute right-0 top-full z-20 mt-1 w-56 rounded-2xl border border-gray-200 bg-white py-1 shadow-lg"
+                        role="listbox"
+                        aria-label="Lọc kết quả theo trò chơi"
+                      >
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={vocabResultsGameFilter === ''}
+                          onClick={() => {
+                            setVocabResultsGameFilter('');
+                            setVocabResultsGameDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-2 text-left text-sm font-bold hover:bg-gray-50 ${vocabResultsGameFilter === '' ? 'text-blue-700' : 'text-gray-700'}`}
+                        >
+                          Tất cả trò chơi
+                        </button>
+                        {vocabResultGameOptions.map(game => (
+                          <button
+                            key={game.gameId}
+                            type="button"
+                            role="option"
+                            aria-selected={vocabResultsGameFilter === game.gameId}
+                            onClick={() => {
+                              setVocabResultsGameFilter(game.gameId);
+                              setVocabResultsGameDropdownOpen(false);
+                            }}
+                            className={`w-full px-4 py-2 text-left text-sm font-bold hover:bg-gray-50 ${vocabResultsGameFilter === game.gameId ? 'text-blue-700' : 'text-gray-700'}`}
+                          >
+                            {game.title}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="overflow-x-auto rounded-2xl border border-gray-200">
                   <table className="w-full text-left text-sm">
@@ -2853,7 +2962,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         <tr><td colSpan={9} className="p-8 text-center text-gray-400">Đang tải kết quả...</td></tr>
                       ) : vocabResults.length === 0 ? (
                         <tr><td colSpan={9} className="p-8 text-center text-gray-400">Chưa có lượt học nào trong bộ từ này.</td></tr>
-                      ) : vocabResults.map((session, index) => {
+                      ) : filteredVocabResults.length === 0 ? (
+                        <tr><td colSpan={9} className="p-8 text-center text-gray-400">Không có kết quả khớp với bộ lọc.</td></tr>
+                      ) : filteredVocabResults.map((session, index) => {
                         const unansweredCount = Math.max(
                           0,
                           Number(session.totalQuestions || 0)
