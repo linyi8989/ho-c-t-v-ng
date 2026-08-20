@@ -8,14 +8,6 @@ import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
 
-// Import our games
-import FlashcardGame from './FlashcardGame';
-import QuizGame from './QuizGame';
-import FillBlankGame from './FillBlankGame';
-import MatchingGame from './MatchingGame';
-import MemoryGame from './MemoryGame';
-import MillionaireGame from './MillionaireGame';
-import SpeakingAIGame from './SpeakingAIGame';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import {
@@ -33,6 +25,14 @@ import {
   removePendingSubmission,
   storePendingSubmission
 } from '../../lib/learningRuns';
+
+const FlashcardGame = React.lazy(() => import('./FlashcardGame'));
+const QuizGame = React.lazy(() => import('./QuizGame'));
+const FillBlankGame = React.lazy(() => import('./FillBlankGame'));
+const MatchingGame = React.lazy(() => import('./MatchingGame'));
+const MemoryGame = React.lazy(() => import('./MemoryGame'));
+const MillionaireGame = React.lazy(() => import('./MillionaireGame'));
+const SpeakingAIGame = React.lazy(() => import('./SpeakingAIGame'));
 
 interface StudentLearningAreaProps {
   vocabSet: VocabSet;
@@ -237,7 +237,7 @@ export default function StudentLearningArea({
         console.warn('Public leaderboard API unreachable, falling back to direct Firestore query:', err);
         try {
           const { collection, getDocs } = await import('firebase/firestore');
-          const { db } = await import('../../lib/firebase');
+          const { db } = await import('../../lib/firebaseDb');
           const [querySnapshot, assignmentsSnapshot, classesSnapshot, membersSnapshot] = await Promise.all([
             getDocs(collection(db, 'game_sessions')),
             getDocs(collection(db, 'assignments')),
@@ -977,7 +977,15 @@ export default function StudentLearningArea({
                       <p className="font-bold text-rose-700">{saveError || 'Không thể tạo lượt học.'}</p>
                       <button onClick={restartCurrentGame} className="rounded-xl bg-blue-600 px-5 py-2 font-bold text-white">Thử lại</button>
                     </div>
-                  ) : renderActiveGame()}
+                  ) : (
+                    <React.Suspense fallback={(
+                      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-8 text-center text-sm font-bold text-indigo-700">
+                        Đang tải trò chơi...
+                      </div>
+                    )}>
+                      {renderActiveGame()}
+                    </React.Suspense>
+                  )}
                 </div>
 
                 {/* Score Summary Modal overlay after complete */}

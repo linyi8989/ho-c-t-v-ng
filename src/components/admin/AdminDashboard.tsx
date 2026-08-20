@@ -11,12 +11,13 @@ import { playAudioUrl, playVocabAudio, resolveTtsPlaybackRate, speakEnglish } fr
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
-import ListeningLibraryAdmin from '../../features/listening-library/admin/ListeningLibraryAdmin';
 import { LibraryLinkStatus, LibraryRowActions } from './LibraryRowControls';
 import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation';
+
+const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
@@ -3013,7 +3014,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         {/* TAB 2B: GRAMMAR SETS DIRECTORY */}
         {/* ==================================================================== */}
         {activeTab === 'listening-library' && token && (
-          <ListeningLibraryAdmin token={token} />
+          <React.Suspense fallback={(
+            <div className="rounded-3xl border border-sky-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">
+              Đang tải kho bài luyện nghe...
+            </div>
+          )}>
+            <ListeningLibraryAdmin token={token} />
+          </React.Suspense>
         )}
 
         {activeTab === 'grammar-sets' && (

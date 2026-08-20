@@ -5765,6 +5765,10 @@ async function start() {
   } else {
     // Production serving static files
     const distPath = path.join(process.cwd(), "dist", "client");
+    app.use("/assets", express.static(path.join(distPath, "assets"), {
+      immutable: true,
+      maxAge: "365d"
+    }));
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

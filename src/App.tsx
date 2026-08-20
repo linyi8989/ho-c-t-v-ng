@@ -4,21 +4,22 @@ import {
   ArrowRight, Key, HelpCircle, ChevronRight, GraduationCap, Star, Search, LogOut, Shield, FileText, History
 } from 'lucide-react';
 import { VocabSet, Class, Assignment, GameSession, GrammarSet } from './types';
-import AdminDashboard from './components/admin/AdminDashboard';
-import StudentLearningArea from './components/games/StudentLearningArea';
-import GrammarLearningArea from './components/grammar/GrammarLearningArea';
-import ListeningLibraryHome from './features/listening-library/student/ListeningLibraryHome';
-import ListeningModulePage from './features/listening-library/student/ListeningModulePage';
-import ListeningExamPage from './features/listening-library/student/ListeningExamPage';
 import {
   listeningModulePath,
   parseListeningLibraryRoute,
 } from './features/listening-library/routes';
-import StudentHistoryPage from './components/history/StudentHistoryPage';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import { buildLeaderboard, LeaderboardPeriod } from './lib/leaderboard';
+
+const AdminDashboard = React.lazy(() => import('./components/admin/AdminDashboard'));
+const StudentLearningArea = React.lazy(() => import('./components/games/StudentLearningArea'));
+const GrammarLearningArea = React.lazy(() => import('./components/grammar/GrammarLearningArea'));
+const ListeningLibraryHome = React.lazy(() => import('./features/listening-library/student/ListeningLibraryHome'));
+const ListeningModulePage = React.lazy(() => import('./features/listening-library/student/ListeningModulePage'));
+const ListeningExamPage = React.lazy(() => import('./features/listening-library/student/ListeningExamPage'));
+const StudentHistoryPage = React.lazy(() => import('./components/history/StudentHistoryPage'));
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 function formatGradeLabel(value?: string) {
@@ -259,7 +260,7 @@ export default function App() {
       console.warn("Backend /api/vocab-sets API unreachable, falling back to direct Firestore Client-side query:", err);
       try {
         const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebase');
+        const { db } = await import('./lib/firebaseDb');
         const querySnapshot = await getDocs(collection(db, 'vocab_sets'));
         const setsList: VocabSet[] = [];
         querySnapshot.forEach((docSnap) => {
@@ -283,7 +284,7 @@ export default function App() {
       console.warn("Backend /api/assignments API unreachable, falling back to direct Firestore Client-side query:", err);
       try {
         const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebase');
+        const { db } = await import('./lib/firebaseDb');
         const querySnapshot = await getDocs(collection(db, 'assignments'));
         const list: Assignment[] = [];
         querySnapshot.forEach((docSnap) => {
@@ -307,7 +308,7 @@ export default function App() {
       console.warn("Backend /api/classes API unreachable, falling back to direct Firestore Client-side query:", err);
       try {
         const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebase');
+        const { db } = await import('./lib/firebaseDb');
         const querySnapshot = await getDocs(collection(db, 'classes'));
         const list: Class[] = [];
         querySnapshot.forEach((docSnap) => {
@@ -333,7 +334,7 @@ export default function App() {
       console.warn("Backend /api/results API unreachable, falling back to direct Firestore Client-side query:", err);
       try {
         const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebase');
+        const { db } = await import('./lib/firebaseDb');
         const querySnapshot = await getDocs(collection(db, 'game_sessions'));
         const list: GameSession[] = [];
         querySnapshot.forEach((docSnap) => {

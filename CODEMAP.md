@@ -74,22 +74,20 @@ The exact application dependency baseline from the current
 
 Current source/build/deployment ledger:
 
-- Current Git baseline: `b4f989d` (`feat: add YupVox TTS and improve learning
-  modules`). The working tree contains the current TTS speed, always-present
-  Student History UI, Listening player changes, and staff-only Listening recent
-  activity detail join described in this CODEMAP.
-- Current local release build (generated 2026-08-03 with canonical
+- Current Git baseline: `8542d84` (`build: update production bundle`). The
+  working tree contains the 2026-08-20 load-size optimization described below.
+- Current local release build (generated 2026-08-20 with canonical
   `npm run build` under the active Node 24 shell; repeat the final release gate
-  with Node 22): `dist/client/assets/index-BgPPh9tA.js` and
-  `dist/client/assets/index-S6xE1qDb.css`. `dist/client/index.html` references
-  exactly these two files.
-- Current local server bundle: `dist/server.cjs` (530,437 bytes before Git
+  with Node 22): `dist/client/assets/index-DUjS3JkO.js` (455,654 bytes,
+  118.01 kB gzip) and `dist/client/assets/index-DP5G1MXo.css`. Screen, admin,
+  Firestore, Listening, and individual game code now ship as lazy chunks.
+- Current local server bundle: `dist/server.cjs` (672,575 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-BgPPh9tA.js` plus `index-S6xE1qDb.css`.
+  `curl`/browser smoke show `index-DUjS3JkO.js` plus `index-DP5G1MXo.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -132,7 +130,7 @@ rollback point in this section before calling the upgrade complete.
 - `vite.config.ts`: Vite config, React plugin, Tailwind plugin, alias `@` to repo root, output `dist/client`.
 - `tsconfig.json`: TS config; `allowJs`, `noEmit`, bundler module resolution.
 - `index.html`: Vite HTML entry.
-- `src/main.tsx`: React root; wraps app in `AuthProvider`.
+- `src/main.tsx`: React root; wraps app in `AuthProvider` and the shared lazy-screen `Suspense` boundary.
 - `src/App.tsx`: top-level screen routing and home portal.
 - `src/index.css`: global dark/glass theme and broad Tailwind utility overrides.
 - `db.json`: local fallback database used by backend fallback layer.
@@ -149,7 +147,8 @@ rollback point in this section before calling the upgrade complete.
 
 - `src/types.ts`: shared app domain types.
 - `src/context/AuthContext.tsx`: client auth state, login/register, profile sync.
-- `src/lib/firebase.ts`: Firebase client initialization.
+- `src/lib/firebase.ts`: Firebase client app/auth initialization; it intentionally excludes Firestore from the startup bundle.
+- `src/lib/firebaseDb.ts`: lazy Firestore initialization used only by direct-client fallback paths.
 - `src/lib/firebaseAdmin.ts`: backend Firebase Admin initialization plus local fallback Firestore compatibility layer.
 - `src/lib/authErrors.ts`: maps Firebase auth errors to user-facing messages.
 - `src/lib/game-engine/gameList.ts`: registry of game modes.
@@ -209,7 +208,7 @@ Output:
 - Server bundle: `dist/server.cjs`.
 - Entry: `app.js` imports `./dist/server.cjs`.
 
-In production, `server.ts` serves `dist/client` statically and returns `index.html` for SPA fallback routes.
+In production, `server.ts` serves `dist/client` statically and returns `index.html` for SPA fallback routes. Hashed files under `/assets` use a one-year immutable cache; `index.html` remains revalidated so new deploys resolve the new hashes.
 
 ### cPanel Deploy
 
@@ -562,6 +561,7 @@ Important implementation risk:
 
 - Creates React root.
 - Wraps app with `AuthProvider`.
+- Provides the shared `Suspense` fallback for lazy top-level screens.
 
 `src/App.tsx` decides which screen to show:
 
@@ -571,6 +571,12 @@ Important implementation risk:
 4. `StudentLearningArea` if a vocab set is selected.
 5. `AdminDashboard` if user is `teacher` or `super_admin` and not in student-view mode.
 6. Student home portal otherwise.
+
+The top-level Admin, student game shell, grammar, Listening, and History screens
+are lazy-loaded without changing their route or props. `StudentLearningArea`
+also lazy-loads each game implementation, and the Admin Listening library loads
+only when its tab is rendered. Firestore stays outside the startup bundle and
+loads only if a direct-client fallback is actually needed.
 
 Home portal:
 

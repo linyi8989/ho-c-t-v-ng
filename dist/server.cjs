@@ -14005,6 +14005,10 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path4.default.join(process.cwd(), "dist", "client");
+    app2.use("/assets", import_express4.default.static(import_path4.default.join(distPath, "assets"), {
+      immutable: true,
+      maxAge: "365d"
+    }));
     app2.use(import_express4.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path4.default.join(distPath, "index.html"));
