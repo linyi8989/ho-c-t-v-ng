@@ -3,6 +3,7 @@ import type {
   ListeningGradeResult,
   ListeningPart3ConnectPicture,
   ListeningPart5Answer,
+  ListeningReviewTranscript,
   ListeningSetContent,
   ListeningVisualReviewBaseItem,
   ListeningVisualReviewPart,
@@ -10,6 +11,7 @@ import type {
   ListeningVisualReviewSnapshot,
   ListeningVisualReviewState,
 } from '../../features/listening/types.js';
+import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../../features/listening/types.js';
 import { pointInListeningRegion } from '../../features/listening/geometry.js';
 import {
   LISTENING_LIBRARY_SCHEMA_VERSION,
@@ -22,6 +24,16 @@ import {
 import { resolveListeningPart5SubmittedActions } from './listeningGrader.js';
 
 const activityText = (value: unknown, max = 1000) => String(value ?? '').trim().slice(0, max);
+
+export function buildListeningReviewTranscripts(content: ListeningSetContent): ListeningReviewTranscript[] {
+  if (!Array.isArray(content?.parts)) return [];
+  return content.parts.flatMap(part => {
+    const transcript = typeof part?.audioTranscript === 'string'
+      ? part.audioTranscript.replace(/\r\n?/g, '\n').trim().slice(0, LISTENING_TRANSCRIPT_MAX_CHARS)
+      : '';
+    return transcript ? [{ part: part.part, text: transcript }] : [];
+  });
+}
 
 function labelForId<T extends { id: string }>(
   items: T[],

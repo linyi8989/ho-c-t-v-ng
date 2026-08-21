@@ -212,9 +212,9 @@ test('Part 3 supports clean click/drag connections, removal, and never consults 
 test('completed Listening attempts share one visual result renderer with Learning History', () => {
   assert.match(learningAreaSource, /import ListeningVisualReview from '\.\.\/review\/ListeningVisualReview'/);
   assert.match(learningAreaSource, /review\.visualReview/);
-  assert.match(learningAreaSource, /<ListeningVisualReview snapshot=\{review\.visualReview\}/);
+  assert.match(learningAreaSource, /<ListeningVisualReview snapshot=\{review\.visualReview\} transcripts=\{review\.transcripts\}/);
   assert.match(historyDetailSource, /import ListeningVisualReview, \{[\s\S]*isListeningVisualReviewSnapshot,[\s\S]*\} from '\.\.\/\.\.\/features\/listening\/review\/ListeningVisualReview'/);
-  assert.match(historyDetailSource, /<ListeningVisualReview snapshot=\{visualReview\} compact/);
+  assert.match(historyDetailSource, /<ListeningVisualReview snapshot=\{visualReview\} transcripts=\{listeningReviewTranscripts\} compact/);
   assert.match(visualReviewSource, /data-listening-visual-review/);
   assert.match(visualReviewSource, /CheckCircle2/);
   assert.match(visualReviewSource, /XCircle/);
@@ -228,6 +228,9 @@ test('completed Listening attempts share one visual result renderer with Learnin
   assert.match(visualReviewSource, /listening-review-part-nav-right/);
   assert.match(visualReviewSource, /listening-review-part-shell relative px-12 sm:px-16/);
   assert.match(visualReviewSource, /listening-review-part-content min-w-0/);
+  assert.match(visualReviewSource, /Nội dung bài nghe · Part/);
+  assert.match(visualReviewSource, /whitespace-pre-wrap/);
+  assert.match(visualReviewSource, /normalizeListeningReviewTranscripts/);
   assert.match(visualReviewSource, /h-12 w-12[\s\S]*sm:h-14 sm:w-14/);
   assert.match(visualReviewSource, /<ChevronLeft size=\{32\} strokeWidth=\{3\}/);
   assert.match(visualReviewSource, /<ChevronRight size=\{32\} strokeWidth=\{3\}/);

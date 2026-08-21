@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { moverListeningEditorDefinition } from './moduleDefinition';
 import { MOVER_COLOUR_CATALOG } from './colourCatalog';
@@ -7,6 +8,14 @@ import { comparePart3PictureSlots, part3PicturePositionLabel, validatePart3Impor
 import { edgeSnapPolygon } from '../../../../listening/admin/edgeSnapPolygon';
 
 const region = (x = 0.1, y = 0.1) => ({ shape: 'rect' as const, x, y, width: 0.1, height: 0.08 });
+const sharedEditorSource = readFileSync(new URL('./shared.tsx', import.meta.url), 'utf8');
+
+test('each Mover Part editor accepts a bounded plain-text transcript or local .txt file', () => {
+  assert.match(sharedEditorSource, /Nội dung bài nghe \/ hội thoại/);
+  assert.match(sharedEditorSource, /accept="\.txt,text\/plain"/);
+  assert.match(sharedEditorSource, /audioTranscript/);
+  assert.match(sharedEditorSource, /LISTENING_TRANSCRIPT_MAX_CHARS/);
+});
 
 test('Part 5 rough Colour lasso snaps to the dark closed outline', () => {
   const width = 40;
@@ -181,6 +190,7 @@ test('Part 2 maps by questionNumber and preserves exact single/multiple answer v
 
 test('Part 3 applies side+row answer-key layout and keeps example separate', () => {
   const part = moverListeningEditorDefinition.createDefaultDraft().parts[2];
+  part.audioTranscript = 'Part 3 transcript must survive direct import.';
   const labels = ['Saturday', 'Monday', 'Thursday', 'Sunday', 'Tuesday', 'Wednesday', 'Friday'];
   const imported = applyPart3ConnectAnalysis(part, {
     part: 3,
@@ -198,6 +208,7 @@ test('Part 3 applies side+row answer-key layout and keeps example separate', () 
     distractorSource: 'derived',
   }, 'question-image');
   assert.equal(imported.boardAssetId, 'question-image');
+  assert.equal(imported.audioTranscript, part.audioTranscript);
   assert.equal(imported.correctConnections.length, 5);
   assert.equal(imported.answers.find(answer => answer.id === imported.exampleConnection.answerId)?.label, 'Thursday');
   assert.equal(imported.pictures.find(picture => picture.id === imported.exampleConnection.pictureId)?.side, 'left');

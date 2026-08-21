@@ -18,6 +18,12 @@ export interface ListeningSmartImportSource {
   assetId: string;
 }
 
+export interface ListeningSmartImportRequestSource {
+  role: ListeningSmartImportSourceRole;
+  assetId?: string;
+  transientToken?: string;
+}
+
 export interface ListeningSmartImportRoleDefinition {
   role: ListeningSmartImportSourceRole;
   label: 'Ảnh đề bài' | 'Ảnh đáp án' | 'Ảnh đáp án + vị trí';
@@ -44,7 +50,7 @@ export function getListeningSmartImportRoleDefinitions(part: ListeningSmartImpor
 export interface ListeningSmartImportRequest {
   moduleId: 'mover';
   part: ListeningSmartImportPartId;
-  sources: ListeningSmartImportSource[];
+  sources: ListeningSmartImportRequestSource[];
   pastedText?: string;
   currentPart: ListeningPart;
   basePartHash: string;

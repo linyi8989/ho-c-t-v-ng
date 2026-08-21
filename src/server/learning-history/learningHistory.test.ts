@@ -210,6 +210,7 @@ test('detail normalizer strips answer keys and explanations when snapshot denies
         schemaVersion: 1,
         parts: [{ correctAnswer: 'B', privateGeometry: { x: 0.5, y: 0.5 } }],
       },
+      listeningReviewTranscripts: [{ part: 1, text: 'Private transcript.' }],
     }),
     review_policy_json: JSON.stringify({ showReviewAfterSubmit: false }),
   });
@@ -221,6 +222,7 @@ test('detail normalizer strips answer keys and explanations when snapshot denies
   assert.equal('explanation' in answer, false);
   assert.equal(detail.extraDetails.harmless, 'kept');
   assert.equal('visualReview' in detail.extraDetails, false);
+  assert.equal('listeningReviewTranscripts' in detail.extraDetails, false);
 });
 
 test('detail normalizer handles malformed JSON and strips nested snake-case answer keys', () => {

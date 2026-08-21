@@ -9,6 +9,7 @@ import type {
 } from '../../features/listening/types';
 import {
   buildListeningActivityAnswerDetails,
+  buildListeningReviewTranscripts,
   buildListeningVisualReviewSnapshot,
 } from '../listening/listeningActivity';
 import type {
@@ -393,84 +394,114 @@ export async function findLearningAttempt(attemptId: string): Promise<LearningHi
 }
 
 export async function findAttemptDetail(attemptId: string) {
-  return sqliteQueryOne<Record<string, unknown>>(
+  const storedRow = await sqliteQueryOne<Record<string, unknown>>(
     `SELECT attempt_id, client_run_id, source_type, answer_details_json,
             question_snapshots_json, option_snapshots_json, extra_details_json,
             review_policy_json, created_at, updated_at, expires_at, schema_version
      FROM attempt_details
      WHERE attempt_id = ?`,
     [attemptId],
-  ).then(async row => {
-    if (row) return row;
-    const listeningRow = await sqliteQueryOne<Record<string, any>>(
-      `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
-              attempt.version_id, version.data_json AS version_data_json
-       FROM listening_attempt_details AS detail
-       JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+  );
+  if (storedRow) {
+    if (String(storedRow.source_type || '').toLowerCase() !== 'listening') return storedRow;
+    const versionRow = await sqliteQueryOne<Record<string, unknown>>(
+      `SELECT version.data_json AS version_data_json
+       FROM listening_attempts AS attempt
        LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
-       WHERE detail.attempt_id = ?`,
+       WHERE attempt.id = ?`,
       [attemptId],
     );
-    if (!listeningRow) return undefined;
-    let data: Record<string, any> = {};
     try {
-      data = JSON.parse(String(listeningRow.data_json || '{}'));
+      const version = JSON.parse(String(versionRow?.version_data_json || '{}'));
+      const transcripts = buildListeningReviewTranscripts(version.content as ListeningSetContent);
+      if (!transcripts.length) return storedRow;
+      const extraDetails = JSON.parse(String(storedRow.extra_details_json || '{}'));
+      return {
+        ...storedRow,
+        extra_details_json: JSON.stringify({
+          ...(extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? extraDetails : {}),
+          listeningReviewTranscripts: transcripts,
+        }),
+      };
     } catch {
-      data = {};
+      return storedRow;
     }
-    try {
-      const version = JSON.parse(String(listeningRow.version_data_json || '{}'));
-      if (version?.content && data?.answers && Array.isArray(data?.questions)) {
-        const answerDetails = buildListeningActivityAnswerDetails(
-          version.content as ListeningSetContent,
-          data.answers as ListeningAnswers,
-          data.questions as ListeningGradeResult['questions'],
-        );
-        const visualReview = buildListeningVisualReviewSnapshot(
-          version.content as ListeningSetContent,
-          data.answers as ListeningAnswers,
-          data.questions as ListeningGradeResult['questions'],
-          answerDetails,
-        );
-        data = {
-          ...data,
-          answerDetails,
-          questionSnapshots: answerDetails.map(item => ({
-            questionId: item.questionId,
-            questionText: item.questionText,
-            part: item.part,
-          })),
-          extraDetails: {
-            ...(data.extraDetails && typeof data.extraDetails === 'object' ? data.extraDetails : {}),
-            visualReview,
-          },
-        };
-      }
-    } catch {
-      // Keep the stored bounded detail if a legacy immutable version is malformed.
-    }
-    const reviewPolicy = {
-      ...(data.reviewPolicy && typeof data.reviewPolicy === 'object' ? data.reviewPolicy : {}),
-      showReviewAfterSubmit: true,
-      showExplanationImmediately: false,
-      policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0)),
-    };
-    return {
-      attempt_id: attemptId,
-      client_run_id: null,
-      source_type: 'listening',
-      answer_details_json: JSON.stringify(data.answerDetails || []),
-      question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
-      option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
-      extra_details_json: JSON.stringify(data.extraDetails || {}),
-      review_policy_json: JSON.stringify(reviewPolicy),
-      created_at: listeningRow.created_at,
-      updated_at: listeningRow.updated_at,
-      expires_at: null,
-      schema_version: 1,
-    };
-  },
+  }
+
+  const listeningRow = await sqliteQueryOne<Record<string, any>>(
+    `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+            attempt.version_id, version.data_json AS version_data_json
+     FROM listening_attempt_details AS detail
+     JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+     LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
+     WHERE detail.attempt_id = ?`,
+    [attemptId],
   );
+  if (!listeningRow) return undefined;
+  let data: Record<string, any> = {};
+  try {
+    data = JSON.parse(String(listeningRow.data_json || '{}'));
+  } catch {
+    data = {};
+  }
+  try {
+    const version = JSON.parse(String(listeningRow.version_data_json || '{}'));
+    if (version?.content) {
+      const transcripts = buildListeningReviewTranscripts(version.content as ListeningSetContent);
+      data.extraDetails = {
+        ...(data.extraDetails && typeof data.extraDetails === 'object' ? data.extraDetails : {}),
+        ...(transcripts.length ? { listeningReviewTranscripts: transcripts } : {}),
+      };
+    }
+    if (version?.content && data?.answers && Array.isArray(data?.questions)) {
+      const answerDetails = buildListeningActivityAnswerDetails(
+        version.content as ListeningSetContent,
+        data.answers as ListeningAnswers,
+        data.questions as ListeningGradeResult['questions'],
+      );
+      const visualReview = buildListeningVisualReviewSnapshot(
+        version.content as ListeningSetContent,
+        data.answers as ListeningAnswers,
+        data.questions as ListeningGradeResult['questions'],
+        answerDetails,
+      );
+      data = {
+        ...data,
+        answerDetails,
+        questionSnapshots: answerDetails.map(item => ({
+          questionId: item.questionId,
+          questionText: item.questionText,
+          part: item.part,
+        })),
+        extraDetails: {
+          ...(data.extraDetails && typeof data.extraDetails === 'object' ? data.extraDetails : {}),
+          visualReview,
+        },
+      };
+    }
+  } catch {
+    // Keep the stored bounded detail if a legacy immutable version is malformed.
+  }
+  const reviewPolicy = {
+    ...(data.reviewPolicy && typeof data.reviewPolicy === 'object' ? data.reviewPolicy : {}),
+    showReviewAfterSubmit: true,
+    showExplanationImmediately: false,
+    policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0)),
+  };
+  return {
+    attempt_id: attemptId,
+    client_run_id: null,
+    source_type: 'listening',
+    answer_details_json: JSON.stringify(data.answerDetails || []),
+    question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
+    option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
+    extra_details_json: JSON.stringify(data.extraDetails || {}),
+    review_policy_json: JSON.stringify(reviewPolicy),
+    created_at: listeningRow.created_at,
+    updated_at: listeningRow.updated_at,
+    expires_at: null,
+    schema_version: 1,
+  };
 }
 
 export async function findLegacySource(

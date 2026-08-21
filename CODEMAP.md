@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-08
+Last updated: 2026-08-20
 
 ## 1. Project Overview
 
@@ -71,23 +71,24 @@ The exact application dependency baseline from the current
 | `dotenv` | `17.4.2` | Environment loading |
 | `lucide-react` | `0.546.0` | Icons |
 | Motion | `12.42.0` | Client animation |
+| `pdfjs-dist` | `6.2.108` | Lazy browser-side PDF rendering for Listening import |
 
 Current source/build/deployment ledger:
 
-- Current Git baseline: `8542d84` (`build: update production bundle`). The
-  working tree contains the 2026-08-20 load-size optimization described below.
-- Current local release build (generated 2026-08-20 with canonical
+- Current Git baseline: `a1eb7cb` (`perf: reduce initial bundle size`). The
+  working tree contains the 2026-08-20 Listening PDF importer described below.
+- Current local release build (generated 2026-08-21 with canonical
   `npm run build` under the active Node 24 shell; repeat the final release gate
-  with Node 22): `dist/client/assets/index-DUjS3JkO.js` (455,654 bytes,
-  118.01 kB gzip) and `dist/client/assets/index-DP5G1MXo.css`. Screen, admin,
+  with Node 22): `dist/client/assets/index-Dli7GSoz.js` (455,693 bytes,
+  118.05 kB gzip) and `dist/client/assets/index-CYqyfCEi.css`. Screen, admin,
   Firestore, Listening, and individual game code now ship as lazy chunks.
-- Current local server bundle: `dist/server.cjs` (672,575 bytes before Git
+- Current local server bundle: `dist/server.cjs` (696,285 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-DUjS3JkO.js` plus `index-DP5G1MXo.css`.
+  `curl`/browser smoke show `index-Dli7GSoz.js` plus `index-CYqyfCEi.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -2593,3 +2594,131 @@ warnings remain.
   passes 120/120, the focused Learning History normalizer suite passes 7/7,
   `npm run test:local-auth` passes 3/3, and `npm run build` passes. The existing
   Firebase mixed-import and large-chunk build warnings remain non-blocking.
+
+## 34. Frontend initial-load bundle split - 2026-08-20
+
+- This pass changes loading boundaries only. It does not change API routes,
+  authentication decisions, role checks, database schema, storage paths,
+  lesson/result payloads, or any create/update/delete behavior.
+- `src/App.tsx` lazy-loads the Admin dashboard, vocabulary game shell, grammar
+  learning screen, Listening library/module/exam screens, and Student History.
+  Their existing routes, props, callbacks, state ownership, and business logic
+  remain unchanged. `src/main.tsx` provides the shared top-level `Suspense`
+  loading fallback.
+- `src/components/games/StudentLearningArea.tsx` lazy-loads each individual
+  vocabulary game behind a game-stage `Suspense` boundary. Selecting,
+  restarting, completing, scoring, and persisting a game continue through the
+  existing component props and session handlers.
+- `src/components/admin/AdminDashboard.tsx` lazy-loads
+  `ListeningLibraryAdmin` only when the Listening tab renders. No Admin data
+  loader or mutation handler changed.
+- `src/lib/firebase.ts` now initializes only the Firebase client app and Auth.
+  `src/lib/firebaseDb.ts` owns Firestore initialization and is dynamically
+  imported only by the existing direct-client fallback paths. Auth startup and
+  fallback query semantics are unchanged, while Firestore no longer belongs to
+  the initial browser bundle.
+- Production static serving gives hashed `/assets/*` files a one-year
+  `immutable` cache. `index.html` continues to use `max-age=0`, so every deploy
+  can advertise new asset hashes without retaining an old application entry.
+- The canonical production build replaces the previous single
+  `index-CGvX1SCS.js` bundle (1,825.79 kB, 476.06 kB gzip) with entry
+  `index-DUjS3JkO.js` (455.65 kB, 118.01 kB gzip) plus on-demand screen,
+  Firestore, Listening, and game chunks. This reduces the initial JavaScript
+  entry by about 75%; it does not claim that the sum of every optional chunk is
+  75% smaller.
+- Validation for this pass: `npm run lint` passes; vocabulary game tests pass
+  8/8; Listening tests pass 120/120; identity, grammar, TTS, and learning-run
+  suites pass; `npm run build` passes; production HTTP smoke returns 200 for
+  `/`, `/listening`, the entry chunk, Admin chunk, and game chunk; asset cache
+  headers are `public, max-age=31536000, immutable`; and `git diff --check`
+  passes. The full Phase 1 gate reaches storage but cannot finish in the active
+  Node 24 shell because the installed `better-sqlite3` binary targets ABI 127
+  while the shell requires ABI 137. No native rebuild or database change was
+  performed because storage is outside this pass.
+
+## 35. Movers Listening PDF draft importer - 2026-08-20
+
+- The Listening admin library now exposes `Nhập từ PDF`. A single drop/select
+  accepts exactly one scanned Movers book PDF and one answer-key PDF, maps the
+  complete Tests and their Parts, shows the detected 1-based PDF page map, and
+  creates only the selected working drafts. It never publishes, never derives
+  answers from audio, and reminds the teacher to review Parts and attach audio.
+- `src/features/listening-pdf-import/pdfProcessing.ts` uses `pdfjs-dist` in the
+  browser. It renders compact page-header contact sheets for manifest mapping,
+  renders only the mapped Part/key pages for extraction, and never uploads the
+  original PDFs or full PDF-page collection. The dialog and PDF engine are
+  separate dynamic chunks: the release build emits a 19.17 kB dialog chunk,
+  a 479.34 kB PDF engine chunk and a 1,262.40 kB worker that are not loaded by
+  the initial page entry.
+- `POST /api/listening/admin/pdf-import/sources` accepts only authenticated
+  staff JPEG/PNG/WebP images up to the existing 10 MB image limit. Sources live
+  outside the asset database under the dedicated temporary media directory,
+  use owner-bound HMAC tokens, expire after ten minutes, and are deleted before
+  an analysis response is returned (with an exact-path expiry timer as an
+  abandoned-upload fallback). File magic, token signature, owner, expiry,
+  resolved path and aggregate request size are validated server-side.
+- `POST /api/listening/admin/pdf-import/manifest` sends only labelled contact
+  sheets through the explicitly selected Stali or DevQuota Vision provider.
+  Provider JSON is parsed, normalized and runtime-validated against the strict
+  Mover manifest contract; Part 4 must have two consecutive book pages, all
+  test pages must be ordered/non-overlapping, and answer-summary pages must be
+  ordered and in range. One corrected provider attempt is allowed for malformed
+  output; an invalid manifest creates no draft.
+- Existing `/api/listening/admin/smart-import/analyze` remains backward
+  compatible with persisted `assetId` sources and additionally accepts a
+  mutually exclusive `transientToken` for this workflow. It resolves temporary
+  images under the same auth, MIME, size, provider, timeout, strict-schema and
+  `basePartHash` checks, returns the existing candidate contract, then removes
+  the temporary files. Provider selection is explicit and never falls back.
+- Each selected Test gets one normal Listening working draft. Parts run in
+  order within a Test and at most two Tests run concurrently. Every successful
+  Part is merged with the existing direct-import helpers and saved with the
+  current `baseRevision`; a failed Part does not block later Parts and can be
+  retried from the same browser session without rerunning completed Parts.
+- Persistent storage is limited to assets the draft actually needs: the Part 1,
+  Part 3 and Part 5 scenes, an optional cropped Part 2 illustration, and the
+  detected 15/18 Part 4 option crops. Part 4's pixel detector remains
+  authoritative; if it cannot find enough frames, logical content is imported
+  while existing option images are preserved for manual correction. Part 5 is
+  always marked `Cần xem lại` because masks, interaction confirmation and icon
+  assets remain teacher-authored.
+- Regression coverage includes the verified three-Test page fixture, malformed
+  manifest retry/range/order rejection, owner-bound signed temporary sources,
+  route-level transient Smart Import, manifest analysis and proof that the
+  temporary directory is empty before each response. The canonical build and
+  typecheck pass; the complete Listening suite remains the release gate.
+- Local PDF document disposal uses the pdfjs v6 loading-task lifecycle rather
+  than the removed document-level `destroy()` method, so selecting the same two
+  files again after a failed manifest does not fail before rendering. Manifest
+  and Part errors surface the first sanitized provider detail (for example a
+  transport failure) without exposing API keys, prompts or answer payloads.
+
+## 36. Mover post-submit listening transcript - 2026-08-21
+
+- Every Mover Part may carry an optional `audioTranscript` plain-text field of
+  at most 20,000 characters. The shared Part editor accepts direct paste or a
+  local `.txt` file; the browser reads the file into the same editable field,
+  so no separate text asset or binary upload is persisted.
+- Transcript text is stored once with the working draft and immutable published
+  version. It is not copied into `listening_attempts` or
+  `listening_attempt_details`, does not affect grading, and needs no database
+  migration. Direct Part 3/5 import preserves an existing transcript.
+- `sanitizeListeningContentForStudent()` removes every Part transcript from
+  playable and prepare payloads. Submit summaries, public result lists and
+  stored attempt presentation snapshots remain transcript-free.
+- The owner-only post-submit review endpoint resolves the attempt's exact
+  immutable `versionId` after the existing completion, review-policy and guest
+  run-secret checks, then returns only non-empty Part transcripts. Learning
+  History derives the same bounded presentation data at read time and removes
+  it whenever the captured review policy denies answer review.
+- `ListeningVisualReview` remains the shared post-submit/History renderer. For
+  the selected Part it exposes a native collapsed `Nội dung bài nghe` section,
+  preserves speaker line breaks with plain escaped text, and renders nothing
+  for legacy versions without a transcript.
+- Regression coverage verifies student-payload redaction, authorized review,
+  no per-attempt transcript copy, History projection/policy stripping, editor
+  `.txt` support, direct-import preservation and legacy optionality.
+- Validation: `npm run lint` and `npm run build` pass; the complete Listening
+  suite passes 127/127. The History unit command passes its 20 portable tests;
+  its seven native API cases remain blocked on this Node 24 shell because the
+  checked-in `better-sqlite3` binary targets the documented Node 22 ABI.

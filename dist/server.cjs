@@ -2568,13 +2568,13 @@ function getJsonImportCandidates() {
     "/home/qzmivzbj/app.msdieu.com/db.json"
   ].filter(Boolean);
 }
-function backupJsonFile(sourcePath) {
+function backupJsonFile(sourcePath2) {
   try {
     const backupDir = import_path.default.dirname(sqliteDbPath);
     const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:T]/g, "-").slice(0, 16);
     const backupPath = import_path.default.join(backupDir, `db-backup-${stamp}.json`);
     if (!import_fs.default.existsSync(backupPath)) {
-      import_fs.default.copyFileSync(sourcePath, backupPath);
+      import_fs.default.copyFileSync(sourcePath2, backupPath);
     }
   } catch (err) {
     sqliteLastError = `Failed to backup db.json: ${redactSQLiteError(err)}`;
@@ -2595,13 +2595,13 @@ function migrateFromJsonIfNeeded() {
     sqliteLastMigration = MIGRATION_ID;
     return;
   }
-  const sourcePath = getJsonImportCandidates().find((candidate) => import_fs.default.existsSync(candidate));
-  if (!sourcePath) {
+  const sourcePath2 = getJsonImportCandidates().find((candidate) => import_fs.default.existsSync(candidate));
+  if (!sourcePath2) {
     markMigration(MIGRATION_ID);
     return;
   }
-  backupJsonFile(sourcePath);
-  const raw = import_fs.default.readFileSync(sourcePath, "utf8");
+  backupJsonFile(sourcePath2);
+  const raw = import_fs.default.readFileSync(sourcePath2, "utf8");
   const legacy = JSON.parse(raw);
   const imported = {
     users: importCollection("users", legacy.users),
@@ -3551,6 +3551,9 @@ var import_express = __toESM(require("express"), 1);
 // src/server/learning-history/learningHistoryAuth.ts
 var import_node_crypto2 = __toESM(require("node:crypto"), 1);
 
+// src/features/listening/types.ts
+var LISTENING_TRANSCRIPT_MAX_CHARS = 2e4;
+
 // src/features/listening/geometry.ts
 var EPSILON = 1e-7;
 var isNormalizedPoint = (point) => Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
@@ -3892,6 +3895,13 @@ function gradeListeningAttempt(content, answers) {
 
 // src/server/listening/listeningActivity.ts
 var activityText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
+function buildListeningReviewTranscripts(content) {
+  if (!Array.isArray(content?.parts)) return [];
+  return content.parts.flatMap((part) => {
+    const transcript = typeof part?.audioTranscript === "string" ? part.audioTranscript.replace(/\r\n?/g, "\n").trim().slice(0, LISTENING_TRANSCRIPT_MAX_CHARS) : "";
+    return transcript ? [{ part: part.part, text: transcript }] : [];
+  });
+}
 function labelForId(items, id, getLabel) {
   const normalizedId = activityText(id, 200);
   const index = items.findIndex((item) => item.id === normalizedId);
@@ -4632,84 +4642,112 @@ async function findLearningAttempt(attemptId) {
   };
 }
 async function findAttemptDetail(attemptId) {
-  return sqliteQueryOne(
+  const storedRow = await sqliteQueryOne(
     `SELECT attempt_id, client_run_id, source_type, answer_details_json,
             question_snapshots_json, option_snapshots_json, extra_details_json,
             review_policy_json, created_at, updated_at, expires_at, schema_version
      FROM attempt_details
      WHERE attempt_id = ?`,
     [attemptId]
-  ).then(
-    async (row) => {
-      if (row) return row;
-      const listeningRow = await sqliteQueryOne(
-        `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
-              attempt.version_id, version.data_json AS version_data_json
-       FROM listening_attempt_details AS detail
-       JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+  );
+  if (storedRow) {
+    if (String(storedRow.source_type || "").toLowerCase() !== "listening") return storedRow;
+    const versionRow = await sqliteQueryOne(
+      `SELECT version.data_json AS version_data_json
+       FROM listening_attempts AS attempt
        LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
-       WHERE detail.attempt_id = ?`,
-        [attemptId]
-      );
-      if (!listeningRow) return void 0;
-      let data = {};
-      try {
-        data = JSON.parse(String(listeningRow.data_json || "{}"));
-      } catch {
-        data = {};
-      }
-      try {
-        const version = JSON.parse(String(listeningRow.version_data_json || "{}"));
-        if (version?.content && data?.answers && Array.isArray(data?.questions)) {
-          const answerDetails = buildListeningActivityAnswerDetails(
-            version.content,
-            data.answers,
-            data.questions
-          );
-          const visualReview = buildListeningVisualReviewSnapshot(
-            version.content,
-            data.answers,
-            data.questions,
-            answerDetails
-          );
-          data = {
-            ...data,
-            answerDetails,
-            questionSnapshots: answerDetails.map((item) => ({
-              questionId: item.questionId,
-              questionText: item.questionText,
-              part: item.part
-            })),
-            extraDetails: {
-              ...data.extraDetails && typeof data.extraDetails === "object" ? data.extraDetails : {},
-              visualReview
-            }
-          };
-        }
-      } catch {
-      }
-      const reviewPolicy = {
-        ...data.reviewPolicy && typeof data.reviewPolicy === "object" ? data.reviewPolicy : {},
-        showReviewAfterSubmit: true,
-        showExplanationImmediately: false,
-        policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0))
-      };
+       WHERE attempt.id = ?`,
+      [attemptId]
+    );
+    try {
+      const version = JSON.parse(String(versionRow?.version_data_json || "{}"));
+      const transcripts = buildListeningReviewTranscripts(version.content);
+      if (!transcripts.length) return storedRow;
+      const extraDetails = JSON.parse(String(storedRow.extra_details_json || "{}"));
       return {
-        attempt_id: attemptId,
-        client_run_id: null,
-        source_type: "listening",
-        answer_details_json: JSON.stringify(data.answerDetails || []),
-        question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
-        option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
-        extra_details_json: JSON.stringify(data.extraDetails || {}),
-        review_policy_json: JSON.stringify(reviewPolicy),
-        created_at: listeningRow.created_at,
-        updated_at: listeningRow.updated_at,
-        expires_at: null,
-        schema_version: 1
+        ...storedRow,
+        extra_details_json: JSON.stringify({
+          ...extraDetails && typeof extraDetails === "object" && !Array.isArray(extraDetails) ? extraDetails : {},
+          listeningReviewTranscripts: transcripts
+        })
+      };
+    } catch {
+      return storedRow;
+    }
+  }
+  const listeningRow = await sqliteQueryOne(
+    `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+            attempt.version_id, version.data_json AS version_data_json
+     FROM listening_attempt_details AS detail
+     JOIN listening_attempts AS attempt ON attempt.id = detail.attempt_id
+     LEFT JOIN listening_set_versions AS version ON version.id = attempt.version_id
+     WHERE detail.attempt_id = ?`,
+    [attemptId]
+  );
+  if (!listeningRow) return void 0;
+  let data = {};
+  try {
+    data = JSON.parse(String(listeningRow.data_json || "{}"));
+  } catch {
+    data = {};
+  }
+  try {
+    const version = JSON.parse(String(listeningRow.version_data_json || "{}"));
+    if (version?.content) {
+      const transcripts = buildListeningReviewTranscripts(version.content);
+      data.extraDetails = {
+        ...data.extraDetails && typeof data.extraDetails === "object" ? data.extraDetails : {},
+        ...transcripts.length ? { listeningReviewTranscripts: transcripts } : {}
       };
     }
-  );
+    if (version?.content && data?.answers && Array.isArray(data?.questions)) {
+      const answerDetails = buildListeningActivityAnswerDetails(
+        version.content,
+        data.answers,
+        data.questions
+      );
+      const visualReview = buildListeningVisualReviewSnapshot(
+        version.content,
+        data.answers,
+        data.questions,
+        answerDetails
+      );
+      data = {
+        ...data,
+        answerDetails,
+        questionSnapshots: answerDetails.map((item) => ({
+          questionId: item.questionId,
+          questionText: item.questionText,
+          part: item.part
+        })),
+        extraDetails: {
+          ...data.extraDetails && typeof data.extraDetails === "object" ? data.extraDetails : {},
+          visualReview
+        }
+      };
+    }
+  } catch {
+  }
+  const reviewPolicy = {
+    ...data.reviewPolicy && typeof data.reviewPolicy === "object" ? data.reviewPolicy : {},
+    showReviewAfterSubmit: true,
+    showExplanationImmediately: false,
+    policyVersion: Math.max(2, Number(data.reviewPolicy?.policyVersion || 0))
+  };
+  return {
+    attempt_id: attemptId,
+    client_run_id: null,
+    source_type: "listening",
+    answer_details_json: JSON.stringify(data.answerDetails || []),
+    question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
+    option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
+    extra_details_json: JSON.stringify(data.extraDetails || {}),
+    review_policy_json: JSON.stringify(reviewPolicy),
+    created_at: listeningRow.created_at,
+    updated_at: listeningRow.updated_at,
+    expires_at: null,
+    schema_version: 1
+  };
 }
 async function findLegacySource(sourceType, sourceRecordId) {
   if (sourceType === "listening") return null;
@@ -4841,7 +4879,8 @@ function stripReviewSecrets(value) {
     "referenceanswer",
     "solution",
     "visualreview",
-    "visualreviewsnapshot"
+    "visualreviewsnapshot",
+    "listeningreviewtranscripts"
   ]);
   const safe = {};
   for (const [key, child] of Object.entries(value)) {
@@ -5244,9 +5283,9 @@ var import_path3 = __toESM(require("path"), 1);
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
-function validateRegion(region, path9, errors) {
+function validateRegion(region, path10, errors) {
   if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
-    errors.push(`${path9}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path10}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
     return;
   }
   for (const [key, value] of Object.entries({
@@ -5256,25 +5295,25 @@ function validateRegion(region, path9, errors) {
     height: region.height
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors.push(`${path9}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+      errors.push(`${path10}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
     }
   }
   if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
-    errors.push(`${path9}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+    errors.push(`${path10}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
   }
   if (region.shape === "polygon") {
     if (!Array.isArray(region.points) || region.points.length < 3) {
-      errors.push(`${path9}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+      errors.push(`${path10}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
     } else {
       region.points.forEach((point, index) => {
         if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-          errors.push(`${path9}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+          errors.push(`${path10}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
         }
       });
     }
   }
   if (region && !isValidListeningRegion(region)) {
-    errors.push(`${path9}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path10}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -5284,12 +5323,12 @@ function regionsOverlap(a, b) {
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   return right - left > 0.01 && bottom - top > 0.01;
 }
-function validateRegionCollection(items, path9, errors) {
-  items.forEach((item, index) => validateRegion(item.region, `${path9}[${index}].region`, errors));
+function validateRegionCollection(items, path10, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path10}[${index}].region`, errors));
   for (let first = 0; first < items.length; first += 1) {
     for (let second = first + 1; second < items.length; second += 1) {
       if (regionsOverlap(items[first].region, items[second].region)) {
-        errors.push(`${path9}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+        errors.push(`${path10}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
       }
     }
   }
@@ -5302,6 +5341,9 @@ function validateBase(part, number2, errors) {
   if (!isText(part?.title, 160)) errors.push(`Part ${number2}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
   if (!isText(part?.instruction, 1e3)) errors.push(`Part ${number2}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
   if (!isText(part?.audioAssetId, 160)) errors.push(`Part ${number2}: c\u1EA7n \u0111\xFAng m\u1ED9t file audio.`);
+  if (part?.audioTranscript !== void 0 && (typeof part.audioTranscript !== "string" || part.audioTranscript.length > LISTENING_TRANSCRIPT_MAX_CHARS)) {
+    errors.push(`Part ${number2}: transcript ph\u1EA3i l\xE0 v\u0103n b\u1EA3n t\u1ED1i \u0111a ${LISTENING_TRANSCRIPT_MAX_CHARS.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
+  }
 }
 function validatePart1(part, errors) {
   validateBase(part, 1, errors);
@@ -5566,6 +5608,9 @@ function sanitizeListeningAnswers(value) {
 }
 function sanitizeListeningContentForStudent(content) {
   const copy = structuredClone(content);
+  copy.parts.forEach((part) => {
+    delete part.audioTranscript;
+  });
   copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }) => target);
   if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
   copy.parts[1].questions = copy.parts[1].questions.map((question) => ({
@@ -7160,9 +7205,288 @@ function getListeningSmartImportRoleDefinitions(part) {
   ];
 }
 
+// src/server/listening-pdf-import/manifest.ts
+var import_node_crypto4 = __toESM(require("node:crypto"), 1);
+var manifestSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    tests: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          testNumber: { type: "integer", minimum: 1, maximum: 100 },
+          title: { type: "string", maxLength: 160 },
+          part1Pages: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1, maxItems: 1 },
+          part2Pages: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1, maxItems: 1 },
+          part3Pages: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1, maxItems: 1 },
+          part4Pages: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 2, maxItems: 2 },
+          part5Pages: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1, maxItems: 1 },
+          keySummaryPage: { type: "integer", minimum: 1 }
+        },
+        required: [
+          "testNumber",
+          "title",
+          "part1Pages",
+          "part2Pages",
+          "part3Pages",
+          "part4Pages",
+          "part5Pages",
+          "keySummaryPage"
+        ]
+      }
+    },
+    warnings: { type: "array", items: { type: "string", maxLength: 500 }, maxItems: 30 }
+  },
+  required: ["tests", "warnings"]
+};
+var manifestPrompt = (bookPageCount, keyPageCount) => `
+You are mapping a scanned Cambridge Movers listening book to its answer booklet.
+
+The images labelled IMAGE ROLE: question are BOOK header-index sheets. The images labelled
+IMAGE ROLE: answer_key are ANSWER-BOOKLET header-index sheets. Every cell visibly includes
+its one-based PDF page number. The book has ${bookPageCount} PDF pages and the key has
+${keyPageCount} PDF pages.
+
+Return each complete Movers Listening Test that is visibly supported. For every test:
+- Part 1, Part 2, Part 3 and Part 5 each use exactly one book PDF page.
+- Part 4 uses exactly two consecutive book PDF pages; its continuation page may omit the Part 4 title.
+- keySummaryPage is the FIRST answer-booklet PDF page headed "Test N Answers" that contains
+  the compact Listening answers/annotated diagrams. Do not include transcript continuation,
+  Reading and Writing, Speaking, or vocabulary-list pages.
+- Use PDF page labels printed in the contact-sheet cells, never the book's printed footer page.
+- Do not infer a missing test or page. If the visible evidence is ambiguous, omit that test and add a warning.
+- Keep tests ordered by testNumber and pages in reading order.
+
+Return JSON only using the supplied schema.`.trim();
+function parseJson4(text3) {
+  const trimmed = text3.trim();
+  if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u manifest.");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const object = fenced?.[1] || trimmed.match(/(\{[\s\S]*\})/)?.[1];
+    if (!object) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 JSON manifest h\u1EE3p l\u1EC7.");
+    return JSON.parse(object.trim());
+  }
+}
+var pageTuple = (value, length, maximum, label) => {
+  const pages = Array.isArray(value) ? value.map(Number) : [];
+  if (pages.length !== length || pages.some((page) => !Number.isInteger(page) || page < 1 || page > maximum) || new Set(pages).size !== pages.length) throw new Error(`${label} kh\xF4ng c\xF3 \u0111\xFAng ${length} trang PDF h\u1EE3p l\u1EC7.`);
+  return pages;
+};
+function normalizeListeningPdfManifest(raw, bookPageCount, keyPageCount) {
+  if (!Number.isInteger(bookPageCount) || bookPageCount < 1 || bookPageCount > 1e3) {
+    throw new Error("S\u1ED1 trang PDF \u0111\u1EC1 b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  if (!Number.isInteger(keyPageCount) || keyPageCount < 1 || keyPageCount > 1e3) {
+    throw new Error("S\u1ED1 trang PDF \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  const rows = Array.isArray(raw?.tests) ? raw.tests : [];
+  if (!rows.length || rows.length > 20) throw new Error("Kh\xF4ng t\xECm th\u1EA5y Test Listening ho\xE0n ch\u1EC9nh.");
+  const seenTests = /* @__PURE__ */ new Set();
+  const tests = rows.map((row, index) => {
+    const testNumber = Number(row?.testNumber);
+    if (!Number.isInteger(testNumber) || testNumber < 1 || testNumber > 100 || seenTests.has(testNumber)) {
+      throw new Error(`Test t\u1EA1i v\u1ECB tr\xED ${index + 1} c\xF3 s\u1ED1 th\u1EE9 t\u1EF1 thi\u1EBFu ho\u1EB7c b\u1ECB tr\xF9ng.`);
+    }
+    seenTests.add(testNumber);
+    const bookPages = {
+      1: pageTuple(row?.part1Pages, 1, bookPageCount, `Test ${testNumber} Part 1`),
+      2: pageTuple(row?.part2Pages, 1, bookPageCount, `Test ${testNumber} Part 2`),
+      3: pageTuple(row?.part3Pages, 1, bookPageCount, `Test ${testNumber} Part 3`),
+      4: pageTuple(row?.part4Pages, 2, bookPageCount, `Test ${testNumber} Part 4`),
+      5: pageTuple(row?.part5Pages, 1, bookPageCount, `Test ${testNumber} Part 5`)
+    };
+    const orderedBookPages = [
+      ...bookPages[1],
+      ...bookPages[2],
+      ...bookPages[3],
+      ...bookPages[4],
+      ...bookPages[5]
+    ];
+    if (bookPages[4][1] !== bookPages[4][0] + 1) {
+      throw new Error(`Test ${testNumber} Part 4 ph\u1EA3i g\u1ED3m hai trang li\xEAn ti\u1EBFp.`);
+    }
+    if (orderedBookPages.some((page, pageIndex) => pageIndex > 0 && page <= orderedBookPages[pageIndex - 1])) {
+      throw new Error(`Test ${testNumber} c\xF3 th\u1EE9 t\u1EF1 trang Part kh\xF4ng h\u1EE3p l\u1EC7.`);
+    }
+    const keySummaryPage = Number(row?.keySummaryPage);
+    if (!Number.isInteger(keySummaryPage) || keySummaryPage < 1 || keySummaryPage > keyPageCount) {
+      throw new Error(`Test ${testNumber} c\xF3 trang t\u1ED5ng h\u1EE3p \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.`);
+    }
+    return {
+      testNumber,
+      title: String(row?.title || `Test ${testNumber}`).normalize("NFKC").trim().slice(0, 160) || `Test ${testNumber}`,
+      bookPages,
+      keySummaryPage
+    };
+  }).sort((left, right) => left.testNumber - right.testNumber);
+  const usedBookPages = /* @__PURE__ */ new Set();
+  let previousBookPage = 0;
+  tests.forEach((test) => {
+    const pages = [
+      ...test.bookPages[1],
+      ...test.bookPages[2],
+      ...test.bookPages[3],
+      ...test.bookPages[4],
+      ...test.bookPages[5]
+    ];
+    if (pages[0] <= previousBookPage || pages.some((page) => usedBookPages.has(page))) {
+      throw new Error(`C\xE1c trang \u0111\u1EC1 b\xE0i c\u1EE7a Test ${test.testNumber} b\u1ECB tr\xF9ng ho\u1EB7c sai th\u1EE9 t\u1EF1.`);
+    }
+    pages.forEach((page) => usedBookPages.add(page));
+    previousBookPage = pages[pages.length - 1];
+  });
+  if (tests.some((test, index) => index > 0 && test.keySummaryPage <= tests[index - 1].keySummaryPage)) {
+    throw new Error("Th\u1EE9 t\u1EF1 trang t\u1ED5ng h\u1EE3p \u0111\xE1p \xE1n gi\u1EEFa c\xE1c Test kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  return {
+    schemaVersion: 1,
+    moduleId: "mover",
+    bookPageCount,
+    keyPageCount,
+    tests,
+    warnings: (Array.isArray(raw?.warnings) ? raw.warnings : []).map((value) => String(value ?? "").normalize("NFKC").trim().slice(0, 500)).filter(Boolean).slice(0, 30)
+  };
+}
+async function createListeningPdfManifest(input) {
+  if (!input.analyzeVision) {
+    const error = new Error("C\u1EA7n c\u1EA5u h\xECnh AI th\u1ECB gi\xE1c \u0111\u1EC3 nh\u1EADn di\u1EC7n c\u1EA5u tr\xFAc PDF.");
+    error.status = 503;
+    throw error;
+  }
+  const requestId = `lpdf-manifest-${import_node_crypto4.default.randomUUID()}`;
+  let lastError = "";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const retryInstruction = attempt === 1 ? "" : `
+The previous manifest was invalid: ${lastError}. Re-read the visible PDF page labels and return a corrected manifest without guessing.`;
+      const result = await input.analyzeVision(
+        manifestPrompt(input.bookPageCount, input.keyPageCount) + retryInstruction,
+        input.images,
+        {
+          preferredProvider: input.preferredProvider,
+          responseJsonSchema: manifestSchema,
+          schemaName: "listening_pdf_manifest_v1",
+          requestId,
+          attempt
+        },
+        input.signal
+      );
+      return normalizeListeningPdfManifest(parseJson4(result.text), input.bookPageCount, input.keyPageCount);
+    } catch (reason) {
+      if (input.signal?.aborted || reason?.name === "AbortError") throw reason;
+      lastError = String(reason?.message || reason || "Manifest kh\xF4ng h\u1EE3p l\u1EC7.").slice(0, 300);
+      if (attempt === 2) {
+        const error = new Error("Kh\xF4ng th\u1EC3 nh\u1EADn di\u1EC7n c\u1EA5u tr\xFAc Listening trong hai PDF. Ch\u01B0a t\u1EA1o b\u1EA3n nh\xE1p.");
+        error.status = Number(reason?.status) === 503 ? 503 : 422;
+        error.code = "LISTENING_PDF_MANIFEST_INVALID";
+        const providerDetails = Array.isArray(reason?.details) ? reason.details.map((value) => String(value ?? "").trim().slice(0, 300)).filter(Boolean) : [];
+        error.details = [.../* @__PURE__ */ new Set([...providerDetails, lastError])];
+        throw error;
+      }
+    }
+  }
+  throw new Error("Kh\xF4ng th\u1EC3 t\u1EA1o manifest PDF.");
+}
+
+// src/server/listening-pdf-import/transientSources.ts
+var import_node_crypto5 = __toESM(require("node:crypto"), 1);
+var import_node_fs3 = __toESM(require("node:fs"), 1);
+var import_node_path5 = __toESM(require("node:path"), 1);
+var SUPPORTED_MIME_TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp"]);
+var EXTENSIONS = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp"
+};
+var safeEqual = (left, right) => {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && import_node_crypto5.default.timingSafeEqual(leftBuffer, rightBuffer);
+};
+var sourcePath = (directory, payload) => {
+  const extension = EXTENSIONS[payload.mimeType];
+  if (!extension || !/^[0-9a-f-]{36}$/i.test(payload.sourceId)) throw new Error("Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+  const root = import_node_path5.default.resolve(directory);
+  const filePath = import_node_path5.default.resolve(directory, `${payload.sourceId}${extension}`);
+  if (!filePath.startsWith(`${root}${import_node_path5.default.sep}`)) throw new Error("\u0110\u01B0\u1EDDng d\u1EABn ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+  return filePath;
+};
+function createListeningPdfTransientSourceStore(options) {
+  const ttlMs = Math.min(30 * 60 * 1e3, Math.max(60 * 1e3, options.ttlMs || 10 * 60 * 1e3));
+  import_node_fs3.default.mkdirSync(options.directory, { recursive: true });
+  const sign = (encoded) => import_node_crypto5.default.createHmac("sha256", options.secret).update(`listening-pdf-source:${encoded}`).digest("base64url");
+  const decode = (token, ownerId) => {
+    const [encoded, signature, extra] = String(token || "").split(".");
+    if (!encoded || !signature || extra || !safeEqual(signature, sign(encoded))) {
+      throw new Error("Phi\u1EBFu ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+    }
+    let payload;
+    try {
+      payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    } catch {
+      throw new Error("Phi\u1EBFu ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+    }
+    if (payload.version !== 1 || payload.ownerId !== ownerId || !SUPPORTED_MIME_TYPES.has(payload.mimeType) || !Number.isFinite(payload.expiresAt)) throw new Error("Phi\u1EBFu ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (payload.expiresAt < Date.now()) throw new Error("Ngu\u1ED3n PDF t\u1EA1m \u0111\xE3 h\u1EBFt h\u1EA1n. Vui l\xF2ng th\u1EED l\u1EA1i.");
+    return payload;
+  };
+  const removePayload = async (payload) => {
+    const filePath = sourcePath(options.directory, payload);
+    await import_node_fs3.default.promises.rm(filePath, { force: true });
+  };
+  return {
+    async create(ownerId, mimeType, data) {
+      if (!ownerId || !SUPPORTED_MIME_TYPES.has(mimeType) || !data.length) {
+        throw new Error("Ngu\u1ED3n \u1EA3nh PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+      }
+      const payload = {
+        version: 1,
+        sourceId: import_node_crypto5.default.randomUUID(),
+        ownerId,
+        mimeType,
+        expiresAt: Date.now() + ttlMs
+      };
+      const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+      const filePath = sourcePath(options.directory, payload);
+      await import_node_fs3.default.promises.writeFile(filePath, data, { flag: "wx" });
+      const cleanupTimer = setTimeout(() => {
+        void removePayload(payload);
+      }, ttlMs + 1e3);
+      cleanupTimer.unref?.();
+      return { token: `${encoded}.${sign(encoded)}`, expiresAt: payload.expiresAt };
+    },
+    async resolve(token, ownerId) {
+      const payload = decode(token, ownerId);
+      const filePath = sourcePath(options.directory, payload);
+      let data;
+      try {
+        data = await import_node_fs3.default.promises.readFile(filePath);
+      } catch (reason) {
+        if (reason?.code === "ENOENT") throw new Error("Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng c\xF2n t\u1ED3n t\u1EA1i. Vui l\xF2ng t\u1EA3i l\u1EA1i.");
+        throw reason;
+      }
+      return {
+        sourceId: payload.sourceId,
+        mimeType: payload.mimeType,
+        data,
+        remove: () => removePayload(payload)
+      };
+    }
+  };
+}
+
 // src/server/listening/listeningRouter.ts
 var IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 var AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+var PDF_IMPORT_SOURCE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 var SMART_IMPORT_TIMEOUT_MS = Math.min(
   18e4,
   Math.max(15e3, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 18e4)
@@ -7465,6 +7789,10 @@ function createListeningRouter(dependencies) {
   const router = import_express2.default.Router();
   const draftLocks = /* @__PURE__ */ new Map();
   const smartImportUsage = /* @__PURE__ */ new Map();
+  const pdfImportSources = createListeningPdfTransientSourceStore({
+    directory: import_path3.default.join(mediaDir, ".tmp-pdf-import"),
+    secret: ticketSecret
+  });
   const withDraftLock = async (setId, operation) => {
     const previous = draftLocks.get(setId) || Promise.resolve();
     let release;
@@ -7622,7 +7950,126 @@ function createListeningRouter(dependencies) {
       sendError(res, error);
     }
   });
+  router.post(
+    "/admin/pdf-import/sources",
+    authenticateUser2,
+    requireStaff,
+    import_express2.default.raw({ type: PDF_IMPORT_SOURCE_MIME_TYPES, limit: IMAGE_MAX_BYTES }),
+    async (req, res) => {
+      try {
+        if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+        const mimeType = text(req.headers["content-type"]?.split(";")[0], 100).toLowerCase();
+        if (!PDF_IMPORT_SOURCE_MIME_TYPES.includes(mimeType)) {
+          throw apiError(415, "Ngu\u1ED3n PDF t\u1EA1m ch\u1EC9 nh\u1EADn \u1EA3nh JPEG, PNG ho\u1EB7c WebP.");
+        }
+        const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        if (!buffer.length || buffer.length > IMAGE_MAX_BYTES) {
+          throw apiError(413, "\u1EA2nh ngu\u1ED3n PDF t\u1EA1m r\u1ED7ng ho\u1EB7c v\u01B0\u1EE3t qu\xE1 10 MB.");
+        }
+        if (!hasValidMagic(buffer, mimeType)) {
+          throw apiError(415, "N\u1ED9i dung \u1EA3nh ngu\u1ED3n PDF kh\xF4ng kh\u1EDBp \u0111\u1ECBnh d\u1EA1ng khai b\xE1o.");
+        }
+        const source = await pdfImportSources.create(req.user.id, mimeType, buffer);
+        res.status(201).json(source);
+      } catch (error) {
+        sendError(res, error);
+      }
+    }
+  );
+  router.post("/admin/pdf-import/manifest", authenticateUser2, requireStaff, async (req, res) => {
+    const removers = [];
+    try {
+      if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      if (smartImport?.enabled === false || !smartImport?.analyzeVision) {
+        throw apiError(503, smartImport?.reason || "C\u1EA7n c\u1EA5u h\xECnh AI th\u1ECB gi\xE1c \u0111\u1EC3 nh\u1EADp PDF.");
+      }
+      const usageKey = req.user.id;
+      const windowStart = Date.now() - 10 * 60 * 1e3;
+      const recentUsage = (smartImportUsage.get(usageKey) || []).filter((timestamp) => timestamp >= windowStart);
+      if (recentUsage.length >= 20) throw apiError(429, "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n 20 l\u01B0\u1EE3t Smart Import trong 10 ph\xFAt.");
+      recentUsage.push(Date.now());
+      smartImportUsage.set(usageKey, recentUsage);
+      const preferredProvider = text(req.body?.preferredProvider, 60);
+      const selectedProvider = (smartImport.providers || []).find((provider) => provider.id === preferredProvider);
+      if (!selectedProvider) throw apiError(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
+      if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
+        throw apiError(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a s\u1EB5n s\xE0ng cho \u1EA3nh.`);
+      }
+      const bookPageCount = Number(req.body?.bookPageCount);
+      const keyPageCount = Number(req.body?.keyPageCount);
+      if (!Number.isInteger(bookPageCount) || bookPageCount < 1 || bookPageCount > 1e3) {
+        throw apiError(400, "S\u1ED1 trang PDF \u0111\u1EC1 b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+      }
+      if (!Number.isInteger(keyPageCount) || keyPageCount < 1 || keyPageCount > 1e3) {
+        throw apiError(400, "S\u1ED1 trang PDF \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+      }
+      const tokenGroups = [
+        { role: "question", tokens: req.body?.bookSourceTokens },
+        { role: "answer_key", tokens: req.body?.keySourceTokens }
+      ];
+      const images = [];
+      const seenTokens = /* @__PURE__ */ new Set();
+      let totalBytes = 0;
+      for (const group of tokenGroups) {
+        const tokens = Array.isArray(group.tokens) ? group.tokens.map((value) => text(value, 2e3)).filter(Boolean) : [];
+        if (!tokens.length || tokens.length > 12) throw apiError(400, `S\u1ED1 \u1EA3nh m\u1EE5c l\u1EE5c ${group.role} kh\xF4ng h\u1EE3p l\u1EC7.`);
+        for (const token of tokens) {
+          if (seenTokens.has(token)) throw apiError(400, "M\u1ED9t ngu\u1ED3n PDF t\u1EA1m kh\xF4ng \u0111\u01B0\u1EE3c d\xF9ng l\u1EB7p trong manifest.");
+          seenTokens.add(token);
+          let resolved;
+          try {
+            resolved = await pdfImportSources.resolve(token, req.user.id);
+          } catch (reason) {
+            throw apiError(/hết hạn/.test(reason?.message) ? 410 : 400, reason?.message || "Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+          }
+          removers.push(resolved.remove);
+          totalBytes += resolved.data.length;
+          if (totalBytes > 30 * 1024 * 1024) throw apiError(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh m\u1EE5c l\u1EE5c v\u01B0\u1EE3t qu\xE1 30 MB.");
+          images.push({
+            assetId: `pdf-source-${resolved.sourceId}`,
+            role: group.role,
+            mimeType: resolved.mimeType,
+            data: resolved.data
+          });
+        }
+      }
+      const abortController = new AbortController();
+      let timeoutId;
+      const manifestPromise = createListeningPdfManifest({
+        bookPageCount,
+        keyPageCount,
+        images,
+        preferredProvider,
+        analyzeVision: smartImport.analyzeVision,
+        signal: abortController.signal
+      });
+      const timeoutPromise = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController.abort();
+          reject(apiError(504, "Nh\u1EADn di\u1EC7n c\u1EA5u tr\xFAc PDF qu\xE1 th\u1EDDi gian x\u1EED l\xFD. Ch\u01B0a t\u1EA1o b\u1EA3n nh\xE1p."));
+        }, SMART_IMPORT_TIMEOUT_MS);
+      });
+      const manifest2 = await Promise.race([manifestPromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "ANALYZE_LISTENING_PDF_MANIFEST",
+        `Nh\u1EADn di\u1EC7n ${manifest2.tests.length} Movers Listening Test b\u1EB1ng ${preferredProvider}; ch\u01B0a t\u1EA1o b\u1EA3n nh\xE1p.`
+      );
+      await Promise.allSettled(removers.map((remove) => remove()));
+      removers.length = 0;
+      res.json(manifest2);
+    } catch (error) {
+      sendError(res, error);
+    } finally {
+      await Promise.allSettled(removers.map((remove) => remove()));
+    }
+  });
   router.post("/admin/smart-import/analyze", authenticateUser2, requireStaff, async (req, res) => {
+    const transientRemovers = [];
     try {
       if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
       if (smartImport?.enabled === false) throw apiError(503, smartImport.reason || "Smart Import \u0111ang t\u1EAFt.");
@@ -7657,18 +8104,23 @@ function createListeningRouter(dependencies) {
       const roleDefinitions = getListeningSmartImportRoleDefinitions(part);
       const allowedRoles = new Set(roleDefinitions.map((definition) => definition.role));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
-      const sources = [];
+      if (rawSources.length > 3) throw apiError(400, "Smart Import ch\u1EC9 nh\u1EADn t\u1ED1i \u0111a ba \u1EA3nh role-based.");
+      const sourceRequests = [];
       const seenRoles = /* @__PURE__ */ new Set();
-      const seenAssets = /* @__PURE__ */ new Set();
+      const seenSources = /* @__PURE__ */ new Set();
       for (const rawSource of rawSources.slice(0, 3)) {
         const role = text(rawSource?.role, 40);
         const assetId = text(rawSource?.assetId, 160);
-        if (!allowedRoles.has(role) || !assetId) throw apiError(400, "Role ho\u1EB7c asset Smart Import kh\xF4ng h\u1EE3p l\u1EC7.");
+        const transientToken = text(rawSource?.transientToken, 2e3);
+        if (!allowedRoles.has(role) || Boolean(assetId) === Boolean(transientToken)) {
+          throw apiError(400, "M\u1ED7i role Smart Import ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t asset ho\u1EB7c ngu\u1ED3n PDF t\u1EA1m.");
+        }
         if (seenRoles.has(role)) throw apiError(400, `Role ${role} b\u1ECB tr\xF9ng.`);
-        if (seenAssets.has(assetId)) throw apiError(400, "M\u1ED9t asset kh\xF4ng \u0111\u01B0\u1EE3c d\xF9ng \u0111\u1ED3ng th\u1EDDi cho nhi\u1EC1u role.");
+        const sourceKey = assetId ? `asset:${assetId}` : `transient:${transientToken}`;
+        if (seenSources.has(sourceKey)) throw apiError(400, "M\u1ED9t \u1EA3nh kh\xF4ng \u0111\u01B0\u1EE3c d\xF9ng \u0111\u1ED3ng th\u1EDDi cho nhi\u1EC1u role.");
         seenRoles.add(role);
-        seenAssets.add(assetId);
-        sources.push({ role, assetId });
+        seenSources.add(sourceKey);
+        sourceRequests.push({ role, ...assetId ? { assetId } : { transientToken } });
       }
       const missingRoles = roleDefinitions.filter((definition) => definition.required && !seenRoles.has(definition.role));
       const answerTextFallback = Boolean(pastedText) && (part === 2 || part === 3);
@@ -7677,8 +8129,25 @@ function createListeningRouter(dependencies) {
         throw apiError(400, `Thi\u1EBFu ngu\u1ED3n b\u1EAFt bu\u1ED9c: ${effectiveMissingRoles.map((definition) => definition.label).join(", ")}.`);
       }
       const images = [];
+      const sources = [];
       let totalImageBytes = 0;
-      for (const source of sources) {
+      for (const source of sourceRequests) {
+        if (source.transientToken) {
+          let resolved;
+          try {
+            resolved = await pdfImportSources.resolve(source.transientToken, req.user.id);
+          } catch (reason) {
+            throw apiError(/hết hạn/.test(reason?.message) ? 410 : 400, reason?.message || "Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+          }
+          transientRemovers.push(resolved.remove);
+          if (resolved.data.length > IMAGE_MAX_BYTES) throw apiError(413, "M\u1ED9t \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n 10 MB.");
+          totalImageBytes += resolved.data.length;
+          if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 30 MB.");
+          const assetId2 = `pdf-source-${resolved.sourceId}`;
+          sources.push({ role: source.role, assetId: assetId2 });
+          images.push({ assetId: assetId2, role: source.role, mimeType: resolved.mimeType, data: resolved.data });
+          continue;
+        }
         const assetId = source.assetId;
         const document = await db.collection("listening_assets").doc(assetId).get();
         if (!document.exists) throw apiError(404, `Kh\xF4ng t\xECm th\u1EA5y \u1EA3nh ngu\u1ED3n ${assetId}.`);
@@ -7696,6 +8165,7 @@ function createListeningRouter(dependencies) {
         if (data.length > IMAGE_MAX_BYTES) throw apiError(413, "M\u1ED9t \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n dung l\u01B0\u1EE3ng.");
         totalImageBytes += data.length;
         if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t qu\xE1 30 MB.");
+        sources.push({ role: source.role, assetId });
         images.push({ assetId, role: source.role, mimeType: asset.mimeType, data });
       }
       const importAbortController = new AbortController();
@@ -7731,9 +8201,13 @@ function createListeningRouter(dependencies) {
         "ANALYZE_LISTENING_PART",
         `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
+      await Promise.allSettled(transientRemovers.map((remove) => remove()));
+      transientRemovers.length = 0;
       res.json(candidate);
     } catch (error) {
       sendError(res, error);
+    } finally {
+      await Promise.allSettled(transientRemovers.map((remove) => remove()));
     }
   });
   router.get("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
@@ -8258,20 +8732,19 @@ function createListeningRouter(dependencies) {
       if (detail?.reviewPolicy?.showReviewAfterSubmit !== true) {
         throw apiError(403, "B\u1ED9 \u0111\u1EC1 n\xE0y kh\xF4ng cho xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
       }
+      const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ""));
       let visualReview = normalizeListeningVisualReviewSnapshot(detail?.extraDetails?.visualReview);
-      if (!visualReview && detail?.answers && Array.isArray(detail?.questions)) {
-        const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ""));
-        if (version?.content) {
-          try {
-            visualReview = buildListeningVisualReviewSnapshot(
-              version.content,
-              detail.answers,
-              detail.questions
-            );
-          } catch {
-          }
+      if (!visualReview && detail?.answers && Array.isArray(detail?.questions) && version?.content) {
+        try {
+          visualReview = buildListeningVisualReviewSnapshot(
+            version.content,
+            detail.answers,
+            detail.questions
+          );
+        } catch {
         }
       }
+      const transcripts = version?.content ? buildListeningReviewTranscripts(version.content) : [];
       res.json({
         attemptId: attempt.id,
         score: Number(attempt.score || 0),
@@ -8280,7 +8753,8 @@ function createListeningRouter(dependencies) {
         unansweredCount: Number(attempt.unansweredCount || 0),
         totalCount: Number(attempt.totalCount || 25),
         answerDetails: normalizeListeningActivityAnswerDetails(detail),
-        ...visualReview ? { visualReview } : {}
+        ...visualReview ? { visualReview } : {},
+        ...transcripts.length ? { transcripts } : {}
       });
     } catch (error) {
       sendError(res, error);
@@ -8625,7 +9099,7 @@ function isLocalServerAuthBypassAllowed(input) {
 }
 
 // src/server/learning-history/learningAttemptProjector.ts
-var import_node_crypto4 = __toESM(require("node:crypto"), 1);
+var import_node_crypto6 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -8669,7 +9143,7 @@ function studyDateInBangkok(value) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function deterministicLearningAttemptId(sourceType, sourceRecordId) {
-  const digest = import_node_crypto4.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
+  const digest = import_node_crypto6.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
@@ -9009,7 +9483,7 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
 }
 
 // src/server/publicStudentIdentity.ts
-var import_node_crypto5 = __toESM(require("node:crypto"), 1);
+var import_node_crypto7 = __toESM(require("node:crypto"), 1);
 function normalizedName(value) {
   return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").slice(0, 300);
 }
@@ -9017,7 +9491,7 @@ function createPublicStudentKey(data, secret) {
   const identity = String(
     data?.ownerKey || (data?.userId ? `user:${data.userId}` : "") || (data?.guestId ? `guest:${data.guestId}` : "") || (data?.studentId ? `student:${data.studentId}` : "") || `name:${normalizedName(data?.studentName || "H\u1ECDc sinh")}`
   ).normalize("NFKC").trim().slice(0, 300);
-  return `student-${import_node_crypto5.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
+  return `student-${import_node_crypto7.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
 }
 function sanitizePublicStudentRecord(value, secret) {
   const {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ListeningAnswers, ListeningRegion, ListeningSetContent } from '../../features/listening/types';
+import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../../features/listening/types';
 import { gradeListeningAttempt, normalizeListeningTextAnswer } from './listeningGrader';
 import { buildListeningActivityAnswerDetails, buildListeningVisualReviewSnapshot } from './listeningActivity';
 import { sanitizeListeningAnswers, sanitizeListeningContentForStudent, validateListeningSetContent } from './listeningValidation';
@@ -162,6 +163,14 @@ test('publish validation enforces five scored items and six Part 1/5 choices', (
   assert.match(errors, /Part 5/);
 });
 
+test('optional Part transcripts stay bounded without becoming a publish requirement', () => {
+  const content = validContent();
+  content.parts[0].audioTranscript = 'Man: Hello.\nGirl: Hello.';
+  assert.deepEqual(validateListeningSetContent(content), []);
+  content.parts[0].audioTranscript = 'x'.repeat(LISTENING_TRANSCRIPT_MAX_CHARS + 1);
+  assert.match(validateListeningSetContent(content).join(' '), /transcript/);
+});
+
 test('Part 4 validates an optional example as a complete unscored A/B/C row', () => {
   const content = validContent();
   const exampleOptions = Array.from({ length: 3 }, (_, index) => ({
@@ -303,7 +312,9 @@ test('scene-colour-draw v1 remains valid for published legacy content', () => {
 
 test('student sanitizer strips private mappings/targetRegion and preserves structured submissions', () => {
   const content = currentSchemaContent();
+  content.parts[0].audioTranscript = 'Private post-submit transcript.';
   const student = sanitizeListeningContentForStudent(content) as any;
+  assert.equal(student.parts[0].audioTranscript, undefined);
   assert.equal(student.parts[2].correctConnections, undefined);
   assert.equal(student.parts[2].distractorAnswerId, undefined);
   assert.ok(student.parts[2].exampleConnection);

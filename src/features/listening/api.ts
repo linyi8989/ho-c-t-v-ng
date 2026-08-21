@@ -11,6 +11,11 @@ import type {
   ListeningSmartImportCandidate,
   ListeningSmartImportRequest,
 } from '../listening-editor/smart-import/types';
+import type {
+  ListeningPdfManifest,
+  ListeningPdfManifestRequest,
+  ListeningPdfTemporarySource,
+} from '../listening-pdf-import/types';
 
 async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(url, init);
@@ -138,6 +143,23 @@ export const listeningApi = {
   },
   analyzeSmartImport(token: string, request: ListeningSmartImportRequest) {
     return requestJson<ListeningSmartImportCandidate>('/api/listening/admin/smart-import/analyze', {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(request),
+    });
+  },
+  uploadPdfTemporarySource(token: string, file: File) {
+    return requestJson<ListeningPdfTemporarySource>('/api/listening/admin/pdf-import/sources', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': file.type,
+      },
+      body: file,
+    });
+  },
+  createPdfManifest(token: string, request: ListeningPdfManifestRequest) {
+    return requestJson<ListeningPdfManifest>('/api/listening/admin/pdf-import/manifest', {
       method: 'POST',
       headers: authHeaders(token),
       body: JSON.stringify(request),

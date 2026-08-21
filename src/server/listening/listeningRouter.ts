@@ -17,6 +17,7 @@ import {
 import { gradeListeningAttempt, LISTENING_GRADING_VERSION } from './listeningGrader.js';
 import {
   buildListeningActivityAnswerDetails,
+  buildListeningReviewTranscripts,
   buildListeningVisualReviewSnapshot,
   normalizeListeningActivityAnswerDetails,
   normalizeListeningVisualReviewSnapshot,
@@ -35,8 +36,11 @@ import {
   getListeningSmartImportRoleDefinitions,
   type ListeningSmartImportProviderDefinition,
   type ListeningSmartImportProviderPreference,
+  type ListeningSmartImportRequestSource,
   type ListeningSmartImportSource,
 } from '../../features/listening-editor/smart-import/types.js';
+import { createListeningPdfManifest } from '../listening-pdf-import/manifest.js';
+import { createListeningPdfTransientSourceStore } from '../listening-pdf-import/transientSources.js';
 
 type Middleware = express.RequestHandler;
 
@@ -71,6 +75,7 @@ export interface ListeningRouterDependencies {
 
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const AUDIO_MAX_BYTES = 50 * 1024 * 1024;
+const PDF_IMPORT_SOURCE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const SMART_IMPORT_TIMEOUT_MS = Math.min(
   180_000,
   Math.max(15_000, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 180_000),
@@ -389,6 +394,10 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
   const router = express.Router();
   const draftLocks = new Map<string, Promise<void>>();
   const smartImportUsage = new Map<string, number[]>();
+  const pdfImportSources = createListeningPdfTransientSourceStore({
+    directory: path.join(mediaDir, '.tmp-pdf-import'),
+    secret: ticketSecret,
+  });
   const withDraftLock = async <T,>(setId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = draftLocks.get(setId) || Promise.resolve();
     let release!: () => void;
@@ -563,7 +572,130 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
     }
   });
 
+  router.post(
+    '/admin/pdf-import/sources',
+    authenticateUser,
+    requireStaff,
+    express.raw({ type: PDF_IMPORT_SOURCE_MIME_TYPES, limit: IMAGE_MAX_BYTES }),
+    async (req, res) => {
+      try {
+        if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
+        const mimeType = text(req.headers['content-type']?.split(';')[0], 100).toLowerCase();
+        if (!PDF_IMPORT_SOURCE_MIME_TYPES.includes(mimeType)) {
+          throw apiError(415, 'Nguồn PDF tạm chỉ nhận ảnh JPEG, PNG hoặc WebP.');
+        }
+        const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        if (!buffer.length || buffer.length > IMAGE_MAX_BYTES) {
+          throw apiError(413, 'Ảnh nguồn PDF tạm rỗng hoặc vượt quá 10 MB.');
+        }
+        if (!hasValidMagic(buffer, mimeType)) {
+          throw apiError(415, 'Nội dung ảnh nguồn PDF không khớp định dạng khai báo.');
+        }
+        const source = await pdfImportSources.create(req.user.id, mimeType, buffer);
+        res.status(201).json(source);
+      } catch (error) {
+        sendError(res, error);
+      }
+    },
+  );
+
+  router.post('/admin/pdf-import/manifest', authenticateUser, requireStaff, async (req, res) => {
+    const removers: Array<() => Promise<void>> = [];
+    try {
+      if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
+      if (smartImport?.enabled === false || !smartImport?.analyzeVision) {
+        throw apiError(503, smartImport?.reason || 'Cần cấu hình AI thị giác để nhập PDF.');
+      }
+      const usageKey = req.user.id;
+      const windowStart = Date.now() - 10 * 60 * 1000;
+      const recentUsage = (smartImportUsage.get(usageKey) || []).filter(timestamp => timestamp >= windowStart);
+      if (recentUsage.length >= 20) throw apiError(429, 'Đã đạt giới hạn 20 lượt Smart Import trong 10 phút.');
+      recentUsage.push(Date.now());
+      smartImportUsage.set(usageKey, recentUsage);
+
+      const preferredProvider = text(req.body?.preferredProvider, 60) as ListeningSmartImportProviderPreference;
+      const selectedProvider = (smartImport.providers || []).find(provider => provider.id === preferredProvider);
+      if (!selectedProvider) throw apiError(400, `Nhà cung cấp AI "${preferredProvider}" không tồn tại.`);
+      if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
+        throw apiError(503, selectedProvider.reason || `${selectedProvider.label} chưa sẵn sàng cho ảnh.`);
+      }
+      const bookPageCount = Number(req.body?.bookPageCount);
+      const keyPageCount = Number(req.body?.keyPageCount);
+      if (!Number.isInteger(bookPageCount) || bookPageCount < 1 || bookPageCount > 1000) {
+        throw apiError(400, 'Số trang PDF đề bài không hợp lệ.');
+      }
+      if (!Number.isInteger(keyPageCount) || keyPageCount < 1 || keyPageCount > 1000) {
+        throw apiError(400, 'Số trang PDF đáp án không hợp lệ.');
+      }
+      const tokenGroups = [
+        { role: 'question' as const, tokens: req.body?.bookSourceTokens },
+        { role: 'answer_key' as const, tokens: req.body?.keySourceTokens },
+      ];
+      const images: SmartImportImageInput[] = [];
+      const seenTokens = new Set<string>();
+      let totalBytes = 0;
+      for (const group of tokenGroups) {
+        const tokens = Array.isArray(group.tokens) ? group.tokens.map(value => text(value, 2000)).filter(Boolean) : [];
+        if (!tokens.length || tokens.length > 12) throw apiError(400, `Số ảnh mục lục ${group.role} không hợp lệ.`);
+        for (const token of tokens) {
+          if (seenTokens.has(token)) throw apiError(400, 'Một nguồn PDF tạm không được dùng lặp trong manifest.');
+          seenTokens.add(token);
+          let resolved;
+          try {
+            resolved = await pdfImportSources.resolve(token, req.user.id);
+          } catch (reason: any) {
+            throw apiError(/hết hạn/.test(reason?.message) ? 410 : 400, reason?.message || 'Nguồn PDF tạm không hợp lệ.');
+          }
+          removers.push(resolved.remove);
+          totalBytes += resolved.data.length;
+          if (totalBytes > 30 * 1024 * 1024) throw apiError(413, 'Tổng dung lượng ảnh mục lục vượt quá 30 MB.');
+          images.push({
+            assetId: `pdf-source-${resolved.sourceId}`,
+            role: group.role,
+            mimeType: resolved.mimeType,
+            data: resolved.data,
+          });
+        }
+      }
+
+      const abortController = new AbortController();
+      let timeoutId: NodeJS.Timeout | undefined;
+      const manifestPromise = createListeningPdfManifest({
+        bookPageCount,
+        keyPageCount,
+        images,
+        preferredProvider,
+        analyzeVision: smartImport.analyzeVision,
+        signal: abortController.signal,
+      });
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController.abort();
+          reject(apiError(504, 'Nhận diện cấu trúc PDF quá thời gian xử lý. Chưa tạo bản nháp.'));
+        }, SMART_IMPORT_TIMEOUT_MS);
+      });
+      const manifest = await Promise.race([manifestPromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        'ANALYZE_LISTENING_PDF_MANIFEST',
+        `Nhận diện ${manifest.tests.length} Movers Listening Test bằng ${preferredProvider}; chưa tạo bản nháp.`,
+      );
+      await Promise.allSettled(removers.map(remove => remove()));
+      removers.length = 0;
+      res.json(manifest);
+    } catch (error) {
+      sendError(res, error);
+    } finally {
+      await Promise.allSettled(removers.map(remove => remove()));
+    }
+  });
+
   router.post('/admin/smart-import/analyze', authenticateUser, requireStaff, async (req, res) => {
+    const transientRemovers: Array<() => Promise<void>> = [];
     try {
       if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
       if (smartImport?.enabled === false) throw apiError(503, smartImport.reason || 'Smart Import đang tắt.');
@@ -598,18 +730,23 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       const roleDefinitions = getListeningSmartImportRoleDefinitions(part as 1 | 2 | 3 | 4 | 5);
       const allowedRoles = new Set(roleDefinitions.map(definition => definition.role));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
-      const sources: ListeningSmartImportSource[] = [];
+      if (rawSources.length > 3) throw apiError(400, 'Smart Import chỉ nhận tối đa ba ảnh role-based.');
+      const sourceRequests: Array<ListeningSmartImportRequestSource & { role: ListeningSmartImportSource['role'] }> = [];
       const seenRoles = new Set<string>();
-      const seenAssets = new Set<string>();
+      const seenSources = new Set<string>();
       for (const rawSource of rawSources.slice(0, 3)) {
         const role = text(rawSource?.role, 40) as ListeningSmartImportSource['role'];
         const assetId = text(rawSource?.assetId, 160);
-        if (!allowedRoles.has(role) || !assetId) throw apiError(400, 'Role hoặc asset Smart Import không hợp lệ.');
+        const transientToken = text(rawSource?.transientToken, 2000);
+        if (!allowedRoles.has(role) || Boolean(assetId) === Boolean(transientToken)) {
+          throw apiError(400, 'Mỗi role Smart Import phải có đúng một asset hoặc nguồn PDF tạm.');
+        }
         if (seenRoles.has(role)) throw apiError(400, `Role ${role} bị trùng.`);
-        if (seenAssets.has(assetId)) throw apiError(400, 'Một asset không được dùng đồng thời cho nhiều role.');
+        const sourceKey = assetId ? `asset:${assetId}` : `transient:${transientToken}`;
+        if (seenSources.has(sourceKey)) throw apiError(400, 'Một ảnh không được dùng đồng thời cho nhiều role.');
         seenRoles.add(role);
-        seenAssets.add(assetId);
-        sources.push({ role, assetId });
+        seenSources.add(sourceKey);
+        sourceRequests.push({ role, ...(assetId ? { assetId } : { transientToken }) });
       }
       const missingRoles = roleDefinitions.filter(definition => definition.required && !seenRoles.has(definition.role));
       const answerTextFallback = Boolean(pastedText) && (part === 2 || part === 3);
@@ -618,9 +755,26 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         throw apiError(400, `Thiếu nguồn bắt buộc: ${effectiveMissingRoles.map(definition => definition.label).join(', ')}.`);
       }
       const images: SmartImportImageInput[] = [];
+      const sources: ListeningSmartImportSource[] = [];
       let totalImageBytes = 0;
-      for (const source of sources) {
-        const assetId = source.assetId;
+      for (const source of sourceRequests) {
+        if (source.transientToken) {
+          let resolved;
+          try {
+            resolved = await pdfImportSources.resolve(source.transientToken, req.user.id);
+          } catch (reason: any) {
+            throw apiError(/hết hạn/.test(reason?.message) ? 410 : 400, reason?.message || 'Nguồn PDF tạm không hợp lệ.');
+          }
+          transientRemovers.push(resolved.remove);
+          if (resolved.data.length > IMAGE_MAX_BYTES) throw apiError(413, 'Một ảnh nguồn vượt quá giới hạn 10 MB.');
+          totalImageBytes += resolved.data.length;
+          if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, 'Tổng dung lượng ảnh nguồn vượt quá 30 MB.');
+          const assetId = `pdf-source-${resolved.sourceId}`;
+          sources.push({ role: source.role, assetId });
+          images.push({ assetId, role: source.role, mimeType: resolved.mimeType, data: resolved.data });
+          continue;
+        }
+        const assetId = source.assetId!;
         const document = await db.collection('listening_assets').doc(assetId).get();
         if (!document.exists) throw apiError(404, `Không tìm thấy ảnh nguồn ${assetId}.`);
         const asset = { id: document.id, ...document.data() } as ListeningAsset;
@@ -637,6 +791,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         if (data.length > IMAGE_MAX_BYTES) throw apiError(413, 'Một ảnh nguồn vượt quá giới hạn dung lượng.');
         totalImageBytes += data.length;
         if (totalImageBytes > 30 * 1024 * 1024) throw apiError(413, 'Tổng dung lượng ảnh nguồn vượt quá 30 MB.');
+        sources.push({ role: source.role, assetId });
         images.push({ assetId, role: source.role, mimeType: asset.mimeType, data });
       }
       const importAbortController = new AbortController();
@@ -672,9 +827,13 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         'ANALYZE_LISTENING_PART',
         `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
+      await Promise.allSettled(transientRemovers.map(remove => remove()));
+      transientRemovers.length = 0;
       res.json(candidate);
     } catch (error) {
       sendError(res, error);
+    } finally {
+      await Promise.allSettled(transientRemovers.map(remove => remove()));
     }
   });
 
@@ -1240,21 +1399,22 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         throw apiError(403, 'Bộ đề này không cho xem đáp án sau khi nộp.');
       }
 
+      const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ''));
       let visualReview = normalizeListeningVisualReviewSnapshot(detail?.extraDetails?.visualReview);
-      if (!visualReview && detail?.answers && Array.isArray(detail?.questions)) {
-        const version = await getVersion(db, String(attempt.versionId || detail?.extraDetails?.versionId || ''));
-        if (version?.content) {
-          try {
-            visualReview = buildListeningVisualReviewSnapshot(
-              version.content,
-              detail.answers as ListeningAnswers,
-              detail.questions,
-            );
-          } catch {
-            // Legacy malformed content keeps the existing text review fallback.
-          }
+      if (!visualReview && detail?.answers && Array.isArray(detail?.questions) && version?.content) {
+        try {
+          visualReview = buildListeningVisualReviewSnapshot(
+            version.content,
+            detail.answers as ListeningAnswers,
+            detail.questions,
+          );
+        } catch {
+          // Legacy malformed content keeps the existing text review fallback.
         }
       }
+      const transcripts = version?.content
+        ? buildListeningReviewTranscripts(version.content as ListeningSetContent)
+        : [];
 
       res.json({
         attemptId: attempt.id,
@@ -1265,6 +1425,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         totalCount: Number(attempt.totalCount || 25),
         answerDetails: normalizeListeningActivityAnswerDetails(detail),
         ...(visualReview ? { visualReview } : {}),
+        ...(transcripts.length ? { transcripts } : {}),
       });
     } catch (error) {
       sendError(res, error);

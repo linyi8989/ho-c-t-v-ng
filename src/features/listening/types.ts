@@ -2,6 +2,7 @@ export type ListeningVisibility = 'draft' | 'public' | 'assignment';
 export type ListeningSetStatus = 'draft' | 'published' | 'archived';
 export type ListeningAssetKind = 'image' | 'audio';
 export type ListeningRegionShape = 'rect' | 'ellipse' | 'polygon';
+export const LISTENING_TRANSCRIPT_MAX_CHARS = 20_000;
 
 export interface ListeningAsset {
   id: string;
@@ -38,6 +39,8 @@ export interface ListeningPartBase {
   instruction: string;
   audioAssetId: string;
   audioUrl?: string;
+  /** Plain-text listening script. It must never enter playable/prepare payloads. */
+  audioTranscript?: string;
 }
 
 export interface ListeningChoice {
@@ -383,6 +386,11 @@ export interface ListeningAttemptReviewAnswer {
   options: string[];
 }
 
+export interface ListeningReviewTranscript {
+  part: 1 | 2 | 3 | 4 | 5;
+  text: string;
+}
+
 export type ListeningVisualReviewState = 'correct' | 'incorrect' | 'unanswered';
 
 export interface ListeningVisualReviewBaseItem {
@@ -515,6 +523,7 @@ export interface ListeningAttemptReview {
   totalCount: number;
   answerDetails: ListeningAttemptReviewAnswer[];
   visualReview?: ListeningVisualReviewSnapshot;
+  transcripts?: ListeningReviewTranscript[];
 }
 
 export const createEmptyListeningAnswers = (): ListeningAnswers => ({

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FileUp,
   Plus,
   X,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ interface ListeningAdminModuleProps {
 
 export const createDefaultListeningContent = createDefaultMoverListeningContent;
 const SHOW_WHOLE_EXAM_RESOURCE_TRAY = false;
+const ListeningPdfImportDialog = React.lazy(() => import('../../listening-pdf-import/ListeningPdfImportDialog'));
 
 export default function ListeningAdminModule({ token }: ListeningAdminModuleProps) {
   const [sets, setSets] = useState<ListeningSetSummary[]>([]);
@@ -50,6 +52,7 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [results, setResults] = useState<any[] | null>(null);
   const [resultsTitle, setResultsTitle] = useState('');
+  const [showPdfImport, setShowPdfImport] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle');
   const [autosaveTick, setAutosaveTick] = useState(0);
   const [importCandidates, setImportCandidates] = useState<Partial<Record<1 | 2 | 3 | 4 | 5, ListeningSmartImportCandidate>>>({});
@@ -439,10 +442,25 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
             <h2 className="text-2xl font-black text-slate-900">Bộ đề nghe 5 Part</h2>
             <p className="text-sm text-slate-500">Mỗi phiên bản xuất bản là bất biến; chỉnh sửa tiếp theo không đổi bài đang làm.</p>
           </div>
-          <button type="button" onClick={startNew} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-200">
-            <Plus size={17} /> Tạo bộ đề mới
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={() => setShowPdfImport(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-white px-5 py-3 text-sm font-black text-blue-700 shadow-sm">
+              <FileUp size={17} /> Nhập từ PDF
+            </button>
+            <button type="button" onClick={startNew} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-200">
+              <Plus size={17} /> Tạo bộ đề mới
+            </button>
+          </div>
         </div>
+        {showPdfImport && (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 text-sm font-black text-white">Đang mở bộ nhập PDF…</div>}>
+            <ListeningPdfImportDialog
+              token={token}
+              capability={capabilities?.smartImport}
+              onClose={() => setShowPdfImport(false)}
+              onCompleted={load}
+            />
+          </React.Suspense>
+        )}
         {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
         <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[1080px] text-left text-sm">

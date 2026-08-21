@@ -1,17 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronLeft, ChevronRight, CircleMinus, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, CircleMinus, FileText, XCircle } from 'lucide-react';
 import type {
   ListeningRegion,
+  ListeningReviewTranscript,
   ListeningVisualReviewBaseItem,
   ListeningVisualReviewPart,
   ListeningVisualReviewPicture,
   ListeningVisualReviewSnapshot,
   ListeningVisualReviewState,
 } from '../types';
+import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../types';
 
 interface ListeningVisualReviewProps {
   snapshot: ListeningVisualReviewSnapshot;
+  transcripts?: ListeningReviewTranscript[];
   compact?: boolean;
+}
+
+export function normalizeListeningReviewTranscripts(value: unknown): ListeningReviewTranscript[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  return value.slice(0, 5).flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const part = Number((item as Record<string, unknown>).part);
+    const text = typeof (item as Record<string, unknown>).text === 'string'
+      ? String((item as Record<string, unknown>).text).trim().slice(0, LISTENING_TRANSCRIPT_MAX_CHARS)
+      : '';
+    if (!Number.isInteger(part) || part < 1 || part > 5 || !text || seen.has(part)) return [];
+    seen.add(part);
+    return [{ part: part as ListeningReviewTranscript['part'], text }];
+  });
 }
 
 export function isListeningVisualReviewSnapshot(value: unknown): value is ListeningVisualReviewSnapshot {
@@ -388,7 +406,7 @@ function ReviewPart({ part }: { part: ListeningVisualReviewPart }) {
   return null;
 }
 
-export default function ListeningVisualReview({ snapshot, compact = false }: ListeningVisualReviewProps) {
+export default function ListeningVisualReview({ snapshot, transcripts = [], compact = false }: ListeningVisualReviewProps) {
   const [activePart, setActivePart] = useState(1);
   useEffect(() => setActivePart(1), [snapshot]);
   const part = snapshot.parts.find(item => item.part === activePart) || snapshot.parts[0];
@@ -402,6 +420,8 @@ export default function ListeningVisualReview({ snapshot, compact = false }: Lis
     incorrect: counts.incorrect + (item.state === 'incorrect' ? 1 : 0),
     unanswered: counts.unanswered + (item.state === 'unanswered' ? 1 : 0),
   }), { correct: 0, incorrect: 0, unanswered: 0 }), [part]);
+  const safeTranscripts = useMemo(() => normalizeListeningReviewTranscripts(transcripts), [transcripts]);
+  const transcript = safeTranscripts.find(item => item.part === part?.part);
 
   return (
     <section className="space-y-3" data-listening-visual-review>
@@ -427,8 +447,19 @@ export default function ListeningVisualReview({ snapshot, compact = false }: Lis
           <button type="button" aria-label="Xem Part trước" disabled={activePartIndex === 0} onClick={() => changePart(-1)} className="listening-review-part-nav listening-review-part-nav-left absolute left-0 top-1/2 z-50 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full sm:h-14 sm:w-14">
             <ChevronLeft size={32} strokeWidth={3} aria-hidden="true" />
           </button>
-          <div className="listening-review-part-content min-w-0">
+          <div className="listening-review-part-content min-w-0 space-y-4">
             <ReviewPart part={part} />
+            {transcript && (
+              <details key={transcript.part} className="rounded-2xl border border-sky-200 bg-white shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm font-black text-sky-800 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200">
+                  <FileText size={18} className="shrink-0 text-sky-600" aria-hidden="true" />
+                  <span>Nội dung bài nghe · Part {transcript.part}</span>
+                </summary>
+                <div className="border-t border-sky-100 px-4 py-4 sm:px-5">
+                  <p className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-left text-sm font-medium leading-7 text-slate-700">{transcript.text}</p>
+                </div>
+              </details>
+            )}
           </div>
           <button type="button" aria-label="Xem Part tiếp theo" disabled={activePartIndex === snapshot.parts.length - 1} onClick={() => changePart(1)} className="listening-review-part-nav listening-review-part-nav-right absolute right-0 top-1/2 z-50 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full sm:h-14 sm:w-14">
             <ChevronRight size={32} strokeWidth={3} aria-hidden="true" />

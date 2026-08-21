@@ -65,7 +65,9 @@ test('draft autosave increments revision and rejects a stale editor session', as
   const created = await createResponse.json() as any;
   assert.equal(created.draftRevision, 1);
 
-  const changed = { ...content, title: 'Autosaved title' };
+  const changed = structuredClone(content);
+  changed.title = 'Autosaved title';
+  changed.parts[0].audioTranscript = 'Man: This transcript is saved with the working draft.';
   const autosaveResponse = await fetch(`${baseUrl}/admin/sets/${created.id}/draft/autosave`, {
     method: 'POST',
     headers,
@@ -87,4 +89,8 @@ test('draft autosave increments revision and rejects a stale editor session', as
 
   const savedDocument = await db.collection('listening_sets').doc(created.id).get();
   assert.equal(savedDocument.data()?.title, 'Autosaved title');
+  assert.equal(
+    savedDocument.data()?.draftContent?.parts?.[0]?.audioTranscript,
+    'Man: This transcript is saved with the working draft.',
+  );
 });

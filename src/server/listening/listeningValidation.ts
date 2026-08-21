@@ -8,6 +8,7 @@ import type {
   ListeningRegion,
   ListeningSetContent,
 } from '../../features/listening/types.js';
+import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../../features/listening/types.js';
 import { isValidListeningRegion } from '../../features/listening/geometry.js';
 
 const isText = (value: unknown, max = 500) =>
@@ -83,6 +84,12 @@ function validateBase(part: any, number: number, errors: string[]) {
   if (!isText(part?.title, 160)) errors.push(`Part ${number}: thiếu tiêu đề.`);
   if (!isText(part?.instruction, 1000)) errors.push(`Part ${number}: thiếu hướng dẫn.`);
   if (!isText(part?.audioAssetId, 160)) errors.push(`Part ${number}: cần đúng một file audio.`);
+  if (
+    part?.audioTranscript !== undefined
+    && (typeof part.audioTranscript !== 'string' || part.audioTranscript.length > LISTENING_TRANSCRIPT_MAX_CHARS)
+  ) {
+    errors.push(`Part ${number}: transcript phải là văn bản tối đa ${LISTENING_TRANSCRIPT_MAX_CHARS.toLocaleString('vi-VN')} ký tự.`);
+  }
 }
 
 function validatePart1(part: ListeningPart1, errors: string[]) {
@@ -378,6 +385,7 @@ export function sanitizeListeningAnswers(value: unknown): ListeningAnswers {
 
 export function sanitizeListeningContentForStudent(content: ListeningSetContent): ListeningSetContent {
   const copy = structuredClone(content) as any;
+  copy.parts.forEach((part: any) => { delete part.audioTranscript; });
   copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }: any) => target);
   if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
   copy.parts[1].questions = copy.parts[1].questions.map((question: any) => ({

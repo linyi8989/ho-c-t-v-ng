@@ -32,11 +32,15 @@ export function EditorTextArea({
   value,
   onChange,
   rows = 3,
+  placeholder,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   rows?: number;
+  placeholder?: string;
+  maxLength?: number;
 }) {
   return (
     <label className="block space-y-1">
@@ -44,6 +48,8 @@ export function EditorTextArea({
       <textarea
         value={value}
         rows={rows}
+        placeholder={placeholder}
+        maxLength={maxLength}
         onChange={event => onChange(event.target.value)}
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
       />

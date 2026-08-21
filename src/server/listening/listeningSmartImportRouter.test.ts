@@ -71,6 +71,24 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
         analyzedKinds = images.map(image => image.mimeType);
         analyzedProvider = options.preferredProvider;
         if (analyzerFailure) throw analyzerFailure;
+        if (options.schemaName === 'listening_pdf_manifest_v1') {
+          return {
+            provider: options.preferredProvider,
+            text: JSON.stringify({
+              tests: [{
+                testNumber: 1,
+                title: 'Test 1',
+                part1Pages: [1],
+                part2Pages: [2],
+                part3Pages: [3],
+                part4Pages: [4, 5],
+                part5Pages: [6],
+                keySummaryPage: 2,
+              }],
+              warnings: [],
+            }),
+          };
+        }
         return {
           provider: options.preferredProvider,
           text: JSON.stringify({
@@ -136,6 +154,52 @@ test('Smart Import accepts owned images and explicitly rejects audio assets', as
   const devQuotaAccepted = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'devquota:gpt-5.6-sol') });
   assert.equal(devQuotaAccepted.status, 200);
   assert.equal(analyzedProvider, 'devquota:gpt-5.6-sol');
+
+  const uploadTemporary = async () => {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/listening/admin/pdf-import/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json() as any).token as string;
+  };
+  const transientQuestion = await uploadTemporary();
+  const transientAnswer = await uploadTemporary();
+  const transientAccepted = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      moduleId: 'mover', part: 2,
+      sources: [
+        { role: 'question', transientToken: transientQuestion },
+        { role: 'answer_key', transientToken: transientAnswer },
+      ],
+      currentPart: part,
+      basePartHash,
+      preferredProvider: 'stali:gpt-5.6-sol',
+    }),
+  });
+  assert.equal(transientAccepted.status, 200);
+  assert.deepEqual(analyzedKinds, ['image/png', 'image/png']);
+  assert.deepEqual(fs.readdirSync(path.join(mediaDir, '.tmp-pdf-import')), []);
+
+  const manifestBookToken = await uploadTemporary();
+  const manifestKeyToken = await uploadTemporary();
+  const manifestResponse = await fetch(`http://127.0.0.1:${address.port}/api/listening/admin/pdf-import/manifest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bookSourceTokens: [manifestBookToken],
+      keySourceTokens: [manifestKeyToken],
+      bookPageCount: 10,
+      keyPageCount: 5,
+      preferredProvider: 'stali:gpt-5.6-sol',
+    }),
+  });
+  assert.equal(manifestResponse.status, 200);
+  assert.deepEqual((await manifestResponse.json() as any).tests[0].bookPages[4], [4, 5]);
+  assert.deepEqual(fs.readdirSync(path.join(mediaDir, '.tmp-pdf-import')), []);
 
   const removedProviderRejected = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body('owned-answer', 'gemini') });
   assert.equal(removedProviderRejected.status, 400);

@@ -365,7 +365,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
             </div>
           </header>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 sm:p-6">
-            {review.visualReview ? <ListeningVisualReview snapshot={review.visualReview} /> : review.answerDetails.map((item, index) => (
+            {review.visualReview ? <ListeningVisualReview snapshot={review.visualReview} transcripts={review.transcripts} /> : review.answerDetails.map((item, index) => (
               <article key={`${item.part}-${item.questionIndex}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>

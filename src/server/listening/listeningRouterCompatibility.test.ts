@@ -46,6 +46,7 @@ function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswe
         instruction: 'Listen and drag.',
         audioAssetId: 'audio-1',
         audioUrl: '/fixture/audio-1.mp3',
+        audioTranscript: 'Man: Who is wearing the red hat?\nGirl: That is Name 0.',
         sceneAssetId: 'scene-1',
         sceneUrl: '/fixture/scene-1.png',
         choices,
@@ -340,6 +341,8 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal('choiceId' in playable.content.parts[0].targets[0], false);
   assert.equal('acceptedAnswers' in playable.content.parts[1].questions[0].blanks[0], false);
   assert.equal(JSON.stringify(playable).includes('visualReview'), false);
+  assert.equal(JSON.stringify(playable).includes('audioTranscript'), false);
+  assert.equal(JSON.stringify(playable).includes('Who is wearing the red hat?'), false);
 
   const identity = { guestId: 'guest-compatibility', studentName: 'Lan Anh' };
   const prepareResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/prepare`, {
@@ -354,6 +357,7 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(prepareResponse.status, 200);
   const prepared = await prepareResponse.json() as any;
   assert.ok(prepared.ticket);
+  assert.equal(JSON.stringify(prepared).includes('audioTranscript'), false);
 
   const submission = {
     ...identity,
@@ -372,6 +376,7 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(firstResult.schemaVersion, 1);
   assert.equal(firstResult.score, 100);
   assert.equal(firstResult.correctCount, 25);
+  assert.equal(JSON.stringify(firstResult).includes('Who is wearing the red hat?'), false);
 
   const reviewQuery = new URLSearchParams(identity).toString();
   const reviewResponse = await fetch(
@@ -390,6 +395,10 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(reviewResult.visualReview.parts[0].items.length, 5);
   assert.equal(reviewResult.visualReview.parts[0].items[0].state, 'correct');
   assert.equal(JSON.stringify(reviewResult.visualReview).includes('targetRegion'), false);
+  assert.deepEqual(reviewResult.transcripts, [{
+    part: 1,
+    text: 'Man: Who is wearing the red hat?\nGirl: That is Name 0.',
+  }]);
 
   const forbiddenReviewResponse = await fetch(
     `${baseUrl}/api/listening/sets/legacy-mover-set/attempts/${encodeURIComponent(firstResult.id)}/review?${new URLSearchParams({ guestId: 'another-guest', studentName: 'Another Student' })}`,
@@ -414,6 +423,7 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(storedDetail.reviewPolicy.showReviewAfterSubmit, true);
   assert.equal(storedDetail.extraDetails.visualReview.schemaVersion, 2);
   assert.equal(storedDetail.extraDetails.visualReview.parts.length, 5);
+  assert.equal(JSON.stringify(storedDetail).includes('Who is wearing the red hat?'), false);
   assert.equal(storedDetail.answerDetails.some((item: any) => (
     containsInternalListeningDisplayValue(item.questionText)
     || containsInternalListeningDisplayValue(item.userAnswer)
@@ -444,6 +454,10 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal((studentHistoryDetail.detail?.answerDetails[0] as any).correctAnswer, 'Name 0');
   assert.equal((studentHistoryDetail.detail?.extraDetails as any)?.visualReview?.schemaVersion, 2);
   assert.equal((studentHistoryDetail.detail?.extraDetails as any)?.visualReview?.parts?.length, 5);
+  assert.deepEqual((studentHistoryDetail.detail?.extraDetails as any)?.listeningReviewTranscripts, [{
+    part: 1,
+    text: 'Man: Who is wearing the red hat?\nGirl: That is Name 0.',
+  }]);
   assert.equal(JSON.stringify((studentHistoryDetail.detail?.extraDetails as any)?.visualReview).includes('targetRegion'), false);
   await assert.rejects(
     historyService.getLearningHistoryDetail({
