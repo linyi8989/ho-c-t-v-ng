@@ -16,6 +16,7 @@ import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation';
+import { examPaperExamPath } from '../../features/listening-library/routes';
 
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 
@@ -47,7 +48,13 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
   if (assignment.resourceType === 'listening') {
     const setId = assignment.resourceId || assignment.listeningSetId;
     return setId
-      ? `${window.location.origin}/listening/${setId}?accessToken=${encodeURIComponent(token)}`
+      ? `${window.location.origin}${examPaperExamPath('mover', 'listening', setId, token)}`
+      : '';
+  }
+  if (assignment.resourceType === 'mover_reading_writing') {
+    const setId = assignment.resourceId || assignment.moverReadingWritingSetId;
+    return setId
+      ? `${window.location.origin}${examPaperExamPath('mover', 'reading-writing', setId, token)}`
       : '';
   }
   return `${window.location.origin}/assignment/${token}`;
@@ -498,6 +505,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [listeningSets, setListeningSets] = useState<any[]>([]);
+  const [moverReadingWritingSets, setMoverReadingWritingSets] = useState<any[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -597,7 +605,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   
   // New Assignment States
   const [assignClassId, setAssignClassId] = useState('');
-  const [assignResourceType, setAssignResourceType] = useState<'vocabulary' | 'listening'>('vocabulary');
+  const [assignResourceType, setAssignResourceType] = useState<'vocabulary' | 'listening' | 'mover_reading_writing'>('vocabulary');
   const [assignSetId, setAssignSetId] = useState('');
   const [assignGameId, setAssignGameId] = useState('flashcard-en-vi');
   const [assignDueDate, setAssignDueDate] = useState('');
@@ -670,6 +678,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     authFetchJson<any[]>('/api/listening/admin/sets')
       .then(data => setListeningSets(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading listening sets:", err));
+
+    authFetchJson<any[]>('/api/mover-reading-writing/admin/sets')
+      .then(data => setMoverReadingWritingSets(Array.isArray(data) ? data : []))
+      .catch(err => console.error("Error loading Mover Reading & Writing sets:", err));
 
     // Classes
     authFetchJson<Class[]>('/api/classes')
@@ -1707,7 +1719,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     const selectedClass = classes.find(c => c.id === assignClassId);
     const selectedSet = assignResourceType === 'listening'
       ? listeningSets.find(s => s.id === assignSetId)
-      : vocabSets.find(s => s.id === assignSetId);
+      : assignResourceType === 'mover_reading_writing'
+        ? moverReadingWritingSets.find(s => s.id === assignSetId)
+        : vocabSets.find(s => s.id === assignSetId);
 
     if (!selectedClass || !selectedSet) return;
 
@@ -1723,16 +1737,22 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             vocabSetTitle: selectedSet.title,
             gameId: assignGameId
           }
-        : {
+        : assignResourceType === 'listening' ? {
             listeningSetId: assignSetId,
             listeningSetTitle: selectedSet.title,
             gameId: 'listening-five-part'
+          } : {
+            moverReadingWritingSetId: assignSetId,
+            moverReadingWritingSetTitle: selectedSet.title,
+            gameId: 'mover-reading-writing'
           }),
       dueDate: assignDueDate,
       createdBy: user?.id || "teacher-1",
       title: assignTitle.trim() || (assignResourceType === 'listening'
         ? `Luyện nghe: ${selectedSet.title}`
-        : `Học từ vựng: ${selectedSet.title}`)
+        : assignResourceType === 'mover_reading_writing'
+          ? `Reading & Writing: ${selectedSet.title}`
+          : `Học từ vựng: ${selectedSet.title}`)
     };
 
     authFetch('/api/assignments', {
@@ -2280,8 +2300,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             }`}
             id="tab-listening-library"
           >
-            <Headphones size={18} />
-            <span>Kho bài luyện nghe</span>
+            <BookOpen size={18} />
+            <span>Kho đề luyện thi</span>
           </button>
 
           <button
@@ -4300,19 +4320,24 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <select
                       value={assignResourceType}
                       onChange={(e) => {
-                        setAssignResourceType(e.target.value as 'vocabulary' | 'listening');
+                        setAssignResourceType(e.target.value as 'vocabulary' | 'listening' | 'mover_reading_writing');
                         setAssignSetId('');
                       }}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                     >
                       <option value="vocabulary">Từ vựng</option>
                       <option value="listening">Bộ đề nghe 5 Part</option>
+                      <option value="mover_reading_writing">Mover Reading &amp; Writing 6 Part</option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-gray-400">
-                      {assignResourceType === 'listening' ? 'Chọn bộ đề nghe *' : 'Chọn bộ từ vựng *'}
+                      {assignResourceType === 'listening'
+                        ? 'Chọn bộ đề nghe *'
+                        : assignResourceType === 'mover_reading_writing'
+                          ? 'Chọn bộ đề Reading & Writing *'
+                          : 'Chọn bộ từ vựng *'}
                     </label>
                     <select
                       value={assignSetId}
@@ -4323,6 +4348,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       <option value="">-- Chọn nội dung --</option>
                       {assignResourceType === 'listening'
                         ? listeningSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
+                        : assignResourceType === 'mover_reading_writing'
+                          ? moverReadingWritingSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
                         : vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
@@ -4396,6 +4423,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase uppercase">
                               {assign.resourceType === 'listening'
                                 ? 'Nghe 5 Part'
+                                : assign.resourceType === 'mover_reading_writing'
+                                  ? 'Reading & Writing 6 Part'
                                 : GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
                             </span>
                           </div>
@@ -4426,7 +4455,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         <div className="flex space-x-1 shrink-0">
                           <button
                             onClick={() => {
-                              if (assign.resourceType === 'listening') {
+                              if (assign.resourceType === 'listening' || assign.resourceType === 'mover_reading_writing') {
                                 if (assignmentLink) window.open(assignmentLink, '_blank', 'noopener,noreferrer');
                                 return;
                               }

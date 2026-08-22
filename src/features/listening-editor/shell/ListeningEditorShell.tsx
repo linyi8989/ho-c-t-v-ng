@@ -27,6 +27,9 @@ interface ListeningEditorShellProps {
   onUndo: () => void;
   onRedo: () => void;
   children: React.ReactNode;
+  rootId?: string;
+  eyebrow?: string;
+  stepAriaLabel?: string;
 }
 
 export default function ListeningEditorShell({
@@ -46,16 +49,19 @@ export default function ListeningEditorShell({
   onUndo,
   onRedo,
   children,
+  rootId = 'listening-wizard',
+  eyebrow = 'Listening wizard',
+  stepAriaLabel = 'Các bước soạn bài nghe',
 }: ListeningEditorShellProps) {
   return (
-    <div className="space-y-5 animate-fade-in" id="listening-wizard">
+    <div className="space-y-5 animate-fade-in" id={rootId}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <button type="button" disabled={busy} onClick={onBack} aria-label="Quay lại kho bộ đề" className="rounded-xl border border-slate-200 bg-white p-2 text-slate-600 disabled:opacity-40">
             <ChevronLeft size={17} />
           </button>
           <div>
-            <p className="text-xs font-black uppercase text-sky-600">Listening wizard</p>
+            <p className="text-xs font-black uppercase text-sky-600">{eyebrow}</p>
             <h2 className="text-xl font-black text-slate-900">{title}</h2>
           </div>
         </div>
@@ -85,23 +91,24 @@ export default function ListeningEditorShell({
                     ? 'Chưa lưu'
                     : 'Đã lưu'}
           </span>
-          <button type="button" disabled={busy} onClick={onSave} className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-black text-blue-700 disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={onSave} className="listening-editor-save-action inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-black text-blue-700 disabled:opacity-50">
             <Save size={15} /> Lưu nháp
           </button>
-          <button type="button" disabled={busy} onClick={onPublish} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={onPublish} className="listening-editor-publish-action inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">
             <Send size={15} /> Xuất bản
           </button>
         </div>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Các bước soạn bài nghe">
+      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label={stepAriaLabel}>
         {steps.map((label, index) => (
           <button
             type="button"
             role="tab"
             aria-selected={step === index}
+            data-active={step === index}
             key={label}
             onClick={() => onStepChange(index)}
-            className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black ${step === index ? 'bg-blue-600 text-white shadow-md' : 'border border-slate-200 bg-white text-slate-500'}`}
+            className={`listening-editor-step-action shrink-0 rounded-xl px-4 py-2 text-xs font-black ${step === index ? 'bg-blue-600 text-white shadow-md' : 'border border-slate-200 bg-white text-slate-500'}`}
           >
             {index < step ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}{label}
           </button>
@@ -118,7 +125,7 @@ export default function ListeningEditorShell({
           <ChevronLeft size={14} /> Trước
         </button>
         <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-400"><Headphones size={14} /> Bước {step + 1}/{steps.length}</span>
-        <button type="button" disabled={step === steps.length - 1} onClick={() => onStepChange(Math.min(steps.length - 1, step + 1))} className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white disabled:opacity-30">
+        <button type="button" disabled={step === steps.length - 1} onClick={() => onStepChange(Math.min(steps.length - 1, step + 1))} className="listening-editor-next-action inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white disabled:opacity-30">
           Tiếp <ChevronRight size={14} />
         </button>
       </div>

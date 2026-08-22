@@ -25,6 +25,7 @@ const NATIVE_HOT_QUERY_MIGRATION_ID = 'native-hot-query-columns-v2';
 const LEARNING_HISTORY_SCHEMA_MIGRATION_ID = 'learning-history-schema-v1';
 const GUEST_CAPABILITY_STORAGE_MIGRATION_ID = 'guest-capability-physical-v1';
 const LISTENING_SCHEMA_MIGRATION_ID = 'listening-five-part-schema-v1';
+const MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = 'mover-reading-writing-schema-v1';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -86,6 +87,16 @@ const collectionTableMap: Record<string, string> = {
   listeningattempts: 'listening_attempts',
   listening_attempt_details: 'listening_attempt_details',
   listeningattemptdetails: 'listening_attempt_details',
+  mover_reading_sets: 'mover_reading_sets',
+  moverreadingsets: 'mover_reading_sets',
+  mover_reading_set_versions: 'mover_reading_set_versions',
+  moverreadingsetversions: 'mover_reading_set_versions',
+  mover_reading_asset_usages: 'mover_reading_asset_usages',
+  moverreadingassetusages: 'mover_reading_asset_usages',
+  mover_reading_attempts: 'mover_reading_attempts',
+  moverreadingattempts: 'mover_reading_attempts',
+  mover_reading_attempt_details: 'mover_reading_attempt_details',
+  moverreadingattemptdetails: 'mover_reading_attempt_details',
   audit_logs: 'audit_logs',
   auditlogs: 'audit_logs',
   settings: 'settings',
@@ -271,6 +282,50 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     updatedAt: 'updated_at',
   },
   listening_attempt_details: {
+    id: 'id',
+    attemptId: 'attempt_id',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  mover_reading_sets: {
+    id: 'id',
+    ownerId: 'owner_id',
+    status: 'status',
+    visibility: 'visibility',
+    publishedVersionId: 'published_version_id',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  mover_reading_set_versions: {
+    id: 'id',
+    setId: 'set_id',
+    versionNumber: 'version_number',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  mover_reading_asset_usages: {
+    id: 'id',
+    assetId: 'asset_id',
+    setId: 'set_id',
+    versionId: 'version_id',
+    createdAt: 'created_at',
+  },
+  mover_reading_attempts: {
+    id: 'id',
+    ownerKey: 'owner_key',
+    userId: 'user_id',
+    guestId: 'guest_id',
+    setId: 'set_id',
+    versionId: 'version_id',
+    assignmentId: 'assignment_id',
+    clientRunId: 'client_run_id',
+    score: 'score',
+    completedAt: 'completed_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  mover_reading_attempt_details: {
     id: 'id',
     attemptId: 'attempt_id',
     createdAt: 'created_at',
@@ -1046,6 +1101,158 @@ function upsertListeningDocument(
   );
 }
 
+function upsertMoverReadingWritingDocument(
+  table: 'mover_reading_sets' | 'mover_reading_set_versions' | 'mover_reading_asset_usages'
+    | 'mover_reading_attempts' | 'mover_reading_attempt_details',
+  id: string,
+  data: any,
+  dataJson: string,
+  createdAt: string,
+  updatedAt: string
+) {
+  if (table === 'mover_reading_sets') {
+    run(
+      `INSERT INTO mover_reading_sets (
+        id, owner_id, title, status, visibility, published_version_id,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_id = excluded.owner_id,
+        title = excluded.title,
+        status = excluded.status,
+        visibility = excluded.visibility,
+        published_version_id = excluded.published_version_id,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'ownerId', 'owner_id', 'createdBy')),
+        optionalText(firstDefined(data, 'title')),
+        optionalText(firstDefined(data, 'status')) || 'draft',
+        optionalText(firstDefined(data, 'visibility')) || 'draft',
+        optionalText(firstDefined(data, 'publishedVersionId', 'published_version_id')),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
+  if (table === 'mover_reading_set_versions') {
+    run(
+      `INSERT INTO mover_reading_set_versions (
+        id, set_id, version_number, status, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        set_id = excluded.set_id,
+        version_number = excluded.version_number,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        Math.max(1, nonNegativeInteger(firstDefined(data, 'versionNumber', 'version_number'), 1)),
+        optionalText(firstDefined(data, 'status')) || 'published',
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
+  if (table === 'mover_reading_asset_usages') {
+    run(
+      `INSERT INTO mover_reading_asset_usages (
+        id, asset_id, set_id, version_id, entity_id, role, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        set_id = excluded.set_id,
+        version_id = excluded.version_id,
+        entity_id = excluded.entity_id,
+        role = excluded.role,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'assetId', 'asset_id')),
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        optionalText(firstDefined(data, 'versionId', 'version_id')),
+        optionalText(firstDefined(data, 'entityId', 'entity_id')),
+        optionalText(firstDefined(data, 'role')),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
+  if (table === 'mover_reading_attempts') {
+    run(
+      `INSERT INTO mover_reading_attempts (
+        id, owner_key, user_id, guest_id, set_id, version_id, assignment_id,
+        client_run_id, run_secret_hash, student_name, class_id, score,
+        correct_count, incorrect_count, unanswered_count, started_at, completed_at,
+        duration_seconds, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        assignment_id = excluded.assignment_id,
+        score = excluded.score,
+        correct_count = excluded.correct_count,
+        incorrect_count = excluded.incorrect_count,
+        unanswered_count = excluded.unanswered_count,
+        completed_at = excluded.completed_at,
+        duration_seconds = excluded.duration_seconds,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'ownerKey', 'owner_key')),
+        optionalText(firstDefined(data, 'userId', 'user_id')),
+        optionalText(firstDefined(data, 'guestId', 'guest_id')),
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        optionalText(firstDefined(data, 'versionId', 'version_id')),
+        optionalText(firstDefined(data, 'assignmentId', 'assignment_id')),
+        optionalText(firstDefined(data, 'clientRunId', 'client_run_id')),
+        optionalText(firstDefined(data, 'runSecretHash', 'run_secret_hash')),
+        optionalText(firstDefined(data, 'studentName', 'student_name')),
+        optionalText(firstDefined(data, 'classId', 'class_id')),
+        Math.max(0, Math.min(100, finiteNumber(firstDefined(data, 'score'), 0))),
+        nonNegativeInteger(firstDefined(data, 'correctCount', 'correct_count'), 0),
+        nonNegativeInteger(firstDefined(data, 'incorrectCount', 'incorrect_count'), 0),
+        nonNegativeInteger(firstDefined(data, 'unansweredCount', 'unanswered_count'), 0),
+        optionalText(firstDefined(data, 'startedAt', 'started_at')) || createdAt,
+        optionalText(firstDefined(data, 'completedAt', 'completed_at')) || updatedAt,
+        nonNegativeInteger(firstDefined(data, 'durationSeconds', 'duration_seconds'), 0),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
+  run(
+    `INSERT INTO mover_reading_attempt_details (id, attempt_id, created_at, updated_at, data_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      attempt_id = excluded.attempt_id,
+      updated_at = excluded.updated_at,
+      data_json = excluded.data_json`,
+    [
+      id,
+      optionalText(firstDefined(data, 'attemptId', 'attempt_id')) || id,
+      createdAt,
+      updatedAt,
+      dataJson,
+    ]
+  );
+}
+
 function upsertDoc(collectionName: string, id: string, inputData: any) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
@@ -1077,6 +1284,17 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     || table === 'listening_attempt_details'
   ) {
     upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
+
+  if (
+    table === 'mover_reading_sets'
+    || table === 'mover_reading_set_versions'
+    || table === 'mover_reading_asset_usages'
+    || table === 'mover_reading_attempts'
+    || table === 'mover_reading_attempt_details'
+  ) {
+    upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt, updatedAt);
     return;
   }
 
@@ -2270,6 +2488,119 @@ function migrateListeningSchema() {
   sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
 }
 
+function migrateMoverReadingWritingSchema() {
+  if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS mover_reading_sets (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'archived')),
+      visibility TEXT NOT NULL DEFAULT 'draft'
+        CHECK(visibility IN ('draft', 'public', 'assignment')),
+      published_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_set_versions (
+      id TEXT PRIMARY KEY,
+      set_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL CHECK(version_number >= 1),
+      status TEXT NOT NULL DEFAULT 'published'
+        CHECK(status IN ('published', 'superseded')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_asset_usages (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      entity_id TEXT,
+      role TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(asset_id) REFERENCES listening_assets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES mover_reading_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      user_id TEXT,
+      guest_id TEXT,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      assignment_id TEXT,
+      client_run_id TEXT NOT NULL,
+      run_secret_hash TEXT NOT NULL,
+      student_name TEXT,
+      class_id TEXT,
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      correct_count INTEGER NOT NULL CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL CHECK(unanswered_count >= 0),
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES mover_reading_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_attempt_details (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES mover_reading_attempts(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mover_reading_versions_set_number
+      ON mover_reading_set_versions(set_id, version_number);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_sets_owner_status
+      ON mover_reading_sets(owner_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_usages_asset
+      ON mover_reading_asset_usages(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_usages_set
+      ON mover_reading_asset_usages(set_id, version_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mover_reading_attempts_client_run
+      ON mover_reading_attempts(owner_key, set_id, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_owner_completed
+      ON mover_reading_attempts(owner_key, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_set_completed
+      ON mover_reading_attempts(set_id, completed_at DESC);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [MOVER_READING_WRITING_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
+}
+
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -2368,6 +2699,7 @@ export async function initializeSQLiteStorage() {
         migrateLearningHistorySchema();
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
+        migrateMoverReadingWritingSchema();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, 'immediate');
       configureSQLiteConnection(sqliteConfig);
@@ -2746,6 +3078,11 @@ export async function getSQLiteDiagnostics() {
       listening_asset_usages: await tableCount('listening_asset_usages'),
       listening_attempts: await tableCount('listening_attempts'),
       listening_attempt_details: await tableCount('listening_attempt_details'),
+      mover_reading_sets: await tableCount('mover_reading_sets'),
+      mover_reading_set_versions: await tableCount('mover_reading_set_versions'),
+      mover_reading_asset_usages: await tableCount('mover_reading_asset_usages'),
+      mover_reading_attempts: await tableCount('mover_reading_attempts'),
+      mover_reading_attempt_details: await tableCount('mover_reading_attempt_details'),
       learning_history_backfill_state: await tableCount('learning_history_backfill_state'),
     },
     lastMigration: lastMigration || sqliteLastMigration,

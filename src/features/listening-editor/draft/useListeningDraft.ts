@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useReducer } from 'react';
 import type { SetStateAction } from 'react';
-import type { ListeningSetContent, ListeningVisibility } from '../../listening/types';
 import {
   createListeningDraftState,
   listeningDraftReducer,
@@ -8,32 +7,32 @@ import {
   type ListeningDraftDocument,
 } from './draftState';
 
-export function useListeningDraft(initialDocument: ListeningDraftDocument) {
+export function useListeningDraft<TContent, TVisibility>(initialDocument: ListeningDraftDocument<TContent, TVisibility>) {
   const [state, dispatch] = useReducer(
-    listeningDraftReducer,
+    listeningDraftReducer<TContent, TVisibility>,
     initialDocument,
     document => createListeningDraftState(document)
   );
 
-  const setDocument = useCallback((update: SetStateAction<ListeningDraftDocument>) => {
+  const setDocument = useCallback((update: SetStateAction<ListeningDraftDocument<TContent, TVisibility>>) => {
     dispatch({ type: 'change', update });
   }, []);
-  const setContent = useCallback((update: SetStateAction<ListeningSetContent>) => {
+  const setContent = useCallback((update: SetStateAction<TContent>) => {
     setDocument(document => ({
       ...document,
       content: typeof update === 'function' ? update(document.content) : update,
     }));
   }, [setDocument]);
-  const setVisibility = useCallback((update: SetStateAction<ListeningVisibility>) => {
+  const setVisibility = useCallback((update: SetStateAction<TVisibility>) => {
     setDocument(document => ({
       ...document,
       visibility: typeof update === 'function' ? update(document.visibility) : update,
     }));
   }, [setDocument]);
-  const reset = useCallback((document: ListeningDraftDocument, revision = 0) => {
+  const reset = useCallback((document: ListeningDraftDocument<TContent, TVisibility>, revision = 0) => {
     dispatch({ type: 'reset', document, revision });
   }, []);
-  const markSaved = useCallback((document: ListeningDraftDocument, revision: number) => {
+  const markSaved = useCallback((document: ListeningDraftDocument<TContent, TVisibility>, revision: number) => {
     dispatch({ type: 'mark-saved', document, revision });
   }, []);
 

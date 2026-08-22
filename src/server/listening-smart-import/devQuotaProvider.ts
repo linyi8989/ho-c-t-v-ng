@@ -52,7 +52,7 @@ export function extractDevQuotaResponseText(data: any) {
 
 export function buildDevQuotaVisionRequest(
   prompt: string,
-  images: SmartImportImageInput[],
+  images: SmartImportImageInput<string>[],
   options: SmartImportVisionOptions,
 ) {
   return {
@@ -90,7 +90,7 @@ export function buildDevQuotaVisionRequest(
 interface GenerateDevQuotaVisionInput {
   providerId: string;
   prompt: string;
-  images: SmartImportImageInput[];
+  images: SmartImportImageInput<string>[];
   options: SmartImportVisionOptions;
   signal?: AbortSignal;
   apiKey?: string;

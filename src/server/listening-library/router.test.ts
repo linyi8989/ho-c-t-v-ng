@@ -22,9 +22,14 @@ test('listening library API exposes safe module metadata and only activates Move
   const modulesResponse = await fetch(`${baseUrl}/modules`);
   assert.equal(modulesResponse.status, 200);
   const modules = await modulesResponse.json() as any[];
-  assert.deepEqual(modules.map(module => module.id), ['starter', 'mover', 'flyer', 'ket']);
+  assert.deepEqual(modules.map(module => module.id), [
+    'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
+  ]);
   assert.deepEqual(modules.filter(module => module.status === 'active').map(module => module.id), ['mover']);
   assert.equal(modules.find(module => module.id === 'starter')?.parts.length, 0);
+  assert.equal(modules.find(module => module.id === 'pet')?.levelLabel, 'B1 Preliminary');
+  assert.equal(modules.find(module => module.id === 'fce')?.levelLabel, 'B2 First');
+  assert.equal(modules.find(module => module.id === 'ielts')?.levelLabel, 'Academic & General');
 
   const moverResponse = await fetch(`${baseUrl}/modules/mover`);
   assert.equal(moverResponse.status, 200);

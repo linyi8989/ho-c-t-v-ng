@@ -16,11 +16,11 @@ export function createListeningLibraryRouter() {
 
   router.get('/modules/:moduleId', (req, res) => {
     if (!isListeningModuleId(req.params.moduleId)) {
-      return res.status(404).json({ error: 'Module bài nghe không tồn tại.' });
+      return res.status(404).json({ error: 'Module kỳ thi không tồn tại.' });
     }
     const manifest = getListeningModule(req.params.moduleId);
     if (!manifest || manifest.status === 'hidden') {
-      return res.status(404).json({ error: 'Module bài nghe không tồn tại.' });
+      return res.status(404).json({ error: 'Module kỳ thi không tồn tại.' });
     }
     const serverModule = getListeningServerModule(req.params.moduleId);
     return res.json({
@@ -32,4 +32,3 @@ export function createListeningLibraryRouter() {
 
   return router;
 }
-

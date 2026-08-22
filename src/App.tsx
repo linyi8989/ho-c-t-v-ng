@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { VocabSet, Class, Assignment, GameSession, GrammarSet } from './types';
 import {
-  listeningModulePath,
+  examLibraryPath,
+  examModulePath,
   parseListeningLibraryRoute,
 } from './features/listening-library/routes';
 import { useAuth } from './context/AuthContext';
@@ -18,6 +19,7 @@ const StudentLearningArea = React.lazy(() => import('./components/games/StudentL
 const GrammarLearningArea = React.lazy(() => import('./components/grammar/GrammarLearningArea'));
 const ListeningLibraryHome = React.lazy(() => import('./features/listening-library/student/ListeningLibraryHome'));
 const ListeningModulePage = React.lazy(() => import('./features/listening-library/student/ListeningModulePage'));
+const ListeningPaperPage = React.lazy(() => import('./features/listening-library/student/ListeningPaperPage'));
 const ListeningExamPage = React.lazy(() => import('./features/listening-library/student/ListeningExamPage'));
 const StudentHistoryPage = React.lazy(() => import('./components/history/StudentHistoryPage'));
 
@@ -500,20 +502,6 @@ export default function App() {
     return set.visibility === 'public' && matchSearch && matchGrade;
   });
 
-  const filteredListeningSets = listeningSets.filter(set => {
-    const searchTerms = expandSearchTerms(homeSearch);
-    const searchableText = normalizeSearchText([
-      set.title,
-      set.description,
-      set.level,
-      'listening',
-      'nghe'
-    ].filter(Boolean).join(' '));
-    const matchSearch = searchTerms.length === 0 || searchTerms.some(term => searchableText.includes(term));
-    const matchGrade = homeGrade ? set.level === homeGrade : true;
-    return set.visibility === 'public' && set.status === 'published' && matchSearch && matchGrade;
-  });
-
   // --- SCREEN RENDERS ---
 
   // 1. Loading Screen
@@ -552,7 +540,29 @@ export default function App() {
     return (
       <ListeningModulePage
         moduleId={listeningLibraryRoute.moduleId}
-        onBack={() => { window.location.href = '/listening'; }}
+        onBack={() => { window.location.href = examLibraryPath(); }}
+      />
+    );
+  }
+
+  if (listeningLibraryRoute?.kind === 'paper') {
+    return (
+      <ListeningPaperPage
+        moduleId={listeningLibraryRoute.moduleId}
+        paperId={listeningLibraryRoute.paperId}
+        onBack={() => { window.location.href = examModulePath(listeningLibraryRoute.moduleId); }}
+      />
+    );
+  }
+
+  if (listeningLibraryRoute?.kind === 'paper-exam') {
+    return (
+      <ListeningExamPage
+        moduleId={listeningLibraryRoute.moduleId}
+        paperId={listeningLibraryRoute.paperId}
+        examId={listeningLibraryRoute.examId}
+        accessToken={listeningLibraryRoute.accessToken}
+        onBack={() => { window.location.href = examModulePath(listeningLibraryRoute.moduleId); }}
       />
     );
   }
@@ -564,9 +574,7 @@ export default function App() {
         examId={listeningLibraryRoute.examId}
         accessToken={listeningLibraryRoute.accessToken}
         onBack={() => {
-          window.location.href = listeningLibraryRoute.legacy
-            ? '/'
-            : listeningModulePath(listeningLibraryRoute.moduleId);
+          window.location.href = examModulePath(listeningLibraryRoute.moduleId);
         }}
       />
     );
@@ -865,10 +873,7 @@ export default function App() {
         {/* Left Area: Vocab sets directory */}
         <section className="lg:col-span-8 space-y-6" id="home-sets-directory">
 
-          <ListeningLibraryHome
-            embedded
-            moduleCounts={{ mover: filteredListeningSets.length }}
-          />
+          <ListeningLibraryHome embedded />
 
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pt-8 pb-4 border-t border-b border-gray-200">
             <div className="space-y-0.5">

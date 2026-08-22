@@ -21,9 +21,9 @@ import type {
   SmartImportPart5PaletteItem,
 } from '../../features/listening-editor/smart-import/types.js';
 
-export interface SmartImportImageInput {
+export interface SmartImportImageInput<TRole extends string = ListeningSmartImportSourceRole> {
   assetId: string;
-  role: ListeningSmartImportSourceRole;
+  role: TRole;
   mimeType: string;
   data: Buffer;
 }
@@ -43,9 +43,9 @@ export interface SmartImportVisionOptions {
   attempt: number;
 }
 
-export type SmartImportVisionAnalyzer = (
+export type SmartImportVisionAnalyzer<TRole extends string = ListeningSmartImportSourceRole> = (
   prompt: string,
-  images: SmartImportImageInput[],
+  images: SmartImportImageInput<TRole>[],
   options: SmartImportVisionOptions,
   signal?: AbortSignal
 ) => Promise<SmartImportVisionResult>;

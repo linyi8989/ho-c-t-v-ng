@@ -7,11 +7,16 @@ import type {
   ListeningGradeResult,
   ListeningSetContent,
 } from '../../features/listening/types';
+import type {
+  MoverReadingWritingContent,
+  MoverReadingWritingQuestionResult,
+} from '../../features/mover-reading-writing/types';
 import {
   buildListeningActivityAnswerDetails,
   buildListeningReviewTranscripts,
   buildListeningVisualReviewSnapshot,
 } from '../listening/listeningActivity';
+import { buildMoverReadingWritingVisualReviewSnapshot } from '../mover-reading-writing/moverReadingWritingReview';
 import type {
   LearningHistoryAssignmentGroup,
   LearningHistoryFilterOption,
@@ -51,6 +56,8 @@ function mapItem(row: Record<string, any>): LearningHistoryItem {
     attemptId: String(row.attempt_id || ''),
     sourceType: row.source_type === 'grammar'
       ? 'grammar'
+      : row.source_type === 'reading_writing'
+        ? 'reading_writing'
       : row.source_type === 'listening'
         ? 'listening'
         : 'vocabulary',
@@ -151,6 +158,42 @@ history_attempts AS (
     'available' AS detail_status,
     'canonical' AS normalization_status
   FROM listening_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'reading_writing' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULLIF(json_extract(data_json, '$.assignmentDueAt'), '') AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'mover_reading_set' AS lesson_type,
+    'mover-reading-writing' AS game_id,
+    'Reading & Writing 6 Part' AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    correct_count + incorrect_count + unanswered_count AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM mover_reading_attempts
 )`;
 
 function escapeLike(value: string) {
@@ -403,7 +446,40 @@ export async function findAttemptDetail(attemptId: string) {
     [attemptId],
   );
   if (storedRow) {
-    if (String(storedRow.source_type || '').toLowerCase() !== 'listening') return storedRow;
+    const storedSourceType = String(storedRow.source_type || '').toLowerCase();
+    if (storedSourceType === 'reading_writing') {
+      const sourceRow = await sqliteQueryOne<Record<string, unknown>>(
+        `SELECT detail.data_json AS detail_data_json, version.data_json AS version_data_json
+         FROM mover_reading_attempts AS attempt
+         LEFT JOIN mover_reading_attempt_details AS detail ON detail.attempt_id = attempt.id
+         LEFT JOIN mover_reading_set_versions AS version ON version.id = attempt.version_id
+         WHERE attempt.id = ?`,
+        [attemptId],
+      );
+      try {
+        const version = JSON.parse(String(sourceRow?.version_data_json || '{}'));
+        const sourceDetail = JSON.parse(String(sourceRow?.detail_data_json || '{}'));
+        const storedQuestions = JSON.parse(String(storedRow.answer_details_json || '[]'));
+        const questions = Array.isArray(sourceDetail?.questions)
+          ? sourceDetail.questions
+          : storedQuestions;
+        const visualReview = buildMoverReadingWritingVisualReviewSnapshot(
+          version.content as MoverReadingWritingContent,
+          questions as MoverReadingWritingQuestionResult[],
+        );
+        const extraDetails = JSON.parse(String(storedRow.extra_details_json || '{}'));
+        return {
+          ...storedRow,
+          extra_details_json: JSON.stringify({
+            ...(extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? extraDetails : {}),
+            visualReview,
+          }),
+        };
+      } catch {
+        return storedRow;
+      }
+    }
+    if (storedSourceType !== 'listening') return storedRow;
     const versionRow = await sqliteQueryOne<Record<string, unknown>>(
       `SELECT version.data_json AS version_data_json
        FROM listening_attempts AS attempt
@@ -437,7 +513,62 @@ export async function findAttemptDetail(attemptId: string) {
      WHERE detail.attempt_id = ?`,
     [attemptId],
   );
-  if (!listeningRow) return undefined;
+  if (!listeningRow) {
+    const readingRow = await sqliteQueryOne<Record<string, any>>(
+      `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+              version.data_json AS version_data_json
+       FROM mover_reading_attempt_details AS detail
+       JOIN mover_reading_attempts AS attempt ON attempt.id = detail.attempt_id
+       LEFT JOIN mover_reading_set_versions AS version ON version.id = attempt.version_id
+       WHERE detail.attempt_id = ?`,
+      [attemptId],
+    );
+    if (!readingRow) return undefined;
+    let readingData: Record<string, any> = {};
+    try {
+      readingData = JSON.parse(String(readingRow.data_json || '{}'));
+    } catch {
+      readingData = {};
+    }
+    const questions = Array.isArray(readingData.questions) ? readingData.questions : [];
+    const reviewPolicy = readingData.reviewPolicy && typeof readingData.reviewPolicy === 'object'
+      ? readingData.reviewPolicy
+      : { showReviewAfterSubmit: false };
+    let visualReview;
+    try {
+      const version = JSON.parse(String(readingRow.version_data_json || '{}'));
+      visualReview = buildMoverReadingWritingVisualReviewSnapshot(
+        version.content as MoverReadingWritingContent,
+        questions as MoverReadingWritingQuestionResult[],
+      );
+    } catch {
+      // Keep the generic answer-detail fallback for malformed legacy data.
+    }
+    return {
+      attempt_id: attemptId,
+      client_run_id: null,
+      source_type: 'reading_writing',
+      answer_details_json: JSON.stringify(questions),
+      question_snapshots_json: JSON.stringify(questions.map((question: any) => ({
+        part: question?.part,
+        prompt: question?.prompt,
+      }))),
+      option_snapshots_json: '[]',
+      extra_details_json: JSON.stringify({
+        paperId: 'reading-writing',
+        ...(visualReview ? { visualReview } : {}),
+      }),
+      review_policy_json: JSON.stringify({
+        showReviewAfterSubmit: reviewPolicy.showReviewAfterSubmit === true,
+        showExplanationImmediately: false,
+        policyVersion: 1,
+      }),
+      created_at: readingRow.created_at,
+      updated_at: readingRow.updated_at,
+      expires_at: null,
+      schema_version: 1,
+    };
+  }
   let data: Record<string, any> = {};
   try {
     data = JSON.parse(String(listeningRow.data_json || '{}'));
@@ -508,7 +639,7 @@ export async function findLegacySource(
   sourceType: string,
   sourceRecordId: string,
 ): Promise<Record<string, any> | null> {
-  if (sourceType === 'listening') return null;
+  if (sourceType === 'listening' || sourceType === 'reading_writing') return null;
   const table = sourceType === 'grammar' ? 'grammar_attempts' : 'game_results';
   const row = await sqliteQueryOne<{ data_json?: string }>(
     `SELECT data_json FROM ${table} WHERE id = ?`,

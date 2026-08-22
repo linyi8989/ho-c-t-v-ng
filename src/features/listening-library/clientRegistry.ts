@@ -10,3 +10,6 @@ export function getListeningClientModule(moduleId: ListeningModuleId) {
   return clientModules.get(moduleId);
 }
 
+export function getListeningClientPaper(moduleId: ListeningModuleId, paperId: import('./types').ListeningPaperId) {
+  return clientModules.get(moduleId)?.papers?.[paperId];
+}

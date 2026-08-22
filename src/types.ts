@@ -82,7 +82,7 @@ export interface Assignment {
   id: string;
   shareToken?: string;
   assignmentSlug?: string;
-  resourceType?: 'vocabulary' | 'listening';
+  resourceType?: 'vocabulary' | 'listening' | 'mover_reading_writing';
   resourceId?: string;
   resourceTitle?: string;
   classId: string;
@@ -91,6 +91,8 @@ export interface Assignment {
   vocabSetTitle?: string;
   listeningSetId?: string;
   listeningSetTitle?: string;
+  moverReadingWritingSetId?: string;
+  moverReadingWritingSetTitle?: string;
   gameId: string;
   dueDate: string;
   createdAt: string;

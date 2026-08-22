@@ -1,48 +1,67 @@
-import { ArrowLeft, ArrowRight, Clock3, Headphones, LoaderCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpenText,
+  Clock3,
+  Headphones,
+  Layers3,
+  LoaderCircle,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
-import { getListeningClientModule } from '../clientRegistry';
+import { listExamModuleEntries, type ExamModuleListItem } from '../moduleExamList';
 import { getListeningModule } from '../registry';
-import { listeningExamPath } from '../routes';
+import { examPaperExamPath } from '../routes';
 import ComingSoonModule from '../shared/ComingSoonModule';
-import type { ListeningLibraryExamSummary, ListeningModuleId } from '../types';
+import type { ListeningModuleId, ListeningPaperId } from '../types';
 
 interface ListeningModulePageProps {
   moduleId: ListeningModuleId;
   onBack: () => void;
 }
 
+type PaperFilter = 'all' | ListeningPaperId;
+
 export default function ListeningModulePage({ moduleId, onBack }: ListeningModulePageProps) {
   const { token, loading: authLoading } = useAuth();
   const manifest = getListeningModule(moduleId);
-  const clientModule = getListeningClientModule(moduleId);
-  const [exams, setExams] = useState<ListeningLibraryExamSummary[]>([]);
+  const [exams, setExams] = useState<ExamModuleListItem[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [paperFilter, setPaperFilter] = useState<PaperFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (authLoading || !manifest || manifest.status !== 'active' || !clientModule?.listExams) {
+    if (authLoading || !manifest || manifest.status !== 'active') {
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    clientModule.listExams(token)
-      .then(rows => { if (!cancelled) setExams(rows); })
-      .catch(reason => { if (!cancelled) setError(reason.message || 'Không thể tải danh sách bộ đề.'); })
+    setError('');
+    setWarnings([]);
+    listExamModuleEntries(moduleId, token)
+      .then(result => {
+        if (cancelled) return;
+        setExams(result.items);
+        setWarnings(result.warnings);
+      })
+      .catch(reason => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Không thể tải danh sách bộ đề.');
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [authLoading, clientModule, manifest, token]);
+  }, [authLoading, manifest, moduleId, token]);
+
+  const visibleExams = useMemo(() => (
+    paperFilter === 'all' ? exams : exams.filter(exam => exam.paperId === paperFilter)
+  ), [exams, paperFilter]);
 
   if (!manifest) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 font-black text-rose-700">Module không tồn tại.</div>;
   }
   if (manifest.status !== 'active') return <ComingSoonModule module={manifest} onBack={onBack} />;
-  const totalQuestions = typeof manifest.questionsPerPart === 'number' && manifest.partCount
-    ? manifest.questionsPerPart * manifest.partCount
-    : Array.isArray(manifest.questionsPerPart)
-      ? manifest.questionsPerPart.reduce((total, count) => total + count, 0)
-      : null;
+  const activePapers = manifest.papers.filter(paper => paper.status === 'active' && paper.capabilities.student);
 
   return (
     <main
@@ -53,49 +72,81 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-col gap-4 rounded-[2rem] border border-white bg-white p-6 shadow-xl sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-600 text-white"><Headphones size={27} aria-hidden="true" /></span>
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-600 text-white"><Layers3 size={27} aria-hidden="true" /></span>
             <div>
-              <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Kho bài luyện nghe</p>
-              <h1 className="text-3xl font-black text-slate-900">{manifest.displayName}</h1>
-              <p className="mt-1 text-sm font-semibold text-slate-500">{manifest.description}</p>
+              <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
+              <h1 className="text-3xl font-black text-slate-900">{manifest.displayName} <span className="text-lg text-sky-700">· {manifest.levelLabel}</span></h1>
+              <p className="mt-1 text-sm font-semibold text-slate-500">Chọn trực tiếp một bộ đề; mỗi dòng đã ghi rõ loại bài thi.</p>
             </div>
           </div>
           <button type="button" onClick={onBack} className="listening-library-secondary-action inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-xs font-black">
-            <ArrowLeft size={15} aria-hidden="true" /> Quay lại
+            <ArrowLeft size={15} aria-hidden="true" /> Quay lại kho đề
           </button>
         </header>
 
+        {activePapers.length > 1 && (
+          <nav className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Lọc loại bài thi">
+            <button type="button" className="exam-library-filter-action rounded-xl border px-4 py-2 text-xs font-black" data-active={paperFilter === 'all'} onClick={() => setPaperFilter('all')} aria-pressed={paperFilter === 'all'}>
+              Tất cả <span aria-hidden="true">({exams.length})</span>
+            </button>
+            {activePapers.map(paper => {
+              const count = exams.filter(exam => exam.paperId === paper.id).length;
+              return (
+                <button type="button" key={paper.id} className="exam-library-filter-action rounded-xl border px-4 py-2 text-xs font-black" data-active={paperFilter === paper.id} onClick={() => setPaperFilter(paper.id)} aria-pressed={paperFilter === paper.id}>
+                  {paper.displayName} <span aria-hidden="true">({count})</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900" role="status">
+            Một phần danh sách tạm thời chưa tải được: {warnings.join(' · ')}
+          </div>
+        )}
+
         {loading ? (
-          <div className="flex min-h-64 items-center justify-center rounded-3xl border border-slate-200 bg-white"><LoaderCircle className="animate-spin text-sky-600" size={36} /></div>
+          <div className="flex min-h-64 items-center justify-center rounded-3xl border border-slate-200 bg-white"><LoaderCircle className="animate-spin text-sky-600" size={36} aria-label="Đang tải danh sách bộ đề" /></div>
         ) : error ? (
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center text-sm font-black text-rose-700">{error}</div>
-        ) : exams.length === 0 ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm font-semibold text-slate-500">Chưa có bộ đề {manifest.displayName} công khai.</div>
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center text-sm font-black text-rose-700" role="alert">{error}</div>
+        ) : visibleExams.length === 0 ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm font-semibold text-slate-500">
+            {paperFilter === 'all' ? `Chưa có bộ đề ${manifest.displayName} công khai.` : `Chưa có bộ đề ${activePapers.find(paper => paper.id === paperFilter)?.displayName || ''} công khai.`}
+          </div>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {exams.map(exam => (
-              <article key={exam.examId} className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm">
-                {exam.coverUrl ? <img src={exam.coverUrl} alt="" className="h-44 w-full object-cover" /> : <div className="flex h-32 items-center justify-center bg-gradient-to-br from-sky-100 to-indigo-100 text-sky-700"><Headphones size={38} aria-hidden="true" /></div>}
-                <div className="p-5">
-                  <div className="flex items-center justify-between gap-3 text-[10px] font-black uppercase text-sky-700">
-                    <span>{exam.gradeLevel}</span>
-                    <span>
-                      {manifest.partCount ? `${manifest.partCount} Part` : 'Nhiều Part'}
-                      {totalQuestions ? ` • ${totalQuestions} câu` : ''}
+          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" data-exam-list>
+            {visibleExams.map((exam, index) => {
+              const listening = exam.paperId === 'listening';
+              const href = examPaperExamPath(moduleId, exam.paperId, exam.examId);
+              return (
+                <article key={`${exam.paperId}:${exam.examId}`} className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center ${index > 0 ? 'border-t border-slate-200' : ''}`}>
+                  {exam.coverUrl ? (
+                    <img src={exam.coverUrl} alt="" className="h-28 w-full rounded-2xl object-cover sm:w-40" loading="lazy" />
+                  ) : (
+                    <span className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl ${listening ? 'bg-sky-100 text-sky-700' : 'bg-indigo-100 text-indigo-700'}`} aria-hidden="true">
+                      {listening ? <Headphones size={31} /> : <BookOpenText size={31} />}
                     </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide ${listening ? 'bg-sky-100 text-sky-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                      {exam.paperDisplayName}
+                    </span>
+                    <h2 className="mt-2 text-lg font-black text-slate-900">
+                      <a href={href} className="exam-library-exam-title rounded-sm hover:text-blue-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{exam.title}</a>
+                    </h2>
+                    {exam.description && <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">{exam.description}</p>}
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
+                      <span>{exam.partCount} Part · {exam.questionCount} câu</span>
+                      <span className="inline-flex items-center gap-1"><Clock3 size={14} aria-hidden="true" />{exam.timeLimitMinutes ? `${exam.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}</span>
+                    </div>
                   </div>
-                  <h2 className="mt-3 text-lg font-black text-slate-900">{exam.title}</h2>
-                  <p className="mt-2 min-h-10 text-xs font-semibold leading-5 text-slate-500 line-clamp-2">{exam.description}</p>
-                  <div className="mt-3 flex items-center gap-2 text-xs font-bold text-slate-400">
-                    <Clock3 size={14} aria-hidden="true" />
-                    {exam.timeLimitMinutes ? `${exam.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}
-                  </div>
-                  <button type="button" onClick={() => { window.location.href = listeningExamPath(moduleId, exam.examId); }} className="listening-library-primary-action mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black">
-                    Bắt đầu luyện nghe <ArrowRight size={16} aria-hidden="true" />
-                  </button>
-                </div>
-              </article>
-            ))}
+                  <a href={href} className="listening-library-primary-action inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-black">
+                    Làm bài <ArrowRight size={16} aria-hidden="true" />
+                  </a>
+                </article>
+              );
+            })}
           </div>
         )}
       </div>

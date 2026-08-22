@@ -1,5 +1,10 @@
-export type ListeningModuleId = 'starter' | 'mover' | 'flyer' | 'ket';
+export type ExamModuleId = 'starter' | 'mover' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts';
+// Compatibility alias: the library began as Listening-only, while public routes
+// and manifests now describe the broader Cambridge & IELTS exam directory.
+export type ListeningModuleId = ExamModuleId;
 export type ListeningModuleStatus = 'active' | 'coming_soon' | 'hidden';
+export type ExamPaperId = 'listening' | 'reading-writing';
+export type ListeningPaperId = ExamPaperId;
 
 export interface ListeningModulePartManifest {
   id: string;
@@ -18,11 +23,25 @@ export interface ListeningModuleCapabilities {
 export interface ListeningModuleManifest {
   id: ListeningModuleId;
   displayName: string;
+  levelLabel: string;
   description: string;
   status: ListeningModuleStatus;
   schemaVersion: number;
   partCount: number | null;
   questionsPerPart: number | readonly number[] | null;
+  parts: readonly ListeningModulePartManifest[];
+  capabilities: ListeningModuleCapabilities;
+  papers: readonly ListeningPaperManifest[];
+}
+
+export interface ListeningPaperManifest {
+  id: ListeningPaperId;
+  displayName: string;
+  description: string;
+  status: ListeningModuleStatus;
+  schemaVersion: number;
+  partCount: number;
+  questionsPerPart: number | readonly number[];
   parts: readonly ListeningModulePartManifest[];
   capabilities: ListeningModuleCapabilities;
 }
@@ -57,4 +76,12 @@ export type ListeningLibraryRoute =
       examId: string;
       accessToken: string;
       legacy: boolean;
+    }
+  | { kind: 'paper'; moduleId: ListeningModuleId; paperId: ListeningPaperId }
+  | {
+      kind: 'paper-exam';
+      moduleId: ListeningModuleId;
+      paperId: ListeningPaperId;
+      examId: string;
+      accessToken: string;
     };

@@ -564,7 +564,8 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       const asset = { id: document.id, ...document.data() };
       if (!isSuperAdmin(req.user) && asset.ownerId !== req.user!.id) throw apiError(403, 'Bạn không có quyền lưu trữ media này.');
       const usage = await db.collection('listening_asset_usages').where('assetId', '==', asset.id).get();
-      if (!usage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
+      const readingUsage = await db.collection('mover_reading_asset_usages').where('assetId', '==', asset.id).get();
+      if (!usage.empty || !readingUsage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
       await document.ref.update({ status: 'archived', updatedAt: nowIso() });
       res.json({ success: true });
     } catch (error) {

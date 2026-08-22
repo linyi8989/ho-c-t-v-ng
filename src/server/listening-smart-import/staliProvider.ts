@@ -81,7 +81,7 @@ export function extractStaliChatCompletionText(data: any) {
 export function buildStaliVisionRequest(
   model: string,
   prompt: string,
-  images: SmartImportImageInput[],
+  images: SmartImportImageInput<string>[],
   options: SmartImportVisionOptions,
 ) {
   return {
@@ -118,7 +118,7 @@ export function buildStaliVisionRequest(
 interface GenerateStaliVisionInput {
   providerId: string;
   prompt: string;
-  images: SmartImportImageInput[];
+  images: SmartImportImageInput<string>[];
   options: SmartImportVisionOptions;
   signal?: AbortSignal;
   apiKey?: string;

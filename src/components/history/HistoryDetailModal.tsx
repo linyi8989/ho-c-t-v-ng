@@ -25,6 +25,9 @@ import ListeningVisualReview, {
   isListeningVisualReviewSnapshot,
   normalizeListeningReviewTranscripts,
 } from '../../features/listening/review/ListeningVisualReview';
+import MoverReadingWritingVisualReview, {
+  isMoverReadingWritingVisualReviewSnapshot,
+} from '../../features/mover-reading-writing/review/MoverReadingWritingVisualReview';
 
 interface HistoryDetailModalProps {
   open: boolean;
@@ -376,6 +379,10 @@ export default function HistoryDetailModal({
   const visualReview = attempt.sourceType === 'listening' && isListeningVisualReviewSnapshot(visualReviewCandidate)
     ? visualReviewCandidate
     : undefined;
+  const readingWritingVisualReview = attempt.sourceType === 'reading_writing'
+    && isMoverReadingWritingVisualReviewSnapshot(visualReviewCandidate)
+    ? visualReviewCandidate
+    : undefined;
   const listeningReviewTranscripts = attempt.sourceType === 'listening'
     ? normalizeListeningReviewTranscripts(
         extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
@@ -474,6 +481,8 @@ export default function HistoryDetailModal({
             <DetailStatusMessage status={detailStatus} />
           ) : visualReview ? (
             <ListeningVisualReview snapshot={visualReview} transcripts={listeningReviewTranscripts} compact />
+          ) : readingWritingVisualReview ? (
+            <MoverReadingWritingVisualReview snapshot={readingWritingVisualReview} compact />
           ) : entries.length === 0 ? (
             <DetailStatusMessage status="missing" />
           ) : (

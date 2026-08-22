@@ -1,33 +1,33 @@
 import type { ListeningSetContent, ListeningVisibility } from '../../listening/types';
 
-export interface ListeningDraftDocument {
-  content: ListeningSetContent;
-  visibility: ListeningVisibility;
+export interface ListeningDraftDocument<TContent = ListeningSetContent, TVisibility = ListeningVisibility> {
+  content: TContent;
+  visibility: TVisibility;
 }
 
-export interface ListeningDraftState {
-  past: ListeningDraftDocument[];
-  present: ListeningDraftDocument;
-  future: ListeningDraftDocument[];
+export interface ListeningDraftState<TContent = ListeningSetContent, TVisibility = ListeningVisibility> {
+  past: ListeningDraftDocument<TContent, TVisibility>[];
+  present: ListeningDraftDocument<TContent, TVisibility>;
+  future: ListeningDraftDocument<TContent, TVisibility>[];
   savedDocumentJson: string;
   revision: number;
 }
 
-export type ListeningDraftAction =
-  | { type: 'change'; update: ListeningDraftDocument | ((current: ListeningDraftDocument) => ListeningDraftDocument) }
+export type ListeningDraftAction<TContent = ListeningSetContent, TVisibility = ListeningVisibility> =
+  | { type: 'change'; update: ListeningDraftDocument<TContent, TVisibility> | ((current: ListeningDraftDocument<TContent, TVisibility>) => ListeningDraftDocument<TContent, TVisibility>) }
   | { type: 'undo' }
   | { type: 'redo' }
-  | { type: 'reset'; document: ListeningDraftDocument; revision: number }
-  | { type: 'mark-saved'; document: ListeningDraftDocument; revision: number };
+  | { type: 'reset'; document: ListeningDraftDocument<TContent, TVisibility>; revision: number }
+  | { type: 'mark-saved'; document: ListeningDraftDocument<TContent, TVisibility>; revision: number };
 
 const HISTORY_LIMIT = 60;
 
-export const serializeListeningDraft = (document: ListeningDraftDocument) => JSON.stringify(document);
+export const serializeListeningDraft = <TContent, TVisibility>(document: ListeningDraftDocument<TContent, TVisibility>) => JSON.stringify(document);
 
-export function createListeningDraftState(
-  document: ListeningDraftDocument,
+export function createListeningDraftState<TContent, TVisibility>(
+  document: ListeningDraftDocument<TContent, TVisibility>,
   revision = 0
-): ListeningDraftState {
+): ListeningDraftState<TContent, TVisibility> {
   return {
     past: [],
     present: document,
@@ -37,10 +37,10 @@ export function createListeningDraftState(
   };
 }
 
-export function listeningDraftReducer(
-  state: ListeningDraftState,
-  action: ListeningDraftAction
-): ListeningDraftState {
+export function listeningDraftReducer<TContent, TVisibility>(
+  state: ListeningDraftState<TContent, TVisibility>,
+  action: ListeningDraftAction<TContent, TVisibility>
+): ListeningDraftState<TContent, TVisibility> {
   if (action.type === 'reset') return createListeningDraftState(action.document, action.revision);
   if (action.type === 'mark-saved') {
     return {

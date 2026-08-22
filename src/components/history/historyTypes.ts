@@ -1,4 +1,4 @@
-export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening';
+export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening' | 'reading_writing';
 export type LearningHistoryKind = 'all' | 'assignment' | 'practice';
 export type LearningAttemptStatus = 'in_progress' | 'completed' | 'interrupted';
 export type LearningDetailStatus =
@@ -234,6 +234,7 @@ function normalizeSourceType(value: unknown): LearningHistorySourceType {
   const normalized = String(value || '').toLowerCase();
   if (normalized === 'grammar') return 'grammar';
   if (normalized === 'listening') return 'listening';
+  if (normalized === 'reading_writing') return 'reading_writing';
   return 'vocabulary';
 }
 
@@ -286,7 +287,13 @@ export function parseLearningHistoryItem(value: unknown, fallbackIndex = 0): Lea
     gameId: textValue(
       record,
       ['gameId', 'game_id'],
-      sourceType === 'grammar' ? 'grammar-practice' : sourceType === 'listening' ? 'listening-five-part' : ''
+      sourceType === 'grammar'
+        ? 'grammar-practice'
+        : sourceType === 'listening'
+          ? 'listening-five-part'
+          : sourceType === 'reading_writing'
+            ? 'mover-reading-writing'
+            : ''
     ),
     gameTitle: textValue(
       record,
@@ -295,6 +302,8 @@ export function parseLearningHistoryItem(value: unknown, fallbackIndex = 0): Lea
         ? 'Luyện ngữ pháp'
         : sourceType === 'listening'
           ? 'Nghe 5 Part'
+          : sourceType === 'reading_writing'
+            ? 'Reading & Writing 6 Part'
           : 'Luyện từ vựng'
     ),
     classId: optionalText(record, ['classId', 'class_id']),

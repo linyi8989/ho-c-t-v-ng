@@ -1,17 +1,14 @@
-import { ArrowLeft, ArrowRight, Clock3, Headphones, Layers3 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpenText, Clock3, Layers3 } from 'lucide-react';
 import { getVisibleListeningModules } from '../registry';
-import { listeningModulePath } from '../routes';
-import type { ListeningModuleId } from '../types';
+import { examModulePath } from '../routes';
 
 interface ListeningLibraryHomeProps {
   embedded?: boolean;
-  moduleCounts?: Partial<Record<ListeningModuleId, number>>;
   onBack?: () => void;
 }
 
 export default function ListeningLibraryHome({
   embedded = false,
-  moduleCounts = {},
   onBack,
 }: ListeningLibraryHomeProps) {
   const modules = getVisibleListeningModules();
@@ -19,13 +16,13 @@ export default function ListeningLibraryHome({
     <div className="space-y-5" id={embedded ? 'home-listening-directory' : 'listening-library-home'}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Listening Library</p>
+          <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
           <h2 className={`${embedded ? 'text-xl' : 'text-3xl'} mt-1 flex items-center gap-2 font-black text-slate-900`}>
-            <Headphones className="text-sky-600" size={embedded ? 22 : 28} aria-hidden="true" />
-            Kho bài luyện nghe
+            <BookOpenText className="text-sky-600" size={embedded ? 22 : 28} aria-hidden="true" />
+            Kho đề luyện thi
           </h2>
           <p className="mt-1 text-sm font-semibold text-slate-500">
-            Chọn cấp độ phù hợp; mỗi module có cấu trúc và quy tắc riêng.
+            Chọn cấp độ hoặc kỳ thi; mỗi bộ đề được phân loại theo kỹ năng.
           </p>
         </div>
         {!embedded && onBack && (
@@ -38,7 +35,6 @@ export default function ListeningLibraryHome({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {modules.map(module => {
           const active = module.status === 'active' && module.capabilities.student;
-          const count = moduleCounts[module.id];
           return (
             <article key={module.id} className={`flex min-h-56 flex-col rounded-3xl border p-5 shadow-sm ${active ? 'border-sky-200 bg-gradient-to-br from-white to-sky-50' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex items-start justify-between gap-3">
@@ -50,14 +46,15 @@ export default function ListeningLibraryHome({
                 </span>
               </div>
               <h3 className="mt-4 text-2xl font-black text-slate-900">{module.displayName}</h3>
+              <span className="mt-1 text-xs font-black uppercase tracking-wide text-sky-700">{module.levelLabel}</span>
               <p className="mt-2 flex-1 text-sm font-semibold leading-6 text-slate-500">{module.description}</p>
               {active ? (
                 <button
                   type="button"
-                  onClick={() => { window.location.href = listeningModulePath(module.id); }}
+                  onClick={() => { window.location.href = examModulePath(module.id); }}
                   className="listening-library-primary-action mt-5 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black"
                 >
-                  {typeof count === 'number' ? `${count} bộ đề` : 'Mở kho Mover'}
+                  Xem danh sách
                   <ArrowRight size={16} aria-hidden="true" />
                 </button>
               ) : (

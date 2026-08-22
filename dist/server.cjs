@@ -22,9 +22,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express4 = __toESM(require("express"), 1);
-var import_path4 = __toESM(require("path"), 1);
-var import_crypto2 = __toESM(require("crypto"), 1);
+var import_express5 = __toESM(require("express"), 1);
+var import_path5 = __toESM(require("path"), 1);
+var import_crypto3 = __toESM(require("crypto"), 1);
 
 // src/lib/grammarAnswers.ts
 var GRAMMAR_TEXT_GRADING_VERSION = 2;
@@ -44,7 +44,7 @@ function isGrammarTextAnswerCorrect(studentAnswer, correctAnswer, acceptedAnswer
 }
 
 // server.ts
-var import_fs4 = __toESM(require("fs"), 1);
+var import_fs5 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
 var import_genai = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
@@ -463,6 +463,7 @@ var NATIVE_HOT_QUERY_MIGRATION_ID = "native-hot-query-columns-v2";
 var LEARNING_HISTORY_SCHEMA_MIGRATION_ID = "learning-history-schema-v1";
 var GUEST_CAPABILITY_STORAGE_MIGRATION_ID = "guest-capability-physical-v1";
 var LISTENING_SCHEMA_MIGRATION_ID = "listening-five-part-schema-v1";
+var MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = "mover-reading-writing-schema-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -522,6 +523,16 @@ var collectionTableMap = {
   listeningattempts: "listening_attempts",
   listening_attempt_details: "listening_attempt_details",
   listeningattemptdetails: "listening_attempt_details",
+  mover_reading_sets: "mover_reading_sets",
+  moverreadingsets: "mover_reading_sets",
+  mover_reading_set_versions: "mover_reading_set_versions",
+  moverreadingsetversions: "mover_reading_set_versions",
+  mover_reading_asset_usages: "mover_reading_asset_usages",
+  moverreadingassetusages: "mover_reading_asset_usages",
+  mover_reading_attempts: "mover_reading_attempts",
+  moverreadingattempts: "mover_reading_attempts",
+  mover_reading_attempt_details: "mover_reading_attempt_details",
+  moverreadingattemptdetails: "mover_reading_attempt_details",
   audit_logs: "audit_logs",
   auditlogs: "audit_logs",
   settings: "settings"
@@ -706,6 +717,50 @@ var sqlQueryFieldMap = {
     updatedAt: "updated_at"
   },
   listening_attempt_details: {
+    id: "id",
+    attemptId: "attempt_id",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  mover_reading_sets: {
+    id: "id",
+    ownerId: "owner_id",
+    status: "status",
+    visibility: "visibility",
+    publishedVersionId: "published_version_id",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  mover_reading_set_versions: {
+    id: "id",
+    setId: "set_id",
+    versionNumber: "version_number",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  mover_reading_asset_usages: {
+    id: "id",
+    assetId: "asset_id",
+    setId: "set_id",
+    versionId: "version_id",
+    createdAt: "created_at"
+  },
+  mover_reading_attempts: {
+    id: "id",
+    ownerKey: "owner_key",
+    userId: "user_id",
+    guestId: "guest_id",
+    setId: "set_id",
+    versionId: "version_id",
+    assignmentId: "assignment_id",
+    clientRunId: "client_run_id",
+    score: "score",
+    completedAt: "completed_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  mover_reading_attempt_details: {
     id: "id",
     attemptId: "attempt_id",
     createdAt: "created_at",
@@ -1406,6 +1461,145 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
     ]
   );
 }
+function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt, updatedAt) {
+  if (table === "mover_reading_sets") {
+    run(
+      `INSERT INTO mover_reading_sets (
+        id, owner_id, title, status, visibility, published_version_id,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_id = excluded.owner_id,
+        title = excluded.title,
+        status = excluded.status,
+        visibility = excluded.visibility,
+        published_version_id = excluded.published_version_id,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "ownerId", "owner_id", "createdBy")),
+        optionalText(firstDefined(data, "title")),
+        optionalText(firstDefined(data, "status")) || "draft",
+        optionalText(firstDefined(data, "visibility")) || "draft",
+        optionalText(firstDefined(data, "publishedVersionId", "published_version_id")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "mover_reading_set_versions") {
+    run(
+      `INSERT INTO mover_reading_set_versions (
+        id, set_id, version_number, status, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        set_id = excluded.set_id,
+        version_number = excluded.version_number,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "setId", "set_id")),
+        Math.max(1, nonNegativeInteger(firstDefined(data, "versionNumber", "version_number"), 1)),
+        optionalText(firstDefined(data, "status")) || "published",
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "mover_reading_asset_usages") {
+    run(
+      `INSERT INTO mover_reading_asset_usages (
+        id, asset_id, set_id, version_id, entity_id, role, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        set_id = excluded.set_id,
+        version_id = excluded.version_id,
+        entity_id = excluded.entity_id,
+        role = excluded.role,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "assetId", "asset_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "entityId", "entity_id")),
+        optionalText(firstDefined(data, "role")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "mover_reading_attempts") {
+    run(
+      `INSERT INTO mover_reading_attempts (
+        id, owner_key, user_id, guest_id, set_id, version_id, assignment_id,
+        client_run_id, run_secret_hash, student_name, class_id, score,
+        correct_count, incorrect_count, unanswered_count, started_at, completed_at,
+        duration_seconds, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        assignment_id = excluded.assignment_id,
+        score = excluded.score,
+        correct_count = excluded.correct_count,
+        incorrect_count = excluded.incorrect_count,
+        unanswered_count = excluded.unanswered_count,
+        completed_at = excluded.completed_at,
+        duration_seconds = excluded.duration_seconds,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, "ownerKey", "owner_key")),
+        optionalText(firstDefined(data, "userId", "user_id")),
+        optionalText(firstDefined(data, "guestId", "guest_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "assignmentId", "assignment_id")),
+        optionalText(firstDefined(data, "clientRunId", "client_run_id")),
+        optionalText(firstDefined(data, "runSecretHash", "run_secret_hash")),
+        optionalText(firstDefined(data, "studentName", "student_name")),
+        optionalText(firstDefined(data, "classId", "class_id")),
+        Math.max(0, Math.min(100, finiteNumber(firstDefined(data, "score"), 0))),
+        nonNegativeInteger(firstDefined(data, "correctCount", "correct_count"), 0),
+        nonNegativeInteger(firstDefined(data, "incorrectCount", "incorrect_count"), 0),
+        nonNegativeInteger(firstDefined(data, "unansweredCount", "unanswered_count"), 0),
+        optionalText(firstDefined(data, "startedAt", "started_at")) || createdAt,
+        optionalText(firstDefined(data, "completedAt", "completed_at")) || updatedAt,
+        nonNegativeInteger(firstDefined(data, "durationSeconds", "duration_seconds"), 0),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  run(
+    `INSERT INTO mover_reading_attempt_details (id, attempt_id, created_at, updated_at, data_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      attempt_id = excluded.attempt_id,
+      updated_at = excluded.updated_at,
+      data_json = excluded.data_json`,
+    [
+      id,
+      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id,
+      createdAt,
+      updatedAt,
+      dataJson
+    ]
+  );
+}
 function upsertDoc(collectionName, id, inputData) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
@@ -1426,6 +1620,10 @@ function upsertDoc(collectionName, id, inputData) {
   }
   if (table === "listening_sets" || table === "listening_set_versions" || table === "listening_assets" || table === "listening_asset_usages" || table === "listening_attempts" || table === "listening_attempt_details") {
     upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
+  if (table === "mover_reading_sets" || table === "mover_reading_set_versions" || table === "mover_reading_asset_usages" || table === "mover_reading_attempts" || table === "mover_reading_attempt_details") {
+    upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt, updatedAt);
     return;
   }
   if (table === "users") {
@@ -2561,6 +2759,116 @@ function migrateListeningSchema() {
   );
   sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
 }
+function migrateMoverReadingWritingSchema() {
+  if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS mover_reading_sets (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'archived')),
+      visibility TEXT NOT NULL DEFAULT 'draft'
+        CHECK(visibility IN ('draft', 'public', 'assignment')),
+      published_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_set_versions (
+      id TEXT PRIMARY KEY,
+      set_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL CHECK(version_number >= 1),
+      status TEXT NOT NULL DEFAULT 'published'
+        CHECK(status IN ('published', 'superseded')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_asset_usages (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      entity_id TEXT,
+      role TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(asset_id) REFERENCES listening_assets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES mover_reading_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      user_id TEXT,
+      guest_id TEXT,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      assignment_id TEXT,
+      client_run_id TEXT NOT NULL,
+      run_secret_hash TEXT NOT NULL,
+      student_name TEXT,
+      class_id TEXT,
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      correct_count INTEGER NOT NULL CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL CHECK(unanswered_count >= 0),
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES mover_reading_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES mover_reading_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS mover_reading_attempt_details (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES mover_reading_attempts(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mover_reading_versions_set_number
+      ON mover_reading_set_versions(set_id, version_number);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_sets_owner_status
+      ON mover_reading_sets(owner_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_usages_asset
+      ON mover_reading_asset_usages(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_usages_set
+      ON mover_reading_asset_usages(set_id, version_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mover_reading_attempts_client_run
+      ON mover_reading_attempts(owner_key, set_id, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_owner_completed
+      ON mover_reading_attempts(owner_key, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_set_completed
+      ON mover_reading_attempts(set_id, completed_at DESC);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [MOVER_READING_WRITING_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
+}
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -2649,6 +2957,7 @@ async function initializeSQLiteStorage() {
         migrateLearningHistorySchema();
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
+        migrateMoverReadingWritingSchema();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
@@ -2942,6 +3251,11 @@ async function getSQLiteDiagnostics() {
       listening_asset_usages: await tableCount("listening_asset_usages"),
       listening_attempts: await tableCount("listening_attempts"),
       listening_attempt_details: await tableCount("listening_attempt_details"),
+      mover_reading_sets: await tableCount("mover_reading_sets"),
+      mover_reading_set_versions: await tableCount("mover_reading_set_versions"),
+      mover_reading_asset_usages: await tableCount("mover_reading_asset_usages"),
+      mover_reading_attempts: await tableCount("mover_reading_attempts"),
+      mover_reading_attempt_details: await tableCount("mover_reading_attempt_details"),
       learning_history_backfill_state: await tableCount("learning_history_backfill_state")
     },
     lastMigration: lastMigration || sqliteLastMigration,
@@ -3652,18 +3966,21 @@ var LISTENING_MODULES = [
   {
     id: "starter",
     displayName: "Starter",
-    description: "Kho b\xE0i luy\u1EC7n nghe Starter \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    levelLabel: "Pre A1",
+    description: "Kho \u0111\u1EC1 Pre A1 Starters \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
     status: "coming_soon",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities
+    capabilities: comingSoonCapabilities,
+    papers: []
   },
   {
     id: "mover",
     displayName: "Mover",
-    description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
+    levelLabel: "A1",
+    description: "Mover g\u1ED3m Listening v\xE0 Reading & Writing v\u1EDBi c\u1EA5u tr\xFAc ri\xEAng cho t\u1EEBng b\xE0i thi.",
     status: "active",
     schemaVersion: 1,
     partCount: 5,
@@ -3679,29 +3996,116 @@ var LISTENING_MODULES = [
       admin: true,
       scoring: true,
       assignments: true
-    }
+    },
+    papers: [
+      {
+        id: "listening",
+        displayName: "Listening",
+        description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
+        status: "active",
+        schemaVersion: 1,
+        partCount: 5,
+        questionsPerPart: 5,
+        parts: Array.from({ length: 5 }, (_, index) => ({
+          id: `part-${index + 1}`,
+          displayName: `Part ${index + 1}`,
+          schemaVersion: 1,
+          questionCount: 5
+        })),
+        capabilities: {
+          student: true,
+          admin: true,
+          scoring: true,
+          assignments: true
+        }
+      },
+      {
+        id: "reading-writing",
+        displayName: "Reading & Writing",
+        description: "B\u1ED9 \u0111\u1EC1 Mover Reading & Writing g\u1ED3m 6 Part v\xE0 40 c\xE2u.",
+        status: "active",
+        schemaVersion: 1,
+        partCount: 6,
+        questionsPerPart: [6, 6, 6, 7, 10, 5],
+        parts: [6, 6, 6, 7, 10, 5].map((questionCount, index) => ({
+          id: `part-${index + 1}`,
+          displayName: `Part ${index + 1}`,
+          schemaVersion: 1,
+          questionCount
+        })),
+        capabilities: {
+          student: true,
+          admin: true,
+          scoring: true,
+          assignments: true
+        }
+      }
+    ]
   },
   {
     id: "flyer",
     displayName: "Flyer",
-    description: "Kho b\xE0i luy\u1EC7n nghe Flyer \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    levelLabel: "A2",
+    description: "Kho \u0111\u1EC1 A2 Flyers \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
     status: "coming_soon",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities
+    capabilities: comingSoonCapabilities,
+    papers: []
   },
   {
     id: "ket",
     displayName: "KET",
-    description: "Kho b\xE0i luy\u1EC7n nghe KET \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    levelLabel: "A2 Key",
+    description: "Kho \u0111\u1EC1 A2 Key (KET) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
     status: "coming_soon",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities
+    capabilities: comingSoonCapabilities,
+    papers: []
+  },
+  {
+    id: "pet",
+    displayName: "PET",
+    levelLabel: "B1 Preliminary",
+    description: "Kho \u0111\u1EC1 B1 Preliminary (PET) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities,
+    papers: []
+  },
+  {
+    id: "fce",
+    displayName: "FCE",
+    levelLabel: "B2 First",
+    description: "Kho \u0111\u1EC1 B2 First (FCE) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities,
+    papers: []
+  },
+  {
+    id: "ielts",
+    displayName: "IELTS",
+    levelLabel: "Academic & General",
+    description: "Kho \u0111\u1EC1 IELTS Academic v\xE0 General Training \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+    status: "coming_soon",
+    schemaVersion: 1,
+    partCount: null,
+    questionsPerPart: null,
+    parts: [],
+    capabilities: comingSoonCapabilities,
+    papers: []
   }
 ];
 var moduleMap = new Map(
@@ -3723,13 +4127,15 @@ function publicListeningModuleManifest(module2) {
   return {
     id: module2.id,
     displayName: module2.displayName,
+    levelLabel: module2.levelLabel,
     description: module2.description,
     status: module2.status,
     schemaVersion: module2.schemaVersion,
     partCount: module2.partCount,
     questionsPerPart: module2.questionsPerPart,
     parts: module2.parts,
-    capabilities: module2.capabilities
+    capabilities: module2.capabilities,
+    papers: module2.papers
   };
 }
 
@@ -3928,14 +4334,14 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
     });
   };
   const part1 = content.parts[0];
-  const part1Options = part1.choices.map((choice) => choice.label);
+  const part1Options = part1.choices.map((choice2) => choice2.label);
   part1.targets.forEach((target, index) => {
     push(
       1,
       target.id,
       formatListeningReviewQuestion("", 1, index),
-      labelForId(part1.choices, answers.part1[target.id], (choice) => choice.label),
-      labelForId(part1.choices, target.choiceId, (choice) => choice.label),
+      labelForId(part1.choices, answers.part1[target.id], (choice2) => choice2.label),
+      labelForId(part1.choices, target.choiceId, (choice2) => choice2.label),
       part1Options
     );
   });
@@ -4311,6 +4717,246 @@ function listeningAttemptToActivity(attempt, detail) {
   };
 }
 
+// src/features/mover-reading-writing/types.ts
+var MOVER_READING_WRITING_PAPER_ID = "reading-writing";
+var MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION = 1;
+var MOVER_READING_WRITING_SCHEMA_VERSION = 2;
+var MOVER_READING_WRITING_PART_COUNTS = [6, 6, 6, 7, 10, 5];
+var MOVER_READING_WRITING_TOTAL_QUESTIONS = 40;
+
+// src/features/mover-reading-writing/compatibility.ts
+var INTERNAL_MARKER = /\{\{[^}]+\}\}/;
+var PRINTED_BLANK = /(?:_{3,}|\.{4,}|(?:\.\s*){4,}|…{2,})/;
+function isSupportedMoverReadingWritingSchemaVersion(value) {
+  return value === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION || value === MOVER_READING_WRITING_SCHEMA_VERSION;
+}
+function ensureInlineQuestionTemplate(prompt, questionId) {
+  const source = String(prompt || "").trim();
+  const marker = `{{${questionId}}}`;
+  if (source.includes(marker) || INTERNAL_MARKER.test(source)) return source;
+  if (PRINTED_BLANK.test(source)) return source.replace(PRINTED_BLANK, marker);
+  return source ? `${source} ${marker}` : marker;
+}
+function normalizeTextQuestion(question) {
+  const id = String(question?.id || "");
+  return {
+    ...question,
+    id,
+    prompt: ensureInlineQuestionTemplate(String(question?.prompt || ""), id),
+    acceptedAnswers: Array.isArray(question?.acceptedAnswers) ? question.acceptedAnswers.map((answer) => String(answer)) : []
+  };
+}
+function normalizePart6Gap(gap) {
+  if (Array.isArray(gap?.acceptedAnswers)) {
+    return {
+      id: String(gap.id || ""),
+      acceptedAnswers: gap.acceptedAnswers.map((answer) => String(answer))
+    };
+  }
+  const options = Array.isArray(gap?.options) ? gap.options : [];
+  const correct = options.find((option) => option?.id === gap?.correctOptionId);
+  const correctText = String(correct?.text || "").trim();
+  return {
+    id: String(gap?.id || ""),
+    acceptedAnswers: correctText ? [correctText] : []
+  };
+}
+function normalizeMoverReadingWritingContent(value) {
+  const content = structuredClone(value);
+  if (!content || !isSupportedMoverReadingWritingSchemaVersion(content.schemaVersion)) {
+    throw new Error("Phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc Reading & Writing kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+  }
+  if (!Array.isArray(content.parts) || content.parts.length !== 6) {
+    throw new Error("Reading & Writing c\u1EA7n \u0111\xFAng 6 Part.");
+  }
+  content.schemaVersion = MOVER_READING_WRITING_SCHEMA_VERSION;
+  content.parts[0].questions = Array.isArray(content.parts[0]?.questions) ? content.parts[0].questions.map(normalizeTextQuestion) : [];
+  content.parts[4].scenes = Array.isArray(content.parts[4]?.scenes) ? content.parts[4].scenes.map((scene) => ({
+    ...scene,
+    questions: Array.isArray(scene?.questions) ? scene.questions.map(normalizeTextQuestion) : []
+  })) : [];
+  content.parts[5].gaps = Array.isArray(content.parts[5]?.gaps) ? content.parts[5].gaps.map(normalizePart6Gap) : [];
+  return content;
+}
+
+// src/server/mover-reading-writing/moverReadingWritingReview.ts
+var reviewText = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
+function reviewState(result) {
+  if (result.unanswered) return "unanswered";
+  return result.correct ? "correct" : "incorrect";
+}
+function optionAnswer(question, index) {
+  const option = question.options[index];
+  return option ? `${String.fromCharCode(65 + index)}. ${reviewText(option.text, 1e3)}`.trim() : "";
+}
+function optionIndexFromAnswer(question, answer) {
+  const normalized = reviewText(answer, 1e3);
+  return question.options.findIndex((_option, index) => optionAnswer(question, index) === normalized);
+}
+function presentationTemplate(template, gaps) {
+  return gaps.reduce(
+    (value, gap, index) => value.split(`{{${gap.id}}}`).join(`{{${index + 1}}}`),
+    reviewText(template)
+  );
+}
+function safeExample(example) {
+  if (!example) return void 0;
+  const prompt = reviewText(example.prompt, 2e3);
+  const answer = reviewText(example.answer, 1e3);
+  return prompt || answer ? { prompt, answer } : void 0;
+}
+function baseItem(result, questionNumber2, prompt) {
+  return {
+    questionNumber: questionNumber2,
+    state: reviewState(result),
+    prompt: reviewText(prompt, 2e3),
+    userAnswer: reviewText(result.userAnswer, 1e3),
+    correctAnswer: reviewText(result.correctAnswer, 1e3)
+  };
+}
+function choiceItem(result, questionNumber2, question) {
+  return {
+    ...baseItem(result, questionNumber2, question.prompt),
+    options: question.options.map((option, index) => ({
+      label: String.fromCharCode(65 + index),
+      text: reviewText(option.text, 1e3)
+    })),
+    selectedOptionIndex: optionIndexFromAnswer(question, result.userAnswer),
+    correctOptionIndex: optionIndexFromAnswer(question, result.correctAnswer)
+  };
+}
+function assertReviewQuestions(questions) {
+  if (questions.length !== MOVER_READING_WRITING_TOTAL_QUESTIONS) {
+    throw new Error(`Reading & Writing visual review requires ${MOVER_READING_WRITING_TOTAL_QUESTIONS} results.`);
+  }
+  MOVER_READING_WRITING_PART_COUNTS.forEach((count, index) => {
+    const part = index + 1;
+    if (questions.filter((question) => question.part === part).length !== count) {
+      throw new Error(`Reading & Writing visual review Part ${part} requires ${count} results.`);
+    }
+  });
+}
+function buildMoverReadingWritingVisualReviewSnapshot(inputContent, questions) {
+  const content = normalizeMoverReadingWritingContent(inputContent);
+  assertReviewQuestions(questions);
+  const byQuestion = new Map(questions.map((question) => [`${question.part}:${question.questionId}`, question]));
+  const resultFor = (part, questionId) => {
+    const result = byQuestion.get(`${part}:${questionId}`);
+    if (!result) throw new Error(`Missing Reading & Writing visual review result for Part ${part}.`);
+    return result;
+  };
+  const common = (part) => ({
+    title: reviewText(part.title, 500),
+    instruction: reviewText(part.instruction, 2e3)
+  });
+  const part1 = content.parts[0];
+  const reviewPart1 = {
+    part: 1,
+    mode: "text-questions",
+    ...common(part1),
+    imageUrl: part1.wordBankUrl,
+    example: safeExample(part1.example),
+    items: part1.questions.map((question, index) => baseItem(
+      resultFor(1, question.id),
+      index + 1,
+      question.prompt.split(`{{${question.id}}}`).join(`{{${index + 1}}}`)
+    ))
+  };
+  const part2 = content.parts[1];
+  const reviewPart2 = {
+    part: 2,
+    mode: "yes-no",
+    ...common(part2),
+    imageUrl: part2.sceneUrl,
+    examples: part2.examples.map((example) => ({
+      prompt: reviewText(example.prompt, 2e3),
+      answer: reviewText(example.answer, 1e3)
+    })),
+    items: part2.questions.map((question, index) => {
+      const result = resultFor(2, question.id);
+      const selectedAnswer = reviewText(result.userAnswer).toLowerCase();
+      const correctAnswer = reviewText(result.correctAnswer).toLowerCase();
+      const options = [
+        { label: "YES", text: "" },
+        { label: "NO", text: "" }
+      ];
+      return {
+        ...baseItem(result, index + 1, question.statement),
+        options,
+        selectedOptionIndex: selectedAnswer === "yes" ? 0 : selectedAnswer === "no" ? 1 : -1,
+        correctOptionIndex: correctAnswer === "yes" ? 0 : correctAnswer === "no" ? 1 : -1
+      };
+    })
+  };
+  const part3 = content.parts[2];
+  const part3Example = part3.example ? {
+    prompt: reviewText(part3.example.prompt, 2e3),
+    answer: optionAnswer(
+      part3.example,
+      part3.example.options.findIndex((option) => option.id === part3.example?.correctOptionId)
+    )
+  } : void 0;
+  const reviewPart3 = {
+    part: 3,
+    mode: "text-options",
+    ...common(part3),
+    imageUrl: part3.sceneUrl,
+    example: part3Example,
+    items: part3.questions.map((question, index) => choiceItem(resultFor(3, question.id), index + 1, question))
+  };
+  const part4 = content.parts[3];
+  const reviewPart4 = {
+    part: 4,
+    mode: "story-gaps-title",
+    ...common(part4),
+    imageUrl: part4.wordBankUrl,
+    storyTemplate: presentationTemplate(part4.storyTemplate, part4.gaps),
+    example: safeExample(part4.example),
+    gaps: part4.gaps.map((gap, index) => baseItem(resultFor(4, gap.id), index + 1, `Ch\u1ED7 tr\u1ED1ng ${index + 1}`)),
+    titleItem: choiceItem(resultFor(4, part4.titleQuestion.id), 7, part4.titleQuestion)
+  };
+  const part5 = content.parts[4];
+  let part5QuestionNumber = 0;
+  const reviewPart5 = {
+    part: 5,
+    mode: "scene-text",
+    ...common(part5),
+    example: safeExample(part5.example),
+    scenes: part5.scenes.map((scene) => ({
+      imageUrl: scene.imageUrl,
+      passage: reviewText(scene.passage, 2e4),
+      items: scene.questions.map((question) => {
+        part5QuestionNumber += 1;
+        return baseItem(
+          resultFor(5, question.id),
+          part5QuestionNumber,
+          question.prompt.split(`{{${question.id}}}`).join(`{{${part5QuestionNumber}}}`)
+        );
+      })
+    }))
+  };
+  const part6 = content.parts[5];
+  const reviewPart6 = {
+    part: 6,
+    mode: "passage-text",
+    ...common(part6),
+    illustrationUrl: part6.illustrationUrl,
+    optionsUrl: part6.optionsUrl,
+    passageTitle: reviewText(part6.passageTitle, 500),
+    passageTemplate: presentationTemplate(
+      part6.passageTemplate.replace(/\[\[\s*example\s*\]\]/gi, part6.example?.answer || ""),
+      part6.gaps
+    ),
+    example: safeExample(part6.example),
+    items: part6.gaps.map((gap, index) => baseItem(resultFor(6, gap.id), index + 1, `Ch\u1ED7 tr\u1ED1ng ${index + 1}`))
+  };
+  return {
+    schemaVersion: 1,
+    totalCount: MOVER_READING_WRITING_TOTAL_QUESTIONS,
+    parts: [reviewPart1, reviewPart2, reviewPart3, reviewPart4, reviewPart5, reviewPart6]
+  };
+}
+
 // src/server/learning-history/learningHistoryRepository.ts
 var EFFECTIVE_ATTEMPT_STATUS_SQL = `CASE
   WHEN attempt_status = 'in_progress'
@@ -4330,7 +4976,7 @@ function nullableNumber(value) {
 function mapItem(row) {
   return {
     attemptId: String(row.attempt_id || ""),
-    sourceType: row.source_type === "grammar" ? "grammar" : row.source_type === "listening" ? "listening" : "vocabulary",
+    sourceType: row.source_type === "grammar" ? "grammar" : row.source_type === "reading_writing" ? "reading_writing" : row.source_type === "listening" ? "listening" : "vocabulary",
     studentType: String(row.student_type || ""),
     studentName: String(row.student_name_snapshot || ""),
     classId: row.class_id || null,
@@ -4420,6 +5066,42 @@ history_attempts AS (
     'available' AS detail_status,
     'canonical' AS normalization_status
   FROM listening_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'reading_writing' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULLIF(json_extract(data_json, '$.assignmentDueAt'), '') AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'mover_reading_set' AS lesson_type,
+    'mover-reading-writing' AS game_id,
+    'Reading & Writing 6 Part' AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    correct_count + incorrect_count + unanswered_count AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM mover_reading_attempts
 )`;
 function escapeLike(value) {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
@@ -4651,7 +5333,38 @@ async function findAttemptDetail(attemptId) {
     [attemptId]
   );
   if (storedRow) {
-    if (String(storedRow.source_type || "").toLowerCase() !== "listening") return storedRow;
+    const storedSourceType = String(storedRow.source_type || "").toLowerCase();
+    if (storedSourceType === "reading_writing") {
+      const sourceRow = await sqliteQueryOne(
+        `SELECT detail.data_json AS detail_data_json, version.data_json AS version_data_json
+         FROM mover_reading_attempts AS attempt
+         LEFT JOIN mover_reading_attempt_details AS detail ON detail.attempt_id = attempt.id
+         LEFT JOIN mover_reading_set_versions AS version ON version.id = attempt.version_id
+         WHERE attempt.id = ?`,
+        [attemptId]
+      );
+      try {
+        const version = JSON.parse(String(sourceRow?.version_data_json || "{}"));
+        const sourceDetail = JSON.parse(String(sourceRow?.detail_data_json || "{}"));
+        const storedQuestions = JSON.parse(String(storedRow.answer_details_json || "[]"));
+        const questions = Array.isArray(sourceDetail?.questions) ? sourceDetail.questions : storedQuestions;
+        const visualReview = buildMoverReadingWritingVisualReviewSnapshot(
+          version.content,
+          questions
+        );
+        const extraDetails = JSON.parse(String(storedRow.extra_details_json || "{}"));
+        return {
+          ...storedRow,
+          extra_details_json: JSON.stringify({
+            ...extraDetails && typeof extraDetails === "object" && !Array.isArray(extraDetails) ? extraDetails : {},
+            visualReview
+          })
+        };
+      } catch {
+        return storedRow;
+      }
+    }
+    if (storedSourceType !== "listening") return storedRow;
     const versionRow = await sqliteQueryOne(
       `SELECT version.data_json AS version_data_json
        FROM listening_attempts AS attempt
@@ -4684,7 +5397,59 @@ async function findAttemptDetail(attemptId) {
      WHERE detail.attempt_id = ?`,
     [attemptId]
   );
-  if (!listeningRow) return void 0;
+  if (!listeningRow) {
+    const readingRow = await sqliteQueryOne(
+      `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+              version.data_json AS version_data_json
+       FROM mover_reading_attempt_details AS detail
+       JOIN mover_reading_attempts AS attempt ON attempt.id = detail.attempt_id
+       LEFT JOIN mover_reading_set_versions AS version ON version.id = attempt.version_id
+       WHERE detail.attempt_id = ?`,
+      [attemptId]
+    );
+    if (!readingRow) return void 0;
+    let readingData = {};
+    try {
+      readingData = JSON.parse(String(readingRow.data_json || "{}"));
+    } catch {
+      readingData = {};
+    }
+    const questions = Array.isArray(readingData.questions) ? readingData.questions : [];
+    const reviewPolicy2 = readingData.reviewPolicy && typeof readingData.reviewPolicy === "object" ? readingData.reviewPolicy : { showReviewAfterSubmit: false };
+    let visualReview;
+    try {
+      const version = JSON.parse(String(readingRow.version_data_json || "{}"));
+      visualReview = buildMoverReadingWritingVisualReviewSnapshot(
+        version.content,
+        questions
+      );
+    } catch {
+    }
+    return {
+      attempt_id: attemptId,
+      client_run_id: null,
+      source_type: "reading_writing",
+      answer_details_json: JSON.stringify(questions),
+      question_snapshots_json: JSON.stringify(questions.map((question) => ({
+        part: question?.part,
+        prompt: question?.prompt
+      }))),
+      option_snapshots_json: "[]",
+      extra_details_json: JSON.stringify({
+        paperId: "reading-writing",
+        ...visualReview ? { visualReview } : {}
+      }),
+      review_policy_json: JSON.stringify({
+        showReviewAfterSubmit: reviewPolicy2.showReviewAfterSubmit === true,
+        showExplanationImmediately: false,
+        policyVersion: 1
+      }),
+      created_at: readingRow.created_at,
+      updated_at: readingRow.updated_at,
+      expires_at: null,
+      schema_version: 1
+    };
+  }
   let data = {};
   try {
     data = JSON.parse(String(listeningRow.data_json || "{}"));
@@ -4750,7 +5515,7 @@ async function findAttemptDetail(attemptId) {
   };
 }
 async function findLegacySource(sourceType, sourceRecordId) {
-  if (sourceType === "listening") return null;
+  if (sourceType === "listening" || sourceType === "reading_writing") return null;
   const table = sourceType === "grammar" ? "grammar_attempts" : "game_results";
   const row = await sqliteQueryOne(
     `SELECT data_json FROM ${table} WHERE id = ?`,
@@ -5129,7 +5894,7 @@ function parseLearningHistoryFilters(query) {
   const sourceType = allowlisted(
     query.sourceType,
     "sourceType",
-    ["vocabulary", "grammar", "listening"]
+    ["vocabulary", "grammar", "listening", "reading_writing"]
   );
   const historyType = allowlisted(
     query.historyType,
@@ -5283,9 +6048,9 @@ var import_path3 = __toESM(require("path"), 1);
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
-function validateRegion(region, path10, errors) {
+function validateRegion(region, path11, errors) {
   if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
-    errors.push(`${path10}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path11}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
     return;
   }
   for (const [key, value] of Object.entries({
@@ -5295,25 +6060,25 @@ function validateRegion(region, path10, errors) {
     height: region.height
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors.push(`${path10}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+      errors.push(`${path11}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
     }
   }
   if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
-    errors.push(`${path10}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+    errors.push(`${path11}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
   }
   if (region.shape === "polygon") {
     if (!Array.isArray(region.points) || region.points.length < 3) {
-      errors.push(`${path10}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+      errors.push(`${path11}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
     } else {
       region.points.forEach((point, index) => {
         if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-          errors.push(`${path10}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+          errors.push(`${path11}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
         }
       });
     }
   }
   if (region && !isValidListeningRegion(region)) {
-    errors.push(`${path10}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path11}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -5323,12 +6088,12 @@ function regionsOverlap(a, b) {
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   return right - left > 0.01 && bottom - top > 0.01;
 }
-function validateRegionCollection(items, path10, errors) {
-  items.forEach((item, index) => validateRegion(item.region, `${path10}[${index}].region`, errors));
+function validateRegionCollection(items, path11, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path11}[${index}].region`, errors));
   for (let first = 0; first < items.length; first += 1) {
     for (let second = first + 1; second < items.length; second += 1) {
       if (regionsOverlap(items[first].region, items[second].region)) {
-        errors.push(`${path10}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+        errors.push(`${path11}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
       }
     }
   }
@@ -5350,8 +6115,8 @@ function validatePart1(part, errors) {
   if (!isText(part.sceneAssetId, 160)) errors.push("Part 1: thi\u1EBFu h\xECnh t\xECnh hu\u1ED1ng.");
   if (part.choices?.length !== 6) errors.push("Part 1: c\u1EA7n \u0111\xFAng 6 th\u1EBB t\xEAn (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
   if (part.targets?.length !== 5) errors.push("Part 1: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
-  const choiceIds = (part.choices || []).map((choice) => choice.id);
-  if (!unique(choiceIds) || (part.choices || []).some((choice) => !isText(choice.id, 160) || !isText(choice.label, 120))) {
+  const choiceIds = (part.choices || []).map((choice2) => choice2.id);
+  if (!unique(choiceIds) || (part.choices || []).some((choice2) => !isText(choice2.id, 160) || !isText(choice2.label, 120))) {
     errors.push("Part 1: ID v\xE0 nh\xE3n th\u1EBB t\xEAn ph\u1EA3i \u0111\u1EA7y \u0111\u1EE7, kh\xF4ng tr\xF9ng.");
   }
   const targetIds = (part.targets || []).map((target) => target.id);
@@ -5689,8 +6454,8 @@ var PART1_SOL_PROVIDER_IDS = /* @__PURE__ */ new Set([
   "stali:gpt-5.6-sol",
   "devquota:gpt-5.6-sol"
 ]);
-function parseJson3(text3) {
-  const trimmed = text3.trim();
+function parseJson3(text4) {
+  const trimmed = text4.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
   try {
     return JSON.parse(trimmed);
@@ -6252,7 +7017,7 @@ function validatePart1ContentResponse(raw) {
     const key = comparable(printedName);
     if (!number2 || seenNumbers.has(number2)) issues.push("targetNumber mapping thi\u1EBFu ho\u1EB7c tr\xF9ng");
     else seenNumbers.add(number2);
-    if (!key || seenNames.has(key) || !choices.some((choice) => comparable(choice) === key)) issues.push("printedName mapping ph\u1EA3i kh\u1EDBp duy nh\u1EA5t m\u1ED9t choice kh\xF4ng ph\u1EA3i example");
+    if (!key || seenNames.has(key) || !choices.some((choice2) => comparable(choice2) === key)) issues.push("printedName mapping ph\u1EA3i kh\u1EDBp duy nh\u1EA5t m\u1ED9t choice kh\xF4ng ph\u1EA3i example");
     else seenNames.add(key);
   });
   if (mappings.length !== 5 || seenNumbers.size !== 5 || seenNames.size !== 5) issues.push("content ph\u1EA3i c\xF3 \u0111\xFAng n\u0103m mapping \u0111\xE1nh s\u1ED1");
@@ -6584,7 +7349,7 @@ function normalizePart1(raw, warnings) {
     const visualLabel = cleanText(target?.visualDescription || target?.visualLabel || target?.label || `V\xF9ng ${number2}`, 200);
     const mapping = mappings.find((entry) => questionNumber(entry?.targetNumber) === number2 || target && visualLabel && comparable(entry?.visualDescription || entry?.visualLabel) === comparable(visualLabel));
     const choiceLabel = cleanText(mapping?.printedName || mapping?.choiceLabel || mapping?.answer || target?.printedName || target?.choiceLabel || target?.answer, 120);
-    const matchingChoices = choices.filter((choice) => comparable(choice) === comparable(choiceLabel));
+    const matchingChoices = choices.filter((choice2) => comparable(choice2) === comparable(choiceLabel));
     if (choiceLabel && matchingChoices.length !== 1) {
       warnings.push(`Part 1 target ${number2}: printedName "${choiceLabel}" kh\xF4ng kh\u1EDBp duy nh\u1EA5t m\u1ED9t trong s\xE1u choices; gi\u1EEF \u0111\xE1p \xE1n draft.`);
     }
@@ -6910,11 +7675,11 @@ function normalizeData(part, raw, currentPart, warnings) {
   if (part === 4) return normalizePart4(raw, warnings);
   return normalizePart5(raw, currentPart, warnings);
 }
-function localFallback(part, text3) {
-  const rows = localNumberedLines(text3);
+function localFallback(part, text4) {
+  const rows = localNumberedLines(text4);
   if (part === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
   if (part === 3) {
-    const lines = text3.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = text4.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const explicit = lines.flatMap((line) => {
       const match = line.match(/^(left|right)\s*([1-3])\s*[:=\-]\s*(.+)$/i);
       return match ? [{ side: match[1].toLowerCase(), row: Number(match[2]), answerLabel: match[3].trim() }] : [];
@@ -7263,8 +8028,8 @@ Return each complete Movers Listening Test that is visibly supported. For every 
 - Keep tests ordered by testNumber and pages in reading order.
 
 Return JSON only using the supplied schema.`.trim();
-function parseJson4(text3) {
-  const trimmed = text3.trim();
+function parseJson4(text4) {
+  const trimmed = text4.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u manifest.");
   try {
     return JSON.parse(trimmed);
@@ -7943,7 +8708,8 @@ function createListeningRouter(dependencies) {
       const asset = { id: document.id, ...document.data() };
       if (!isSuperAdmin(req.user) && asset.ownerId !== req.user.id) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u tr\u1EEF media n\xE0y.");
       const usage = await db.collection("listening_asset_usages").where("assetId", "==", asset.id).get();
-      if (!usage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
+      const readingUsage = await db.collection("mover_reading_asset_usages").where("assetId", "==", asset.id).get();
+      if (!usage.empty || !readingUsage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
       await document.ref.update({ status: "archived", updatedAt: nowIso2() });
       res.json({ success: true });
     } catch (error) {
@@ -8807,11 +9573,11 @@ function createListeningLibraryRouter() {
   });
   router.get("/modules/:moduleId", (req, res) => {
     if (!isListeningModuleId(req.params.moduleId)) {
-      return res.status(404).json({ error: "Module b\xE0i nghe kh\xF4ng t\u1ED3n t\u1EA1i." });
+      return res.status(404).json({ error: "Module k\u1EF3 thi kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
     const manifest2 = getListeningModule(req.params.moduleId);
     if (!manifest2 || manifest2.status === "hidden") {
-      return res.status(404).json({ error: "Module b\xE0i nghe kh\xF4ng t\u1ED3n t\u1EA1i." });
+      return res.status(404).json({ error: "Module k\u1EF3 thi kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
     const serverModule = getListeningServerModule(req.params.moduleId);
     return res.json({
@@ -8819,6 +9585,1520 @@ function createListeningLibraryRouter() {
       available: Boolean(serverModule && manifest2.status === "active"),
       gradingVersion: serverModule?.gradingVersion
     });
+  });
+  return router;
+}
+
+// src/server/mover-reading-writing/moverReadingWritingRouter.ts
+var import_crypto2 = __toESM(require("crypto"), 1);
+var import_express4 = __toESM(require("express"), 1);
+var import_fs4 = __toESM(require("fs"), 1);
+var import_path4 = __toESM(require("path"), 1);
+
+// src/features/mover-reading-writing/smart-import/types.ts
+function getMoverReadingWritingSmartImportRoleDefinitions(part) {
+  if (part === 1) return [
+    { role: "word_bank", label: "\u1EA2nh ng\xE2n h\xE0ng t\u1EEB", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
+    { role: "questions", label: "\u1EA2nh 6 c\xE2u h\u1ECFi", required: true, source: "transient", help: "Trang ch\u1EE9a s\xE1u c\xE2u c\u1EA7n nh\u1EADp." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c, kh\xF4ng d\xF9ng AI t\u1EF1 gi\u1EA3i." }
+  ];
+  if (part === 2) return [
+    { role: "scene", label: "\u1EA2nh t\xECnh hu\u1ED1ng/v\xED d\u1EE5", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
+    { role: "questions", label: "\u1EA2nh 6 nh\u1EADn \u0111\u1ECBnh", required: true, source: "transient", help: "Trang ch\u1EE9a s\xE1u nh\u1EADn \u0111\u1ECBnh Yes/No." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n Yes/No ch\xEDnh th\u1EE9c." }
+  ];
+  if (part === 3) return [
+    { role: "scene", label: "\u1EA2nh h\u1ED9i tho\u1EA1i/v\xED d\u1EE5", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
+    { role: "questions", label: "\u1EA2nh c\xE1c c\xE2u h\u1ED9i tho\u1EA1i", required: true, source: "transient", help: "Trang ch\u1EE9a \u0111\u1EE7 s\xE1u c\xE2u v\xE0 l\u1EF1a ch\u1ECDn A/B/C." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n A/B/C ch\xEDnh th\u1EE9c." }
+  ];
+  if (part === 4) return [
+    { role: "word_bank", label: "\u1EA2nh ng\xE2n h\xE0ng t\u1EEB", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
+    { role: "story", label: "\u1EA2nh b\xE0i \u0111\u1ECDc v\xE0 c\xE2u 7", required: true, source: "transient", help: "Trang ch\u1EE9a truy\u1EC7n, s\xE1u ch\u1ED7 tr\u1ED1ng v\xE0 c\xE2u ch\u1ECDn ti\xEAu \u0111\u1EC1." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n s\xE1u ch\u1ED7 tr\u1ED1ng v\xE0 c\xE2u 7." }
+  ];
+  if (part === 5) return [
+    { role: "scene_1", label: "Trang/tranh 1", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
+    { role: "scene_2", label: "Trang/tranh 2", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
+    { role: "scene_3", label: "Trang/tranh 3", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c cho \u0111\u1EE7 m\u01B0\u1EDDi c\xE2u." }
+  ];
+  return [
+    { role: "passage", label: "\u1EA2nh ngu\u1ED3n b\xE0i \u0111\u1ECDc", required: true, source: "asset", help: "Ngu\u1ED3n OCR v\xE0 ngu\u1ED3n \u0111\u1EC3 crop \u1EA3nh b\xE0i \u0111\u1ECDc hi\u1EC3n th\u1ECB cho h\u1ECDc sinh." },
+    { role: "options", label: "\u1EA2nh b\u1EA3ng l\u1EF1a ch\u1ECDn", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m ng\xE2n h\xE0ng t\u1EEB \u0111\u1EC3 h\u1ECDc sinh nh\xECn v\xE0 t\u1EF1 vi\u1EBFt v\xE0o ch\u1ED7 tr\u1ED1ng." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "\u0110\u1ECDc nguy\xEAn v\u0103n t\u1EEB \u0111\xFAng theo s\u1ED1 c\xE2u; kh\xF4ng quy \u0111\u1ED5i sang A/B/C." }
+  ];
+}
+
+// src/server/mover-reading-writing/moverReadingWritingGrader.ts
+var MOVER_READING_WRITING_GRADING_VERSION = "mover-reading-writing-v2";
+function normalizeMoverReadingWritingText(value) {
+  return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
+}
+function displayOption(options, id) {
+  const index = options.findIndex((option) => option.id === id);
+  if (index < 0) return "";
+  const label = String.fromCharCode(65 + index);
+  return `${label}. ${options[index].text}`.trim();
+}
+var displayTextPrompt = (prompt, id) => String(prompt || "").split(`{{${id}}}`).join("_____");
+function gradeMoverReadingWritingAttempt(inputContent, answers) {
+  const content = normalizeMoverReadingWritingContent(inputContent);
+  const questions = [];
+  const push = (part, questionId, prompt, userAnswer, correctAnswer, correct) => questions.push({
+    part,
+    questionId,
+    prompt,
+    userAnswer,
+    correctAnswer,
+    correct,
+    unanswered: !normalizeMoverReadingWritingText(userAnswer)
+  });
+  content.parts[0].questions.forEach((question) => {
+    const actual = String(answers.part1?.[question.id] || "");
+    const normalized = normalizeMoverReadingWritingText(actual);
+    push(1, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", Boolean(normalized) && question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized));
+  });
+  content.parts[1].questions.forEach((question) => {
+    const actual = String(answers.part2?.[question.id] || "");
+    push(2, question.id, question.statement, actual, question.correctAnswer, actual === question.correctAnswer);
+  });
+  content.parts[2].questions.forEach((question) => {
+    const actualId = String(answers.part3?.[question.id] || "");
+    push(3, question.id, question.prompt, displayOption(question.options, actualId), displayOption(question.options, question.correctOptionId), actualId === question.correctOptionId);
+  });
+  content.parts[3].gaps.forEach((gap, index) => {
+    const actual = String(answers.part4?.gaps?.[gap.id] || "");
+    const normalized = normalizeMoverReadingWritingText(actual);
+    push(4, gap.id, `Ch\u1ED7 tr\u1ED1ng ${index + 1}`, actual, gap.acceptedAnswers[0] || "", Boolean(normalized) && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized));
+  });
+  const titleQuestion = content.parts[3].titleQuestion;
+  const actualTitleId = String(answers.part4?.titleOptionId || "");
+  push(4, titleQuestion.id, titleQuestion.prompt, displayOption(titleQuestion.options, actualTitleId), displayOption(titleQuestion.options, titleQuestion.correctOptionId), actualTitleId === titleQuestion.correctOptionId);
+  content.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => {
+    const actual = String(answers.part5?.[question.id] || "");
+    const normalized = normalizeMoverReadingWritingText(actual);
+    const wordCount = normalized ? normalized.split(" ").length : 0;
+    const accepted = question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized);
+    push(5, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", wordCount >= 1 && wordCount <= 3 && accepted);
+  }));
+  content.parts[5].gaps.forEach((gap, index) => {
+    const actual = String(answers.part6?.[gap.id] || "");
+    const normalized = normalizeMoverReadingWritingText(actual);
+    push(
+      6,
+      gap.id,
+      `Ch\u1ED7 tr\u1ED1ng ${index + 1}`,
+      actual,
+      gap.acceptedAnswers[0] || "",
+      Boolean(normalized) && normalized.split(" ").length === 1 && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized)
+    );
+  });
+  if (questions.length !== MOVER_READING_WRITING_TOTAL_QUESTIONS) {
+    throw new Error(`Published Mover Reading & Writing version must contain exactly ${MOVER_READING_WRITING_TOTAL_QUESTIONS} questions; received ${questions.length}.`);
+  }
+  const correctCount = questions.filter((question) => question.correct).length;
+  const unansweredCount = questions.filter((question) => question.unanswered).length;
+  const incorrectCount = questions.length - correctCount - unansweredCount;
+  return {
+    score: Math.round(correctCount / MOVER_READING_WRITING_TOTAL_QUESTIONS * 100),
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    totalCount: MOVER_READING_WRITING_TOTAL_QUESTIONS,
+    questions
+  };
+}
+
+// src/server/mover-reading-writing/moverReadingWritingValidation.ts
+var nonEmptyText = (value, max = 1e3) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
+var unique2 = (values) => values.length === new Set(values).size;
+var normalizedWordCount = (value) => value.normalize("NFKC").trim().split(/\s+/).filter(Boolean).length;
+var templateText = (value) => value.replace(/\{\{[^}]+\}\}/g, "").trim();
+var markerCount = (template, id) => template.split(`{{${id}}}`).length - 1;
+function validateTextAnswers(acceptedAnswers, label, errors, maxWords) {
+  if (!Array.isArray(acceptedAnswers) || acceptedAnswers.length < 1 || acceptedAnswers.length > 20) {
+    errors.push(`${label}: c\u1EA7n t\u1EEB 1 \u0111\u1EBFn 20 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn.`);
+    return;
+  }
+  if (acceptedAnswers.some((answer) => !nonEmptyText(answer, 200))) {
+    errors.push(`${label}: \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn kh\xF4ng \u0111\u01B0\u1EE3c \u0111\u1EC3 tr\u1ED1ng v\xE0 t\u1ED1i \u0111a 200 k\xFD t\u1EF1.`);
+  }
+  if (maxWords && acceptedAnswers.some((answer) => normalizedWordCount(String(answer)) > maxWords)) {
+    errors.push(`${label}: m\u1ED7i \u0111\xE1p \xE1n t\u1ED1i \u0111a ${maxWords} t\u1EEB.`);
+  }
+}
+function validateChoiceQuestion(question, label, errors) {
+  if (!question || !nonEmptyText(question.id, 160)) {
+    errors.push(`${label}: thi\u1EBFu ID c\xE2u h\u1ECFi.`);
+    return;
+  }
+  if (!nonEmptyText(question.prompt, 1e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
+  if (!Array.isArray(question.options) || question.options.length !== 3) {
+    errors.push(`${label}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
+    return;
+  }
+  const optionIds = question.options.map((option) => option.id);
+  if (!unique2(optionIds) || question.options.some((option) => !nonEmptyText(option.id, 160) || !nonEmptyText(option.text, 500))) {
+    errors.push(`${label}: ba l\u1EF1a ch\u1ECDn ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 n\u1ED9i dung \u0111\u1EA7y \u0111\u1EE7.`);
+  }
+  if (!optionIds.includes(question.correctOptionId)) errors.push(`${label}: \u0111\xE1p \xE1n \u0111\xFAng ph\u1EA3i thu\u1ED9c ba l\u1EF1a ch\u1ECDn.`);
+}
+function validateMoverReadingWritingContent(input) {
+  const errors = [];
+  if (!input || !isSupportedMoverReadingWritingSchemaVersion(input.schemaVersion)) {
+    return ["Phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc Reading & Writing kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3."];
+  }
+  let content;
+  try {
+    content = normalizeMoverReadingWritingContent(input);
+  } catch (error) {
+    return [error?.message || "C\u1EA5u tr\xFAc Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7."];
+  }
+  if (content.moduleId !== "mover" || content.paperId !== MOVER_READING_WRITING_PAPER_ID) {
+    errors.push("B\u1ED9 \u0111\u1EC1 ph\u1EA3i thu\u1ED9c Mover / Reading & Writing.");
+  }
+  if (!nonEmptyText(content.title, 160)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
+  if (typeof content.description !== "string" || content.description.length > 2e3) errors.push("M\xF4 t\u1EA3 t\u1ED1i \u0111a 2.000 k\xFD t\u1EF1.");
+  if (!nonEmptyText(content.level, 80)) errors.push("Thi\u1EBFu tr\xECnh \u0111\u1ED9.");
+  if (content.timeLimitMinutes !== void 0 && (!Number.isInteger(content.timeLimitMinutes) || content.timeLimitMinutes < 1 || content.timeLimitMinutes > 300)) {
+    errors.push("Gi\u1EDBi h\u1EA1n th\u1EDDi gian ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 300 ph\xFAt.");
+  }
+  if (!Array.isArray(content.parts) || content.parts.length !== 6) return [...errors, "Reading & Writing c\u1EA7n \u0111\xFAng 6 Part."];
+  content.parts.forEach((part, index) => {
+    if (part?.part !== index + 1) errors.push(`Part ${index + 1}: sai th\u1EE9 t\u1EF1 ho\u1EB7c lo\u1EA1i Part.`);
+    if (!nonEmptyText(part?.title, 160)) errors.push(`Part ${index + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+    if (!nonEmptyText(part?.instruction, 1e3)) errors.push(`Part ${index + 1}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
+  });
+  const part1 = content.parts[0];
+  if (!nonEmptyText(part1.wordBankAssetId, 160)) errors.push("Part 1: thi\u1EBFu \u1EA3nh ng\xE2n h\xE0ng t\u1EEB.");
+  if (part1.questions?.length !== 6) errors.push("Part 1: c\u1EA7n \u0111\xFAng 6 c\xE2u.");
+  if (!unique2((part1.questions || []).map((question) => question.id))) errors.push("Part 1: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+  (part1.questions || []).forEach((question, index) => {
+    if (!nonEmptyText(question.id, 160) || !nonEmptyText(templateText(question.prompt), 1e3)) errors.push(`Part 1 c\xE2u ${index + 1}: thi\u1EBFu ID ho\u1EB7c n\u1ED9i dung.`);
+    if (markerCount(question.prompt, question.id) !== 1 || /\[\[[^\]]+\]\]/.test(question.prompt)) errors.push(`Part 1 c\xE2u ${index + 1}: n\u1ED9i dung ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t marker \xF4 tr\u1EA3 l\u1EDDi.`);
+    validateTextAnswers(question.acceptedAnswers, `Part 1 c\xE2u ${index + 1}`, errors);
+  });
+  const part2 = content.parts[1];
+  if (!nonEmptyText(part2.sceneAssetId, 160)) errors.push("Part 2: thi\u1EBFu \u1EA3nh t\xECnh hu\u1ED1ng.");
+  if (part2.questions?.length !== 6) errors.push("Part 2: c\u1EA7n \u0111\xFAng 6 c\xE2u.");
+  if (!unique2((part2.questions || []).map((question) => question.id))) errors.push("Part 2: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+  (part2.questions || []).forEach((question, index) => {
+    if (!nonEmptyText(question.id, 160) || !nonEmptyText(question.statement, 1e3)) errors.push(`Part 2 c\xE2u ${index + 1}: thi\u1EBFu ID ho\u1EB7c nh\u1EADn \u0111\u1ECBnh.`);
+    if (!["yes", "no"].includes(question.correctAnswer)) errors.push(`Part 2 c\xE2u ${index + 1}: \u0111\xE1p \xE1n ph\u1EA3i l\xE0 yes ho\u1EB7c no.`);
+  });
+  const part3 = content.parts[2];
+  if (!nonEmptyText(part3.sceneAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh h\u1ED9i tho\u1EA1i.");
+  if (part3.questions?.length !== 6) errors.push("Part 3: c\u1EA7n \u0111\xFAng 6 c\xE2u.");
+  if (!unique2((part3.questions || []).map((question) => question.id))) errors.push("Part 3: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+  (part3.questions || []).forEach((question, index) => validateChoiceQuestion(question, `Part 3 c\xE2u ${index + 1}`, errors));
+  const part4 = content.parts[3];
+  if (!nonEmptyText(part4.wordBankAssetId, 160)) errors.push("Part 4: thi\u1EBFu \u1EA3nh ng\xE2n h\xE0ng t\u1EEB.");
+  if (!nonEmptyText(part4.storyTemplate, 2e4)) errors.push("Part 4: thi\u1EBFu n\u1ED9i dung c\xE2u chuy\u1EC7n.");
+  if (part4.gaps?.length !== 6) errors.push("Part 4: c\u1EA7n \u0111\xFAng 6 ch\u1ED7 tr\u1ED1ng.");
+  if (!unique2((part4.gaps || []).map((gap) => gap.id))) errors.push("Part 4: ID ch\u1ED7 tr\u1ED1ng b\u1ECB tr\xF9ng.");
+  (part4.gaps || []).forEach((gap, index) => {
+    if (!nonEmptyText(gap.id, 160) || !part4.storyTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 4 ch\u1ED7 tr\u1ED1ng ${index + 1}: n\u1ED9i dung truy\u1EC7n thi\u1EBFu token t\u01B0\u01A1ng \u1EE9ng.`);
+    validateTextAnswers(gap.acceptedAnswers, `Part 4 ch\u1ED7 tr\u1ED1ng ${index + 1}`, errors);
+  });
+  validateChoiceQuestion(part4.titleQuestion, "Part 4 c\xE2u ch\u1ECDn ti\xEAu \u0111\u1EC1", errors);
+  const part5 = content.parts[4];
+  if (!Array.isArray(part5.scenes) || part5.scenes.length !== 3) errors.push("Part 5: c\u1EA7n \u0111\xFAng 3 nh\xF3m tranh v\xE0 c\xE2u chuy\u1EC7n.");
+  const part5Questions = (part5.scenes || []).flatMap((scene) => scene.questions || []);
+  if (part5Questions.length !== 10) errors.push("Part 5: ba nh\xF3m c\u1EA7n t\u1ED5ng c\u1ED9ng \u0111\xFAng 10 c\xE2u.");
+  if (!unique2(part5Questions.map((question) => question.id))) errors.push("Part 5: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+  (part5.scenes || []).forEach((scene, sceneIndex) => {
+    if (!nonEmptyText(scene.id, 160) || !nonEmptyText(scene.imageAssetId, 160)) errors.push(`Part 5 tranh ${sceneIndex + 1}: thi\u1EBFu ID ho\u1EB7c \u1EA3nh.`);
+    if (!nonEmptyText(scene.passage, 1e4)) errors.push(`Part 5 tranh ${sceneIndex + 1}: thi\u1EBFu n\u1ED9i dung c\xE2u chuy\u1EC7n.`);
+    if (!scene.questions?.length) errors.push(`Part 5 tranh ${sceneIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t c\xE2u h\u1ECFi.`);
+    (scene.questions || []).forEach((question, questionIndex) => {
+      if (!nonEmptyText(question.id, 160) || !nonEmptyText(templateText(question.prompt), 1e3)) errors.push(`Part 5 tranh ${sceneIndex + 1}, c\xE2u ${questionIndex + 1}: thi\u1EBFu ID ho\u1EB7c n\u1ED9i dung.`);
+      if (markerCount(question.prompt, question.id) !== 1 || /\[\[[^\]]+\]\]/.test(question.prompt)) errors.push(`Part 5 tranh ${sceneIndex + 1}, c\xE2u ${questionIndex + 1}: n\u1ED9i dung ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t marker \xF4 tr\u1EA3 l\u1EDDi.`);
+      validateTextAnswers(question.acceptedAnswers, `Part 5 tranh ${sceneIndex + 1}, c\xE2u ${questionIndex + 1}`, errors, 3);
+    });
+  });
+  const part6 = content.parts[5];
+  if (!nonEmptyText(part6.illustrationAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\xE0i \u0111\u1ECDc \u0111\xE3 crop \u0111\u1EC3 hi\u1EC3n th\u1ECB.");
+  if (!nonEmptyText(part6.optionsAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\u1EA3ng l\u1EF1a ch\u1ECDn.");
+  if (!nonEmptyText(part6.passageTitle, 300)) errors.push("Part 6: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i \u0111\u1ECDc.");
+  if (!nonEmptyText(part6.passageTemplate, 2e4)) errors.push("Part 6: thi\u1EBFu n\u1ED9i dung b\xE0i \u0111\u1ECDc.");
+  if (/\[\[[^\]]+\]\]/.test(part6.passageTemplate || "")) errors.push("Part 6: b\xE0i \u0111\u1ECDc c\xF2n marker Smart Import ch\u01B0a \u0111\u01B0\u1EE3c chu\u1EA9n h\xF3a.");
+  if (part6.gaps?.length !== 5) errors.push("Part 6: c\u1EA7n \u0111\xFAng 5 ch\u1ED7 tr\u1ED1ng.");
+  if (!unique2((part6.gaps || []).map((gap) => gap.id))) errors.push("Part 6: ID ch\u1ED7 tr\u1ED1ng b\u1ECB tr\xF9ng.");
+  (part6.gaps || []).forEach((gap, index) => {
+    if (!nonEmptyText(gap.id, 160)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: thi\u1EBFu ID.`);
+    validateTextAnswers(gap.acceptedAnswers, `Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}`, errors, 1);
+    if (!part6.passageTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: b\xE0i \u0111\u1ECDc thi\u1EBFu token {{${gap.id}}}.`);
+  });
+  return errors;
+}
+function sanitizeMoverReadingWritingContentForStudent(content) {
+  const clone = normalizeMoverReadingWritingContent(content);
+  clone.parts[0].questions.forEach((question) => delete question.acceptedAnswers);
+  clone.parts[1].questions.forEach((question) => delete question.correctAnswer);
+  clone.parts[2].questions.forEach((question) => delete question.correctOptionId);
+  clone.parts[3].gaps.forEach((gap) => delete gap.acceptedAnswers);
+  delete clone.parts[3].titleQuestion.correctOptionId;
+  clone.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => delete question.acceptedAnswers));
+  delete clone.parts[5].passageSourceAssetId;
+  delete clone.parts[5].passageSourceUrl;
+  clone.parts[5].gaps.forEach((gap) => delete gap.acceptedAnswers);
+  return clone;
+}
+var safeAnswer = (value) => typeof value === "string" ? value.normalize("NFKC").slice(0, 300) : "";
+function sanitizeMoverReadingWritingAnswers(inputContent, input) {
+  const content = normalizeMoverReadingWritingContent(inputContent);
+  const raw = input && typeof input === "object" ? input : {};
+  const answers = {
+    part1: {},
+    part2: {},
+    part3: {},
+    part4: { gaps: {}, titleOptionId: "" },
+    part5: {},
+    part6: {}
+  };
+  content.parts[0].questions.forEach((question) => {
+    answers.part1[question.id] = safeAnswer(raw.part1?.[question.id]);
+  });
+  content.parts[1].questions.forEach((question) => {
+    const value = safeAnswer(raw.part2?.[question.id]).toLowerCase();
+    answers.part2[question.id] = value === "yes" || value === "no" ? value : "";
+  });
+  content.parts[2].questions.forEach((question) => {
+    const value = safeAnswer(raw.part3?.[question.id]);
+    answers.part3[question.id] = question.options.some((option) => option.id === value) ? value : "";
+  });
+  content.parts[3].gaps.forEach((gap) => {
+    answers.part4.gaps[gap.id] = safeAnswer(raw.part4?.gaps?.[gap.id]);
+  });
+  const titleOptionId = safeAnswer(raw.part4?.titleOptionId);
+  answers.part4.titleOptionId = content.parts[3].titleQuestion.options.some((option) => option.id === titleOptionId) ? titleOptionId : "";
+  content.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => {
+    answers.part5[question.id] = safeAnswer(raw.part5?.[question.id]);
+  }));
+  content.parts[5].gaps.forEach((gap) => {
+    answers.part6[gap.id] = safeAnswer(raw.part6?.[gap.id]);
+  });
+  return answers;
+}
+
+// src/server/mover-reading-writing/moverReadingWritingSmartImportService.ts
+var import_node_crypto6 = __toESM(require("node:crypto"), 1);
+
+// src/features/mover-reading-writing/smart-import/contracts.ts
+var schemaId = (part) => `mover-rw-part${part}-external-v${part === 1 || part === 5 || part === 6 ? 2 : 1}`;
+var isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+var cleanText2 = (value, max = 2e4) => typeof value === "string" ? value.normalize("NFKC").replace(/\r\n?/g, "\n").trim().slice(0, max) : "";
+function fail(message) {
+  const error = new Error(message);
+  error.status = 400;
+  throw error;
+}
+function objectAt(value, label) {
+  if (!isObject(value)) fail(`${label} ph\u1EA3i l\xE0 object JSON.`);
+  return value;
+}
+function assertKeys(value, allowed, label) {
+  const extras = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (extras.length) fail(`${label} c\xF3 tr\u01B0\u1EDDng kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3: ${extras.join(", ")}.`);
+  if (Object.keys(value).some((key) => /(^id$|Id$|uuid|database|technical)/i.test(key))) {
+    fail(`${label} kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a ID k\u1EF9 thu\u1EADt.`);
+  }
+}
+function arrayAt(value, label) {
+  if (!Array.isArray(value)) fail(`${label} ph\u1EA3i l\xE0 m\u1EA3ng JSON.`);
+  return value;
+}
+function exactNumbered(rows, count, label) {
+  const numbers = rows.map((row) => row.questionNumber);
+  const expected = Array.from({ length: count }, (_, index) => index + 1);
+  if (numbers.length !== count || numbers.some((number2) => !Number.isInteger(number2)) || new Set(numbers).size !== count) {
+    fail(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ${count} s\u1ED1 th\u1EE9 t\u1EF1 kh\xF4ng tr\xF9ng.`);
+  }
+  if (expected.some((number2) => !numbers.includes(number2))) fail(`${label} ph\u1EA3i \u0111\xE1nh s\u1ED1 li\xEAn t\u1EE5c t\u1EEB 1 \u0111\u1EBFn ${count}.`);
+  return [...rows].sort((first, second) => first.questionNumber - second.questionNumber);
+}
+function answersAt(value, label, warnings, maxWords) {
+  const rows = arrayAt(value, label).slice(0, 20).map((answer) => cleanText2(answer, 200)).filter(Boolean);
+  const answers = [...new Set(rows)];
+  if (!answers.length) warnings.push(`${label}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n; d\u1EEF li\u1EC7u hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+  if (maxWords && answers.some((answer) => answer.split(/\s+/).filter(Boolean).length > maxWords)) {
+    fail(`${label}: m\u1ED7i \u0111\xE1p \xE1n t\u1ED1i \u0111a ${maxWords} t\u1EEB.`);
+  }
+  return answers;
+}
+function exampleAt(value, label, warnings) {
+  if (value === void 0 || value === null) return void 0;
+  const row = objectAt(value, label);
+  assertKeys(row, ["prompt", "answer"], label);
+  const prompt = cleanText2(row.prompt, 1e3);
+  const answer = cleanText2(row.answer, 200);
+  if (!prompt && !answer) return void 0;
+  if (!prompt || !answer) warnings.push(`${label}: v\xED d\u1EE5 ch\u01B0a \u0111\u1EE7 c\xE2u d\u1EABn v\xE0 \u0111\xE1p \xE1n.`);
+  return { prompt, answer };
+}
+function textQuestionAt(value, label, warnings, maxWords) {
+  const row = objectAt(value, label);
+  assertKeys(row, ["questionNumber", "promptTemplate", "acceptedAnswers"], label);
+  const questionNumber2 = Number(row.questionNumber);
+  const promptTemplate = cleanText2(row.promptTemplate, 1e3);
+  if (!promptTemplate) warnings.push(`${label}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c n\u1ED9i dung; d\u1EEF li\u1EC7u hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+  else validateQuestionMarker(promptTemplate, questionNumber2, `${label} promptTemplate`);
+  return {
+    questionNumber: questionNumber2,
+    promptTemplate,
+    acceptedAnswers: answersAt(row.acceptedAnswers, `${label} \u0111\xE1p \xE1n`, warnings, maxWords)
+  };
+}
+function normalizeCorrectOption(value, label, warnings) {
+  const answer = cleanText2(value, 20).toUpperCase();
+  if (answer === "A" || answer === "B" || answer === "C") return answer;
+  warnings.push(`${label}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n A/B/C r\xF5 r\xE0ng; \u0111\xE1p \xE1n hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+  return void 0;
+}
+function choiceQuestionAt(value, label, warnings, withNumber) {
+  const row = objectAt(value, label);
+  const allowed = ["prompt", "promptSpeaker", "answerSpeaker", "options", "correctOption"];
+  if (withNumber) allowed.unshift("questionNumber");
+  assertKeys(row, allowed, label);
+  const rawOptions = arrayAt(row.options, `${label} l\u1EF1a ch\u1ECDn`);
+  if (rawOptions.length !== 3) fail(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
+  const options = rawOptions.map((option) => cleanText2(option, 500));
+  if (options.some((option) => !option)) warnings.push(`${label}: c\xF3 l\u1EF1a ch\u1ECDn ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c; n\u1ED9i dung hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+  const result = {
+    prompt: cleanText2(row.prompt, 1e3),
+    ...cleanText2(row.promptSpeaker, 120) ? { promptSpeaker: cleanText2(row.promptSpeaker, 120) } : {},
+    ...cleanText2(row.answerSpeaker, 120) ? { answerSpeaker: cleanText2(row.answerSpeaker, 120) } : {},
+    options,
+    correctOption: normalizeCorrectOption(row.correctOption, label, warnings)
+  };
+  if (!result.prompt) warnings.push(`${label}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c c\xE2u d\u1EABn; n\u1ED9i dung hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+  return withNumber ? { ...result, questionNumber: Number(row.questionNumber) } : result;
+}
+function textGapAt(value, label, warnings) {
+  const row = objectAt(value, label);
+  assertKeys(row, ["gapNumber", "acceptedAnswers"], label);
+  return {
+    gapNumber: Number(row.gapNumber),
+    acceptedAnswers: answersAt(row.acceptedAnswers, `${label} \u0111\xE1p \xE1n`, warnings, 1)
+  };
+}
+function validateQuestionMarker(template, number2, label) {
+  const markers = [...template.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
+  if (markers.length !== 1 || markers[0] !== String(number2)) {
+    fail(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t marker [[${number2}]].`);
+  }
+}
+function validateMarkers(template, count, label) {
+  const allMarkers = [...template.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
+  const found = [...template.matchAll(/\[\[(\d+)\]\]/g)].map((match) => Number(match[1]));
+  const expected = Array.from({ length: count }, (_, index) => index + 1);
+  if (allMarkers.length !== found.length || found.length !== count || new Set(found).size !== count || expected.some((number2) => !found.includes(number2))) fail(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t l\u1EA7n c\xE1c marker [[1]] \u0111\u1EBFn [[${count}]].`);
+}
+function rootAt(part, value, allowed) {
+  const root = objectAt(value, `JSON Part ${part}`);
+  assertKeys(root, ["schema", "part", ...allowed], `JSON Part ${part}`);
+  if (root.schema !== schemaId(part)) fail(`schema ph\u1EA3i l\xE0 "${schemaId(part)}".`);
+  if (Number(root.part) !== part) fail(`D\u1EEF li\u1EC7u kh\xF4ng thu\u1ED9c Part ${part}.`);
+  return root;
+}
+function validateAndNormalizeMoverReadingWritingImport(part, value) {
+  const warnings = [];
+  if (part === 1) {
+    const root2 = rootAt(part, value, ["title", "instruction", "example", "questions"]);
+    const questions = exactNumbered(
+      arrayAt(root2.questions, "Part 1 questions").map((row, index) => textQuestionAt(row, `Part 1 c\xE2u ${index + 1}`, warnings)),
+      6,
+      "Part 1 questions"
+    );
+    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 1 example", warnings), questions }, warnings };
+  }
+  if (part === 2) {
+    const root2 = rootAt(part, value, ["title", "instruction", "examples", "questions"]);
+    const examples = arrayAt(root2.examples, "Part 2 examples").slice(0, 4).flatMap((value2, index) => {
+      const row = objectAt(value2, `Part 2 example ${index + 1}`);
+      assertKeys(row, ["prompt", "answer"], `Part 2 example ${index + 1}`);
+      const prompt = cleanText2(row.prompt, 1e3);
+      const answerText = cleanText2(row.answer, 20).toLowerCase();
+      const answer = answerText === "yes" || answerText === "no" ? answerText : void 0;
+      if (!prompt) return [];
+      if (!answer) warnings.push(`Part 2 example ${index + 1}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n Yes/No.`);
+      return [{ prompt, answer }];
+    });
+    const questions = exactNumbered(arrayAt(root2.questions, "Part 2 questions").map((value2, index) => {
+      const row = objectAt(value2, `Part 2 c\xE2u ${index + 1}`);
+      assertKeys(row, ["questionNumber", "statement", "correctAnswer"], `Part 2 c\xE2u ${index + 1}`);
+      const answerText = cleanText2(row.correctAnswer, 20).toLowerCase();
+      const correctAnswer = answerText === "yes" || answerText === "no" ? answerText : void 0;
+      if (!correctAnswer) warnings.push(`Part 2 c\xE2u ${index + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n Yes/No r\xF5 r\xE0ng.`);
+      const statement = cleanText2(row.statement, 1e3);
+      if (!statement) warnings.push(`Part 2 c\xE2u ${index + 1}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c nh\u1EADn \u0111\u1ECBnh.`);
+      return { questionNumber: Number(row.questionNumber), statement, correctAnswer };
+    }), 6, "Part 2 questions");
+    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), examples, questions }, warnings };
+  }
+  if (part === 3) {
+    const root2 = rootAt(part, value, ["title", "instruction", "example", "questions"]);
+    const example = root2.example ? choiceQuestionAt(root2.example, "Part 3 example", warnings, false) : void 0;
+    const questions = exactNumbered(
+      arrayAt(root2.questions, "Part 3 questions").map((row, index) => choiceQuestionAt(row, `Part 3 c\xE2u ${index + 1}`, warnings, true)),
+      6,
+      "Part 3 questions"
+    );
+    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example, questions }, warnings };
+  }
+  if (part === 4) {
+    const root2 = rootAt(part, value, ["title", "instruction", "storyTemplate", "example", "gaps", "titleQuestion"]);
+    const storyTemplate = cleanText2(root2.storyTemplate);
+    validateMarkers(storyTemplate, 6, "Part 4 storyTemplate");
+    const gaps2 = arrayAt(root2.gaps, "Part 4 gaps").map((value2, index) => {
+      const row = objectAt(value2, `Part 4 gap ${index + 1}`);
+      assertKeys(row, ["gapNumber", "acceptedAnswers"], `Part 4 gap ${index + 1}`);
+      return { gapNumber: Number(row.gapNumber), acceptedAnswers: answersAt(row.acceptedAnswers, `Part 4 gap ${index + 1}`, warnings) };
+    });
+    exactNumbered(gaps2.map((row) => ({ ...row, questionNumber: row.gapNumber })), 6, "Part 4 gaps");
+    const titleQuestion = choiceQuestionAt(root2.titleQuestion, "Part 4 c\xE2u 7", warnings, false);
+    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), storyTemplate, example: exampleAt(root2.example, "Part 4 example", warnings), gaps: gaps2.sort((a, b) => a.gapNumber - b.gapNumber), titleQuestion }, warnings };
+  }
+  if (part === 5) {
+    const root2 = rootAt(part, value, ["title", "instruction", "example", "scenes"]);
+    const scenes = arrayAt(root2.scenes, "Part 5 scenes").map((value2, sceneIndex) => {
+      const row = objectAt(value2, `Part 5 scene ${sceneIndex + 1}`);
+      assertKeys(row, ["sceneNumber", "passage", "questions"], `Part 5 scene ${sceneIndex + 1}`);
+      return {
+        sceneNumber: Number(row.sceneNumber),
+        passage: cleanText2(row.passage, 1e4),
+        questions: arrayAt(row.questions, `Part 5 scene ${sceneIndex + 1} questions`).map((question, index) => textQuestionAt(question, `Part 5 c\xE2u ${index + 1}`, warnings, 3))
+      };
+    });
+    if (scenes.length !== 3 || new Set(scenes.map((scene) => scene.sceneNumber)).size !== 3 || [1, 2, 3].some((number2) => !scenes.some((scene) => scene.sceneNumber === number2))) {
+      fail("Part 5 ph\u1EA3i c\xF3 \u0111\xFAng ba scene \u0111\xE1nh s\u1ED1 1, 2, 3.");
+    }
+    const allQuestions = scenes.flatMap((scene) => scene.questions);
+    exactNumbered(allQuestions, 10, "Part 5 questions");
+    scenes.forEach((scene) => {
+      scene.questions.sort((first, second) => first.questionNumber - second.questionNumber);
+      if (!scene.passage) warnings.push(`Part 5 scene ${scene.sceneNumber}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c n\u1ED9i dung truy\u1EC7n.`);
+      if (!scene.questions.length) fail(`Part 5 scene ${scene.sceneNumber} ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u.`);
+    });
+    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 5 example", warnings), scenes: scenes.sort((a, b) => a.sceneNumber - b.sceneNumber) }, warnings };
+  }
+  const root = rootAt(part, value, ["title", "instruction", "passageTitle", "passageTemplate", "example", "gaps"]);
+  const passageTemplate = cleanText2(root.passageTemplate);
+  validateMarkers(passageTemplate, 5, "Part 6 passageTemplate");
+  const gaps = arrayAt(root.gaps, "Part 6 gaps").map((row, index) => textGapAt(row, `Part 6 gap ${index + 1}`, warnings));
+  exactNumbered(
+    gaps.map((row) => ({ ...row, questionNumber: row.gapNumber })),
+    5,
+    "Part 6 gaps"
+  );
+  gaps.sort((first, second) => first.gapNumber - second.gapNumber);
+  const passageTitle = cleanText2(root.passageTitle, 300);
+  if (!passageTitle) warnings.push("Part 6: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c ti\xEAu \u0111\u1EC1 b\xE0i \u0111\u1ECDc.");
+  return { data: { part, title: cleanText2(root.title, 160), instruction: cleanText2(root.instruction, 1e3), passageTitle, passageTemplate, example: exampleAt(root.example, "Part 6 example", warnings), gaps }, warnings };
+}
+var choice = (questionNumber2, prompt = "") => ({ questionNumber: questionNumber2, prompt, promptSpeaker: "", answerSpeaker: "", options: ["A", "B", "C"], correctOption: "A" });
+var textQuestion = (questionNumber2) => ({ questionNumber: questionNumber2, promptTemplate: `Question text [[${questionNumber2}]]`, acceptedAnswers: [""] });
+var templates = {
+  1: { schema: schemaId(1), part: 1, title: "Part 1", instruction: "Look and read...", example: { prompt: "", answer: "" }, questions: Array.from({ length: 6 }, (_, index) => textQuestion(index + 1)) },
+  2: { schema: schemaId(2), part: 2, title: "Part 2", instruction: "Look and read. Write yes or no.", examples: [{ prompt: "", answer: "yes" }], questions: Array.from({ length: 6 }, (_, index) => ({ questionNumber: index + 1, statement: "", correctAnswer: "yes" })) },
+  3: { schema: schemaId(3), part: 3, title: "Part 3", instruction: "Read the text and choose the best answer.", example: { prompt: "", promptSpeaker: "", answerSpeaker: "", options: ["A", "B", "C"], correctOption: "A" }, questions: Array.from({ length: 6 }, (_, index) => choice(index + 1)) },
+  4: { schema: schemaId(4), part: 4, title: "Part 4", instruction: "Read the story...", storyTemplate: "Text [[1]] text [[2]] text [[3]] text [[4]] text [[5]] text [[6]].", example: { prompt: "", answer: "" }, gaps: Array.from({ length: 6 }, (_, index) => ({ gapNumber: index + 1, acceptedAnswers: [""] })), titleQuestion: { prompt: "Choose the best name for the story.", promptSpeaker: "", answerSpeaker: "", options: ["A", "B", "C"], correctOption: "A" } },
+  5: { schema: schemaId(5), part: 5, title: "Part 5", instruction: "Look at the pictures and read the story...", example: { prompt: "", answer: "" }, scenes: [
+    { sceneNumber: 1, passage: "", questions: [1, 2, 3].map(textQuestion) },
+    { sceneNumber: 2, passage: "", questions: [4, 5, 6, 7].map(textQuestion) },
+    { sceneNumber: 3, passage: "", questions: [8, 9, 10].map(textQuestion) }
+  ] },
+  6: { schema: schemaId(6), part: 6, title: "Part 6", instruction: "Read the text. Choose the right words...", passageTitle: "", passageTemplate: "Text [[1]] text [[2]] text [[3]] text [[4]] text [[5]].", example: { prompt: "", answer: "" }, gaps: Array.from({ length: 5 }, (_, index) => ({ gapNumber: index + 1, acceptedAnswers: ["and"] })) }
+};
+var moverReadingWritingExternalTemplate = (part) => JSON.stringify(templates[part], null, 2);
+var moverReadingWritingExternalHelp = {
+  1: "\u0110\u1ECDc \u1EA3nh ng\xE2n h\xE0ng t\u1EEB, s\xE1u c\xE2u m\xF4 t\u1EA3 v\xE0 answer key. M\u1ED7i promptTemplate ph\u1EA3i ch\u1EE9a \u0111\xFAng marker [[questionNumber]] t\u1EA1i v\u1ECB tr\xED h\u1ECDc sinh vi\u1EBFt \u0111\xE1p \xE1n; acceptedAnswers ch\u1EC9 l\u1EA5y t\u1EEB ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c.",
+  2: "\u0110\u1ECDc c\xE1c v\xED d\u1EE5, \u0111\xFAng s\xE1u nh\u1EADn \u0111\u1ECBnh v\xE0 \u0111\xE1p \xE1n yes/no theo s\u1ED1 c\xE2u.",
+  3: "\u0110\u1ECDc v\xED d\u1EE5 v\xE0 \u0111\xFAng s\xE1u l\u01B0\u1EE3t h\u1ED9i tho\u1EA1i, m\u1ED7i c\xE2u ba l\u1EF1a ch\u1ECDn A/B/C; \u0111\xE1p \xE1n \u0111\xFAng ch\u1EC9 l\u1EA5y t\u1EEB answer key.",
+  4: "D\xF9ng marker [[1]]\u2026[[6]] \u0111\xFAng m\u1ED9t l\u1EA7n trong truy\u1EC7n, s\xE1u \u0111\xE1p \xE1n v\xE0 m\u1ED9t c\xE2u ch\u1ECDn ti\xEAu \u0111\u1EC1.",
+  5: "\u0110\u1ECDc ba scene theo th\u1EE9 t\u1EF1, t\u1ED5ng \u0111\xFAng m\u01B0\u1EDDi c\xE2u. M\u1ED7i promptTemplate ph\u1EA3i ch\u1EE9a \u0111\xFAng marker [[questionNumber]] t\u1EA1i v\u1ECB tr\xED h\u1ECDc sinh vi\u1EBFt \u0111\xE1p \xE1n; m\u1ED7i acceptedAnswers kh\xF4ng qu\xE1 ba t\u1EEB.",
+  6: "D\xF9ng marker [[1]]\u2026[[5]] \u0111\xFAng m\u1ED9t l\u1EA7n trong b\xE0i \u0111\u1ECDc; kh\xF4ng \u0111\u01B0a d\xF2ng Example v\xE0o passageTemplate. M\u1ED7i gap ch\u1EC9 tr\u1EA3 gapNumber v\xE0 acceptedAnswers l\u1EA5y nguy\xEAn v\u0103n t\u1EEB answer key, t\u1ED1i \u0111a m\u1ED9t t\u1EEB; kh\xF4ng tr\u1EA3 A/B/C ho\u1EB7c t\u1EF1 gi\u1EA3i t\u1EEB b\u1EA3ng l\u1EF1a ch\u1ECDn."
+};
+function schemaFromTemplate(value) {
+  if (Array.isArray(value)) return { type: "array", items: schemaFromTemplate(value[0] ?? ""), maxItems: 20 };
+  if (isObject(value)) {
+    const properties = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, schemaFromTemplate(child)]));
+    return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
+  }
+  if (typeof value === "number") return { type: "number" };
+  return { type: "string", maxLength: 2e4 };
+}
+var moverReadingWritingImportResponseSchema = (part) => schemaFromTemplate(templates[part]);
+var moverReadingWritingImportSchemaName = (part) => `mover_rw_part_${part}_v${part === 1 || part === 5 || part === 6 ? 2 : 1}`;
+
+// src/server/mover-reading-writing/moverReadingWritingSmartImportService.ts
+var parseJson5 = (source) => {
+  const trimmed = source.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim() || trimmed;
+  return JSON.parse(fenced);
+};
+function promptForPart(part) {
+  return [
+    `Extract Cambridge Movers Reading & Writing Part ${part} from the role-labelled images.`,
+    "The answer_key image is the only authority for correct answers. Never solve the exercise and never infer a missing answer.",
+    "Read question/order/text from the question, scene, story, passage or options roles. Preserve spelling, punctuation and printed numbering.",
+    'If text is unreadable use an empty string or empty acceptedAnswers array. If a correct answer is unreadable use "unknown".',
+    "Do not output UUIDs, database IDs, question IDs, choice IDs, option IDs or gap IDs.",
+    moverReadingWritingExternalHelp[part],
+    "Return exactly one JSON value using this structural example:",
+    moverReadingWritingExternalTemplate(part)
+  ].join("\n\n");
+}
+function boundedProviderDetails(reason) {
+  const message = reason instanceof Error ? reason.message : String(reason || "Provider response kh\xF4ng h\u1EE3p l\u1EC7.");
+  return message.replace(/(?:sk|key|token)[-_a-z0-9]{8,}/gi, "[redacted]").slice(0, 500);
+}
+function providerRequestError(reason) {
+  const status = Number(reason?.status);
+  const details = (Array.isArray(reason?.details) ? reason.details : []).map((detail) => boundedProviderDetails(detail)).filter(Boolean).slice(0, 4);
+  const error = new Error(boundedProviderDetails(reason));
+  error.status = status >= 400 && status <= 599 ? status : 502;
+  if (details.length) error.details = details;
+  if (typeof reason?.code === "string") error.code = reason.code.slice(0, 80);
+  return error;
+}
+async function createMoverReadingWritingSmartImportCandidate(input) {
+  const requestId = import_node_crypto6.default.randomUUID();
+  let lastError = "";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const correction = attempt === 1 ? "" : [
+      "",
+      "Your previous response failed runtime validation.",
+      `Validation error: ${lastError}`,
+      "Return a corrected complete JSON value only. Do not explain the correction."
+    ].join("\n");
+    let result;
+    try {
+      result = await input.analyzeVision(
+        `${promptForPart(input.part)}${correction}`,
+        input.images,
+        {
+          preferredProvider: input.preferredProvider,
+          responseJsonSchema: moverReadingWritingImportResponseSchema(input.part),
+          schemaName: moverReadingWritingImportSchemaName(input.part),
+          requestId,
+          attempt
+        },
+        input.signal
+      );
+    } catch (reason) {
+      if (reason?.name === "AbortError" || input.signal?.aborted) throw reason;
+      throw providerRequestError(reason);
+    }
+    try {
+      const normalized = validateAndNormalizeMoverReadingWritingImport(input.part, parseJson5(result.text));
+      const providerWarnings = Array.isArray(result.errors) ? result.errors.map((error) => String(error).slice(0, 300)).filter(Boolean) : [];
+      return {
+        id: `mrw-import-${import_node_crypto6.default.randomUUID()}`,
+        moduleId: "mover",
+        paperId: "reading-writing",
+        part: input.part,
+        basePartHash: input.basePartHash,
+        provider: result.provider,
+        warnings: [
+          ...normalized.warnings,
+          ...providerWarnings,
+          ...attempt > 1 ? ["Nh\xE0 cung c\u1EA5p \u0111\xE3 tr\u1EA3 c\u1EA5u tr\xFAc h\u1EE3p l\u1EC7 sau m\u1ED9t l\u1EA7n s\u1EEDa JSON t\u1EF1 \u0111\u1ED9ng."] : []
+        ],
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        data: normalized.data
+      };
+    } catch (reason) {
+      if (reason?.name === "AbortError" || input.signal?.aborted) throw reason;
+      lastError = boundedProviderDetails(reason);
+      if (attempt === 2) {
+        const error = new Error("AI ch\u01B0a tr\u1EA3 d\u1EEF li\u1EC7u Reading & Writing \u0111\xFAng c\u1EA5u tr\xFAc sau m\u1ED9t l\u1EA7n s\u1EEDa. B\u1EA3n nh\xE1p ch\u01B0a b\u1ECB thay \u0111\u1ED5i.");
+        error.status = 502;
+        error.details = [lastError];
+        throw error;
+      }
+    }
+  }
+  throw new Error("Kh\xF4ng th\u1EC3 t\u1EA1o d\u1EEF li\u1EC7u Smart Import.");
+}
+
+// src/server/mover-reading-writing/moverReadingWritingRouter.ts
+var SMART_IMPORT_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+var SMART_IMPORT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+var SMART_IMPORT_TOTAL_MAX_BYTES = 30 * 1024 * 1024;
+var SMART_IMPORT_TIMEOUT_MS2 = Math.min(
+  18e4,
+  Math.max(15e3, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 18e4)
+);
+function hasValidImageMagic(buffer, mimeType) {
+  if (mimeType === "image/jpeg") return buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
+  if (mimeType === "image/png") return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mimeType === "image/webp") return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  return false;
+}
+var text2 = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+var nowIso3 = () => (/* @__PURE__ */ new Date()).toISOString();
+var identifier2 = (prefix) => `${prefix}-${import_crypto2.default.randomUUID()}`;
+var sha2562 = (value) => import_crypto2.default.createHash("sha256").update(value).digest("hex");
+var timingSafeEqual2 = (first, second) => {
+  const a = Buffer.from(first);
+  const b = Buffer.from(second);
+  return a.length === b.length && import_crypto2.default.timingSafeEqual(a, b);
+};
+function apiError2(status, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  error.details = details;
+  return error;
+}
+function sendError2(res, error) {
+  res.status(Number(error?.status || 500)).json({
+    error: error?.message || "Kh\xF4ng th\u1EC3 x\u1EED l\xFD y\xEAu c\u1EA7u Mover Reading & Writing.",
+    ...error?.details ? { details: error.details } : {}
+  });
+}
+var isSuperAdmin2 = (user) => user?.role === "super_admin";
+var canManageSet2 = (user, set) => isSuperAdmin2(user) || user?.role === "teacher" && set?.ownerId === user.id;
+function publicSetSummary2(set) {
+  const {
+    draftContent: _draftContent,
+    draftRevision: _draftRevision,
+    validationErrors: _validationErrors,
+    shareToken: _shareToken,
+    assignmentSlug: _assignmentSlug,
+    ...summary
+  } = set || {};
+  return summary;
+}
+function encodeTicket2(payload, secret) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = import_crypto2.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+function decodeTicket2(ticket, secret) {
+  const [encoded, signature, extra] = String(ticket || "").split(".");
+  if (!encoded || !signature || extra) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  const expected = import_crypto2.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  if (!timingSafeEqual2(signature, expected)) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (Number(payload.ticketExpiresAt || 0) < Date.now()) throw apiError2(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.");
+    return payload;
+  } catch (error) {
+    if (error?.status) throw error;
+    throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+}
+async function getSet2(db, id) {
+  const document = await db.collection("mover_reading_sets").doc(id).get();
+  if (!document.exists) return null;
+  const set = { id: document.id, ...document.data() };
+  if (set.draftContent && isSupportedMoverReadingWritingSchemaVersion(set.draftContent.schemaVersion)) {
+    set.draftContent = normalizeMoverReadingWritingContent(set.draftContent);
+  }
+  return set;
+}
+async function getVersion2(db, id) {
+  const document = await db.collection("mover_reading_set_versions").doc(id).get();
+  if (!document.exists) return null;
+  const version = { id: document.id, ...document.data() };
+  if (version.content && isSupportedMoverReadingWritingSchemaVersion(version.content.schemaVersion)) {
+    version.content = normalizeMoverReadingWritingContent(version.content);
+  }
+  return version;
+}
+async function getAssignmentByToken2(db, token) {
+  if (!token) return null;
+  const snapshot = await db.collection("assignments").where("shareToken", "==", token).get();
+  let match = null;
+  snapshot.forEach((document) => {
+    const data = { id: document.id, ...document.data() };
+    if (!match && (data.shareToken === token || data.assignmentSlug === token)) match = data;
+  });
+  return match;
+}
+async function resolveLearningAccess2(db, set, req) {
+  if (!set || set.status !== "published" || !set.publishedVersionId) {
+    throw apiError2(404, "B\u1ED9 \u0111\u1EC1 Reading & Writing ch\u01B0a \u0111\u01B0\u1EE3c xu\u1EA5t b\u1EA3n.");
+  }
+  if (req.user?.role === "super_admin" || canManageSet2(req.user, set)) return { assignment: null };
+  if (set.visibility === "public") return { assignment: null };
+  const token = text2(
+    req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.query?.accessToken || req.headers["x-mover-reading-share-token"],
+    240
+  );
+  if (token && set.shareToken && timingSafeEqual2(token, String(set.shareToken))) return { assignment: null };
+  const assignment = await getAssignmentByToken2(db, token);
+  const resourceId = assignment?.resourceId || assignment?.moverReadingWritingSetId;
+  if (assignment?.resourceType === "mover_reading_writing" && resourceId === set.id) return { assignment };
+  throw apiError2(403, "Link b\u1ED9 \u0111\u1EC1 Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp.");
+}
+async function resolveActor2(req, resolveGuestProfile2, classInfo = {}) {
+  if (req.authBlocked) throw apiError2(403, "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB kh\xF3a.");
+  if (req.user) {
+    return {
+      ownerKey: `user:${req.user.id}`,
+      userId: req.user.id,
+      guestId: "",
+      studentName: req.user.name || "H\u1ECDc sinh"
+    };
+  }
+  const guestId = text2(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const studentName = text2(req.body?.studentName || req.query?.studentName, 120);
+  if (!guestId || !studentName) throw apiError2(401, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh tr\u01B0\u1EDBc khi l\xE0m b\xE0i.");
+  const profile = await resolveGuestProfile2(guestId, studentName, true, classInfo);
+  return {
+    ownerKey: `guest:${guestId}`,
+    userId: "",
+    guestId,
+    studentName: profile.displayName || profile.name || studentName
+  };
+}
+function collectAssetReferences2(content) {
+  const references = [];
+  const add = (id, entityId, role) => {
+    const assetId = text2(id, 160);
+    if (assetId) references.push({ id: assetId, entityId, role });
+  };
+  add(content.coverAssetId, "set", "cover");
+  add(content.parts[0].wordBankAssetId, "part-1", "word-bank");
+  add(content.parts[1].sceneAssetId, "part-2", "scene");
+  add(content.parts[2].sceneAssetId, "part-3", "scene");
+  add(content.parts[3].wordBankAssetId, "part-4", "word-bank");
+  content.parts[4].scenes.forEach((scene, index) => add(scene.imageAssetId, scene.id || `part-5-scene-${index + 1}`, "scene"));
+  add(content.parts[5].passageSourceAssetId, "part-6-source", "passage-source");
+  add(content.parts[5].illustrationAssetId, "part-6", "illustration");
+  add(content.parts[5].optionsAssetId, "part-6-options", "options");
+  return references;
+}
+async function resolveContentAssets2(db, content, user) {
+  const clone = structuredClone(content);
+  const references = collectAssetReferences2(clone);
+  const assets = /* @__PURE__ */ new Map();
+  await Promise.all([...new Set(references.map((reference) => reference.id))].map(async (assetId) => {
+    const document = await db.collection("listening_assets").doc(assetId).get();
+    if (!document.exists) throw apiError2(400, `Kh\xF4ng t\xECm th\u1EA5y h\xECnh \u1EA3nh "${assetId}".`);
+    const asset = { id: document.id, ...document.data() };
+    if (asset.status !== "active" || asset.kind !== "image") throw apiError2(400, `Media "${asset.name || asset.id}" ph\u1EA3i l\xE0 h\xECnh \u1EA3nh \u0111ang ho\u1EA1t \u0111\u1ED9ng.`);
+    if (!isSuperAdmin2(user) && asset.ownerId !== user.id) throw apiError2(403, `B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng h\xECnh \u1EA3nh "${asset.name || asset.id}".`);
+    assets.set(assetId, asset);
+  }));
+  const url = (id) => id ? assets.get(id)?.url : void 0;
+  clone.coverUrl = url(clone.coverAssetId);
+  clone.parts[0].wordBankUrl = url(clone.parts[0].wordBankAssetId);
+  clone.parts[1].sceneUrl = url(clone.parts[1].sceneAssetId);
+  clone.parts[2].sceneUrl = url(clone.parts[2].sceneAssetId);
+  clone.parts[3].wordBankUrl = url(clone.parts[3].wordBankAssetId);
+  clone.parts[4].scenes.forEach((scene) => {
+    scene.imageUrl = url(scene.imageAssetId);
+  });
+  clone.parts[5].passageSourceUrl = url(clone.parts[5].passageSourceAssetId);
+  clone.parts[5].illustrationUrl = url(clone.parts[5].illustrationAssetId);
+  clone.parts[5].optionsUrl = url(clone.parts[5].optionsAssetId);
+  return { content: clone, references };
+}
+function playableSet2(set, version) {
+  return {
+    ...publicSetSummary2(set),
+    schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    content: sanitizeMoverReadingWritingContentForStudent(version.content)
+  };
+}
+function createMoverReadingWritingRouter(dependencies) {
+  const {
+    db,
+    authenticateUser: authenticateUser2,
+    authenticateOptionalUser: authenticateOptionalUser2,
+    requireStaff,
+    ticketSecret,
+    mediaDir,
+    resolveGuestProfile: resolveGuestProfile2,
+    logAudit,
+    smartImport
+  } = dependencies;
+  const router = import_express4.default.Router();
+  const draftLocks = /* @__PURE__ */ new Map();
+  const smartImportUsage = /* @__PURE__ */ new Map();
+  const transientSources = mediaDir ? createListeningPdfTransientSourceStore({
+    directory: import_path4.default.join(mediaDir, ".tmp-mover-reading-import"),
+    secret: ticketSecret
+  }) : null;
+  const withDraftLock = async (setId, operation) => {
+    const previous = draftLocks.get(setId) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    draftLocks.set(setId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (draftLocks.get(setId) === queued) draftLocks.delete(setId);
+    }
+  };
+  router.get("/capabilities", authenticateUser2, requireStaff, (_req, res) => {
+    res.json({
+      smartImport: {
+        enabled: smartImport?.enabled !== false,
+        visionEnabled: Boolean(smartImport?.analyzeVision),
+        providers: smartImport?.providers || [],
+        reason: smartImport?.reason || (smartImport?.analyzeVision ? void 0 : "Ch\u01B0a c\u1EA5u h\xECnh nh\xE0 cung c\u1EA5p AI th\u1ECB gi\xE1c cho Reading & Writing.")
+      },
+      transientUpload: {
+        enabled: Boolean(transientSources),
+        imageMaxBytes: SMART_IMPORT_IMAGE_MAX_BYTES,
+        mimeTypes: SMART_IMPORT_IMAGE_MIME_TYPES
+      }
+    });
+  });
+  router.post(
+    "/admin/smart-import/sources",
+    authenticateUser2,
+    requireStaff,
+    import_express4.default.raw({ type: SMART_IMPORT_IMAGE_MIME_TYPES, limit: SMART_IMPORT_IMAGE_MAX_BYTES }),
+    async (req, res) => {
+      try {
+        if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+        if (!transientSources) throw apiError2(503, "Th\u01B0 m\u1EE5c media t\u1EA1m cho Smart Import ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
+        const mimeType = text2(req.headers["content-type"]?.split(";")[0], 100).toLowerCase();
+        if (!SMART_IMPORT_IMAGE_MIME_TYPES.includes(mimeType)) {
+          throw apiError2(415, "Smart Import ch\u1EC9 nh\u1EADn \u1EA3nh JPEG, PNG ho\u1EB7c WebP.");
+        }
+        const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+        if (!buffer.length || buffer.length > SMART_IMPORT_IMAGE_MAX_BYTES) {
+          throw apiError2(413, "\u1EA2nh ngu\u1ED3n r\u1ED7ng ho\u1EB7c v\u01B0\u1EE3t qu\xE1 10 MB.");
+        }
+        if (!hasValidImageMagic(buffer, mimeType)) throw apiError2(415, "N\u1ED9i dung \u1EA3nh kh\xF4ng kh\u1EDBp \u0111\u1ECBnh d\u1EA1ng khai b\xE1o.");
+        const source = await transientSources.create(req.user.id, mimeType, buffer);
+        res.status(201).json(source);
+      } catch (error) {
+        sendError2(res, error);
+      }
+    }
+  );
+  router.post("/admin/smart-import/analyze", authenticateUser2, requireStaff, async (req, res) => {
+    const removers = [];
+    try {
+      if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      if (smartImport?.enabled === false || !smartImport?.analyzeVision) {
+        throw apiError2(503, smartImport?.reason || "Smart Import Reading & Writing ch\u01B0a c\xF3 AI th\u1ECB gi\xE1c kh\u1EA3 d\u1EE5ng.");
+      }
+      const windowStart = Date.now() - 10 * 60 * 1e3;
+      const recentUsage = (smartImportUsage.get(req.user.id) || []).filter((timestamp) => timestamp >= windowStart);
+      if (recentUsage.length >= 20) throw apiError2(429, "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n 20 l\u01B0\u1EE3t Smart Import trong 10 ph\xFAt.");
+      recentUsage.push(Date.now());
+      smartImportUsage.set(req.user.id, recentUsage);
+      if (req.body?.moduleId !== "mover" || req.body?.paperId !== MOVER_READING_WRITING_PAPER_ID) {
+        throw apiError2(400, "Smart Import n\xE0y ch\u1EC9 h\u1ED7 tr\u1EE3 Mover Reading & Writing.");
+      }
+      const part = Number(req.body?.part);
+      if (![1, 2, 3, 4, 5, 6].includes(part)) throw apiError2(400, "Part Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7.");
+      const currentPart = req.body?.currentPart;
+      if (!currentPart || currentPart.part !== part) throw apiError2(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      const basePartHash = text2(req.body?.basePartHash, 64).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError2(400, "Thi\u1EBFu hash c\u1EE7a Part hi\u1EC7n t\u1EA1i.");
+      if (sha2562(JSON.stringify(currentPart)) !== basePartHash) {
+        throw apiError2(409, "Part \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi b\u1EAFt \u0111\u1EA7u ph\xE2n t\xEDch.", { code: "MOVER_READING_IMPORT_BASE_CHANGED" });
+      }
+      const preferredProvider = text2(req.body?.preferredProvider, 60);
+      const selectedProvider = (smartImport.providers || []).find((provider) => provider.id === preferredProvider);
+      if (!selectedProvider) throw apiError2(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
+      if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
+        throw apiError2(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a s\u1EB5n s\xE0ng cho \u1EA3nh.`);
+      }
+      const definitions = getMoverReadingWritingSmartImportRoleDefinitions(part);
+      const definitionByRole = new Map(definitions.map((definition) => [definition.role, definition]));
+      const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
+      if (rawSources.length > 4) throw apiError2(400, "Smart Import Reading & Writing nh\u1EADn t\u1ED1i \u0111a b\u1ED1n \u1EA3nh theo vai tr\xF2.");
+      const sources = [];
+      const seenRoles = /* @__PURE__ */ new Set();
+      const seenValues = /* @__PURE__ */ new Set();
+      for (const raw of rawSources.slice(0, 4)) {
+        const role = text2(raw?.role, 40);
+        const assetId = text2(raw?.assetId, 160);
+        const transientToken = text2(raw?.transientToken, 2e3);
+        const definition = definitionByRole.get(role);
+        if (!definition || Boolean(assetId) === Boolean(transientToken)) throw apiError2(400, "M\u1ED7i vai tr\xF2 \u1EA3nh ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t ngu\u1ED3n h\u1EE3p l\u1EC7.");
+        if (definition.source === "asset" && !assetId) throw apiError2(400, `${definition.label} ph\u1EA3i d\xF9ng \u1EA3nh \u0111\xE3 l\u01B0u trong th\u01B0 vi\u1EC7n.`);
+        if (definition.source === "transient" && !transientToken) throw apiError2(400, `${definition.label} ph\u1EA3i d\xF9ng \u1EA3nh t\u1EA1m c\u1EE7a l\u01B0\u1EE3t ph\xE2n t\xEDch.`);
+        if (seenRoles.has(role)) throw apiError2(400, `Vai tr\xF2 ${role} b\u1ECB tr\xF9ng.`);
+        const sourceValue = assetId ? `asset:${assetId}` : `transient:${transientToken}`;
+        if (seenValues.has(sourceValue)) throw apiError2(400, "M\u1ED9t \u1EA3nh kh\xF4ng \u0111\u01B0\u1EE3c d\xF9ng \u0111\u1ED3ng th\u1EDDi cho nhi\u1EC1u vai tr\xF2.");
+        seenRoles.add(role);
+        seenValues.add(sourceValue);
+        sources.push({ role, ...assetId ? { assetId } : { transientToken } });
+      }
+      const missing = definitions.filter((definition) => definition.required && !seenRoles.has(definition.role));
+      if (missing.length) throw apiError2(400, `Thi\u1EBFu ngu\u1ED3n b\u1EAFt bu\u1ED9c: ${missing.map((definition) => definition.label).join(", ")}.`);
+      const images = [];
+      let totalBytes = 0;
+      for (const source of sources) {
+        if (source.transientToken) {
+          if (!transientSources) throw apiError2(503, "Th\u01B0 m\u1EE5c media t\u1EA1m ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
+          let resolved;
+          try {
+            resolved = await transientSources.resolve(source.transientToken, req.user.id);
+          } catch (reason) {
+            throw apiError2(/hết hạn/.test(reason?.message) ? 410 : 400, reason?.message || "Ngu\u1ED3n \u1EA3nh t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+          }
+          removers.push(resolved.remove);
+          totalBytes += resolved.data.length;
+          images.push({ assetId: `mrw-source-${resolved.sourceId}`, role: source.role, mimeType: resolved.mimeType, data: resolved.data });
+          continue;
+        }
+        const assetDocument = await db.collection("listening_assets").doc(source.assetId).get();
+        if (!assetDocument.exists) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y \u1EA3nh ngu\u1ED3n trong th\u01B0 vi\u1EC7n.");
+        const asset = { id: assetDocument.id, ...assetDocument.data() };
+        if (asset.status !== "active" || asset.kind !== "image" || !SMART_IMPORT_IMAGE_MIME_TYPES.includes(asset.mimeType)) {
+          throw apiError2(400, `Media "${asset.name || asset.id}" ph\u1EA3i l\xE0 \u1EA3nh JPEG, PNG ho\u1EB7c WebP \u0111ang ho\u1EA1t \u0111\u1ED9ng.`);
+        }
+        if (!isSuperAdmin2(req.user) && asset.ownerId !== req.user.id) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng \u1EA3nh ngu\u1ED3n n\xE0y.");
+        if (!mediaDir) throw apiError2(503, "Th\u01B0 m\u1EE5c media ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
+        const storageKey = text2(asset.storageKey, 300);
+        if (!storageKey || import_path4.default.basename(storageKey) !== storageKey) throw apiError2(400, "\u0110\u01B0\u1EDDng d\u1EABn \u1EA3nh ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7.");
+        const root = import_path4.default.resolve(mediaDir);
+        const filePath = import_path4.default.resolve(mediaDir, storageKey);
+        if (!filePath.startsWith(`${root}${import_path4.default.sep}`)) throw apiError2(400, "\u0110\u01B0\u1EDDng d\u1EABn \u1EA3nh ngu\u1ED3n v\u01B0\u1EE3t ngo\xE0i th\u01B0 m\u1EE5c media.");
+        let data;
+        try {
+          data = await import_fs4.default.promises.readFile(filePath);
+        } catch {
+          throw apiError2(404, "File \u1EA3nh ngu\u1ED3n kh\xF4ng c\xF2n t\u1ED3n t\u1EA1i tr\xEAn m\xE1y ch\u1EE7.");
+        }
+        if (!data.length || data.length > SMART_IMPORT_IMAGE_MAX_BYTES || !hasValidImageMagic(data, asset.mimeType)) {
+          throw apiError2(415, "File \u1EA3nh ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n 10 MB.");
+        }
+        totalBytes += data.length;
+        images.push({ assetId: asset.id, role: source.role, mimeType: asset.mimeType, data });
+      }
+      if (totalBytes > SMART_IMPORT_TOTAL_MAX_BYTES) throw apiError2(413, "T\u1ED5ng dung l\u01B0\u1EE3ng \u1EA3nh Smart Import v\u01B0\u1EE3t qu\xE1 30 MB.");
+      const abortController = new AbortController();
+      let timeoutId;
+      const candidatePromise = createMoverReadingWritingSmartImportCandidate({
+        part,
+        basePartHash,
+        images,
+        preferredProvider,
+        analyzeVision: smartImport.analyzeVision,
+        signal: abortController.signal
+      });
+      const timeoutPromise = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          abortController.abort();
+          reject(apiError2(504, "Smart Import Reading & Writing qu\xE1 th\u1EDDi gian x\u1EED l\xFD. B\u1EA3n nh\xE1p ch\u01B0a b\u1ECB thay \u0111\u1ED5i."));
+        }, SMART_IMPORT_TIMEOUT_MS2);
+      });
+      const candidate = await Promise.race([candidatePromise, timeoutPromise]).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+      await Promise.allSettled(removers.map((remove) => remove()));
+      removers.length = 0;
+      await logAudit?.(
+        req.user.id,
+        req.user.name,
+        req.user.email,
+        "ANALYZE_MOVER_READING_SMART_IMPORT",
+        `Ph\xE2n t\xEDch Reading & Writing Part ${part} b\u1EB1ng ${candidate.provider}; ${candidate.warnings.length} c\u1EA3nh b\xE1o.`
+      );
+      res.json(candidate);
+    } catch (error) {
+      sendError2(res, error);
+    } finally {
+      await Promise.allSettled(removers.map((remove) => remove()));
+    }
+  });
+  router.get("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const snapshot = isSuperAdmin2(req.user) ? await db.collection("mover_reading_sets").get() : await db.collection("mover_reading_sets").where("ownerId", "==", req.user.id).get();
+      const sets = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (set.status !== "archived") sets.push(set);
+      });
+      sets.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(sets);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const rawContent = req.body?.content;
+      if (!rawContent || !isSupportedMoverReadingWritingSchemaVersion(rawContent.schemaVersion)) throw apiError2(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+      const content = normalizeMoverReadingWritingContent(rawContent);
+      const now = nowIso3();
+      const set = {
+        id: identifier2("mrwset"),
+        moduleId: "mover",
+        paperId: MOVER_READING_WRITING_PAPER_ID,
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        ownerId: req.user.id,
+        createdBy: req.user.id,
+        title: text2(content.title, 160) || "Mover Reading & Writing",
+        description: text2(content.description, 2e3),
+        level: text2(content.level, 80) || "Movers",
+        status: "draft",
+        visibility: "draft",
+        draftRevision: 1,
+        draftContent: content,
+        validationErrors: validateMoverReadingWritingContent(content),
+        createdAt: now,
+        updatedAt: now
+      };
+      await db.collection("mover_reading_sets").doc(set.id).set(set);
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "CREATE_MOVER_READING_SET", `T\u1EA1o b\u1ED9 \u0111\u1EC1 Reading & Writing "${set.title}".`);
+      res.status(201).json(set);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.get("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet2(db, req.params.id);
+      if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+      if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      const snapshot = await db.collection("mover_reading_set_versions").where("setId", "==", set.id).get();
+      const versions = [];
+      snapshot.forEach((document) => {
+        const version = { id: document.id, ...document.data() };
+        if (version.content && isSupportedMoverReadingWritingSchemaVersion(version.content.schemaVersion)) {
+          version.content = normalizeMoverReadingWritingContent(version.content);
+        }
+        versions.push(version);
+      });
+      versions.sort((a, b) => Number(b.versionNumber) - Number(a.versionNumber));
+      res.json({ ...set, versions });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.put("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet2(db, req.params.id);
+        if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+        if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
+        if (set.status === "archived") throw apiError2(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+        const rawContent = req.body?.content;
+        if (!rawContent || !isSupportedMoverReadingWritingSchemaVersion(rawContent.schemaVersion)) throw apiError2(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+        const content = normalizeMoverReadingWritingContent(rawContent);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (req.body?.baseRevision !== void 0 && Number(req.body.baseRevision) !== currentRevision) {
+          throw apiError2(409, "B\u1EA3n nh\xE1p \u0111\xE3 thay \u0111\u1ED5i \u1EDF m\u1ED9t phi\xEAn l\xE0m vi\u1EC7c kh\xE1c.", { code: "MOVER_READING_DRAFT_REVISION_CONFLICT", currentRevision });
+        }
+        const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
+        const shareToken = visibility === "assignment" ? set.shareToken || import_crypto2.default.randomBytes(18).toString("base64url") : void 0;
+        const next = {
+          ...set,
+          title: text2(content.title, 160),
+          description: text2(content.description, 2e3),
+          level: text2(content.level, 80),
+          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateMoverReadingWritingContent(content),
+          updatedAt: nowIso3(),
+          ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection("mover_reading_sets").doc(set.id).set(next);
+        return next;
+      });
+      res.json(updated);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/admin/sets/:id/draft/autosave", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const updated = await withDraftLock(req.params.id, async () => {
+        const set = await getSet2(db, req.params.id);
+        if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+        if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\u1ED9 \u0111\u1EC1 n\xE0y.");
+        if (set.status === "archived") throw apiError2(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+        const rawContent = req.body?.content;
+        if (!rawContent || !isSupportedMoverReadingWritingSchemaVersion(rawContent.schemaVersion)) {
+          throw apiError2(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
+        }
+        const content = normalizeMoverReadingWritingContent(rawContent);
+        const baseRevision = Number(req.body?.baseRevision);
+        const currentRevision = Number(set.draftRevision || 0);
+        if (!Number.isInteger(baseRevision) || baseRevision !== currentRevision) {
+          throw apiError2(409, "B\u1EA3n nh\xE1p \u0111\xE3 thay \u0111\u1ED5i \u1EDF m\u1ED9t phi\xEAn l\xE0m vi\u1EC7c kh\xE1c.", {
+            code: "MOVER_READING_DRAFT_REVISION_CONFLICT",
+            currentRevision
+          });
+        }
+        const visibility = ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility;
+        const shareToken = visibility === "assignment" ? set.shareToken || import_crypto2.default.randomBytes(18).toString("base64url") : void 0;
+        const updatedAt = nowIso3();
+        const next = {
+          ...set,
+          title: text2(content.title, 160),
+          description: text2(content.description, 2e3),
+          level: text2(content.level, 80),
+          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          visibility,
+          draftRevision: currentRevision + 1,
+          draftContent: content,
+          validationErrors: validateMoverReadingWritingContent(content),
+          updatedAt,
+          ...shareToken ? { shareToken, assignmentSlug: shareToken } : {}
+        };
+        if (!shareToken) {
+          delete next.shareToken;
+          delete next.assignmentSlug;
+        }
+        await db.collection("mover_reading_sets").doc(set.id).set(next);
+        return next;
+      });
+      res.json({
+        draftRevision: updated.draftRevision,
+        updatedAt: updated.updatedAt,
+        validationErrors: updated.validationErrors
+      });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/admin/sets/:id/clone", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const source = await getSet2(db, req.params.id);
+      if (!source) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+      if (!canManageSet2(req.user, source)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n sao ch\xE9p b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      let sourceContent = source.draftContent;
+      if (!sourceContent && source.publishedVersionId) sourceContent = (await getVersion2(db, source.publishedVersionId))?.content;
+      if (!sourceContent) throw apiError2(409, "B\u1ED9 \u0111\u1EC1 ngu\u1ED3n kh\xF4ng c\xF3 n\u1ED9i dung t\u01B0\u01A1ng th\xEDch.");
+      const suffix = " (B\u1EA3n sao)";
+      const cloneTitle = `${text2(source.title, 160 - suffix.length)}${suffix}`;
+      const content = { ...normalizeMoverReadingWritingContent(sourceContent), title: cloneTitle };
+      const now = nowIso3();
+      const clone = {
+        id: identifier2("mrwset"),
+        moduleId: "mover",
+        paperId: MOVER_READING_WRITING_PAPER_ID,
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        ownerId: req.user.id,
+        createdBy: req.user.id,
+        title: cloneTitle,
+        description: text2(content.description, 2e3),
+        level: text2(content.level, 80),
+        status: "draft",
+        visibility: "draft",
+        draftRevision: 1,
+        draftContent: content,
+        validationErrors: validateMoverReadingWritingContent(content),
+        createdAt: now,
+        updatedAt: now
+      };
+      await db.collection("mover_reading_sets").doc(clone.id).set(clone);
+      res.status(201).json(clone);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/admin/sets/:id/publish", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const set = await getSet2(db, req.params.id);
+      if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+      if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xu\u1EA5t b\u1EA3n b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      if (set.status === "archived") throw apiError2(409, "B\u1ED9 \u0111\u1EC1 \u0111\xE3 \u0111\u01B0\u1EE3c l\u01B0u tr\u1EEF.");
+      const draftContent = normalizeMoverReadingWritingContent(set.draftContent);
+      const errors = validateMoverReadingWritingContent(draftContent);
+      if (errors.length) throw apiError2(422, "B\u1ED9 \u0111\u1EC1 ch\u01B0a \u0111\u1EE7 \u0111i\u1EC1u ki\u1EC7n xu\u1EA5t b\u1EA3n.", errors);
+      const resolved = await resolveContentAssets2(db, draftContent, req.user);
+      const versionsSnapshot = await db.collection("mover_reading_set_versions").where("setId", "==", set.id).get();
+      let versionNumber = 1;
+      versionsSnapshot.forEach((document) => {
+        versionNumber = Math.max(versionNumber, Number(document.data()?.versionNumber || 0) + 1);
+      });
+      const now = nowIso3();
+      const version = {
+        id: identifier2("mrwver"),
+        setId: set.id,
+        versionNumber,
+        status: "published",
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        content: resolved.content,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt: now
+      };
+      const batch = db.batch();
+      batch.set(db.collection("mover_reading_set_versions").doc(version.id), version);
+      if (set.publishedVersionId) {
+        const previous = await getVersion2(db, set.publishedVersionId);
+        if (previous) batch.update(db.collection("mover_reading_set_versions").doc(previous.id), { status: "superseded", updatedAt: now });
+      }
+      const publishedSet = {
+        ...set,
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        title: resolved.content.title,
+        description: resolved.content.description,
+        level: resolved.content.level,
+        coverUrl: resolved.content.coverUrl || "",
+        timeLimitMinutes: resolved.content.timeLimitMinutes,
+        status: "published",
+        publishedVersionId: version.id,
+        publishedVersionNumber: versionNumber,
+        validationErrors: [],
+        updatedAt: now
+      };
+      batch.set(db.collection("mover_reading_sets").doc(set.id), publishedSet);
+      resolved.references.forEach((reference) => {
+        const usageId = `mrwusage-${sha2562(`${version.id}:${reference.id}:${reference.entityId}:${reference.role}`).slice(0, 32)}`;
+        batch.set(db.collection("mover_reading_asset_usages").doc(usageId), {
+          id: usageId,
+          assetId: reference.id,
+          setId: set.id,
+          versionId: version.id,
+          entityId: reference.entityId,
+          role: reference.role,
+          createdAt: now,
+          updatedAt: now
+        });
+      });
+      await batch.commit();
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "PUBLISH_MOVER_READING_SET", `Xu\u1EA5t b\u1EA3n "${publishedSet.title}" phi\xEAn b\u1EA3n ${versionNumber}.`);
+      res.json({ set: publishedSet, version });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.delete("/admin/sets/:id", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet2(db, req.params.id);
+      if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+      if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u tr\u1EEF b\u1ED9 \u0111\u1EC1 n\xE0y.");
+      const updatedAt = nowIso3();
+      await db.collection("mover_reading_sets").doc(set.id).update({ status: "archived", updatedAt });
+      res.json({ success: true, recoverable: true, status: "archived", updatedAt });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.get("/admin/sets/:id/results", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const set = await getSet2(db, req.params.id);
+      if (!set) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1 Reading & Writing.");
+      if (!canManageSet2(req.user, set)) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem k\u1EBFt qu\u1EA3.");
+      const snapshot = await db.collection("mover_reading_attempts").where("setId", "==", set.id).get();
+      const attempts = [];
+      for (const document of snapshot.docs || []) {
+        const { runSecretHash: _secret, ...attempt } = { id: document.id, ...document.data() };
+        const detailDoc = await db.collection("mover_reading_attempt_details").doc(document.id).get();
+        attempts.push({ ...attempt, questions: detailDoc.exists ? detailDoc.data()?.questions || [] : [] });
+      }
+      attempts.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+      res.json({ set: publicSetSummary2(set), attempts });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.get("/sets", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const snapshot = await db.collection("mover_reading_sets").get();
+      const sets = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        const visible = set.status === "published" && (set.visibility === "public" || req.user?.role === "super_admin" || canManageSet2(req.user, set));
+        if (visible) sets.push(publicSetSummary2(set));
+      });
+      sets.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(sets);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.get("/sets/:id", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const set = await getSet2(db, req.params.id);
+      await resolveLearningAccess2(db, set, req);
+      const version = await getVersion2(db, set.publishedVersionId);
+      if (!version) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
+      res.json(playableSet2(set, version));
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/sets/:id/attempts/prepare", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const set = await getSet2(db, req.params.id);
+      const access = await resolveLearningAccess2(db, set, req);
+      const actor = await resolveActor2(req, resolveGuestProfile2, {
+        classId: access.assignment?.classId,
+        className: access.assignment?.className,
+        verified: Boolean(access.assignment?.id)
+      });
+      const clientRunId = text2(req.body?.clientRunId, 160);
+      const runSecret = text2(req.body?.runSecret, 300);
+      if (!clientRunId || !runSecret) throw apiError2(400, "Thi\u1EBFu m\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const version = await getVersion2(db, set.publishedVersionId);
+      if (!version) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
+      const startedAt = nowIso3();
+      const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 6e4).toISOString() : void 0;
+      const payload = {
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        paperId: MOVER_READING_WRITING_PAPER_ID,
+        setId: set.id,
+        versionId: version.id,
+        ownerKey: actor.ownerKey,
+        assignmentId: access.assignment?.id || "",
+        classId: access.assignment?.classId || "",
+        className: access.assignment?.className || "",
+        assignmentTitle: access.assignment?.title || "",
+        assignmentDueAt: access.assignment?.dueDate || access.assignment?.dueAt || "",
+        clientRunId,
+        runSecretHash: sha2562(runSecret),
+        startedAt,
+        deadlineAt,
+        ticketExpiresAt: Date.now() + (deadlineAt ? 24 * 60 * 6e4 : 7 * 24 * 60 * 6e4)
+      };
+      res.json({
+        ticket: encodeTicket2(payload, ticketSecret),
+        set: playableSet2(set, version),
+        startedAt,
+        deadlineAt
+      });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.post("/sets/:id/attempts/submit", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const ticket = decodeTicket2(req.body?.ticket, ticketSecret);
+      if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
+      const runSecret = text2(req.body?.runSecret, 300);
+      if (!runSecret || !timingSafeEqual2(sha2562(runSecret), String(ticket.runSecretHash))) throw apiError2(401, "M\xE3 b\u1EA3o v\u1EC7 l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+      const actor = await resolveActor2(req, resolveGuestProfile2);
+      if (actor.ownerKey !== ticket.ownerKey) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const set = await getSet2(db, ticket.setId);
+      const version = await getVersion2(db, ticket.versionId);
+      if (!set || !version || version.setId !== set.id) throw apiError2(404, "Phi\xEAn b\u1EA3n b\u1ED9 \u0111\u1EC1 kh\xF4ng t\u1ED3n t\u1EA1i.");
+      const attemptId = `mrwattempt-${sha2562(`${ticket.ownerKey}:${ticket.setId}:${ticket.clientRunId}`).slice(0, 40)}`;
+      const existingDocument = await db.collection("mover_reading_attempts").doc(attemptId).get();
+      if (existingDocument.exists) {
+        const existing = { id: existingDocument.id, ...existingDocument.data() };
+        if (!timingSafeEqual2(String(existing.runSecretHash), sha2562(runSecret))) throw apiError2(409, "M\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng.");
+        const { runSecretHash: _secret2, ownerKey: _owner2, userId: _user2, guestId: _guest2, ...summary2 } = existing;
+        return res.json(summary2);
+      }
+      const content = version.content;
+      const answers = sanitizeMoverReadingWritingAnswers(content, req.body?.answers);
+      const grade = gradeMoverReadingWritingAttempt(content, answers);
+      const completedAt = nowIso3();
+      const durationSeconds = Math.max(0, Math.min(24 * 60 * 60, Math.round((Date.now() - new Date(ticket.startedAt).getTime()) / 1e3)));
+      const attempt = {
+        id: attemptId,
+        paperId: MOVER_READING_WRITING_PAPER_ID,
+        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        gradingVersion: MOVER_READING_WRITING_GRADING_VERSION,
+        ownerKey: actor.ownerKey,
+        userId: actor.userId,
+        guestId: actor.guestId,
+        studentName: actor.studentName,
+        setId: set.id,
+        setTitle: set.title,
+        versionId: version.id,
+        assignmentId: ticket.assignmentId || "",
+        classId: ticket.classId || "",
+        className: ticket.className || "",
+        assignmentTitle: ticket.assignmentTitle || "",
+        assignmentDueAt: ticket.assignmentDueAt || "",
+        clientRunId: ticket.clientRunId,
+        runSecretHash: sha2562(runSecret),
+        score: grade.score,
+        correctCount: grade.correctCount,
+        incorrectCount: grade.incorrectCount,
+        unansweredCount: grade.unansweredCount,
+        totalCount: grade.totalCount,
+        startedAt: ticket.startedAt,
+        completedAt,
+        durationSeconds,
+        status: "completed",
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const detail = {
+        id: attemptId,
+        attemptId,
+        setId: set.id,
+        versionId: version.id,
+        questions: grade.questions,
+        reviewPolicy: { showReviewAfterSubmit: content.showReviewAfterSubmit === true },
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const batch = db.batch();
+      batch.set(db.collection("mover_reading_attempts").doc(attemptId), attempt);
+      batch.set(db.collection("mover_reading_attempt_details").doc(attemptId), detail);
+      await batch.commit();
+      const { runSecretHash: _secret, ownerKey: _owner, userId: _user, guestId: _guest, ...summary } = attempt;
+      res.status(201).json(summary);
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
+  router.get("/sets/:id/attempts/:attemptId/review", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const attemptDocument = await db.collection("mover_reading_attempts").doc(req.params.attemptId).get();
+      if (!attemptDocument.exists) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const attempt = { id: attemptDocument.id, ...attemptDocument.data() };
+      if (attempt.setId !== req.params.id || attempt.status !== "completed") throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      let ownerKey = "";
+      if (req.user) ownerKey = `user:${req.user.id}`;
+      else {
+        const guestId = text2(req.query?.guestId || req.headers["x-guest-id"], 120);
+        ownerKey = guestId ? `guest:${guestId}` : "";
+        const runSecret = text2(req.headers["x-mover-reading-run-secret"], 300);
+        if (!runSecret || !timingSafeEqual2(sha2562(runSecret), String(attempt.runSecretHash))) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      }
+      if (!ownerKey || ownerKey !== attempt.ownerKey) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const detailDocument = await db.collection("mover_reading_attempt_details").doc(attempt.id).get();
+      if (!detailDocument.exists) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y chi ti\u1EBFt l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const detail = detailDocument.data();
+      if (detail?.reviewPolicy?.showReviewAfterSubmit !== true) throw apiError2(403, "Gi\xE1o vi\xEAn ch\u01B0a cho ph\xE9p xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
+      let visualReview;
+      const version = await getVersion2(db, attempt.versionId);
+      if (version?.content && Array.isArray(detail?.questions)) {
+        try {
+          visualReview = buildMoverReadingWritingVisualReviewSnapshot(
+            version.content,
+            detail.questions
+          );
+        } catch {
+        }
+      }
+      res.json({
+        attemptId: attempt.id,
+        setId: attempt.setId,
+        versionId: attempt.versionId,
+        title: attempt.setTitle,
+        score: attempt.score,
+        correctCount: attempt.correctCount,
+        incorrectCount: attempt.incorrectCount,
+        unansweredCount: attempt.unansweredCount,
+        totalCount: attempt.totalCount,
+        completedAt: attempt.completedAt,
+        questions: detail.questions || [],
+        ...visualReview ? { visualReview } : {}
+      });
+    } catch (error) {
+      sendError2(res, error);
+    }
   });
   return router;
 }
@@ -8931,10 +11211,10 @@ async function generateWithDevQuotaVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text3 = extractDevQuotaResponseText(data);
-  if (!text3) throw new Error("DevQuota response did not include text output.");
+  const text4 = extractDevQuotaResponseText(data);
+  if (!text4) throw new Error("DevQuota response did not include text output.");
   return {
-    text: text3,
+    text: text4,
     provider: DEVQUOTA_PROVIDER_ID,
     model: DEVQUOTA_MODEL
   };
@@ -9064,10 +11344,10 @@ async function generateWithStaliVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text3 = extractStaliChatCompletionText(data);
-  if (!text3) throw new Error("Stali response did not include text output.");
+  const text4 = extractStaliChatCompletionText(data);
+  if (!text4) throw new Error("Stali response did not include text output.");
   return {
-    text: text3,
+    text: text4,
     provider: definition.id,
     model: definition.model
   };
@@ -9099,11 +11379,11 @@ function isLocalServerAuthBypassAllowed(input) {
 }
 
 // src/server/learning-history/learningAttemptProjector.ts
-var import_node_crypto6 = __toESM(require("node:crypto"), 1);
+var import_node_crypto7 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
-function text2(value, max = 500) {
+function text3(value, max = 500) {
   return String(value ?? "").normalize("NFKC").trim().slice(0, max);
 }
 function nonNegative(value) {
@@ -9117,7 +11397,7 @@ function clampScore(value) {
   return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 0));
 }
 function isoOrNull(value) {
-  const raw = text2(value, 80);
+  const raw = text3(value, 80);
   if (!raw) return null;
   const date = new Date(raw);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
@@ -9143,13 +11423,13 @@ function studyDateInBangkok(value) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function deterministicLearningAttemptId(sourceType, sourceRecordId) {
-  const digest = import_node_crypto6.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
+  const digest = import_node_crypto7.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
-  const declaredOwnerKey = text2(source?.ownerKey || source?.owner_key, 260);
-  const userId = text2(source?.userId || source?.user_id, 180);
-  const guestId = text2(source?.guestId || source?.guest_id, 180);
+  const declaredOwnerKey = text3(source?.ownerKey || source?.owner_key, 260);
+  const userId = text3(source?.userId || source?.user_id, 180);
+  const guestId = text3(source?.guestId || source?.guest_id, 180);
   if (declaredOwnerKey.startsWith("user:") && userId) {
     return {
       studentType: "authenticated",
@@ -9195,7 +11475,7 @@ function resolveOwnership(source) {
   };
 }
 function vocabularyCounts(session) {
-  const gameId = text2(session?.gameId, 120);
+  const gameId = text3(session?.gameId, 120);
   const sourceCorrect = integer2(session?.correctAnswers ?? session?.correct);
   const sourceIncorrect = integer2(session?.incorrectAnswers ?? session?.incorrect);
   let total = integer2(session?.totalQuestions);
@@ -9253,7 +11533,7 @@ function createDetail(sourceType, attemptId, clientRunId, completedAt, values, d
   };
 }
 function projectVocabularyAttempt(session, options = {}) {
-  const sourceRecordId = text2(session?.id || session?.sourceId, 200);
+  const sourceRecordId = text3(session?.id || session?.sourceId, 200);
   if (!sourceRecordId) throw new Error("Vocabulary projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("vocabulary", sourceRecordId);
   const ownership = resolveOwnership(session);
@@ -9264,7 +11544,7 @@ function projectVocabularyAttempt(session, options = {}) {
   const counts = vocabularyCounts(session);
   const now = isoOrNull(session?.updatedAt) || activityAt;
   const assignmentVerified = Boolean(session?.assignmentVerified || session?.assignmentAccessVerified);
-  const assignmentId = assignmentVerified ? text2(session?.assignmentId, 180) || null : null;
+  const assignmentId = assignmentVerified ? text3(session?.assignmentId, 180) || null : null;
   const includeDetail = options.includeDetail !== false && status === "completed";
   const answerDetails = Array.isArray(session?.answerDetails) ? session.answerDetails : [];
   const snapshotItems = Array.isArray(session?.privateSnapshot?.items) ? session.privateSnapshot.items : [];
@@ -9272,20 +11552,20 @@ function projectVocabularyAttempt(session, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text2(session?.clientRunId, 180) || null,
+    clientRunId: text3(session?.clientRunId, 180) || null,
     sourceType: "vocabulary",
     ...ownership,
-    studentNameSnapshot: text2(session?.studentName, 240),
-    classId: text2(session?.classId, 180) || null,
-    classNameSnapshot: text2(session?.className, 240),
+    studentNameSnapshot: text3(session?.studentName, 240),
+    classId: text3(session?.classId, 180) || null,
+    classNameSnapshot: text3(session?.className, 240),
     assignmentId,
-    assignmentTitleSnapshot: assignmentId ? text2(session?.assignmentTitle || session?.assignmentName, 300) : "",
+    assignmentTitleSnapshot: assignmentId ? text3(session?.assignmentTitle || session?.assignmentName, 300) : "",
     assignmentDueAtSnapshot: assignmentId ? isoOrNull(session?.assignmentDueAt || session?.dueDate) : null,
-    lessonId: text2(session?.vocabSetId || session?.vocabularySetId, 200),
-    lessonTitleSnapshot: text2(session?.vocabSetTitle || session?.lessonTitle, 300),
+    lessonId: text3(session?.vocabSetId || session?.vocabularySetId, 200),
+    lessonTitleSnapshot: text3(session?.vocabSetTitle || session?.lessonTitle, 300),
     lessonType: "vocab_set",
-    gameId: text2(session?.gameId, 160) || "vocabulary-practice",
-    gameTitleSnapshot: text2(session?.gameName || session?.gameTitle || session?.gameId, 240),
+    gameId: text3(session?.gameId, 160) || "vocabulary-practice",
+    gameTitleSnapshot: text3(session?.gameName || session?.gameTitle || session?.gameId, 240),
     score: counts.score,
     rawScore: counts.rawScore,
     maxScore: counts.maxScore,
@@ -9313,15 +11593,15 @@ function projectVocabularyAttempt(session, options = {}) {
     answerDetails,
     questionSnapshots: snapshotItems.map((item, index) => ({
       questionIndex: index,
-      wordId: text2(item?.id, 180),
-      term: text2(item?.term, 500),
-      meaning: text2(item?.meaning, 1e3),
-      ipa: text2(item?.ipa, 180),
-      example: text2(item?.example, 1500)
+      wordId: text3(item?.id, 180),
+      term: text3(item?.term, 500),
+      meaning: text3(item?.meaning, 1e3),
+      ipa: text3(item?.ipa, 180),
+      example: text3(item?.example, 1500)
     })),
     extraDetails: {
       gameId: attempt.gameId,
-      gradingMode: text2(session?.gradingMode, 80)
+      gradingMode: text3(session?.gradingMode, 80)
     },
     reviewPolicy: {
       showReviewAfterSubmit: true,
@@ -9354,7 +11634,7 @@ function grammarReviewPolicy(attempt, set, capturedAt) {
   };
 }
 function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
-  const sourceRecordId = text2(grammarAttempt?.id, 200);
+  const sourceRecordId = text3(grammarAttempt?.id, 200);
   if (!sourceRecordId) throw new Error("Grammar projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("grammar", sourceRecordId);
   const ownership = resolveOwnership(grammarAttempt);
@@ -9378,20 +11658,20 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text2(grammarAttempt?.clientRunId, 180) || null,
+    clientRunId: text3(grammarAttempt?.clientRunId, 180) || null,
     sourceType: "grammar",
     ...ownership,
-    studentNameSnapshot: text2(grammarAttempt?.studentName, 240),
-    classId: text2(grammarAttempt?.classId, 180) || null,
-    classNameSnapshot: text2(grammarAttempt?.className, 240),
-    assignmentId: grammarAttempt?.assignmentVerified ? text2(grammarAttempt?.assignmentId, 180) || null : null,
-    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text2(grammarAttempt?.assignmentTitle, 300) : "",
+    studentNameSnapshot: text3(grammarAttempt?.studentName, 240),
+    classId: text3(grammarAttempt?.classId, 180) || null,
+    classNameSnapshot: text3(grammarAttempt?.className, 240),
+    assignmentId: grammarAttempt?.assignmentVerified ? text3(grammarAttempt?.assignmentId, 180) || null : null,
+    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text3(grammarAttempt?.assignmentTitle, 300) : "",
     assignmentDueAtSnapshot: grammarAttempt?.assignmentVerified ? isoOrNull(grammarAttempt?.assignmentDueAt) : null,
-    lessonId: text2(grammarAttempt?.grammarSetId, 200),
-    lessonTitleSnapshot: text2(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
+    lessonId: text3(grammarAttempt?.grammarSetId, 200),
+    lessonTitleSnapshot: text3(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
     lessonType: "grammar_set",
     gameId: "grammar-practice",
-    gameTitleSnapshot: text2(
+    gameTitleSnapshot: text3(
       grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
       240
     ),
@@ -9421,23 +11701,23 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
       const answer = answerByQuestion.get(question?.id);
       const questionType = question?.questionType === "rewrite" ? "rewrite" : "multiple_choice";
       const optionSnapshots = Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : [];
-      const selectedOptionId = text2(answer?.selectedOptionId, 200);
-      const correctOptionId = text2(question?.correctOptionId || answer?.correctOptionId, 200);
+      const selectedOptionId = text3(answer?.selectedOptionId, 200);
+      const correctOptionId = text3(question?.correctOptionId || answer?.correctOptionId, 200);
       const selectedOption = optionSnapshots.find(
-        (option) => text2(option?.id, 200) === selectedOptionId
+        (option) => text3(option?.id, 200) === selectedOptionId
       );
       const correctOption = optionSnapshots.find(
-        (option) => text2(option?.id, 200) === correctOptionId
+        (option) => text3(option?.id, 200) === correctOptionId
       );
-      const userAnswer = questionType === "rewrite" ? text2(answer?.textAnswer, 4e3) : text2(selectedOption?.text, 2e3);
-      const correctAnswer = questionType === "rewrite" ? text2(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text2(correctOption?.text, 2e3);
+      const userAnswer = questionType === "rewrite" ? text3(answer?.textAnswer, 4e3) : text3(selectedOption?.text, 2e3);
+      const correctAnswer = questionType === "rewrite" ? text3(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text3(correctOption?.text, 2e3);
       return {
         questionIndex: Number(question?.displayPosition || index + 1) - 1,
-        attemptQuestionId: text2(question?.id, 200),
-        questionId: text2(question?.questionId, 200),
+        attemptQuestionId: text3(question?.id, 200),
+        questionId: text3(question?.questionId, 200),
         questionType,
         selectedOptionId,
-        textAnswer: text2(answer?.textAnswer, 4e3),
+        textAnswer: text3(answer?.textAnswer, 4e3),
         selectedAnswer: userAnswer,
         userAnswer,
         isCorrect: Boolean(answer?.isCorrect),
@@ -9445,32 +11725,32 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
         answeredAt: isoOrNull(answer?.answeredAt),
         correctOptionId,
         correctAnswer,
-        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text2(value, 4e3)) : [],
-        explanation: text2(question?.explanationSnapshot, 4e3)
+        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text3(value, 4e3)) : [],
+        explanation: text3(question?.explanationSnapshot, 4e3)
       };
     }),
     questionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text2(question?.id, 200),
-      questionId: text2(question?.questionId, 200),
+      attemptQuestionId: text3(question?.id, 200),
+      questionId: text3(question?.questionId, 200),
       questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
-      questionText: text2(question?.questionSnapshot, 4e3),
-      explanation: text2(question?.explanationSnapshot, 4e3),
-      correctOptionId: text2(question?.correctOptionId, 200),
-      correctAnswer: text2(question?.correctAnswerSnapshot, 4e3),
-      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text2(value, 4e3)) : []
+      questionText: text3(question?.questionSnapshot, 4e3),
+      explanation: text3(question?.explanationSnapshot, 4e3),
+      correctOptionId: text3(question?.correctOptionId, 200),
+      correctAnswer: text3(question?.correctAnswerSnapshot, 4e3),
+      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text3(value, 4e3)) : []
     })),
     optionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text2(question?.id, 200),
+      attemptQuestionId: text3(question?.id, 200),
       options: Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot.map((option) => ({
-        id: text2(option?.id, 200),
-        text: text2(option?.text, 2e3)
+        id: text3(option?.id, 200),
+        text: text3(option?.text, 2e3)
       })) : []
     })),
     extraDetails: {
-      grammarSetVersion: text2(grammarAttempt?.grammarSetVersion, 180),
-      gradingVersion: text2(
+      grammarSetVersion: text3(grammarAttempt?.grammarSetVersion, 180),
+      gradingVersion: text3(
         answers.find((answer) => answer?.gradingVersion)?.gradingVersion,
         120
       )
@@ -9483,7 +11763,7 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
 }
 
 // src/server/publicStudentIdentity.ts
-var import_node_crypto7 = __toESM(require("node:crypto"), 1);
+var import_node_crypto8 = __toESM(require("node:crypto"), 1);
 function normalizedName(value) {
   return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").slice(0, 300);
 }
@@ -9491,7 +11771,7 @@ function createPublicStudentKey(data, secret) {
   const identity = String(
     data?.ownerKey || (data?.userId ? `user:${data.userId}` : "") || (data?.guestId ? `guest:${data.guestId}` : "") || (data?.studentId ? `student:${data.studentId}` : "") || `name:${normalizedName(data?.studentName || "H\u1ECDc sinh")}`
   ).normalize("NFKC").trim().slice(0, 300);
-  return `student-${import_node_crypto7.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
+  return `student-${import_node_crypto8.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
 }
 function sanitizePublicStudentRecord(value, secret) {
   const {
@@ -9564,10 +11844,10 @@ function assertSafeYupVoxAudioUrl(value) {
 async function generateYupVoxAudioUrl(options) {
   const apiKey = String(options.apiKey || "").trim();
   const voiceId = String(options.voiceId || "").trim();
-  const text3 = String(options.text || "").trim();
+  const text4 = String(options.text || "").trim();
   if (!apiKey) throw new Error("YUPVOX_API_KEY is not configured.");
   if (!voiceId) throw new Error("Missing YupVox voiceId.");
-  if (!text3) throw new Error("Missing YupVox TTS text.");
+  if (!text4) throw new Error("Missing YupVox TTS text.");
   const baseUrl = normalizeYupVoxBaseUrl(options.baseUrl);
   const maxPollAttempts = clampInteger(options.maxPollAttempts, DEFAULT_MAX_POLL_ATTEMPTS, 1, 120);
   const pollIntervalMs = clampInteger(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, 250, 1e4);
@@ -9579,7 +11859,7 @@ async function generateYupVoxAudioUrl(options) {
   const createResponse = await options.fetchImpl(`${baseUrl}/v1/tts`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ voiceId, text: text3 })
+    body: JSON.stringify({ voiceId, text: text4 })
   });
   const createPayload = await readJsonResponse(createResponse);
   if (!createResponse.ok) {
@@ -9621,12 +11901,12 @@ if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
 if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
-var app2 = (0, import_express4.default)();
+var app2 = (0, import_express5.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 var AUDIO_PUBLIC_PREFIX = "/audio";
 var LISTENING_MEDIA_PUBLIC_PREFIX = "/listening-media";
-var LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR || (process.env.NODE_ENV === "production" ? "/home/qzmivzbj/app-data/vhomework/listening-media" : import_path4.default.join(process.cwd(), ".data", "listening-media"));
+var LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR || (process.env.NODE_ENV === "production" ? "/home/qzmivzbj/app-data/vhomework/listening-media" : import_path5.default.join(process.cwd(), ".data", "listening-media"));
 var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 var LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
 var LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
@@ -9647,7 +11927,7 @@ var LISTENING_TICKET_SECRET = CONFIGURED_LISTENING_TICKET_SECRET || `${PUBLIC_ID
 if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
-app2.use(import_express4.default.json());
+app2.use(import_express5.default.json());
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -9655,10 +11935,10 @@ app2.use((req, _res, next) => {
     next();
   });
 });
-import_fs4.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express4.default.static(AUDIO_DIR));
-import_fs4.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
-app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express4.default.static(LISTENING_MEDIA_DIR, {
+import_fs5.default.mkdirSync(AUDIO_DIR, { recursive: true });
+app2.use(AUDIO_PUBLIC_PREFIX, import_express5.default.static(AUDIO_DIR));
+import_fs5.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express5.default.static(LISTENING_MEDIA_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -9906,10 +12186,10 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 function createSessionToken() {
-  return import_crypto2.default.randomBytes(32).toString("hex");
+  return import_crypto3.default.randomBytes(32).toString("hex");
 }
 function hashSessionToken(token) {
-  return import_crypto2.default.createHash("sha256").update(token).digest("hex");
+  return import_crypto3.default.createHash("sha256").update(token).digest("hex");
 }
 function sanitizePublicStudentRecord2(data) {
   return sanitizePublicStudentRecord(data || {}, PUBLIC_IDENTITY_SECRET);
@@ -10428,38 +12708,38 @@ function canUpdateGameSession(req, existing, payload) {
   }
   return false;
 }
-function isSuperAdmin2(user) {
+function isSuperAdmin3(user) {
   return user?.role === "super_admin";
 }
 function isTeacher(user) {
   return user?.role === "teacher";
 }
 function canManageVocabSet(user, set) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   return isTeacher(user) && Boolean(set?.createdBy) && set.createdBy === user.id;
 }
 function canViewVocabSet(user, set) {
   if (!user) return getVocabVisibility(set) === "public";
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (isTeacher(user)) return canManageVocabSet(user, set) || getVocabVisibility(set) === "public";
   return getVocabVisibility(set) === "public";
 }
 function canManageClass(user, classData) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   return isTeacher(user) && Boolean(classData?.teacherId) && classData.teacherId === user.id;
 }
 function canViewClass(user, classData) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   return canManageClass(user, classData);
 }
 function canManageAssignment(user, assignment, classData) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (!isTeacher(user)) return false;
   if (assignment?.createdBy === user.id) return true;
   return Boolean(classData) && canManageClass(user, classData);
 }
 async function canManageGuestProfile(user, profile) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (!isTeacher(user)) return false;
   const guestId = getGuestProfileId(profile?.guestId || profile?.id);
   if (!guestId) return false;
@@ -10503,7 +12783,7 @@ async function canStaffViewLearningAttempt(actor, attempt) {
     id: actor.id,
     role: actor.role
   };
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (!isTeacher(user)) return false;
   if (attempt.assignmentId) {
     const assignmentDoc = await adminDb.collection("assignments").doc(attempt.assignmentId).get();
@@ -10605,7 +12885,7 @@ async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", e
   return null;
 }
 function canViewResultSession(user, session, vocabSetsById, assignmentsById, classesById) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (!user) return false;
   if (user.role === "student") {
     return session.userId === user.id || session.studentId === user.id || session.ownerKey === `user:${user.id}`;
@@ -10622,7 +12902,7 @@ function canViewResultSession(user, session, vocabSetsById, assignmentsById, cla
   return Boolean(classData && canManageClass(user, classData));
 }
 function canViewGrammarActivity(user, attempt, set) {
-  if (isSuperAdmin2(user)) return true;
+  if (isSuperAdmin3(user)) return true;
   if (!user) return false;
   if (user.role === "student") return attempt.userId === user.id || attempt.studentId === user.id;
   return isTeacher(user) && canManageGrammarSet(user, set);
@@ -10631,7 +12911,7 @@ function getRequestGrammarAttemptToken(req) {
   return safeText(req.body?.attemptToken || req.query?.attemptToken || req.headers["x-grammar-attempt-token"], 160);
 }
 function sanitizeGrammarAnswerForStudent(answer, includeReview = false) {
-  const safeAnswer = {
+  const safeAnswer2 = {
     id: answer.id,
     attemptQuestionId: answer.attemptQuestionId,
     questionId: answer.questionId,
@@ -10640,12 +12920,12 @@ function sanitizeGrammarAnswerForStudent(answer, includeReview = false) {
     answeredAt: answer.answeredAt
   };
   if (includeReview) {
-    safeAnswer.correctOptionId = answer.correctOptionId;
-    safeAnswer.correctAnswer = answer.correctAnswer;
-    safeAnswer.isCorrect = Boolean(answer.isCorrect);
-    safeAnswer.scoreAwarded = Number(answer.scoreAwarded || 0);
+    safeAnswer2.correctOptionId = answer.correctOptionId;
+    safeAnswer2.correctAnswer = answer.correctAnswer;
+    safeAnswer2.isCorrect = Boolean(answer.isCorrect);
+    safeAnswer2.scoreAwarded = Number(answer.scoreAwarded || 0);
   }
-  return safeAnswer;
+  return safeAnswer2;
 }
 function grammarAttemptToActivity(attempt, set = {}) {
   const gradeClass = getLessonGradeClass(set);
@@ -10709,7 +12989,7 @@ function grammarAttemptToActivity(attempt, set = {}) {
   };
 }
 function leaderboardEventId(sourceType, sourceId) {
-  const hash = import_crypto2.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
+  const hash = import_crypto3.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
   return `leaderboard-${hash}`;
 }
 function getLeaderboardEventTime(data) {
@@ -10728,7 +13008,7 @@ function sanitizeLeaderboardEvent(event) {
   const sourceId = safeText(event.sourceId || event.id || "", 180);
   const completedAt = getLeaderboardEventTime(event);
   return {
-    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto2.default.randomUUID()),
+    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto3.default.randomUUID()),
     sourceType,
     sourceId,
     assignmentId: safeText(event.assignmentId || "", 180),
@@ -10881,35 +13161,35 @@ var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENC
 var ttsQueue = [];
 var ttsInFlight = /* @__PURE__ */ new Map();
 var isProcessingTtsQueue = false;
-function normalizeTtsText(text3) {
-  return text3.normalize("NFKC").trim().replace(/\s+/g, " ");
+function normalizeTtsText(text4) {
+  return text4.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 function sanitizeTtsInput(input) {
   const warnings = [];
-  let text3 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
-  if (!text3) return { text: "", warnings };
-  const lines = text3.split("\n").map((line) => line.trim()).filter(Boolean);
+  let text4 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text4) return { text: "", warnings };
+  const lines = text4.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 1) {
     warnings.push("Only the first non-empty line was used for TTS.");
-    text3 = lines[0];
+    text4 = lines[0];
   }
-  const dashSplit = text3.split(/\s+[–—-]\s+/);
+  const dashSplit = text4.split(/\s+[–—-]\s+/);
   if (dashSplit.length > 1) {
     warnings.push("Text after the separator was removed before TTS.");
-    text3 = dashSplit[0];
+    text4 = dashSplit[0];
   }
-  const beforeNotes = text3;
-  text3 = text3.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
-  if (text3 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
-  const beforeIpa = text3;
-  text3 = text3.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
-  if (text3 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
-  text3 = normalizeTtsText(text3).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
-  if (text3.length > 120) {
+  const beforeNotes = text4;
+  text4 = text4.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text4 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text4;
+  text4 = text4.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text4 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text4 = normalizeTtsText(text4).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text4.length > 120) {
     warnings.push("TTS text was shortened to 120 characters.");
-    text3 = text3.slice(0, 120).trim();
+    text4 = text4.slice(0, 120).trim();
   }
-  return { text: text3, warnings };
+  return { text: text4, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
@@ -10927,16 +13207,16 @@ function normalizeTtsSettings(settings = {}) {
     speed
   };
 }
-function createAudioHash(text3, settings) {
-  const normalizedText = normalizeTtsText(text3);
+function createAudioHash(text4, settings) {
+  const normalizedText = normalizeTtsText(text4);
   const generationSpeed = settings.provider === "yupvox" ? DEFAULT_TTS_SPEED : settings.speed;
-  return import_crypto2.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`).digest("hex");
+  return import_crypto3.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`).digest("hex");
 }
 function audioFileName(audioHash) {
   return `${audioHash}.mp3`;
 }
 function audioFilePath(audioHash) {
-  return import_path4.default.join(AUDIO_DIR, audioFileName(audioHash));
+  return import_path5.default.join(AUDIO_DIR, audioFileName(audioHash));
 }
 function audioPublicUrl(audioHash) {
   return `${AUDIO_PUBLIC_PREFIX}/${audioFileName(audioHash)}`;
@@ -11001,16 +13281,16 @@ async function responseBufferWithCap(res, maxBytes) {
   return buffer;
 }
 function writeFileAtomic(targetPath, buffer) {
-  const dir = import_path4.default.dirname(targetPath);
-  import_fs4.default.mkdirSync(dir, { recursive: true });
-  const tempPath = import_path4.default.join(dir, `.${import_path4.default.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
+  const dir = import_path5.default.dirname(targetPath);
+  import_fs5.default.mkdirSync(dir, { recursive: true });
+  const tempPath = import_path5.default.join(dir, `.${import_path5.default.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    import_fs4.default.writeFileSync(tempPath, buffer, { flag: "wx" });
-    import_fs4.default.renameSync(tempPath, targetPath);
+    import_fs5.default.writeFileSync(tempPath, buffer, { flag: "wx" });
+    import_fs5.default.renameSync(tempPath, targetPath);
   } finally {
-    if (import_fs4.default.existsSync(tempPath)) {
+    if (import_fs5.default.existsSync(tempPath)) {
       try {
-        import_fs4.default.unlinkSync(tempPath);
+        import_fs5.default.unlinkSync(tempPath);
       } catch {
       }
     }
@@ -11028,11 +13308,11 @@ async function runWithConcurrency(items, limit, worker) {
   }));
   return results;
 }
-async function requestAi33TtsTask(text3, settings, fileName) {
+async function requestAi33TtsTask(text4, settings, fileName) {
   const apiKey = getAi33ApiKey();
   if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
   const form = new FormData();
-  form.set("text", text3);
+  form.set("text", text4);
   form.set("voice_id", settings.voice);
   form.set("speed", String(settings.speed));
   form.set("with_transcript", "false");
@@ -11071,13 +13351,13 @@ async function pollAi33AudioUrl(taskId) {
   }
   throw new Error("TTS task timed out before audio was ready.");
 }
-async function requestTtsProviderAudioUrl(text3, settings, fileName) {
+async function requestTtsProviderAudioUrl(text4, settings, fileName) {
   if (settings.provider === "yupvox") {
     const audioUrl = await generateYupVoxAudioUrl({
       apiKey: getYupVoxApiKey(),
       baseUrl: process.env.YUPVOX_BASE_URL,
       voiceId: settings.voice,
-      text: text3,
+      text: text4,
       maxPollAttempts: Number(process.env.YUPVOX_TTS_POLL_ATTEMPTS || 40),
       pollIntervalMs: Number(process.env.YUPVOX_TTS_POLL_INTERVAL_MS || 1500),
       fetchImpl: fetchWithTimeout,
@@ -11085,7 +13365,7 @@ async function requestTtsProviderAudioUrl(text3, settings, fileName) {
     });
     return { audioUrl, validateAudioUrl: assertSafeYupVoxAudioUrl };
   }
-  const taskId = await requestAi33TtsTask(text3, settings, fileName);
+  const taskId = await requestAi33TtsTask(text4, settings, fileName);
   return { audioUrl: await pollAi33AudioUrl(taskId) };
 }
 async function downloadAudioToCache(sourceUrl, targetPath, validateAudioUrl) {
@@ -11109,7 +13389,7 @@ async function generateCachedTtsAudio(inputText, settings, force = false) {
   const audioHash = createAudioHash(sanitized.text, settings);
   const targetPath = audioFilePath(audioHash);
   const targetUrl = audioPublicUrl(audioHash);
-  if (!force && import_fs4.default.existsSync(targetPath)) {
+  if (!force && import_fs5.default.existsSync(targetPath)) {
     return {
       audioHash,
       audioUrl: targetUrl,
@@ -11121,9 +13401,9 @@ async function generateCachedTtsAudio(inputText, settings, force = false) {
   const inFlight = ttsInFlight.get(audioHash);
   if (inFlight) return inFlight;
   const generation = (async () => {
-    if (force && import_fs4.default.existsSync(targetPath)) {
+    if (force && import_fs5.default.existsSync(targetPath)) {
       try {
-        import_fs4.default.unlinkSync(targetPath);
+        import_fs5.default.unlinkSync(targetPath);
       } catch (err) {
         console.warn("Could not remove old TTS cache before regeneration:", err);
       }
@@ -11206,9 +13486,9 @@ async function processVocabSetAudioJob(job) {
     if (!sanitized.text) continue;
     const audioHash = createAudioHash(sanitized.text, job.settings);
     const targetPath = audioFilePath(audioHash);
-    const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs4.default.existsSync(targetPath);
+    const existingReady = !job.force && item.audioHash === audioHash && item.audioUrl && import_fs5.default.existsSync(targetPath);
     if (existingReady) continue;
-    if (!job.force && import_fs4.default.existsSync(targetPath)) {
+    if (!job.force && import_fs5.default.existsSync(targetPath)) {
       hasInitialUpdates = true;
       items = items.map(
         (current) => current.id === item.id ? mergeItemAudioState(current, {
@@ -11498,11 +13778,11 @@ async function generateWithOpenAI(prompt) {
     throw error;
   }
   const data = await response.json();
-  const text3 = extractOpenAIText(data);
-  if (!text3) {
+  const text4 = extractOpenAIText(data);
+  if (!text4) {
     throw new Error("OpenAI response did not include text output.");
   }
-  return text3;
+  return text4;
 }
 async function generateAiVisionJson(prompt, images, options, signal) {
   const errors = [];
@@ -11578,10 +13858,10 @@ async function generateAiText(prompt, geminiConfig) {
     errors.push("Gemini: GEMINI_API_KEY is not configured.");
   }
   try {
-    const text3 = await generateWithOpenAI(prompt);
-    if (text3) {
+    const text4 = await generateWithOpenAI(prompt);
+    if (text4) {
       return {
-        text: text3.trim(),
+        text: text4.trim(),
         provider: "openai",
         errors
       };
@@ -11598,8 +13878,8 @@ async function generateAiText(prompt, geminiConfig) {
     errors
   };
 }
-function parseAiJson(text3) {
-  const trimmed = String(text3 || "").trim();
+function parseAiJson(text4) {
+  const trimmed = String(text4 || "").trim();
   if (!trimmed) throw new Error("AI returned empty text.");
   try {
     return JSON.parse(trimmed);
@@ -11926,6 +14206,28 @@ app2.use(
     }
   })
 );
+app2.use(
+  "/api/mover-reading-writing",
+  createMoverReadingWritingRouter({
+    db: adminDb,
+    authenticateUser,
+    authenticateOptionalUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    ticketSecret: LISTENING_TICKET_SECRET,
+    mediaDir: LISTENING_MEDIA_DIR,
+    resolveGuestProfile,
+    logAudit: logAuditAction,
+    smartImport: {
+      enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
+      reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false" ? "Smart Import \u0111\xE3 b\u1ECB t\u1EAFt b\u1EB1ng c\u1EA5u h\xECnh m\xE1y ch\u1EE7." : void 0,
+      analyzeVision: STALI_API_KEY || DEVQUOTA_API_KEY ? generateAiVisionJson : void 0,
+      providers: [
+        ...STALI_SMART_IMPORT_PROVIDERS,
+        ...DEVQUOTA_SMART_IMPORT_PROVIDERS
+      ]
+    }
+  })
+);
 var ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
   "Pronoun",
@@ -11939,18 +14241,18 @@ var ALLOWED_PARTS_OF_SPEECH = [
   "Determiner"
 ];
 function normalizePartOfSpeech(value) {
-  const text3 = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text3);
+  const text4 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text4);
   if (match) return match;
-  if (text3.includes("pronoun")) return "Pronoun";
-  if (text3.includes("adjective")) return "Adjective";
-  if (text3.includes("adverb")) return "Adverb";
-  if (text3.includes("preposition")) return "Preposition";
-  if (text3.includes("conjunction")) return "Conjunction";
-  if (text3.includes("interjection")) return "Interjection";
-  if (text3.includes("article")) return "Article";
-  if (text3.includes("determiner")) return "Determiner";
-  if (text3.includes("verb")) return "Verb";
+  if (text4.includes("pronoun")) return "Pronoun";
+  if (text4.includes("adjective")) return "Adjective";
+  if (text4.includes("adverb")) return "Adverb";
+  if (text4.includes("preposition")) return "Preposition";
+  if (text4.includes("conjunction")) return "Conjunction";
+  if (text4.includes("interjection")) return "Interjection";
+  if (text4.includes("article")) return "Article";
+  if (text4.includes("determiner")) return "Determiner";
+  if (text4.includes("verb")) return "Verb";
   return "Noun";
 }
 function normalizeForExampleCheck(value) {
@@ -11973,7 +14275,7 @@ function buildFallbackExample(word, meaning) {
   const cleanMeaning = String(meaning || "").trim();
   const wordForSentence = cleanWord || "learning";
   const meaningForSentence = cleanMeaning || wordForSentence;
-  const templates = [
+  const templates2 = [
     {
       example: `During a lively class discussion, ${wordForSentence} helped everyone connect the lesson with something useful in daily life.`,
       exampleMeaning: `Trong m\u1ED9t bu\u1ED5i th\u1EA3o lu\u1EADn s\xF4i n\u1ED5i tr\xEAn l\u1EDBp, ${meaningForSentence} \u0111\xE3 gi\xFAp m\u1ECDi ng\u01B0\u1EDDi li\xEAn h\u1EC7 b\xE0i h\u1ECDc v\u1EDBi \u0111i\u1EC1u h\u1EEFu \xEDch trong \u0111\u1EDDi s\u1ED1ng h\u1EB1ng ng\xE0y.`
@@ -12007,8 +14309,8 @@ function buildFallbackExample(word, meaning) {
       exampleMeaning: `Tr\xEAn b\u1EA3ng l\u1EDBp, ${meaningForSentence} tr\u1EDF th\xE0nh \xFD ch\xEDnh gi\xFAp ch\xFAng t\xF4i nh\u1EDB c\xE2u chuy\u1EC7n ph\xEDa sau b\xE0i h\u1ECDc.`
     }
   ];
-  const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates.length;
-  return templates[index];
+  const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates2.length;
+  return templates2[index];
 }
 app2.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
   const { word, meaning, grade } = req.body;
@@ -12409,10 +14711,10 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
 app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text3 = String(req.body?.text || "apple").trim();
+    const text4 = String(req.body?.text || "apple").trim();
     const force = Boolean(req.body?.force);
-    if (!text3) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text3, settings, force);
+    if (!text4) return res.status(400).json({ error: "Missing preview text." });
+    const result = await generateCachedTtsAudio(text4, settings, force);
     res.json({
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
@@ -12431,12 +14733,12 @@ app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "s
     const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
     if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
     const prepared = rawItems.map((item, index) => {
-      const text3 = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text3);
+      const text4 = String(item?.text || item?.term || "").trim();
+      const sanitized = sanitizeTtsInput(text4);
       const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
       return {
         id: String(item?.id || `item-${index + 1}`),
-        text: text3,
+        text: text4,
         sanitized,
         audioHash
       };
@@ -12586,7 +14888,7 @@ app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "su
     }
     const setDetails = existing.data();
     const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
-    if (!isSuperAdmin2(req.user)) {
+    if (!isSuperAdmin3(req.user)) {
       const classesSnapshot = await adminDb.collection("classes").get();
       const classesById = /* @__PURE__ */ new Map();
       classesSnapshot.forEach((doc) => {
@@ -12819,7 +15121,7 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     if (!canManageClass(req.user, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
-    const resourceType = payload.resourceType === "listening" ? "listening" : "vocabulary";
+    const resourceType = payload.resourceType === "listening" ? "listening" : payload.resourceType === "mover_reading_writing" ? "mover_reading_writing" : "vocabulary";
     let resource;
     if (resourceType === "listening") {
       const resourceId = String(payload.resourceId || payload.listeningSetId || "");
@@ -12829,6 +15131,15 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
       const canManageListening = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
       if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
         return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 nghe n\xE0y." });
+      }
+    } else if (resourceType === "mover_reading_writing") {
+      const resourceId = String(payload.resourceId || payload.moverReadingWritingSetId || "");
+      const readingWritingDoc = await adminDb.collection("mover_reading_sets").doc(resourceId).get();
+      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Mover Reading & Writing set not found." });
+      resource = { id: readingWritingDoc.id, ...readingWritingDoc.data() };
+      const canManageReadingWriting = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
+      if (!canManageReadingWriting || resource.status !== "published" || resource.visibility === "draft") {
+        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 Mover Reading & Writing n\xE0y." });
       }
     } else {
       const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
@@ -12852,10 +15163,14 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
       ...resourceType === "vocabulary" ? {
         vocabSetId: resource.id,
         vocabSetTitle: resource.title || payload.vocabSetTitle || ""
-      } : {
+      } : resourceType === "listening" ? {
         listeningSetId: resource.id,
         listeningSetTitle: resource.title || payload.resourceTitle || "",
         gameId: "listening-five-part"
+      } : {
+        moverReadingWritingSetId: resource.id,
+        moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
+        gameId: "mover-reading-writing"
       },
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id
@@ -13746,7 +16061,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
     timing.mark("identity");
-    const id = `session-${import_crypto2.default.randomUUID()}`;
+    const id = `session-${import_crypto3.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const vocabSetId = safeText(payload.vocabSetId, 160);
@@ -14066,7 +16381,7 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
     if (!actor) {
       return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
     }
-    const id = `pronunciation-${import_crypto2.default.randomUUID()}`;
+    const id = `pronunciation-${import_crypto3.default.randomUUID()}`;
     const attempt = {
       id,
       ownerKey: actor.ownerKey,
@@ -14215,7 +16530,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super
       adminDb.collection("guest_profiles").get()
     ]);
     const accounts = [];
-    if (isSuperAdmin2(req.user)) {
+    if (isSuperAdmin3(req.user)) {
       usersSnapshot.forEach((doc) => {
         const data = doc.data();
         accounts.push({
@@ -14478,14 +16793,14 @@ async function start() {
     app2.use(vite.middlewares);
     console.log("Vite development server loaded as middleware.");
   } else {
-    const distPath = import_path4.default.join(process.cwd(), "dist", "client");
-    app2.use("/assets", import_express4.default.static(import_path4.default.join(distPath, "assets"), {
+    const distPath = import_path5.default.join(process.cwd(), "dist", "client");
+    app2.use("/assets", import_express5.default.static(import_path5.default.join(distPath, "assets"), {
       immutable: true,
       maxAge: "365d"
     }));
-    app2.use(import_express4.default.static(distPath));
+    app2.use(import_express5.default.static(distPath));
     app2.get("*", (req, res) => {
-      res.sendFile(import_path4.default.join(distPath, "index.html"));
+      res.sendFile(import_path5.default.join(distPath, "index.html"));
     });
     console.log("Production static build routing active.");
   }
@@ -14523,7 +16838,7 @@ function toLegacyStatus(visibility) {
   return visibility === "assignment" ? "private" : visibility;
 }
 function createShareToken() {
-  return import_crypto2.default.randomBytes(16).toString("hex");
+  return import_crypto3.default.randomBytes(16).toString("hex");
 }
 function normalizePersonName(value) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ");
@@ -14720,18 +17035,18 @@ function safeText(value, max = 2e3) {
   return String(value || "").normalize("NFKC").trim().slice(0, max);
 }
 function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${import_crypto2.default.randomBytes(4).toString("hex")}`;
+  return `${prefix}-${Date.now()}-${import_crypto3.default.randomBytes(4).toString("hex")}`;
 }
 function fisherYates(input) {
   const items = [...input];
   for (let i = items.length - 1; i > 0; i--) {
-    const j = import_crypto2.default.randomInt(0, i + 1);
+    const j = import_crypto3.default.randomInt(0, i + 1);
     [items[i], items[j]] = [items[j], items[i]];
   }
   return items;
 }
 function seededUnitInterval(seed, index) {
-  const digest = import_crypto2.default.createHash("sha256").update(`${seed}:${index}`).digest();
+  const digest = import_crypto3.default.createHash("sha256").update(`${seed}:${index}`).digest();
   return digest.readUInt32BE(0) / 4294967296;
 }
 function deterministicShuffle(input, seed) {

@@ -33,6 +33,7 @@ import { createLearningHistoryRouter } from "./src/server/learning-history/learn
 import { LISTENING_LIBRARY_SCHEMA_VERSION, resolveListeningModuleId } from "./src/features/listening-library/registry.js";
 import { createListeningLibraryRouter } from "./src/server/listening-library/router.js";
 import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
+import { createMoverReadingWritingRouter } from "./src/server/mover-reading-writing/moverReadingWritingRouter.js";
 import type { SmartImportImageInput, SmartImportVisionOptions } from "./src/server/listening-smart-import/service.js";
 import {
   DEVQUOTA_DEFAULT_BASE_URL,
@@ -2356,7 +2357,7 @@ async function generateWithOpenAIVision(
 
 async function generateAiVisionJson(
   prompt: string,
-  images: SmartImportImageInput[],
+  images: SmartImportImageInput<string>[],
   options: SmartImportVisionOptions,
   signal?: AbortSignal
 ) {
@@ -2844,6 +2845,33 @@ app.use(
         ...DEVQUOTA_SMART_IMPORT_PROVIDERS,
       ]
     }
+  })
+);
+
+app.use(
+  "/api/mover-reading-writing",
+  createMoverReadingWritingRouter({
+    db: adminDb,
+    authenticateUser,
+    authenticateOptionalUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    ticketSecret: LISTENING_TICKET_SECRET,
+    mediaDir: LISTENING_MEDIA_DIR,
+    resolveGuestProfile,
+    logAudit: logAuditAction,
+    smartImport: {
+      enabled: process.env.LISTENING_SMART_IMPORT_ENABLED !== "false",
+      reason: process.env.LISTENING_SMART_IMPORT_ENABLED === "false"
+        ? "Smart Import đã bị tắt bằng cấu hình máy chủ."
+        : undefined,
+      analyzeVision: (STALI_API_KEY || DEVQUOTA_API_KEY)
+        ? generateAiVisionJson
+        : undefined,
+      providers: [
+        ...STALI_SMART_IMPORT_PROVIDERS,
+        ...DEVQUOTA_SMART_IMPORT_PROVIDERS,
+      ],
+    },
   })
 );
 
@@ -3909,7 +3937,11 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
 
-    const resourceType = payload.resourceType === "listening" ? "listening" : "vocabulary";
+    const resourceType = payload.resourceType === "listening"
+      ? "listening"
+      : payload.resourceType === "mover_reading_writing"
+        ? "mover_reading_writing"
+        : "vocabulary";
     let resource: any;
     if (resourceType === "listening") {
       const resourceId = String(payload.resourceId || payload.listeningSetId || "");
@@ -3920,6 +3952,16 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
         || (req.user.role === "teacher" && resource.ownerId === req.user.id);
       if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
         return res.status(403).json({ error: "Bạn không có quyền giao bộ đề nghe này." });
+      }
+    } else if (resourceType === "mover_reading_writing") {
+      const resourceId = String(payload.resourceId || payload.moverReadingWritingSetId || "");
+      const readingWritingDoc = await adminDb.collection("mover_reading_sets").doc(resourceId).get();
+      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Mover Reading & Writing set not found." });
+      resource = { id: readingWritingDoc.id, ...readingWritingDoc.data() };
+      const canManageReadingWriting = req.user.role === "super_admin"
+        || (req.user.role === "teacher" && resource.ownerId === req.user.id);
+      if (!canManageReadingWriting || resource.status !== "published" || resource.visibility === "draft") {
+        return res.status(403).json({ error: "Bạn không có quyền giao bộ đề Mover Reading & Writing này." });
       }
     } else {
       const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
@@ -3946,10 +3988,14 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
             vocabSetId: resource.id,
             vocabSetTitle: resource.title || payload.vocabSetTitle || ""
           }
-        : {
+        : resourceType === "listening" ? {
             listeningSetId: resource.id,
             listeningSetTitle: resource.title || payload.resourceTitle || "",
             gameId: "listening-five-part"
+          } : {
+            moverReadingWritingSetId: resource.id,
+            moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
+            gameId: "mover-reading-writing"
           }),
       createdAt: new Date().toISOString(),
       createdBy: req.user.id

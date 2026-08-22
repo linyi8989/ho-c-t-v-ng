@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock3, Headphones } from 'lucide-react';
+import { ArrowLeft, BookOpenText, Clock3 } from 'lucide-react';
 import type { ListeningModuleManifest } from '../types';
 
 interface ComingSoonModuleProps {
@@ -15,14 +15,14 @@ export default function ComingSoonModule({ module, onBack, admin = false }: Comi
           <Clock3 size={32} aria-hidden="true" />
         </span>
         <p className="mt-4 text-xs font-black uppercase tracking-[.18em] text-sky-700">
-          Kho bài luyện nghe
+          Cambridge &amp; IELTS
         </p>
         <h1 className="mt-2 text-3xl font-black text-slate-900">{module.displayName}</h1>
         <p className="mx-auto mt-3 max-w-md text-sm font-semibold leading-6 text-slate-500">
           {module.description} Chưa có dạng câu hỏi hoặc biểu mẫu giả được kích hoạt cho module này.
         </p>
         <span className="mt-5 inline-flex items-center gap-2 rounded-full bg-amber-100 px-4 py-2 text-xs font-black text-amber-800">
-          <Headphones size={15} aria-hidden="true" /> Sắp ra mắt
+          <BookOpenText size={15} aria-hidden="true" /> Sắp ra mắt
         </span>
         {onBack && (
           <button
@@ -30,7 +30,7 @@ export default function ComingSoonModule({ module, onBack, admin = false }: Comi
             onClick={onBack}
             className="listening-library-secondary-action mx-auto mt-7 flex items-center gap-2 rounded-2xl border px-5 py-3 text-sm font-black"
           >
-            <ArrowLeft size={16} aria-hidden="true" /> Quay lại Kho bài nghe
+            <ArrowLeft size={16} aria-hidden="true" /> Quay lại kho đề
           </button>
         )}
       </div>

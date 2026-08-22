@@ -19,6 +19,7 @@ import {
   createDefaultMoverListeningContent,
   moverListeningEditorDefinition,
 } from '../../listening-library/modules/mover/editor/moduleDefinition';
+import { examPaperExamPath } from '../../listening-library/routes';
 import { listeningApi } from '../api';
 import type {
   ListeningAsset,
@@ -287,10 +288,8 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
     }
   };
   const previewUrl = (set: ListeningSetSummary) => {
-    const query = set.visibility === 'assignment' && set.shareToken
-      ? `?accessToken=${encodeURIComponent(set.shareToken)}`
-      : '';
-    return `${window.location.origin}/listening/${set.id}${query}`;
+    const accessToken = set.visibility === 'assignment' ? set.shareToken || '' : '';
+    return `${window.location.origin}${examPaperExamPath('mover', 'listening', set.id, accessToken)}`;
   };
   const copyPrivateLink = async (set: ListeningSetSummary) => {
     try {

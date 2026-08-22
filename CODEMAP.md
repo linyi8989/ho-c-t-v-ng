@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-20
+Last updated: 2026-08-22
 
 ## 1. Project Overview
 
@@ -75,20 +75,21 @@ The exact application dependency baseline from the current
 
 Current source/build/deployment ledger:
 
-- Current Git baseline: `a1eb7cb` (`perf: reduce initial bundle size`). The
-  working tree contains the 2026-08-20 Listening PDF importer described below.
-- Current local release build (generated 2026-08-21 with canonical
+- Current Git baseline before the uncommitted Mover Reading & Writing pass:
+  `5127a31`. The working tree contains the additive implementation described
+  in section 37 below.
+- Current local release build (generated 2026-08-22 with canonical
   `npm run build` under the active Node 24 shell; repeat the final release gate
-  with Node 22): `dist/client/assets/index-Dli7GSoz.js` (455,693 bytes,
-  118.05 kB gzip) and `dist/client/assets/index-CYqyfCEi.css`. Screen, admin,
+  with Node 22): `dist/client/assets/index-D3eH0-bY.js` (458,774 bytes,
+  118.63 kB gzip) and `dist/client/assets/index-C1cDJeBh.css`. Screen, admin,
   Firestore, Listening, and individual game code now ship as lazy chunks.
-- Current local server bundle: `dist/server.cjs` (696,285 bytes before Git
+- Current local server bundle: `dist/server.cjs` (819,545 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-Dli7GSoz.js` plus `index-CYqyfCEi.css`.
+  `curl`/browser smoke show `index-CGhtDRoQ.js` plus `index-DhuzytxR.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -2722,3 +2723,315 @@ warnings remain.
   suite passes 127/127. The History unit command passes its 20 portable tests;
   its seven native API cases remain blocked on this Node 24 shell because the
   checked-in `better-sqlite3` binary targets the documented Node 22 ABI.
+
+## 37. Mover Reading & Writing paper and Smart Import - 2026-08-22
+
+Scope and compatibility:
+
+- Mover now exposes two explicit paper manifests under the same module:
+  `Listening` remains the unchanged five-Part/25-question implementation, and
+  `Reading & Writing` is a separate six-Part/40-question domain. Starter,
+  Flyer and KET remain coming-soon. Legacy `/listening/:setId` and every
+  `/api/listening/*` contract remain Listening-only and backward compatible.
+- Canonical Reading & Writing routes are
+  `/listening/modules/mover/papers/reading-writing` and
+  `/listening/modules/mover/papers/reading-writing/exams/:setId`. Assignment
+  links use the same exam route with `accessToken`; the registry and route
+  parser own these paths rather than adding ad-hoc App state.
+- The scored contract is fixed at Parts `[6, 6, 6, 7, 10, 5]`: Part 1 text
+  matching, Part 2 Yes/No, Part 3 one-of-three A/B/C, Part 4 six word gaps plus
+  one title choice, Part 5 three picture/story groups with ten answers of one
+  to three words, and Part 6 five one-word passage gaps supported by a visible
+  word-bank image. Examples are
+  display-only and never enter the 40-question score.
+
+Ownership and code boundaries:
+
+- `src/features/mover-reading-writing/` owns the versioned types, safe default
+  draft, client API, six admin Part editors, paper library and responsive
+  student player. The player uses the requested picture-left/writer-right
+  layout on desktop and stacks safely on narrow screens. It persists an
+  in-progress run locally by owner/set/version/token and submits idempotently.
+- `src/server/mover-reading-writing/` owns strict publish validation, student
+  payload sanitizing, server-only grading and the isolated Express router.
+  Unicode NFKC, whitespace, case and apostrophe variants are normalized for
+  text answers; Part 5 enforces the one-to-three-word limit at grading time.
+  Student playable/prepare responses contain no accepted answers, correct
+  Yes/No values or correct option IDs.
+- The editor reuses the existing Listening asset library/picker, generic draft
+  undo/redo state, editor shell, canonical library link status and row action
+  order. Draft autosave uses `baseRevision`, a per-set server lock and HTTP 409
+  conflict handling, so another browser tab cannot silently overwrite a newer
+  draft. Publish creates a new immutable version; archive remains recoverable.
+- Every Part editor now owns one `Smart Import · Reading & Writing · Part N`
+  panel. The source selector is deliberately limited to `Thông số bên ngoài`,
+  `Stali · ChatGPT 5.6 Sol`, and `DevQuota · ChatGPT 5.6 Sol`; a selected API
+  provider is called explicitly and never falls back silently. External mode
+  parses the versioned Part-specific external JSON contract locally (`v2` for
+  the inline-template Parts 1, 5 and 6; the existing version for other Parts) and
+  does not call an AI API. Its copy action derives its instructions and sample
+  JSON from the same runtime contract used by validation.
+- API mode labels every image with a Part-specific role. Parts 1-4 reuse the
+  persistent student-facing asset already selected in the main Part editor;
+  OCR-only question/story/answer pages and all Part 5/6 source pages use
+  owner-bound transient tokens. The backend accepts only JPEG/PNG/WebP magic,
+  limits each file to 10 MB, all sources to 30 MB and four images, enforces a
+  180-second timeout plus a 20/10-minute staff quota, and removes every
+  resolved transient source before completing the response. Provider keys and
+  raw source images are never returned to the browser or stored in the paper.
+- `answer_key` is the sole authority for accepted/correct answers. The prompt
+  forbids solving or inferring an unreadable answer; provider output receives
+  a structured-response schema and still passes the same strict runtime
+  parser as external JSON. One bounded correction attempt is allowed. Unknown
+  values generate review warnings and preserve the current field instead of
+  fabricating a complete answer key. Transport, authentication, quota and
+  provider-availability failures are surfaced immediately with bounded,
+  sanitized provider details; they are never mislabeled as invalid JSON and do
+  not consume the JSON-correction retry.
+- Successful output is tied to a SHA-256 hash of the current Part, merged only
+  into that Part, and preserves all application-owned question/gap/option IDs.
+  Public `[[n]]` story markers are converted to existing private gap IDs only
+  after validation. The merged result is one undoable draft change and is
+  saved immediately through the revision-aware draft API; a new paper is
+  created as a draft automatically when necessary. A stale hash or revision
+  conflict is rejected, and Smart Import never publishes a paper.
+
+Storage and APIs:
+
+- Additive idempotent migration `mover-reading-writing-schema-v1` creates only
+  `mover_reading_sets`, `mover_reading_set_versions`,
+  `mover_reading_asset_usages`, `mover_reading_attempts` and
+  `mover_reading_attempt_details`, plus bounded indexes and foreign keys. It
+  does not alter, backfill or delete Listening/vocabulary/grammar data.
+- The router is mounted at `/api/mover-reading-writing`. Staff CRUD, autosave,
+  clone, publish, archive and results stay under `/admin/sets`; public play,
+  prepare, idempotent submit and owner-bound review stay under `/sets`.
+  Published versions resolve existing owned `listening_assets` once and record
+  separate Reading & Writing usages, so shared media cannot be archived while
+  an immutable paper still references it.
+- Staff Smart Import capability discovery is `GET /capabilities`; temporary
+  image upload and analysis are `POST /admin/smart-import/sources` and
+  `POST /admin/smart-import/analyze`. The analysis request binds module, paper,
+  Part, exact role list, current Part snapshot, base hash and provider. No
+  schema migration or new persistent binary storage is required.
+- Attempt tickets are HMAC-signed and bind set, immutable version, owner,
+  assignment, client run ID and a hashed run secret. Guest review additionally
+  requires the original run secret. Summary and per-question detail remain in
+  separate tables; the public submit response never carries answer keys.
+- Assignment resource type `mover_reading_writing` is supported end to end in
+  the Admin scheduler and assignment API. Learning History projects it as the
+  separate source `reading_writing`, game `mover-reading-writing`, preserving
+  its 40-question counts and applying the captured review policy before answer
+  details are returned.
+
+UI and verification:
+
+- Stable roots `#mover-reading-writing-admin`,
+  `#mover-reading-writing-wizard`, `#mover-reading-writing-player` and semantic
+  action hooks receive feature-scoped CSS after the legacy global overrides.
+  Primary, submit, secondary, selected and disabled controls remain visible;
+  the contrast contract verifies WCAG-AA text/background pairs. Review UI is
+  absent when the immutable paper policy denies post-submit answers.
+- `npm run test:mover-reading` covers the exact 6/40 schema, all six versioned
+  import contracts, malformed/technical-ID rejection, ID-preserving one-Part
+  merge, marker conversion, provider correction, staff/role/hash/transient
+  route contract, provider-error classification, direct draft persistence,
+  immutable publish, sanitization, grading, assignment wiring and UI contrast:
+  17/17 pass. The unchanged
+  Listening suite remains 127/127, proving the generalized provider image-role
+  type did not change Listening behavior. `npm run lint`, `git diff --check`
+  and `npm run build` pass.
+- The broader History unit command passes its 20 portable cases. Its seven
+  native SQLite API cases cannot start in the active Node 24 shell because the
+  installed `better-sqlite3` binary targets Node ABI 127; this is the existing
+  environment mismatch documented above, not a Reading & Writing assertion
+  failure. The new end-to-end History coverage uses the explicit SQL.js test
+  driver and passes without touching the local application database.
+
+## 38. Mover Reading & Writing Part 5/6 image and answer-key correction - 2026-08-22
+
+> Historical implementation note: the Part 6 A/B/C interaction described in
+> this section was superseded by the schema-v2 one-word text-gap flow in §41.
+
+- Part 6 Smart Import now uses `mover-rw-part6-external-v2`. The provider and
+  external-JSON contract return the exact word printed in the answer key as
+  `correctAnswer`; the runtime normalizer compares that word with the three
+  options after NFKC/case/space/apostrophe normalization and maps the unique
+  match to A/B/C. It never asks the model to convert the key to a letter or to
+  solve the sentence. Missing, duplicate or non-matching words produce a
+  warning and preserve the existing correct option.
+- Part 6 public marker validation rejects non-numeric leftovers such as
+  `[[Example]]`; the prompt keeps the printed example in the separate example
+  field. The student renderer also replaces that one legacy marker from the
+  example answer so an already-published draft cannot show the raw token.
+- Part 5 `scene_1`, `scene_2` and `scene_3` are persistent display assets. An
+  image uploaded inside Smart Import is attached to the corresponding scene
+  immediately and the same stored asset is sent for OCR, avoiding a duplicate
+  display upload. Only the answer-key image remains owner-bound temporary data.
+- Part 6 stores an authoring source page, a derived cropped passage image and a
+  separate options-table image. The crop UI reuses Listening Part 2's
+  normalized visual crop and derived-asset upload pipeline. Students receive
+  only the crop and options images; the full authoring source reference/URL is
+  removed from the playable response. Published asset usage protects all
+  referenced images from archival.
+- The Part 2 player groups all printed examples in one shared card. Part 5
+  retains the one-to-three-word grading rule but no longer shows the
+  `Nhập tối đa 3 từ` placeholder. Part 6 stacks the cropped passage and options
+  table in the left column and keeps the interactive gap controls in the right
+  column. Grading, question counts, attempt storage and Listening behavior are
+  unchanged.
+- Regression coverage now includes the real Part 6 key pattern
+  `and / than / sometimes / with / in`, ambiguous-word preservation, stray
+  marker rejection, two-image student payload and the Part 2/5 UI contracts.
+  `npm run test:mover-reading` passes 21/21, `npm run test:listening` remains
+  127/127, and both `npm run lint` and `npm run build` pass. Local HTTP remains
+  available on loopback with a 200 response.
+
+## 39. Mover Reading & Writing visual answer review - 2026-08-22
+
+> Historical implementation note: the Part 6 A/B/C review described in this
+> section remains supported for old snapshots and is superseded for new
+> attempts by the inline text review in §41.
+
+- The Reading & Writing post-submit screen and Student Learning History now
+  share `MoverReadingWritingVisualReview`. The renderer follows the immutable
+  six-Part paper structure instead of presenting one generic forty-card list:
+  Part 1 text answers with picture-word references, Part 2 grouped examples
+  and Yes/No choices, Part 3 A/B/C dialogue choices, Part 4 inline story gaps
+  plus title choice, Part 5 three scene/story groups, and Part 6 the two source
+  images with passage gaps and A/B/C choices.
+- Every scored item has one display-only state: correct, incorrect or
+  unanswered. Text answers show the submitted answer and reveal the correct
+  answer only when needed. Choice answers keep all visible options and mark
+  both the selected wrong option and the correct option. Part tabs plus
+  previous/next controls reuse the Listening review navigation pattern, while
+  feature-scoped CSS keeps active, disabled and focus states legible after the
+  legacy global button overrides.
+- `buildMoverReadingWritingVisualReviewSnapshot()` derives the bounded review
+  at read time from the attempt's exact immutable version and its stored forty
+  grading rows. It deliberately omits application question/option IDs,
+  accepted-answer arrays, authoring source assets and private Part 4/6 marker
+  IDs. Nothing is copied into attempt storage, no image is duplicated, and no
+  database migration or grading change is required.
+- The owner-only attempt review endpoint builds this presentation only after
+  the existing owner/run-secret and captured review-policy checks. Learning
+  History uses the same builder for canonical and fallback Reading & Writing
+  rows, then removes the entire visual review whenever answer review is not
+  allowed. Malformed or unavailable legacy version content falls back to the
+  existing generic result cards instead of blocking the attempt result.
+- Regression coverage verifies the exact six-Part/forty-item snapshot,
+  correct/incorrect/unanswered states, display-only payload, endpoint policy,
+  Learning History projection/stripping and shared renderer/CSS contract.
+  `npm run test:mover-reading` passes 22/22, the unchanged Listening suite
+  passes 127/127, `npm run lint` passes and the production build succeeds. The
+  broader History command still passes its 20 portable cases; its seven native
+  cases remain unable to start under the documented local Node ABI mismatch.
+
+## 40. Cambridge & IELTS exam directory and canonical routes - 2026-08-22
+
+Scope and module registry:
+
+- The public-facing area is now `Cambridge & IELTS / Kho đề luyện thi`, not a
+  Listening-only directory. The manifest registry exposes seven stable module
+  IDs in progression order: `starter`, `mover`, `flyer`, `ket`, `pet`, `fce`
+  and `ielts`. Only Mover remains active. The other six modules are explicit
+  coming-soon shells with no fake Parts, scoring, editor or assignment
+  capability; activating one still requires its own paper manifests and
+  client/server adapters.
+- Each module owns a short display name and a separate qualification label:
+  Pre A1, A1, A2, A2 Key, B1 Preliminary, B2 First or Academic & General.
+  `ExamModuleId` and `ExamPaperId` are the generic shell types, while the old
+  `ListeningModuleId` and `ListeningPaperId` names remain aliases so this UI
+  refactor does not force storage/API migrations.
+
+Student directory behavior:
+
+- Selecting Mover opens one list immediately. The previous mandatory
+  Listening-vs-Reading-&-Writing choice screen is no longer part of the main
+  navigation. `listExamModuleEntries()` loads every active paper adapter in
+  parallel, tolerates one failed source when another succeeds, includes only
+  `published + public` rows, deduplicates by
+  `moduleId:paperId:examId`, and sorts by the latest update with deterministic
+  title/paper/ID tie breakers.
+- Each list row displays a Listening or Reading & Writing badge above the
+  direct exam title, plus Part/question count and duration. `All`, `Listening`
+  and `Reading & Writing` filters do not add a required navigation step. The
+  home CTA is `Xem danh sách`; it deliberately no longer shows the old
+  Listening-only count that could say zero while Reading & Writing papers
+  existed. Partial-source warnings, loading, error and empty states are kept
+  separate.
+
+Canonical URL and compatibility contract:
+
+- New public links are `/exams`, `/exams/:moduleId`,
+  `/exams/:moduleId/:paperId`, and
+  `/exams/:moduleId/:paperId/:examId`. Current examples are
+  `/exams/mover/listening/:examId` and
+  `/exams/mover/reading-writing/:examId`. The paper segment is required to
+  avoid collisions between independent stores that may use the same exam ID.
+- `examLibraryPath`, `examModulePath`, `examPaperPath` and
+  `examPaperExamPath` are the only canonical link builders. Student rows,
+  Listening preview/private links, Reading & Writing preview/private links
+  and Admin assignment links all use them. Assignment `accessToken` remains a
+  query parameter and is encoded by the shared builder.
+- Every released `/listening` alias remains parseable, including
+  `/listening/:setId`, `/listening/modules/:moduleId/exams/:examId`, and the
+  paper routes under `/listening/modules/:moduleId/papers/...`. They resolve
+  through the same players without rewriting IDs or stored assignments. The
+  existing `/api/listening`, `/api/mover-reading-writing`, SQLite collections,
+  graders, immutable versions and attempts are unchanged.
+
+Verification:
+
+- Route/registry tests cover all seven modules, short URL round trips, both
+  legacy URL generations, access/share token preservation and invalid module
+  rejection. Combined-list tests cover cross-paper ID safety, duplicate rows,
+  public-only visibility, labels, counts and sorting. A static navigation
+  contract prevents reintroducing hand-built `/listening` links in the three
+  Admin link producers.
+- `npm run lint` passes, `npm run test:listening` passes 131/131,
+  `npm run test:mover-reading` passes 22/22, and `npm run build` succeeds.
+  Local SPA requests for `/exams`, module, exam and legacy paths return HTTP
+  200. Browser-controlled visual capture was unavailable in the active tool
+  session; the existing Vite instance does serve the updated seven-module
+  frontend source.
+
+## 41. Reading & Writing inline text-gap schema v2 - 2026-08-22
+
+- The text-entry Parts now share the Part 4 interaction model. Part 1 renders
+  its six definitions in one flowing answer panel; each Part 5 scene renders
+  its picture beside one story/question panel; Part 4 keeps its six inline
+  story gaps and title choice; Part 6 keeps the cropped reading image plus the
+  word-bank image but replaces A/B/C dropdowns with one-word inline inputs.
+  Part 2 Yes/No, Part 3 A/B/C and Part 4 question 7 are unchanged.
+- Content schema v2 stores Part 1/5 question text as an internal template with
+  one stable `{{questionId}}` marker and stores Part 6 gaps as text answer keys.
+  The authoring UI exposes only numbered `[[n]]` markers, shows an inline
+  preview, and maps them back to stable internal IDs. The player uses one
+  shared `InlineAnswerInput` for Parts 1, 4, 5 and 6, including the existing
+  Part 5 three-word limit and the Part 6 one-word limit.
+- Smart Import contracts `mover-rw-part1-external-v2`,
+  `mover-rw-part5-external-v2` and `mover-rw-part6-external-v2` require the
+  printed inline marker. Part 6 now accepts only `gapNumber + acceptedAnswers`
+  from the official answer-key image; it no longer asks either provider or
+  application code to infer an A/B/C option. Empty/unreadable answers continue
+  to warn and preserve the current draft value.
+- Published schema-v1 data is never rewritten. A compatibility adapter clones
+  and upgrades it in memory, appends/replaces missing Part 1/5 markers and
+  derives each legacy Part 6 text key from its immutable correct option. New
+  drafts, clones, versions and attempts use schema v2. Student sanitization
+  still removes every accepted-answer array before returning playable content.
+- Visual review now overlays Part 1/5/6 submitted text directly into the same
+  inline templates as the player. Correct, incorrect and unanswered states
+  preserve the existing semantic colours, while old `passage-options` review
+  snapshots remain readable.
+- Part 2 examples now share one uninterrupted presentation panel without an
+  internal divider. The common example renderer inserts a supplied answer at
+  the printed blank when one exists, so Part 6 renders `They` between
+  `Dolphins live in the sea.` and `can swim very quickly` instead of appending
+  it to the end of the sentence.
+- Verification: `npm run lint`, `npm run test:mover-reading` (24/24),
+  `npm run test:listening` (131/131) and `npm run build` pass. The production entry is
+  `dist/client/assets/index-D3eH0-bY.js`; the server bundle is regenerated from
+  source. No database migration, binary duplication or bulk data rewrite is
+  introduced.

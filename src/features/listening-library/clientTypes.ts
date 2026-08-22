@@ -3,6 +3,7 @@ import type {
   ListeningLibraryExamSummary,
   ListeningModuleId,
   ListeningModuleManifest,
+  ListeningPaperId,
 } from './types';
 
 export interface ListeningExamComponentProps {
@@ -21,5 +22,11 @@ export interface ListeningClientModule {
   ExamComponent?: ComponentType<ListeningExamComponentProps>;
   AdminComponent?: ComponentType<ListeningAdminComponentProps>;
   listExams?: (token: string | null) => Promise<ListeningLibraryExamSummary[]>;
+  papers?: Partial<Record<ListeningPaperId, ListeningClientPaper>>;
 }
 
+export interface ListeningClientPaper {
+  id: ListeningPaperId;
+  ExamComponent: ComponentType<ListeningExamComponentProps>;
+  listExams: (token: string | null) => Promise<ListeningLibraryExamSummary[]>;
+}

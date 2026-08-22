@@ -205,7 +205,7 @@ h1, h2, h3 {
 /* Convert Secondary / general buttons to clear glass buttons.
    Listening scene hitboxes must remain pixel-transparent so they never blur
    the source illustration underneath. */
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.external-parameters-copy-button) {
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.mover-reading-review-part-tab):not(.mover-reading-review-part-nav):not(.external-parameters-copy-button) {
   background: rgba(255, 255, 255, 0.04) !important;
   backdrop-filter: blur(8px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -213,7 +213,7 @@ button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emera
   transition: all 0.25s ease !important;
 }
 
-button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.external-parameters-copy-button):hover {
+button:not(.bg-indigo-600):not(.bg-indigo-700):not(.bg-indigo-800):not(.bg-emerald-600):not(.bg-rose-600):not(.bg-red-600):not(.bg-amber-500):not(.listening-part1-target):not(.listening-part3-answer-hitbox):not(.listening-part3-picture-hitbox):not(.listening-part5-object-hitbox):not(.listening-review-part-tab):not(.listening-review-part-nav):not(.mover-reading-review-part-tab):not(.mover-reading-review-part-nav):not(.external-parameters-copy-button):hover {
   background: rgba(255, 255, 255, 0.09) !important;
   border-color: rgba(255, 255, 255, 0.16) !important;
   transform: translateY(-1px);
@@ -2315,7 +2315,8 @@ textarea::placeholder {
    on pale backgrounds. */
 #home-listening-directory button.listening-library-primary-action:not([disabled]),
 #listening-library-home button.listening-library-primary-action:not([disabled]),
-#listening-module-page button.listening-library-primary-action:not([disabled]) {
+#listening-module-page button.listening-library-primary-action:not([disabled]),
+#listening-module-page a.listening-library-primary-action {
   background: #2563eb !important;
   border: 1px solid #2563eb !important;
   color: #ffffff !important;
@@ -2326,7 +2327,8 @@ textarea::placeholder {
 
 #home-listening-directory button.listening-library-primary-action:not([disabled]):hover,
 #listening-library-home button.listening-library-primary-action:not([disabled]):hover,
-#listening-module-page button.listening-library-primary-action:not([disabled]):hover {
+#listening-module-page button.listening-library-primary-action:not([disabled]):hover,
+#listening-module-page a.listening-library-primary-action:hover {
   background: #1d4ed8 !important;
   border-color: #1d4ed8 !important;
   color: #ffffff !important;
@@ -2369,6 +2371,35 @@ textarea::placeholder {
 #listening-coming-soon-page .listening-library-secondary-action svg {
   color: currentColor !important;
   opacity: 1 !important;
+}
+
+#listening-module-page button.exam-library-filter-action[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+#listening-module-page button.exam-library-filter-action[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 4px 10px rgba(29, 78, 216, 0.2) !important;
+}
+
+#listening-module-page button.exam-library-filter-action * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#listening-module-page a.exam-library-exam-title:focus-visible,
+#listening-module-page a.listening-library-primary-action:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.4) !important;
+  outline-offset: 3px !important;
 }
 
 #home-listening-directory button:focus-visible,
@@ -2786,4 +2817,189 @@ textarea::placeholder {
 [data-listening-visual-review] button:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.45) !important;
   outline-offset: 3px !important;
+}
+
+/* Reading & Writing reuses the Listening result-navigation language through
+   feature-specific hooks so the legacy global button rules cannot reduce
+   contrast in either the post-submit screen or Learning History. */
+[data-mover-reading-visual-review] button.mover-reading-review-part-tab[data-active="false"]:not(:disabled) {
+  background: #eef2ff !important;
+  background-color: #eef2ff !important;
+  background-image: none !important;
+  border: 2px solid #6366f1 !important;
+  color: #312e81 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 3px 8px rgba(67, 56, 202, 0.18) !important;
+}
+
+[data-mover-reading-visual-review] button.mover-reading-review-part-tab[data-active="true"]:not(:disabled),
+[data-mover-reading-visual-review] button.mover-reading-review-part-tab[aria-selected="true"]:not(:disabled) {
+  background: #3730a3 !important;
+  background-color: #3730a3 !important;
+  background-image: none !important;
+  border: 3px solid #c7d2fe !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: translateY(-2px) scale(1.04) !important;
+  box-shadow: 0 0 0 3px rgba(199, 210, 254, 0.5), 0 8px 18px rgba(55, 48, 163, 0.3) !important;
+}
+
+[data-mover-reading-visual-review] button.mover-reading-review-part-nav:not(:disabled) {
+  background: #4338ca !important;
+  background-color: #4338ca !important;
+  background-image: none !important;
+  border: 3px solid #c7d2fe !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 10px 24px rgba(67, 56, 202, 0.34) !important;
+}
+
+[data-mover-reading-visual-review] button.mover-reading-review-part-nav:disabled {
+  background: #e2e8f0 !important;
+  background-color: #e2e8f0 !important;
+  background-image: none !important;
+  border: 2px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 4px 10px rgba(71, 85, 105, 0.14) !important;
+}
+
+[data-mover-reading-visual-review] button.mover-reading-review-part-tab *,
+[data-mover-reading-visual-review] button.mover-reading-review-part-nav * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+[data-mover-reading-visual-review] button:focus-visible {
+  outline: 3px solid rgba(67, 56, 202, 0.45) !important;
+  outline-offset: 3px !important;
+}
+
+/* Mover Reading & Writing is a separate interactive paper. Keep every
+   contrast override under its stable feature roots so legacy glass-button
+   rules cannot leak into this player/editor or into unrelated modules. */
+#listening-paper-page button.listening-library-primary-action:not(:disabled),
+#mover-reading-writing-admin button.mover-reading-primary-action:not(:disabled),
+#mover-reading-writing-player button.mover-reading-primary-action:not(:disabled) {
+  background: #4338ca !important;
+  background-color: #4338ca !important;
+  border: 2px solid #3730a3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: 0 8px 18px rgba(67, 56, 202, 0.24) !important;
+}
+
+#mover-reading-writing-player button.mover-reading-submit-action:not(:disabled),
+#mover-reading-writing-wizard button.listening-editor-publish-action:not(:disabled) {
+  background: #047857 !important;
+  background-color: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+
+#listening-paper-page button.listening-library-secondary-action:not(:disabled),
+#mover-reading-writing-player button.mover-reading-secondary-action:not(:disabled),
+#mover-reading-writing-wizard button.mover-reading-secondary-action:not(:disabled),
+#mover-reading-writing-wizard button.listening-editor-save-action:not(:disabled) {
+  background: #eef2ff !important;
+  background-color: #eef2ff !important;
+  border: 2px solid #818cf8 !important;
+  color: #312e81 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+#mover-reading-writing-player button.mover-reading-part-step[data-active="true"]:not(:disabled),
+#mover-reading-writing-wizard button.listening-editor-step-action[data-active="true"]:not(:disabled),
+#mover-reading-writing-wizard button.listening-editor-next-action:not(:disabled) {
+  background: #4338ca !important;
+  background-color: #4338ca !important;
+  border: 2px solid #3730a3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#mover-reading-writing-player button.mover-reading-part-step[data-active="false"]:not(:disabled),
+#mover-reading-writing-wizard button.listening-editor-step-action[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 2px solid #a5b4fc !important;
+  color: #312e81 !important;
+  opacity: 1 !important;
+}
+
+#listening-module-page button.listening-paper-choice-action:not(:disabled),
+#mover-paper-admin-hub button.mover-paper-choice-action:not(:disabled) {
+  color: #0f172a !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#mover-reading-writing-player button:disabled,
+#mover-reading-writing-wizard button:disabled {
+  opacity: 1 !important;
+}
+
+#mover-reading-writing-player button.mover-reading-submit-action:disabled,
+#mover-reading-writing-player button.mover-reading-primary-action:disabled,
+#mover-reading-writing-admin button.mover-reading-primary-action:disabled,
+#mover-reading-writing-wizard button.listening-editor-publish-action:disabled,
+#mover-reading-writing-wizard button.listening-editor-next-action:disabled {
+  background: #e2e8f0 !important;
+  background-color: #e2e8f0 !important;
+  border-color: #94a3b8 !important;
+  color: #475569 !important;
+}
+
+#mover-reading-writing-wizard button.mover-reading-remove-source:not(:disabled) {
+  background: #ffffff !important;
+  border: 1px solid #fecaca !important;
+  color: #be123c !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+#mover-reading-writing-wizard button.mover-reading-remove-source:not(:disabled) * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#listening-paper-page button:focus-visible,
+#mover-reading-writing-admin button:focus-visible,
+#mover-reading-writing-player button:focus-visible,
+#mover-reading-writing-wizard button:focus-visible {
+  outline: 3px solid rgba(67, 56, 202, 0.45) !important;
+  outline-offset: 3px !important;
+}
+
+#listening-paper-page button.listening-library-primary-action *,
+#mover-reading-writing-admin button.mover-reading-primary-action *,
+#mover-reading-writing-player button.mover-reading-primary-action *,
+#mover-reading-writing-player button.mover-reading-submit-action *,
+#mover-reading-writing-wizard button.listening-editor-publish-action *,
+#mover-reading-writing-wizard button.listening-editor-next-action * {
+  color: currentColor !important;
+  opacity: 1 !important;
 }
