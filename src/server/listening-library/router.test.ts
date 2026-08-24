@@ -6,7 +6,7 @@ import express from 'express';
 import { LISTENING_GRADING_VERSION } from '../listening/listeningGrader';
 import { createListeningLibraryRouter } from './router';
 
-test('listening library API exposes safe module metadata and only activates Mover', async t => {
+test('listening library API exposes safe metadata for every active exam module', async t => {
   const app = express();
   app.use('/api/listening-library', createListeningLibraryRouter());
   const server = app.listen(0, '127.0.0.1');
@@ -25,11 +25,16 @@ test('listening library API exposes safe module metadata and only activates Move
   assert.deepEqual(modules.map(module => module.id), [
     'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
   ]);
-  assert.deepEqual(modules.filter(module => module.status === 'active').map(module => module.id), ['mover']);
+  assert.deepEqual(modules.filter(module => module.status === 'active').map(module => module.id), [
+    'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
+  ]);
   assert.equal(modules.find(module => module.id === 'starter')?.parts.length, 0);
   assert.equal(modules.find(module => module.id === 'pet')?.levelLabel, 'B1 Preliminary');
   assert.equal(modules.find(module => module.id === 'fce')?.levelLabel, 'B2 First');
-  assert.equal(modules.find(module => module.id === 'ielts')?.levelLabel, 'Academic & General');
+  assert.equal(modules.find(module => module.id === 'ielts')?.levelLabel, 'Academic');
+  assert.deepEqual(modules.find(module => module.id === 'ielts')?.papers.map((paper: any) => paper.id), [
+    'listening', 'academic-reading', 'academic-writing',
+  ]);
 
   const moverResponse = await fetch(`${baseUrl}/modules/mover`);
   assert.equal(moverResponse.status, 200);
@@ -40,8 +45,8 @@ test('listening library API exposes safe module metadata and only activates Move
   const starterResponse = await fetch(`${baseUrl}/modules/starter`);
   assert.equal(starterResponse.status, 200);
   const starter = await starterResponse.json() as any;
-  assert.equal(starter.available, false);
-  assert.equal('gradingVersion' in starter, false);
+  assert.equal(starter.available, true);
+  assert.equal(starter.gradingVersion, 'exam-platform-objective-v1');
 
   const unknownResponse = await fetch(`${baseUrl}/modules/unknown`);
   assert.equal(unknownResponse.status, 404);

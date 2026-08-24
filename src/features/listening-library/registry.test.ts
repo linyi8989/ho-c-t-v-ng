@@ -16,13 +16,17 @@ import {
   parseListeningLibraryRoute,
 } from './routes';
 
-test('registry exposes seven exam modules and only Mover is active', () => {
+test('registry exposes all seven active exam modules with paper-specific manifests', () => {
   assert.deepEqual(LISTENING_MODULES.map(module => module.id), [
     'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
   ]);
   assert.deepEqual(
     LISTENING_MODULES.filter(module => module.status === 'active').map(module => module.id),
-    ['mover']
+    ['starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts']
+  );
+  assert.deepEqual(
+    LISTENING_MODULES.slice(0, 3).map(module => module.displayName),
+    ['Starters', 'Movers', 'Flyers'],
   );
   const mover = getListeningModule('mover');
   assert.equal(mover?.partCount, 5);
@@ -34,10 +38,18 @@ test('registry exposes seven exam modules and only Mover is active', () => {
   assert.equal(getListeningPaper('mover', 'reading-writing')?.partCount, 6);
   assert.deepEqual(getListeningPaper('mover', 'reading-writing')?.questionsPerPart, [6, 6, 6, 7, 10, 5]);
   for (const module of LISTENING_MODULES.filter(item => item.id !== 'mover')) {
-    assert.equal(module.status, 'coming_soon');
+    assert.equal(module.status, 'active');
     assert.equal(module.parts.length, 0);
-    assert.equal(module.capabilities.scoring, false);
+    assert.equal(module.capabilities.scoring, true);
+    assert.ok(module.papers.length >= 2);
+    assert.ok(module.papers.every(paper => paper.status === 'active' && paper.totalQuestionCount));
   }
+  assert.deepEqual(getListeningModule('ielts')?.papers.map(paper => paper.id), [
+    'listening', 'academic-reading', 'academic-writing',
+  ]);
+  assert.equal(getListeningPaper('starter', 'reading-writing')?.totalQuestionCount, 25);
+  assert.equal(getListeningPaper('fce', 'reading-use-of-english')?.totalQuestionCount, 52);
+  assert.equal(getListeningPaper('ielts', 'academic-reading')?.totalQuestionCount, 40);
 });
 
 test('missing legacy module metadata resolves to Mover without rewriting identifiers', () => {

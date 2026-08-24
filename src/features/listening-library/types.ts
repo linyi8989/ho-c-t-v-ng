@@ -3,7 +3,14 @@ export type ExamModuleId = 'starter' | 'mover' | 'flyer' | 'ket' | 'pet' | 'fce'
 // and manifests now describe the broader Cambridge & IELTS exam directory.
 export type ListeningModuleId = ExamModuleId;
 export type ListeningModuleStatus = 'active' | 'coming_soon' | 'hidden';
-export type ExamPaperId = 'listening' | 'reading-writing';
+export type ExamPaperId =
+  | 'listening'
+  | 'reading-writing'
+  | 'reading'
+  | 'writing'
+  | 'reading-use-of-english'
+  | 'academic-reading'
+  | 'academic-writing';
 export type ListeningPaperId = ExamPaperId;
 
 export interface ListeningModulePartManifest {
@@ -42,6 +49,9 @@ export interface ListeningPaperManifest {
   schemaVersion: number;
   partCount: number;
   questionsPerPart: number | readonly number[];
+  /** Used by papers such as IELTS Reading whose 40 questions may be distributed
+   * differently between sections in each published paper. */
+  totalQuestionCount?: number;
   parts: readonly ListeningModulePartManifest[];
   capabilities: ListeningModuleCapabilities;
 }

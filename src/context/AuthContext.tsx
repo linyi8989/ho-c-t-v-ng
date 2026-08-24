@@ -160,7 +160,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (fUser) {
           setFirebaseUser(fUser);
-          await fetchProfile(fUser, undefined, false, false);
+          // Keep the global auth boundary closed until both the token and the
+          // canonical backend profile are ready. Releasing `loading` after only
+          // the token is available makes consumers briefly behave as a guest,
+          // then reload again as an authenticated user.
+          await fetchProfile(fUser, undefined, false, true);
         } else {
           setFirebaseUser(null);
           setUser(null);

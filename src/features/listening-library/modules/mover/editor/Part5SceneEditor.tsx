@@ -23,12 +23,9 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
   const correctColourIds = new Set(part.questions.flatMap(question => question.actions.flatMap(action => (
     action.type === 'colour_object' ? [action.correctColourId] : []
   ))));
-  const distractorColourId = paletteColourIds[5] || '';
-  const distractorColour = part.colours.find(colour => colour.id === distractorColourId);
   const correctPaletteIds = new Set(part.questions.flatMap(question => question.actions.flatMap(action => (
     action.type === 'place_object' ? [action.correctPaletteItemId] : []
   ))));
-  const distractorPaletteItem = part.objectPalette.find(item => !correctPaletteIds.has(item.id)) || part.objectPalette[2];
   const updateQuestion = (
     questionId: string,
     updater: (question: ListeningPart5SceneColourDraw['questions'][number]) => ListeningPart5SceneColourDraw['questions'][number],
@@ -38,14 +35,16 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
   });
   const addColourAction = (questionId: string) => {
     const objectId = createMoverEditorId('p5-object');
+    const correctColourId = paletteColourIds[0] || part.colours[0]?.id || '';
     const action: ListeningPart5Action = {
       id: createMoverEditorId('p5-action'),
       type: 'colour_object',
       correctObjectId: objectId,
-      correctColourId: paletteColourIds[0] || '',
+      correctColourId,
     };
     commit({
       ...part,
+      colourPaletteIds: paletteColourIds.length || !correctColourId ? paletteColourIds : [correctColourId],
       interactiveObjects: [
         ...part.interactiveObjects,
         {
@@ -61,19 +60,53 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
         : question),
     });
   };
-  const addPlaceAction = (questionId: string) => updateQuestion(questionId, question => ({
-    ...question,
-    actions: [
-      ...question.actions,
-      {
-        id: createMoverEditorId('p5-action'),
-        type: 'place_object',
-        correctPaletteItemId: part.objectPalette[0]?.id || '',
-        targetRegion: createMoverDefaultRegion(question.actions.length),
-        geometryConfirmedByTeacher: false,
-      },
-    ],
-  }));
+  const addPlaceAction = (questionId: string) => {
+    const firstItem = part.objectPalette[0] || {
+      id: createMoverEditorId('p5-token'),
+      objectType: 'draw-object',
+      label: 'Vật Draw',
+    };
+    commit({
+      ...part,
+      objectPalette: part.objectPalette.length ? part.objectPalette : [firstItem],
+      questions: part.questions.map(question => question.id === questionId ? {
+        ...question,
+        actions: [
+          ...question.actions,
+          {
+            id: createMoverEditorId('p5-action'),
+            type: 'place_object',
+            correctPaletteItemId: firstItem.id,
+            targetRegion: createMoverDefaultRegion(question.actions.length),
+            geometryConfirmedByTeacher: false,
+          },
+        ],
+      } : question),
+    });
+  };
+  const toggleStudentColour = (colourId: string) => {
+    if (paletteColourIds.includes(colourId)) {
+      if (correctColourIds.has(colourId)) return;
+      commit({ ...part, colourPaletteIds: paletteColourIds.filter(id => id !== colourId) });
+      return;
+    }
+    commit({ ...part, colourPaletteIds: [...paletteColourIds, colourId] });
+  };
+  const addPaletteItem = () => {
+    const index = part.objectPalette.length + 1;
+    commit({
+      ...part,
+      objectPalette: [...part.objectPalette, {
+        id: createMoverEditorId('p5-token'),
+        objectType: `draw-object-${index}`,
+        label: `Vật Draw ${index}`,
+      }],
+    });
+  };
+  const removePaletteItem = (itemId: string) => {
+    if (correctPaletteIds.has(itemId)) return;
+    commit({ ...part, objectPalette: part.objectPalette.filter(item => item.id !== itemId) });
+  };
   const removeAction = (questionId: string, action: ListeningPart5Action) => {
     const nextQuestions = part.questions.map(question => question.id === questionId
       ? { ...question, actions: question.actions.filter(item => item.id !== action.id) }
@@ -316,66 +349,87 @@ export function Part5SceneEditor({ part, props }: { part: ListeningPart5SceneCol
           </article>
         ))}
 
-        <article className="overflow-hidden rounded-2xl border border-amber-300 bg-amber-50/40 shadow-sm" data-part5-distractor-row>
-          <div className="border-b border-amber-200 bg-amber-100/70 p-4">
-            <p className="text-sm font-black text-amber-950">Đáp án nhiễu</p>
-            <p className="text-[11px] font-semibold text-amber-800">Các lựa chọn này được đưa cho học sinh nhưng không thuộc đáp án đúng của câu 1–5.</p>
+        <article className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm" data-part5-dynamic-colour-palette>
+          <div>
+            <p className="text-sm font-black text-emerald-950">Màu hiển thị cho học sinh · {paletteColourIds.length}</p>
+            <p className="text-[11px] font-semibold text-emerald-800">Chọn đúng số màu bài này cần. Màu đang làm đáp án không thể bỏ; lựa chọn dư là tùy chọn, không bắt buộc.</p>
           </div>
-          <div className="grid gap-3 p-4 lg:grid-cols-[minmax(220px,.7fr)_minmax(220px,1fr)_minmax(280px,1.2fr)] lg:items-end">
-            <label className="space-y-1">
-              <span className="text-xs font-black">Màu nhiễu</span>
-              <select
-                value={distractorColourId}
-                onChange={event => commit({
-                  ...part,
-                  colourPaletteIds: Array.from({ length: 6 }, (_, index) => index === 5
-                    ? event.target.value
-                    : paletteColourIds[index] || ''),
-                })}
-                className="w-full rounded-xl border border-amber-200 bg-white p-2.5 text-xs"
-              >
-                <option value="">— Chọn màu nhiễu —</option>
-                {part.colours.map(colour => (
-                  <option
-                    key={colour.id}
-                    value={colour.id}
-                    disabled={correctColourIds.has(colour.id) || paletteColourIds.slice(0, 5).includes(colour.id)}
-                  >{colour.label}</option>
-                ))}
-              </select>
-              {distractorColour && <span className="block h-5 rounded-lg border border-amber-200" style={{ backgroundColor: distractorColour.value }} />}
-            </label>
-
-            {distractorPaletteItem ? (
-              <EditorField
-                label="Tên vật nhiễu"
-                value={distractorPaletteItem.label}
-                onChange={label => commit({
-                  ...part,
-                  objectPalette: part.objectPalette.map(item => item.id === distractorPaletteItem.id
-                    ? { ...item, label, objectType: label.trim() || item.objectType }
-                    : item),
-                })}
-              />
-            ) : <p className="text-xs font-bold text-rose-700">Chưa có slot vật nhiễu.</p>}
-
-            {distractorPaletteItem && (
-              <ListeningAssetPicker
-                compact
-                assets={assets}
-                aiCapability={{ enabled: false, reason: 'Icon nhiễu do giáo viên tải lên và xác nhận.' }}
-                onUpload={onUpload}
-                allowedMimeTypes={['image/png']}
-                label="Ảnh vật nhiễu"
-                kind="image"
-                value={distractorPaletteItem.tokenAssetId}
-                onChange={tokenAssetId => commit({
-                  ...part,
-                  objectPalette: part.objectPalette.map(item => item.id === distractorPaletteItem.id ? { ...item, tokenAssetId } : item),
-                })}
-              />
-            )}
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
+            {part.colours.map(colour => {
+              const selected = paletteColourIds.includes(colour.id);
+              const required = correctColourIds.has(colour.id);
+              return (
+                <button
+                  key={colour.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => toggleStudentColour(colour.id)}
+                  className={`flex items-center gap-2 rounded-xl border p-2 text-left text-xs font-black ${selected ? 'border-emerald-500 bg-white text-emerald-900' : 'border-slate-200 bg-white/70 text-slate-600'} ${required ? 'cursor-not-allowed ring-1 ring-emerald-300' : ''}`}
+                  title={required ? 'Màu này đang được một action Colour sử dụng.' : undefined}
+                >
+                  <span className="h-6 w-6 shrink-0 rounded-lg border" style={{ backgroundColor: colour.value }} />
+                  <span>{colour.label}{required ? ' · đang dùng' : ''}</span>
+                </button>
+              );
+            })}
           </div>
+        </article>
+
+        <article className="space-y-4 rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm" data-part5-dynamic-object-palette>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-sky-950">Vật kéo thả · {part.objectPalette.length}</p>
+              <p className="text-[11px] font-semibold text-sky-800">Thêm đúng số vật bài này cung cấp. Vật không được action Draw dùng sẽ tự là lựa chọn bổ sung; không bắt buộc phải có vật nhiễu.</p>
+            </div>
+            <button type="button" onClick={addPaletteItem} className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-black text-white"><Plus size={13} className="inline" /> Thêm vật</button>
+          </div>
+          {part.objectPalette.length ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {part.objectPalette.map(item => {
+                const required = correctPaletteIds.has(item.id);
+                return (
+                  <div key={item.id} className="space-y-3 rounded-xl border border-sky-200 bg-white p-3">
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <EditorField
+                          label={required ? 'Tên vật · đang dùng' : 'Tên vật · lựa chọn bổ sung'}
+                          value={item.label}
+                          onChange={label => commit({
+                            ...part,
+                            objectPalette: part.objectPalette.map(entry => entry.id === item.id
+                              ? { ...entry, label, objectType: label.trim() || entry.objectType }
+                              : entry),
+                          })}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={required}
+                        onClick={() => removePaletteItem(item.id)}
+                        className="mt-5 rounded-lg p-2 text-rose-600 disabled:cursor-not-allowed disabled:opacity-35"
+                        aria-label={`Xóa ${item.label}`}
+                        title={required ? 'Vật này đang được một action Draw sử dụng.' : undefined}
+                      ><Trash2 size={16} /></button>
+                    </div>
+                    <ListeningAssetPicker
+                      compact
+                      assets={assets}
+                      aiCapability={{ enabled: false, reason: 'Icon Draw do giáo viên tải lên và xác nhận.' }}
+                      onUpload={onUpload}
+                      allowedMimeTypes={['image/png']}
+                      label={`Icon PNG ${item.label || 'vật Draw'}`}
+                      kind="image"
+                      value={item.tokenAssetId}
+                      onChange={tokenAssetId => commit({
+                        ...part,
+                        objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, tokenAssetId } : entry),
+                      })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className="rounded-xl border-2 border-dashed border-sky-200 bg-white px-4 py-8 text-center text-xs font-bold text-sky-700">Bài chưa có action Draw nên có thể để danh sách vật trống.</p>}
         </article>
       </section>
     </div>

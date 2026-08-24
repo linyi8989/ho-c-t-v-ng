@@ -6,6 +6,7 @@ import {
   publicListeningModuleManifest,
 } from '../../features/listening-library/registry.js';
 import { getListeningServerModule } from './registry.js';
+import { getModuleExamPaperDefinitions } from '../../features/exam-platform/definitions.js';
 
 export function createListeningLibraryRouter() {
   const router = express.Router();
@@ -23,10 +24,12 @@ export function createListeningLibraryRouter() {
       return res.status(404).json({ error: 'Module kỳ thi không tồn tại.' });
     }
     const serverModule = getListeningServerModule(req.params.moduleId);
+    const genericAvailable = req.params.moduleId !== 'mover'
+      && getModuleExamPaperDefinitions(req.params.moduleId).length > 0;
     return res.json({
       ...publicListeningModuleManifest(manifest),
-      available: Boolean(serverModule && manifest.status === 'active'),
-      gradingVersion: serverModule?.gradingVersion,
+      available: Boolean((serverModule || genericAvailable) && manifest.status === 'active'),
+      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? 'exam-platform-objective-v1' : undefined),
     });
   });
 

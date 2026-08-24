@@ -39,11 +39,11 @@ function publishedFixture() {
       question.acceptedAnswers = ['at the weekend'];
     });
   });
-  content.parts[5].illustrationAssetId = 'mrw-image-p6';
-  content.parts[5].optionsAssetId = 'mrw-image-p6-options';
-  content.parts[5].passageTitle = 'Dolphins';
-  content.parts[5].gaps.forEach((gap, index) => {
-    gap.acceptedAnswers = [`word${index + 1}`];
+  content.parts[5].studentImageAssetId = 'mrw-image-p6';
+  content.parts[5].optionsSourceAssetId = 'mrw-image-p6-options';
+  content.parts[5].questions.forEach((question, index) => {
+    question.options.forEach((option, optionIndex) => { option.text = `Part 6 choice ${index + 1}.${optionIndex + 1}`; });
+    question.correctOptionId = question.options[1].id;
   });
   const answers = createEmptyMoverReadingWritingAnswers();
   content.parts[0].questions.forEach(question => { answers.part1[question.id] = question.acceptedAnswers[0]; });
@@ -52,7 +52,7 @@ function publishedFixture() {
   content.parts[3].gaps.forEach(gap => { answers.part4.gaps[gap.id] = gap.acceptedAnswers[0]; });
   answers.part4.titleOptionId = content.parts[3].titleQuestion.correctOptionId;
   content.parts[4].scenes.forEach(scene => scene.questions.forEach(question => { answers.part5[question.id] = question.acceptedAnswers[0]; }));
-  content.parts[5].gaps.forEach(gap => { answers.part6[gap.id] = gap.acceptedAnswers[0]; });
+  content.parts[5].questions.forEach(question => { answers.part6[question.id] = question.correctOptionId; });
   return { content, answers };
 }
 
@@ -230,8 +230,9 @@ test('Reading & Writing uses dedicated storage, immutable publish, sanitized pla
   assert.equal(JSON.stringify(playable).includes('acceptedAnswers'), false);
   assert.equal(JSON.stringify(playable).includes('correctAnswer'), false);
   assert.equal(JSON.stringify(playable).includes('correctOptionId'), false);
-  assert.equal(playable.content.parts[5].optionsUrl, '/listening-media/mrw-image-p6-options.png');
-  assert.equal('passageSourceAssetId' in playable.content.parts[5], false);
+  assert.equal(playable.content.parts[5].studentImageUrl, '/listening-media/mrw-image-p6.png');
+  assert.equal('optionsSourceAssetId' in playable.content.parts[5], false);
+  assert.equal('optionsSourceUrl' in playable.content.parts[5], false);
 
   const identity = { guestId: 'guest-reading', studentName: 'Lan Anh' };
   const prepareResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/prepare`, {

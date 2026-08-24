@@ -296,6 +296,48 @@ test('current Part 3 and variable-action Part 5 validate and grade five question
   assert.equal(gradeListeningAttempt(content, answers).correctCount, 24);
 });
 
+test('scene-colour-draw v3 publishes with flexible colour/object counts and no required distractor', () => {
+  const content = currentSchemaContent();
+  const part5 = content.parts[4];
+  if (part5.displayMode !== 'scene-colour-draw') return;
+  part5.interactionSchemaVersion = 3;
+  part5.colourPaletteIds = [part5.colours[0].id, part5.colours[1].id];
+  part5.interactiveObjects = Array.from({ length: 3 }, (_, index) => ({
+    id: `flex-object-${index}`,
+    label: `Flexible object ${index + 1}`,
+    geometry: region(index),
+    interactionKinds: ['colour'] as ['colour'],
+    geometryConfirmedByTeacher: true,
+  }));
+  part5.objectPalette = Array.from({ length: 4 }, (_, index) => ({
+    id: `flex-token-${index}`,
+    objectType: `flex-type-${index}`,
+    label: `Flexible token ${index + 1}`,
+    tokenAssetId: `flex-token-${index}-png`,
+  }));
+  part5.questions = ([1, 2, 3, 4, 5] as const).map((questionNumber, index) => ({
+    id: `flex-question-${questionNumber}`,
+    questionNumber,
+    staffPrompt: `Flexible question ${questionNumber}`,
+    actions: index < 3 ? [{
+      id: `flex-colour-${index}`,
+      type: 'colour_object' as const,
+      correctObjectId: part5.interactiveObjects[index].id,
+      correctColourId: part5.colourPaletteIds![index % 2],
+    }] : [0, 1].map(offset => ({
+      id: `flex-draw-${index}-${offset}`,
+      type: 'place_object' as const,
+      correctPaletteItemId: part5.objectPalette[(index - 3) * 2 + offset].id,
+      targetRegion: region(offset + 1),
+      geometryConfirmedByTeacher: true,
+    })),
+  }));
+
+  assert.deepEqual(validateListeningSetContent(content), []);
+  part5.colourPaletteIds = [part5.colours[0].id];
+  assert.match(validateListeningSetContent(content).join(' '), /object\/màu đúng không hợp lệ/);
+});
+
 test('scene-colour-draw v1 remains valid for published legacy content', () => {
   const content = currentSchemaContent();
   const part5 = content.parts[4];

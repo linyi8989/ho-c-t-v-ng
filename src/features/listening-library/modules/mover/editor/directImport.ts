@@ -262,12 +262,11 @@ export function applyPart5SceneAnalysis(part: ListeningPart5, data: Part5ImportD
     };
   });
   (current?.objectPalette || []).forEach(item => {
-    if (!objectPalette.some(entry => entry.id === item.id)) objectPalette.push(item);
+    const isEmptyLegacyPlaceholder = !currentReferencedPaletteIds.has(item.id)
+      && !item.tokenAssetId
+      && /^draw-object-\d+$/.test(item.objectType);
+    if (!isEmptyLegacyPlaceholder && !objectPalette.some(entry => entry.id === item.id)) objectPalette.push(item);
   });
-  while (objectPalette.length < 3) {
-    const index = objectPalette.length;
-    objectPalette.push({ id: createMoverEditorId('p5-token'), objectType: `draw-object-${index + 1}`, label: index === 2 ? 'Vật nhiễu' : `Vật ${index + 1}` });
-  }
   const paletteId = (objectType: string, colourLabel?: string) => {
     const expectedColourId = colourId(colourLabel);
     const matches = objectPalette.filter(item => comparable(item.objectType) === comparable(objectType)
@@ -316,24 +315,9 @@ export function applyPart5SceneAnalysis(part: ListeningPart5, data: Part5ImportD
   });
   const proposedColourIds = [...new Set(questions.flatMap(question => question.actions.flatMap(action => action.type === 'colour_object' ? [action.correctColourId] : [])))];
   const proposedColourIdSet = new Set(proposedColourIds);
-  const preferredDistractorId = current?.colourPaletteIds?.[5];
-  const validPreferredDistractorId = preferredDistractorId
-    && colours.some(colour => colour.id === preferredDistractorId)
-    && !proposedColourIdSet.has(preferredDistractorId)
-      ? preferredDistractorId
-      : undefined;
-  const spareColourIds = [...new Set([
-    ...(current?.colourPaletteIds || []),
-    ...colours.map(colour => colour.id),
-  ])].filter(id => colours.some(colour => colour.id === id)
-    && !proposedColourIdSet.has(id)
-    && id !== validPreferredDistractorId);
-  const workingColourIds = [...proposedColourIds, ...spareColourIds].slice(0, 5);
-  const distractorColourId = validPreferredDistractorId
-    || spareColourIds.find(id => !workingColourIds.includes(id))
-    || colours.find(colour => !workingColourIds.includes(colour.id))?.id
-    || '';
-  const colourPaletteIds = [...workingColourIds, distractorColourId];
+  const preservedColourIds = [...new Set(current?.colourPaletteIds || [])]
+    .filter(id => colours.some(colour => colour.id === id) && !proposedColourIdSet.has(id));
+  const colourPaletteIds = [...proposedColourIds, ...preservedColourIds];
   return {
     schemaVersion: part.schemaVersion,
     part: 5,
@@ -343,7 +327,7 @@ export function applyPart5SceneAnalysis(part: ListeningPart5, data: Part5ImportD
     audioUrl: part.audioUrl,
     audioTranscript: part.audioTranscript,
     displayMode: 'scene-colour-draw',
-    interactionSchemaVersion: 2,
+    interactionSchemaVersion: 3,
     sceneAssetId: sceneAssetId || part.sceneAssetId,
     sceneUrl: part.sceneUrl,
     colours,

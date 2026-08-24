@@ -13,7 +13,7 @@ test('provider Smart Import normalizes every Reading & Writing Part with the sha
       images: [{ assetId: 'answer', role: 'answer_key' as MoverReadingWritingSmartImportSourceRole, mimeType: 'image/png', data: Buffer.from('image') }],
       analyzeVision: async (prompt, _images, options) => {
         assert.match(prompt, /Never solve the exercise/);
-        assert.equal(options.schemaName, `mover_rw_part_${part}_v${part === 1 || part === 5 || part === 6 ? 2 : 1}`);
+        assert.equal(options.schemaName, `mover_rw_part_${part}_v${part === 6 ? 3 : part === 1 || part === 5 ? 2 : 1}`);
         return { provider: 'stali:gpt-5.6-sol', text: moverReadingWritingExternalTemplate(part) };
       },
     });

@@ -417,7 +417,7 @@ function parsePart5(source: string): { data: ExternalImportData<5>; warnings: st
   assertVersion(raw, 5, ['paletteItems', 'questions'], errors);
   const paletteEntries = Array.isArray(raw.paletteItems) ? raw.paletteItems : [];
   if (!Array.isArray(raw.paletteItems)) errors.push('paletteItems phải là một array.');
-  if (paletteEntries.length > 3) errors.push('paletteItems chỉ nhận tối đa 3 vật kéo thả, gồm vật nhiễu nếu có.');
+  if (paletteEntries.length > 20) errors.push('paletteItems chỉ nhận tối đa 20 vật kéo thả để bảo vệ kích thước dữ liệu.');
   const paletteKeys = new Set<string>();
   const paletteItems: ExternalImportData<5>['paletteItems'] = [];
   paletteEntries.forEach((entry, index) => {
@@ -432,7 +432,7 @@ function parsePart5(source: string): { data: ExternalImportData<5>; warnings: st
     const colourLabel = entry.colourLabel === undefined ? undefined : catalogColour(entry.colourLabel);
     const key = comparable(objectType);
     if (!objectType || !itemLabel) errors.push(`${label} cần objectType và label.`);
-    if (entry.colourLabel !== undefined && !colourLabel) errors.push(`${label}.colourLabel không thuộc catalog màu Mover.`);
+    if (entry.colourLabel !== undefined && !colourLabel) errors.push(`${label}.colourLabel không thuộc catalog màu Movers.`);
     if (key && paletteKeys.has(key)) errors.push(`paletteItems bị trùng objectType "${objectType}".`);
     if (objectType && itemLabel && !paletteKeys.has(key)) {
       paletteKeys.add(key);
@@ -471,7 +471,7 @@ function parsePart5(source: string): { data: ExternalImportData<5>; warnings: st
         const objectLabel = cleanText(action.objectLabel);
         const correctColourLabel = catalogColour(action.correctColourLabel);
         if (!objectLabel) errors.push(`${actionLabel}.objectLabel không được để trống.`);
-        if (action.correctColourLabel !== undefined && !correctColourLabel) errors.push(`${actionLabel}.correctColourLabel không thuộc catalog màu Mover.`);
+        if (action.correctColourLabel !== undefined && !correctColourLabel) errors.push(`${actionLabel}.correctColourLabel không thuộc catalog màu Movers.`);
         if (!correctColourLabel) warnings.push(`Part 5 câu ${questionNumber} action ${actionIndex + 1}: thiếu màu chắc chắn; giữ action cũ nếu có.`);
         if (objectLabel) actions.push({ type: 'colour_object', objectLabel, ...(correctColourLabel ? { correctColourLabel } : {}), confidence: 1 });
         return;
@@ -481,7 +481,7 @@ function parsePart5(source: string): { data: ExternalImportData<5>; warnings: st
         const objectType = cleanText(action.objectType);
         const colourLabel = action.colourLabel === undefined ? undefined : catalogColour(action.colourLabel);
         if (!objectType) errors.push(`${actionLabel}.objectType không được để trống.`);
-        if (action.colourLabel !== undefined && !colourLabel) errors.push(`${actionLabel}.colourLabel không thuộc catalog màu Mover.`);
+        if (action.colourLabel !== undefined && !colourLabel) errors.push(`${actionLabel}.colourLabel không thuộc catalog màu Movers.`);
         const targetRegion = action.targetRegion === undefined
           ? undefined
           : parseRegion(action.targetRegion, `${actionLabel}.targetRegion`, { coordinateSpace: 'normalized' }, errors);
@@ -504,7 +504,7 @@ function parsePart5(source: string): { data: ExternalImportData<5>; warnings: st
   const drawActions = questions.flatMap(question => question.actions.filter(action => action.type === 'place_object'));
   drawActions.forEach(action => {
     if (paletteItems.some(item => comparable(item.objectType) === comparable(action.objectType))) return;
-    if (paletteItems.length >= 3) {
+    if (paletteItems.length >= 20) {
       errors.push(`Thiếu paletteItem tương ứng với Draw objectType "${action.objectType}".`);
       return;
     }
@@ -637,13 +637,13 @@ const externalParametersModelRules: Record<ListeningSmartImportPartId, string[]>
     'Trả đúng 5 questions theo questionNumber 1..5; mỗi câu có thể có một hoặc nhiều actions.',
     'Action chỉ nhận type colour_object hoặc place_object; không hard-code số action của từng câu.',
     'Màu phải dùng tên màu tiếng Anh thuộc catalog; không tạo mã HEX hoặc màu tự do.',
-    'paletteItems tối đa 3 vật kéo thả và phải bao gồm objectType tương ứng với mọi action Draw.',
+    'paletteItems là danh sách linh hoạt và phải bao gồm objectType tương ứng với mọi action Draw; không tự thêm vật nhiễu.',
     'Không tạo Colour mask hoặc icon PNG. targetRegion của Draw có thể bỏ qua khi không chắc; giáo viên sẽ xác nhận geometry trong editor.',
   ],
 };
 
 export const externalParametersModelInstructions = (part: ListeningSmartImportPartId) => [
-  `Hãy phân tích ảnh đề bài Listening Mover Part ${part} được đính kèm.`,
+  `Hãy phân tích ảnh đề bài Listening Movers Part ${part} được đính kèm.`,
   '',
   `Chỉ trả về một JSON object hợp lệ theo schema mover-part${part}-external-v1.`,
   'Không dùng Markdown hoặc code fence. Không giải thích trước hay sau JSON.',

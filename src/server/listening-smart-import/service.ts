@@ -1407,7 +1407,6 @@ function normalizePart5(raw: any, currentPart: ListeningPart, warnings: string[]
   if (colourActions.length) warnings.push('Part 5: giáo viên phải tô/xác nhận các vùng Colour; AI không tự tạo mask Colour.');
   const paletteTypes = new Set(paletteItems.map(item => comparable(item.objectType)));
   if (placeActions.some(action => !paletteTypes.has(comparable(action.objectType)))) warnings.push('Part 5: palette thiếu token đúng cho ít nhất một place action; giáo viên phải bổ sung.');
-  if (placeActions.length && paletteItems.length <= new Set(placeActions.map(action => comparable(action.objectType))).size) warnings.push('Part 5: object palette chưa có distractor; không tự tạo object giả.');
 
   if (currentPart.part === 5 && currentPart.displayMode === 'scene-colour-draw') {
     currentPart.questions.forEach(question => question.actions.forEach(action => {

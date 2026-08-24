@@ -467,7 +467,8 @@ Authenticated:
 - `POST /api/game-sessions/lazy-complete`: idempotently create and complete a short-game session in one logical batch. The immutable key is actor + vocabulary set + game + `clientRunId`; retries with the same run secret return the existing completed result.
 - `POST /api/game-sessions/activate`: lazily create/resume a Speaking AI session at the first recording interaction.
 - `PUT /api/game-sessions/:id`: complete/update game session.
-- `GET /api/results`: list completed game sessions.
+- `GET /api/results`: list completed vocabulary/grammar/listening activity. `view=summary&limit=N` returns a bounded detail-free feed for dashboard lists; the legacy/default shape remains available to existing authenticated callers.
+- `GET /api/results/:sourceType/:resultId`: authorized lazy detail for one `vocabulary`, `grammar`, or `listening` result. It applies the same student/teacher/super-admin scope before returning answer detail.
 
 Teacher or super admin:
 
@@ -524,7 +525,7 @@ Account/result identity behavior:
 - If no guest profile exists, the backend may resolve a legacy guest by the same stable `guestId` in `game_sessions` or `grammar_attempts`. This compatibility lookup does not rewrite the historical record or create a replacement profile.
 - Existing `game_sessions`, `grammar_attempts`, and `leaderboard_events` retain their original name snapshots.
 - Result and leaderboard APIs resolve the current name from `users` or `guest_profiles`, then fall back to the stored snapshot.
-- Legacy activities with a `guestId` are backfilled additively into `guest_profiles` using the most recent activity name. Activities without a stable user/guest id are left untouched and marked `legacyUnlinked` in enriched API output.
+- Legacy activities with a `guestId` can be backfilled additively into `guest_profiles` using the explicit `db:backfill-hot-read-models` maintenance command. Request/read paths never run this migration. Activities without a stable user/guest id are left untouched and marked `legacyUnlinked` in enriched API output.
 
 ## 7. Backend Fallback DB Layer
 
@@ -1185,7 +1186,7 @@ Registry:
 - `src/lib/leaderboard.ts` computes honor score from completed game sessions.
 - Leaderboard source is now separated from recent activity:
   - `/api/results` and `/api/public/results` remain the 7-day recent activity feed.
-  - `/api/leaderboard-results` and `/api/public/leaderboard-results` return compact `leaderboard_events` plus legacy sessions/attempts still inside the leaderboard retention window.
+  - `/api/leaderboard-results` and `/api/public/leaderboard-results` use compact `leaderboard_events` as the primary read model after the durable `leaderboard-read-model-v1` readiness marker is set. Before the explicit backfill, a read-only legacy session/attempt fallback preserves compatibility without writing or marking readiness from a request.
   - New completed vocabulary sessions and grammar attempts write a compact `leaderboard_events` row; this does not include `answerDetails` or heavy media data.
 - Current concept:
   - best result per student/vocab set/game mode
@@ -1877,8 +1878,11 @@ SQLite and history integration:
   union projection, filters `sourceType=listening`, and loads bounded review
   detail from `listening_attempt_details`; legacy history rows are not rewritten.
 - The admin Recent Activity path follows the same split-storage contract:
-  `/api/results` reads summaries from `listening_attempts`, then joins
-  `listening_attempt_details` only for an authorized teacher or super admin.
+  `/api/results?view=summary` reads bounded summaries from `listening_attempts`
+  without joining detail. `GET /api/results/listening/:resultId` joins
+  `listening_attempt_details` only after an authorized teacher or super admin
+  explicitly opens one result. The default/full `/api/results` compatibility
+  shape retains the prior staff-only join behavior for existing callers.
   When an older detail row contains raw answers/questions but not display-ready
   rows, the server reconstructs its 25 `answerDetails` from that attempt's
   immutable `listening_set_versions/{versionId}` snapshot. New submissions store
@@ -3035,3 +3039,251 @@ Verification:
   `dist/client/assets/index-D3eH0-bY.js`; the server bundle is regenerated from
   source. No database migration, binary duplication or bulk data rewrite is
   introduced.
+
+## 42. Initial-load request amplification and hot read-model pass - 2026-08-23
+
+Frontend ownership and navigation:
+
+- `AuthContext` keeps its global loading boundary active until both the Firebase
+  token and canonical `/api/me` profile are ready. `App` therefore never starts
+  an anonymous Home load during authenticated-session restoration.
+- `App` owns Home data only on `/`. It does not run that loader for Admin,
+  History, Exam, private-link, game, grammar, login or registration screens.
+  Staff Admin uses only `AdminDashboard.refreshData`; switching explicitly to
+  the student preview activates the Home owner.
+- Home requests are independent `Promise.allSettled` tasks behind one
+  `AbortController` and monotonically increasing generation ID. A route/auth
+  change aborts the old generation and late Firestore/API responses cannot
+  overwrite newer state. The redundant Home `/api/results` call was removed;
+  Home consumes the dedicated leaderboard feed.
+- Admin's initial loader has the same abort/generation boundary and requests the
+  bounded summary feed at `/api/results?view=summary&limit=500`. Result detail is
+  loaded only when a row is opened. Canonical `/exams` module/paper/exam links
+  now use App-owned `history.pushState` navigation, while modified anchor clicks
+  retain normal new-tab behavior and legacy URLs remain parseable.
+
+Results, leaderboard and observability:
+
+- Public/authenticated results and leaderboard routes emit `Server-Timing` and
+  slow-request storage metrics. Independent source/map reads are parallelized
+  after request amplification was removed.
+- Summary mode strips answer details, private snapshots and run/session secrets,
+  applies a server-clamped maximum of 500 rows, pushes `completedAt` ordering and
+  limit into each source query, merges the three source streams, and returns the
+  newest global slice. Public results accept the same optional bounded `limit`.
+- `GET /api/results/:sourceType/:resultId` performs a point lookup and the same
+  role/ownership checks before resolving one detail. Listening version/detail
+  reconstruction is no longer multiplied by every dashboard row.
+- Canonical `users`/`guest_profiles` name maps use a 60-second process cache with
+  concurrent-load deduplication and explicit invalidation after account/profile
+  creation or rename. No name-enrichment request performs historical backfill.
+- Leaderboard first reads retained `leaderboard_events` plus the durable
+  `settings/leaderboard-read-model-v1` marker. When `ready=true, version=1`, it
+  returns the compact read model directly. Missing marker keeps a read-only
+  compatibility scan so an upgrade cannot silently drop old scores.
+
+Storage and safe rollout:
+
+- Additive/idempotent migration `activity-read-indexes-v1` creates standalone
+  descending `completed_at` indexes for `game_results`, `grammar_attempts`,
+  `listening_attempts`, and `mover_reading_attempts`. These match recent-feed
+  queries that do not constrain the leading columns of older composite indexes.
+- `npm run db:backfill-hot-read-models -- --db <path>` is dry-run by default. It
+  reports missing guest profiles and retained leaderboard events without any
+  write. `--execute` first creates and quick-checks a SQLite backup, inserts only
+  missing rows in bounded idempotent batches, verifies source table counts are
+  unchanged, reconciles zero missing events, and only then writes the readiness
+  marker. It never updates or deletes game/grammar source records.
+- Production order is mandatory: stop/quiesce writers, back up the active DB,
+  run preflight and the dry-run report, deploy the additive index migration,
+  execute the explicit read-model backfill, verify its reconciliation output,
+  then restart and inspect `Server-Timing`/`[PERF]` logs. Do not set the readiness
+  marker manually and do not execute the maintenance command against an active
+  database without the host backup window.
+
+Verification:
+
+- `npm run lint` passes. `npm run test:performance` passes 7/7, including a real
+  SQL.js temporary-database migration/query-plan check; no local application DB
+  is opened. Mover Reading & Writing passes 24/24. The Listening contract changed
+  from eager staff detail to summary-then-detail; its updated full suite passes
+  131/131.
+- Learning History portable coverage passes 20/20. Its seven native API cases
+  still cannot start in the current Node 24/ABI 137 shell because the installed
+  `better-sqlite3` binary targets the required Node 22/ABI 127. No native rebuild,
+  production data migration, deploy, commit or push was performed in this pass.
+- The canonical production build passes and regenerates `dist/server.cjs` plus
+  client entry `dist/client/assets/index-DbQ90nbv.js`; the artifact contains
+  `student-history-nav-btn`, the bounded Admin summary URL, SPA Exam navigation,
+  and the lazy result-detail route in the server bundle. Existing PDF/ESM chunk
+  size warnings remain non-blocking.
+
+## 43. Mover Part 6 image choices and Listening Part 5 flexible palettes - 2026-08-23
+
+Reading & Writing Part 6:
+
+- Content schema v3 supersedes the new-draft Part 6 text-gap flow in §41 while
+  retaining schemas v1/v2 as immutable read/play/grade compatibility formats.
+  New Part 6 drafts use `displayMode: image-multiple-choice`: one persistent
+  student image contains the reading and numbered blanks, one persistent
+  options-table image is authoring-only, and questions 1–5 each own exactly
+  three stable application options plus `correctOptionId`.
+- Smart Import uses only ROLE `options` and ROLE `answer_key`. The options image
+  is OCR input for the three visible choices; the official key image is the
+  sole authority for A/B/C. The prompt explicitly forbids reading/reconstructing
+  the passage or solving a blank. If the key is unreadable, merge preserves the
+  current teacher choice; the editor always exposes a correct-answer radio so
+  the teacher can set or correct it manually before publish. The authoring-only
+  options image picker is rendered only inside the Smart Import block; it is not
+  duplicated beside the persistent student-image picker.
+- Student sanitization removes the options-source asset and every
+  `correctOptionId`. The player shows only the single reading image and five
+  three-option radio groups; each question lays out A/B/C in one horizontal row
+  with wrapping contained inside each option cell. Grading and visual review
+  compare stable option IDs, while legacy passage-text Part 6 content and old
+  review snapshots remain supported. Converting a legacy Part 6 is an explicit
+  working-draft action and never rewrites an immutable published version.
+
+Listening Part 5:
+
+- Nested interaction schema v3 removes the v2 publish invariants of exactly six
+  public colours, exactly three Draw icons, and one unused distractor of each
+  kind. The 20-colour master catalog and five numbered scored questions remain;
+  each question may contain any Colour/Draw action mix. Publish validation is
+  relational: visible colours must be unique catalog colours and include every
+  Colour answer; Draw items must have a label/type/uploaded PNG and include
+  every referenced Draw answer. Geometry still requires teacher confirmation.
+- New drafts start with empty visible-colour and object palettes. AI/direct and
+  external-parameter imports create only the colours/icons supported by their
+  actions, accept more than three icons (bounded to 20 only at the external JSON
+  trust boundary), and never pad or invent distractors. Draft autosave remains
+  available while content is incomplete; publish continues to reject missing
+  prompts/actions/assets/geometry.
+- The teacher editor toggles any catalog colours and adds/removes any number of
+  Draw items. A colour/icon currently referenced by an action cannot be removed,
+  preventing dangling answer keys. Adding the first Colour or Draw action also
+  creates the minimum editable palette entry when needed. Old v1/v2 scenes stay
+  playable and gradeable unchanged, with an explicit draft-only conversion to
+  v3; the converter no longer rejects drafts with more than two correct icons.
+- The v3 student player keeps colours reusable across multiple objects, while
+  v1/v2 retain their released single-use colour behavior. Draw tokens remain
+  individual single-use palette items. Student payload sanitization applies the
+  public-colour filter to both v2 and v3 and continues to remove prompts, answer
+  mappings and private Draw target regions.
+
+Verification and rollout:
+
+- `npm run lint` passes. `npm run test:mover-reading` passes 26/26 and
+  `npm run test:listening` passes 133/133, including official-key-only Part 6,
+  one-image/15-radio rendering, legacy schema compatibility, a valid v3 Part 5
+  with two colours plus four fully used Draw icons and no distractor, import of
+  more than three Draw items, and v3 reusable-colour player contracts.
+- `npm run build` passes and regenerates `dist/server.cjs` plus client entry
+  `dist/client/assets/index-CuyiVRCD.js`. Existing PDF/ESM chunk-size warnings
+  remain non-blocking. This is an additive JSON-schema rollout: no SQL migration,
+  production database write, bulk rewrite, deploy, commit or push is required or
+performed. The loopback app started successfully with the SQL.js local-test
+driver, but no in-app/external browser session was available for visual
+capture; the local listener was stopped afterward.
+
+## 44. Shared Cambridge & IELTS exam platform - 2026-08-23
+
+Activation and paper manifests:
+
+- This section supersedes the coming-soon activation statement in §40. Starters,
+  Flyers, KET, PET, FCE and IELTS are active beside Movers and reuse one generic
+  exam platform. The student and admin display labels are `Starters`, `Movers`
+  and `Flyers`; stable module IDs remain `starter`, `mover` and `flyer`. Movers
+  keeps its released dedicated Listening and Reading &
+  Writing adapters, stores, schemas, 40-question contract and URLs unchanged.
+- Paper definitions are data-driven in
+  `src/features/exam-platform/definitions.ts`: Pre A1 Starters and A2 Flyers
+  expose Listening plus Reading & Writing; A2 Key exposes Listening plus
+  Reading & Writing; B1 Preliminary exposes Reading, Writing and Listening; B2
+  First exposes Reading & Use of English, Writing and Listening. IELTS exposes
+  only Academic Listening, Academic Reading and Academic Writing; General
+  Training and Speaking are deliberately not registered.
+- Every paper manifest owns its Part/Section count, allowed task types, time,
+  question distribution and scoring weight. IELTS Academic Reading keeps three
+  sections and exactly 40 questions while allowing the per-section split to
+  vary. Writing tasks enter `pending_review` and use teacher scoring; objective
+  papers remain backend-graded on the immutable published version.
+
+Shared teacher and student flow:
+
+- `src/features/exam-platform/admin/GenericExamAdmin.tsx` provides the common
+  module/paper hub, draft editor, revision-aware autosave, preview, visibility,
+  publish, clone, recoverable archive, per-set results and manual Writing
+  grading. Parts support common passage, question and choice images, per-Part
+  audio, objective answer keys, accepted text variants and Writing rubrics.
+- JSON Smart Import is a bounded external-data contract. It accepts content,
+  options and official answers through public labels/indexes, rejects injected
+  IDs/media URLs/internal answer IDs, preserves application-owned identifiers,
+  and returns warnings when a key is missing. Publishing remains blocked until
+  a teacher supplies every objective key. This keeps the official-answer-image
+  rule compatible with the existing Mover vision workflow without letting AI
+  invent technical state.
+- `GenericExamLearningArea.tsx` implements guest/authenticated identity,
+  assignment/private access, resume, timer, per-Part navigation, submissions,
+  pending Writing state, result and permitted answer review. Playable payloads
+  contain no `correctOptionIds`, accepted answers, model answers or run secrets;
+  displayed answers are human-readable labels/text rather than internal IDs.
+
+Backend, storage and cross-feature integration:
+
+- `/api/exam-platform` owns public/admin lists, draft revision checks,
+  immutable version publish, signed prepare tickets, deterministic idempotent
+  attempts, backend grading, review authorization and owner-only staff result
+  access. Assignment tokens are resolved before public fallback so a public set
+  launched from a class assignment still records its class/assignment context.
+- Additive migration `exam-platform-schema-v1` creates `exam_sets`,
+  `exam_set_versions`, `exam_asset_usages`, `exam_attempts` and
+  `exam_attempt_details` with module/paper scoping, foreign keys and bounded-read
+  indexes. Published media usage prevents a referenced shared image/audio from
+  being archived. Existing Movers data and tables are neither copied nor
+  rewritten.
+- Admin assignment scheduling accepts generic exam sets and emits canonical
+  `/exams/:moduleId/:paperId/:setId?accessToken=...` links. Completed generic
+  attempts are unioned from their source table into Learning History as
+  `sourceType=exam`/`lessonType=exam_set`; pending Writing attempts appear only
+  after teacher grading. Teachers may inspect history detail only for owned or
+  authorized assigned sets.
+
+Verification:
+
+- `npm run test:exam-platform` passes 10/10, covering all manifests, Academic-
+  only IELTS, validation, Smart Import ID ownership, answer-key sanitization,
+  weighted/manual grading, immutable versions, assignment attribution,
+  idempotent submission, review authorization, media usage, archive/clone and
+  Learning History. `npm run test:listening` passes 133/133 and
+  `npm run test:mover-reading` passes 26/26, confirming Mover compatibility.
+- `npm run lint`, `npm run test:performance` (7/7) and the production build pass.
+  HTTP smoke checks return 200 for `/exams`, Starters, IELTS Academic Reading,
+  module metadata, public paper lists and authenticated generic Admin lists.
+  No in-app browser instance was connected for visual capture. Native storage/
+  history tests remain blocked only by the pre-existing local Node 24 ABI 137
+  versus installed Node 22 ABI 127 `better-sqlite3` mismatch; SQL.js lifecycle
+  and migration coverage pass.
+
+## 45. Admin quick-import prompt copy helpers - 2026-08-23
+
+- Vocabulary and Grammar authoring keep their existing parsers, textarea state,
+  save paths and backend contracts. `src/lib/adminBulkImportPrompts.ts` only
+  builds bounded plain-text instructions for use in ChatGPT web and never calls
+  an AI API or sends form data outside the browser.
+- The Vocabulary quick-paste card copies the strict
+  `word | meaning | ipa | partOfSpeech` contract with the current title, grade,
+  subject, tags and description as optional context. The Grammar quick-import
+  card switches between the existing multiple-choice
+  `QUESTION/A/B[/C/D]/ANSWER/EXPLANATION` contract and the rewrite
+  `QUESTION/ANSWER/[ACCEPTED]/EXPLANATION` contract. Rewrite prompts explicitly
+  keep one accepted alternative per line and exclude open-ended essay tasks
+  because current grading is normalized text matching.
+- Both controls are non-submit buttons, do not edit either quick-import
+  textarea, show a temporary `Đã sao chép` state, use Clipboard API first, then
+  the scoped legacy copy fallback, and finally open a manual copy prompt if the
+  browser blocks both automatic paths.
+- `npm run test:grammar` now includes the pure prompt and Admin UI contracts and
+  passes 13/13. `npm run test:vocab-games` passes 8/8, `npm run lint` passes and
+  the production build contains all three prompt labels in the AdminDashboard
+  chunk. No schema, storage, API, grading or existing content migration changed.

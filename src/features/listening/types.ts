@@ -238,11 +238,11 @@ export interface ListeningPart5Question {
 export interface ListeningPart5SceneColourDraw extends ListeningPartBase {
   part: 5;
   displayMode: 'scene-colour-draw';
-  interactionSchemaVersion: 1 | 2;
+  interactionSchemaVersion: 1 | 2 | 3;
   sceneAssetId: string;
   sceneUrl?: string;
   colours: ListeningColour[];
-  /** Schema v2 student palette: five working colours plus one distractor. */
+  /** Student-visible colours. Schema v2 fixes six slots; schema v3 accepts any unique subset required by the authored actions. */
   colourPaletteIds?: string[];
   interactiveObjects: ListeningPart5InteractiveObject[];
   objectPalette: ListeningPart5PaletteItem[];

@@ -1,35 +1,56 @@
 import type { ListeningModuleId, ListeningModuleManifest } from './types';
 import type { ListeningPaperId } from './types';
+import { getModuleExamPaperDefinitions } from '../exam-platform/definitions';
 
 export const DEFAULT_LISTENING_MODULE_ID = 'mover' as const;
 export const LISTENING_LIBRARY_SCHEMA_VERSION = 1;
 
-const comingSoonCapabilities = {
-  student: false,
-  admin: false,
-  scoring: false,
-  assignments: false,
+const activeCapabilities = {
+  student: true,
+  admin: true,
+  scoring: true,
+  assignments: true,
 } as const;
+
+function genericPapers(moduleId: Exclude<ListeningModuleId, 'mover'>) {
+  return getModuleExamPaperDefinitions(moduleId).map(definition => ({
+    id: definition.paperId,
+    displayName: definition.displayName,
+    description: definition.description,
+    status: 'active' as const,
+    schemaVersion: 1,
+    partCount: definition.parts.length,
+    questionsPerPart: definition.parts.map(part => part.questionCount),
+    totalQuestionCount: definition.totalQuestionCount,
+    parts: definition.parts.map(part => ({
+      id: part.id,
+      displayName: part.displayName,
+      schemaVersion: 1,
+      questionCount: part.questionCount,
+    })),
+    capabilities: activeCapabilities,
+  }));
+}
 
 export const LISTENING_MODULES = [
   {
     id: 'starter',
-    displayName: 'Starter',
+    displayName: 'Starters',
     levelLabel: 'Pre A1',
-    description: 'Kho đề Pre A1 Starters đang được chuẩn bị.',
-    status: 'coming_soon',
+    description: 'Kho đề Pre A1 Starters gồm Listening và Reading & Writing.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('starter'),
   },
   {
     id: 'mover',
-    displayName: 'Mover',
+    displayName: 'Movers',
     levelLabel: 'A1',
-    description: 'Mover gồm Listening và Reading & Writing với cấu trúc riêng cho từng bài thi.',
+    description: 'Movers gồm Listening và Reading & Writing với cấu trúc riêng cho từng bài thi.',
     status: 'active',
     schemaVersion: 1,
     partCount: 5,
@@ -50,7 +71,7 @@ export const LISTENING_MODULES = [
       {
         id: 'listening',
         displayName: 'Listening',
-        description: 'Bộ đề nghe Mover gồm 5 Part và 25 câu tương tác.',
+        description: 'Bộ đề nghe Movers gồm 5 Part và 25 câu tương tác.',
         status: 'active',
         schemaVersion: 1,
         partCount: 5,
@@ -71,7 +92,7 @@ export const LISTENING_MODULES = [
       {
         id: 'reading-writing',
         displayName: 'Reading & Writing',
-        description: 'Bộ đề Mover Reading & Writing gồm 6 Part và 40 câu.',
+        description: 'Bộ đề Movers Reading & Writing gồm 6 Part và 40 câu.',
         status: 'active',
         schemaVersion: 1,
         partCount: 6,
@@ -93,68 +114,68 @@ export const LISTENING_MODULES = [
   },
   {
     id: 'flyer',
-    displayName: 'Flyer',
+    displayName: 'Flyers',
     levelLabel: 'A2',
-    description: 'Kho đề A2 Flyers đang được chuẩn bị.',
-    status: 'coming_soon',
+    description: 'Kho đề A2 Flyers gồm Listening và Reading & Writing.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('flyer'),
   },
   {
     id: 'ket',
     displayName: 'KET',
     levelLabel: 'A2 Key',
-    description: 'Kho đề A2 Key (KET) đang được chuẩn bị.',
-    status: 'coming_soon',
+    description: 'Kho đề A2 Key (KET) gồm Reading & Writing và Listening.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('ket'),
   },
   {
     id: 'pet',
     displayName: 'PET',
     levelLabel: 'B1 Preliminary',
-    description: 'Kho đề B1 Preliminary (PET) đang được chuẩn bị.',
-    status: 'coming_soon',
+    description: 'Kho đề B1 Preliminary (PET) gồm Reading, Writing và Listening.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('pet'),
   },
   {
     id: 'fce',
     displayName: 'FCE',
     levelLabel: 'B2 First',
-    description: 'Kho đề B2 First (FCE) đang được chuẩn bị.',
-    status: 'coming_soon',
+    description: 'Kho đề B2 First (FCE) gồm Reading & Use of English, Writing và Listening.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('fce'),
   },
   {
     id: 'ielts',
     displayName: 'IELTS',
-    levelLabel: 'Academic & General',
-    description: 'Kho đề IELTS Academic và General Training đang được chuẩn bị.',
-    status: 'coming_soon',
+    levelLabel: 'Academic',
+    description: 'Kho đề IELTS Academic gồm Listening, Academic Reading và Academic Writing.',
+    status: 'active',
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('ielts'),
   },
 ] as const satisfies readonly ListeningModuleManifest[];
 
@@ -200,5 +221,11 @@ export function getListeningPaper(moduleId: ListeningModuleId, paperId: Listenin
 }
 
 export function isListeningPaperId(value: unknown): value is ListeningPaperId {
-  return value === 'listening' || value === 'reading-writing';
+  return value === 'listening'
+    || value === 'reading-writing'
+    || value === 'reading'
+    || value === 'writing'
+    || value === 'reading-use-of-english'
+    || value === 'academic-reading'
+    || value === 'academic-writing';
 }

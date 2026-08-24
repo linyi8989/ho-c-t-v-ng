@@ -5,6 +5,7 @@ import type {
 } from '../../features/mover-reading-writing/types.js';
 import {
   MOVER_READING_WRITING_PAPER_ID,
+  isMoverReadingWritingPart6ImageChoice,
 } from '../../features/mover-reading-writing/types.js';
 import {
   isSupportedMoverReadingWritingSchemaVersion,
@@ -41,12 +42,13 @@ function validateChoiceQuestion(
   question: MoverReadingWritingChoiceQuestion | undefined,
   label: string,
   errors: string[],
+  requirePrompt = true,
 ) {
   if (!question || !nonEmptyText(question.id, 160)) {
     errors.push(`${label}: thiếu ID câu hỏi.`);
     return;
   }
-  if (!nonEmptyText(question.prompt, 1000)) errors.push(`${label}: thiếu nội dung câu hỏi.`);
+  if (requirePrompt && !nonEmptyText(question.prompt, 1000)) errors.push(`${label}: thiếu nội dung câu hỏi.`);
   if (!Array.isArray(question.options) || question.options.length !== 3) {
     errors.push(`${label}: cần đúng 3 lựa chọn.`);
     return;
@@ -67,7 +69,7 @@ export function validateMoverReadingWritingContent(input: MoverReadingWritingCon
   try { content = normalizeMoverReadingWritingContent(input); }
   catch (error: any) { return [error?.message || 'Cấu trúc Reading & Writing không hợp lệ.']; }
   if (content.moduleId !== 'mover' || content.paperId !== MOVER_READING_WRITING_PAPER_ID) {
-    errors.push('Bộ đề phải thuộc Mover / Reading & Writing.');
+    errors.push('Bộ đề phải thuộc Movers / Reading & Writing.');
   }
   if (!nonEmptyText(content.title, 160)) errors.push('Thiếu tên bộ đề.');
   if (typeof content.description !== 'string' || content.description.length > 2000) errors.push('Mô tả tối đa 2.000 ký tự.');
@@ -135,18 +137,30 @@ export function validateMoverReadingWritingContent(input: MoverReadingWritingCon
   });
 
   const part6 = content.parts[5];
-  if (!nonEmptyText(part6.illustrationAssetId, 160)) errors.push('Part 6: thiếu ảnh bài đọc đã crop để hiển thị.');
-  if (!nonEmptyText(part6.optionsAssetId, 160)) errors.push('Part 6: thiếu ảnh bảng lựa chọn.');
-  if (!nonEmptyText(part6.passageTitle, 300)) errors.push('Part 6: thiếu tiêu đề bài đọc.');
-  if (!nonEmptyText(part6.passageTemplate, 20_000)) errors.push('Part 6: thiếu nội dung bài đọc.');
-  if (/\[\[[^\]]+\]\]/.test(part6.passageTemplate || '')) errors.push('Part 6: bài đọc còn marker Smart Import chưa được chuẩn hóa.');
-  if (part6.gaps?.length !== 5) errors.push('Part 6: cần đúng 5 chỗ trống.');
-  if (!unique((part6.gaps || []).map(gap => gap.id))) errors.push('Part 6: ID chỗ trống bị trùng.');
-  (part6.gaps || []).forEach((gap, index) => {
-    if (!nonEmptyText(gap.id, 160)) errors.push(`Part 6 chỗ trống ${index + 1}: thiếu ID.`);
-    validateTextAnswers(gap.acceptedAnswers, `Part 6 chỗ trống ${index + 1}`, errors, 1);
-    if (!part6.passageTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 6 chỗ trống ${index + 1}: bài đọc thiếu token {{${gap.id}}}.`);
-  });
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    if (!nonEmptyText(part6.studentImageAssetId, 160)) errors.push('Part 6: thiếu ảnh bài đọc hiển thị cho học sinh.');
+    if (!nonEmptyText(part6.optionsSourceAssetId, 160)) errors.push('Part 6: thiếu ảnh bảng lựa chọn dùng để nhận diện đáp án.');
+    if (part6.questions?.length !== 5) errors.push('Part 6: cần đúng 5 câu trắc nghiệm.');
+    if (!unique((part6.questions || []).map(question => question.id))) errors.push('Part 6: ID câu hỏi bị trùng.');
+    const questionNumbers = (part6.questions || []).map(question => question.questionNumber);
+    if (!unique(questionNumbers.map(String)) || [1, 2, 3, 4, 5].some(number => !questionNumbers.includes(number as 1 | 2 | 3 | 4 | 5))) {
+      errors.push('Part 6: questionNumber phải đủ và không trùng từ 1 đến 5.');
+    }
+    (part6.questions || []).forEach((question, index) => validateChoiceQuestion(question, `Part 6 câu ${index + 1}`, errors, false));
+  } else {
+    if (!nonEmptyText(part6.illustrationAssetId, 160)) errors.push('Part 6: thiếu ảnh bài đọc đã crop để hiển thị.');
+    if (!nonEmptyText(part6.optionsAssetId, 160)) errors.push('Part 6: thiếu ảnh bảng lựa chọn.');
+    if (!nonEmptyText(part6.passageTitle, 300)) errors.push('Part 6: thiếu tiêu đề bài đọc.');
+    if (!nonEmptyText(part6.passageTemplate, 20_000)) errors.push('Part 6: thiếu nội dung bài đọc.');
+    if (/\[\[[^\]]+\]\]/.test(part6.passageTemplate || '')) errors.push('Part 6: bài đọc còn marker Smart Import chưa được chuẩn hóa.');
+    if (part6.gaps?.length !== 5) errors.push('Part 6: cần đúng 5 chỗ trống.');
+    if (!unique((part6.gaps || []).map(gap => gap.id))) errors.push('Part 6: ID chỗ trống bị trùng.');
+    (part6.gaps || []).forEach((gap, index) => {
+      if (!nonEmptyText(gap.id, 160)) errors.push(`Part 6 chỗ trống ${index + 1}: thiếu ID.`);
+      validateTextAnswers(gap.acceptedAnswers, `Part 6 chỗ trống ${index + 1}`, errors, 1);
+      if (!part6.passageTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 6 chỗ trống ${index + 1}: bài đọc thiếu token {{${gap.id}}}.`);
+    });
+  }
   return errors;
 }
 
@@ -158,9 +172,15 @@ export function sanitizeMoverReadingWritingContentForStudent(content: MoverReadi
   clone.parts[3].gaps.forEach((gap: any) => delete gap.acceptedAnswers);
   delete clone.parts[3].titleQuestion.correctOptionId;
   clone.parts[4].scenes.forEach((scene: any) => scene.questions.forEach((question: any) => delete question.acceptedAnswers));
-  delete clone.parts[5].passageSourceAssetId;
-  delete clone.parts[5].passageSourceUrl;
-  clone.parts[5].gaps.forEach((gap: any) => delete gap.acceptedAnswers);
+  if (clone.parts[5].displayMode === 'image-multiple-choice') {
+    delete clone.parts[5].optionsSourceAssetId;
+    delete clone.parts[5].optionsSourceUrl;
+    clone.parts[5].questions.forEach((question: any) => delete question.correctOptionId);
+  } else {
+    delete clone.parts[5].passageSourceAssetId;
+    delete clone.parts[5].passageSourceUrl;
+    clone.parts[5].gaps.forEach((gap: any) => delete gap.acceptedAnswers);
+  }
   return clone as MoverReadingWritingContent;
 }
 
@@ -188,8 +208,16 @@ export function sanitizeMoverReadingWritingAnswers(
   const titleOptionId = safeAnswer(raw.part4?.titleOptionId);
   answers.part4.titleOptionId = content.parts[3].titleQuestion.options.some(option => option.id === titleOptionId) ? titleOptionId : '';
   content.parts[4].scenes.forEach(scene => scene.questions.forEach(question => { answers.part5[question.id] = safeAnswer(raw.part5?.[question.id]); }));
-  content.parts[5].gaps.forEach(gap => {
-    answers.part6[gap.id] = safeAnswer(raw.part6?.[gap.id]);
-  });
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.questions.forEach(question => {
+      const value = safeAnswer(raw.part6?.[question.id]);
+      answers.part6[question.id] = question.options.some(option => option.id === value) ? value : '';
+    });
+  } else {
+    part6.gaps.forEach(gap => {
+      answers.part6[gap.id] = safeAnswer(raw.part6?.[gap.id]);
+    });
+  }
   return answers;
 }

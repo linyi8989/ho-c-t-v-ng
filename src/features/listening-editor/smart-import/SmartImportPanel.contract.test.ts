@@ -137,14 +137,15 @@ test('Part 3 keeps the two-image AI workflow compact and edits the imported resu
   assert.match(panelSource, /pastedTextPlacement === 'advanced'/);
 });
 
-test('Part 5 keeps the three-image AI fallback and edge-snapped manual Colour masks', () => {
+test('Part 5 keeps the three-image AI fallback, dynamic palettes, and edge-snapped manual Colour masks', () => {
   assert.deepEqual(getListeningSmartImportRoleDefinitions(5).map(role => [role.role, role.required]), [['question', true], ['answer_key', true], ['position_key', true]]);
   assert.match(part5SceneSource, /Bảng đáp án đã nhập · Part 5/);
   assert.match(part5SceneSource, /Thông số bên ngoài hoặc AI điền nội dung thô/);
   assert.match(part5SceneSource, /Vẽ để chọn vùng đáp án/);
-  assert.match(part5SceneSource, /data-part5-distractor-row/);
-  assert.match(part5SceneSource, /Màu nhiễu/);
-  assert.match(part5SceneSource, /Tên vật nhiễu/);
+  assert.match(part5SceneSource, /data-part5-dynamic-colour-palette/);
+  assert.match(part5SceneSource, /data-part5-dynamic-object-palette/);
+  assert.match(part5SceneSource, /không bắt buộc phải có vật nhiễu/);
+  assert.doesNotMatch(part5SceneSource, /Array\.from\(\{ length: 6 \}/);
   assert.match(part5SceneSource, /compact/);
   assert.match(part5SceneSource, /allowedMimeTypes=\{\['image\/png'\]\}/);
   assert.match(part5SceneSource, /geometryConfirmedByTeacher/);

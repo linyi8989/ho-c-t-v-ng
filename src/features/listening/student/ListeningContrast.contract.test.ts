@@ -150,7 +150,7 @@ test('Part 5 supports both click-to-colour and drag-and-drop play modes', () => 
   assert.match(part5Source, /Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng/);
 });
 
-test('Part 5 scene mode uses one fixed consumable palette and transparent image hitboxes', () => {
+test('Part 5 scene mode keeps v2 single-use compatibility and makes v3 colours reusable', () => {
   const start = partViewsSource.indexOf('function ListeningPart5SceneView');
   const end = partViewsSource.indexOf('export function ListeningPart5View');
   const part5SceneSource = partViewsSource.slice(start, end);
@@ -163,7 +163,8 @@ test('Part 5 scene mode uses one fixed consumable palette and transparent image 
   assert.match(part5SceneSource, /listening-part5-image-scroller min-h-0 flex-1 overflow-y-auto/);
   assert.match(learningAreaSource, /currentPart === 4[\s\S]*displayMode === 'scene-colour-draw'/);
   assert.doesNotMatch(part5SceneSource, /activeActionId|setActiveActionId|part\.questions\.map/);
-  assert.match(part5SceneSource, /availableColours = visibleColours\.filter\(colour => !usedColourIds\.has\(colour\.id\)\)/);
+  assert.match(part5SceneSource, /part\.interactionSchemaVersion === 3[\s\S]*\? visibleColours[\s\S]*: visibleColours\.filter\(colour => !usedColourIds\.has\(colour\.id\)\)/);
+  assert.match(part5SceneSource, /part\.interactionSchemaVersion < 3 && answer\.colourId === colourId/);
   assert.match(part5SceneSource, /availablePaletteItems = part\.objectPalette\.filter\(item => !usedPaletteItemIds\.has\(item\.id\)\)/);
   assert.match(part5SceneSource, /setData\('text\/listening-colour', colour\.id\)/);
   assert.match(part5SceneSource, /setData\('text\/listening-palette', item\.id\)/);

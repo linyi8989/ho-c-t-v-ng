@@ -101,9 +101,9 @@ test('new drafts use connect-image Part 3 and scene-colour-draw Part 5 without s
   if (first.parts[4].displayMode !== 'scene-colour-draw') return;
   assert.equal(first.parts[4].questions.length, 5);
   assert.equal(first.parts[4].colours.length, 20);
-  assert.equal(first.parts[4].interactionSchemaVersion, 2);
-  assert.equal(first.parts[4].colourPaletteIds?.length, 6);
-  assert.equal(first.parts[4].objectPalette.length, 3);
+  assert.equal(first.parts[4].interactionSchemaVersion, 3);
+  assert.deepEqual(first.parts[4].colourPaletteIds, []);
+  assert.deepEqual(first.parts[4].objectPalette, []);
   assert.notEqual(first.parts[0].choices[0].id, second.parts[0].choices[0].id);
 });
 
@@ -302,7 +302,7 @@ test('Part 5 re-analysis retains old actions not matched with confidence', () =>
   assert.equal(imported.interactiveObjects.some(object => object.id === objectId), true);
 });
 
-test('Part 5 import keeps Colour masks manual, accepts Sol Draw regions, and builds a 6+3 palette', () => {
+test('Part 5 import keeps Colour masks manual, accepts Sol Draw regions, and builds only the required dynamic palette', () => {
   const part = moverListeningEditorDefinition.createDefaultDraft().parts[4];
   const imported = applyPart5SceneAnalysis(part, {
     part: 5,
@@ -316,13 +316,13 @@ test('Part 5 import keeps Colour masks manual, accepts Sol Draw regions, and bui
       ] : [],
     })),
   }, 'question-image');
-  assert.equal(imported.interactionSchemaVersion, 2);
-  assert.equal(imported.colourPaletteIds?.length, 6);
+  assert.equal(imported.interactionSchemaVersion, 3);
+  assert.equal(imported.colourPaletteIds?.length, 1);
   const usedColourIds = new Set(imported.questions.flatMap(question => question.actions.flatMap(action => action.type === 'colour_object' ? [action.correctColourId] : [])));
-  assert.equal(usedColourIds.has(imported.colourPaletteIds?.[5] || ''), false, 'last colour slot must remain a distractor');
-  assert.equal(imported.objectPalette.length, 3);
+  assert.deepEqual(new Set(imported.colourPaletteIds), usedColourIds);
+  assert.equal(imported.objectPalette.length, 1);
   const usedPaletteIds = new Set(imported.questions.flatMap(question => question.actions.flatMap(action => action.type === 'place_object' ? [action.correctPaletteItemId] : [])));
-  assert.ok(imported.objectPalette.some(item => !usedPaletteIds.has(item.id)), 'object palette must keep an editable distractor');
+  assert.deepEqual(new Set(imported.objectPalette.map(item => item.id)), usedPaletteIds);
   assert.equal(imported.interactiveObjects[0].geometryConfirmedByTeacher, false);
   const place = imported.questions[0].actions.find(action => action.type === 'place_object');
   assert.equal(place?.type === 'place_object' ? place.geometryConfirmedByTeacher : undefined, true);

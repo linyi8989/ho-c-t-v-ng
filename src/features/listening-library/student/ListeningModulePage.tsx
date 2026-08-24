@@ -18,11 +18,12 @@ import type { ListeningModuleId, ListeningPaperId } from '../types';
 interface ListeningModulePageProps {
   moduleId: ListeningModuleId;
   onBack: () => void;
+  onNavigate: (href: string) => void;
 }
 
 type PaperFilter = 'all' | ListeningPaperId;
 
-export default function ListeningModulePage({ moduleId, onBack }: ListeningModulePageProps) {
+export default function ListeningModulePage({ moduleId, onBack, onNavigate }: ListeningModulePageProps) {
   const { token, loading: authLoading } = useAuth();
   const manifest = getListeningModule(moduleId);
   const [exams, setExams] = useState<ExamModuleListItem[]>([]);
@@ -133,7 +134,11 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
                       {exam.paperDisplayName}
                     </span>
                     <h2 className="mt-2 text-lg font-black text-slate-900">
-                      <a href={href} className="exam-library-exam-title rounded-sm hover:text-blue-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{exam.title}</a>
+                      <a href={href} onClick={(event) => {
+                        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        onNavigate(href);
+                      }} className="exam-library-exam-title rounded-sm hover:text-blue-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{exam.title}</a>
                     </h2>
                     {exam.description && <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">{exam.description}</p>}
                     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
@@ -141,7 +146,11 @@ export default function ListeningModulePage({ moduleId, onBack }: ListeningModul
                       <span className="inline-flex items-center gap-1"><Clock3 size={14} aria-hidden="true" />{exam.timeLimitMinutes ? `${exam.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}</span>
                     </div>
                   </div>
-                  <a href={href} className="listening-library-primary-action inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-black">
+                  <a href={href} onClick={(event) => {
+                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    onNavigate(href);
+                  }} className="listening-library-primary-action inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-black">
                     Làm bài <ArrowRight size={16} aria-hidden="true" />
                   </a>
                 </article>

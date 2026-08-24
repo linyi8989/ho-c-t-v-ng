@@ -36,7 +36,7 @@ export function isMoverReadingWritingVisualReviewSnapshot(
   if (!Array.isArray(source.parts) || source.parts.length !== 6) return false;
   const serialized = JSON.stringify(source);
   if (serialized.length > 750_000) return false;
-  if (/"(?:questionId|correctOptionId|acceptedAnswers|assetId|passageSource(?:AssetId|Url))"\s*:/i.test(serialized)) return false;
+  if (/"(?:questionId|correctOptionId|acceptedAnswers|assetId|(?:passage|options)Source(?:AssetId|Url))"\s*:/i.test(serialized)) return false;
   return source.parts.every((part, index) => {
     if (!part || typeof part !== 'object' || Number((part as any).part) !== index + 1) return false;
     try {
@@ -206,6 +206,11 @@ function ReviewPart({ part }: { part: MoverReadingWritingVisualReviewPart }) {
         </section>
       ))}</div>
     </section>
+  );
+  if (part.mode === 'image-options') return (
+    <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Ảnh bài đọc Part 6" />}>
+      {part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}
+    </TwoColumn></section>
   );
   return (
     <section>{heading}<TwoColumn media={<><ReviewImage url={part.illustrationUrl} alt="Ảnh bài đọc Part 6" /><ReviewImage url={part.optionsUrl} alt="Bảng lựa chọn Part 6" /></>}>

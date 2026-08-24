@@ -1,4 +1,4 @@
-export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening' | 'reading_writing';
+export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening' | 'reading_writing' | 'exam';
 export type LearningHistoryKind = 'all' | 'assignment' | 'practice';
 export type LearningAttemptStatus = 'in_progress' | 'completed' | 'interrupted';
 export type LearningDetailStatus =
@@ -235,6 +235,7 @@ function normalizeSourceType(value: unknown): LearningHistorySourceType {
   if (normalized === 'grammar') return 'grammar';
   if (normalized === 'listening') return 'listening';
   if (normalized === 'reading_writing') return 'reading_writing';
+  if (normalized === 'exam') return 'exam';
   return 'vocabulary';
 }
 
@@ -289,6 +290,8 @@ export function parseLearningHistoryItem(value: unknown, fallbackIndex = 0): Lea
       ['gameId', 'game_id'],
       sourceType === 'grammar'
         ? 'grammar-practice'
+        : sourceType === 'exam'
+          ? 'exam-practice'
         : sourceType === 'listening'
           ? 'listening-five-part'
           : sourceType === 'reading_writing'
@@ -300,6 +303,8 @@ export function parseLearningHistoryItem(value: unknown, fallbackIndex = 0): Lea
       ['gameTitle', 'gameTitleSnapshot', 'game_title_snapshot', 'gameName'],
       sourceType === 'grammar'
         ? 'Luyện ngữ pháp'
+        : sourceType === 'exam'
+          ? 'Kho đề luyện thi'
         : sourceType === 'listening'
           ? 'Nghe 5 Part'
           : sourceType === 'reading_writing'

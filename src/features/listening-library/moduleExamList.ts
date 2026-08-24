@@ -24,9 +24,9 @@ export interface ExamModuleListResult {
 }
 
 function totalQuestions(paper: ListeningPaperManifest) {
-  return typeof paper.questionsPerPart === 'number'
+  return paper.totalQuestionCount ?? (typeof paper.questionsPerPart === 'number'
     ? paper.questionsPerPart * paper.partCount
-    : paper.questionsPerPart.reduce((total, count) => total + count, 0);
+    : paper.questionsPerPart.reduce((total, count) => total + count, 0));
 }
 
 function sortTime(item: ListeningLibraryExamSummary) {

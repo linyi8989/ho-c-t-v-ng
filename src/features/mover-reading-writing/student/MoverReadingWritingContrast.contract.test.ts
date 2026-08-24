@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createDefaultMoverReadingWritingContent } from '../defaultContent';
 import { createEmptyMoverReadingWritingAnswers } from '../types';
 import { ReadingPart2View, ReadingPart6View } from './MoverReadingWritingPartViews';
 
@@ -65,7 +66,7 @@ test('answer review is rendered only when the immutable paper policy allows it',
   assert.ok(globalCss.includes('[data-mover-reading-visual-review] button.mover-reading-review-part-nav:not(:disabled)'));
 });
 
-test('Part 2/5/6 student layout keeps the requested examples, inputs and two-image contract', () => {
+test('Part 2/5 and legacy Part 6 keep their released presentation contracts', () => {
   assert.match(partViewsSource, /<Examples items=\{part\.examples\}/);
   assert.doesNotMatch(partViewsSource, /divide-y divide-indigo-200/);
   assert.match(partViewsSource, /const EXAMPLE_BLANK/);
@@ -78,6 +79,22 @@ test('Part 2/5/6 student layout keeps the requested examples, inputs and two-ima
   assert.match(partViewsSource, /function InlineAnswerInput/);
   assert.doesNotMatch(partViewsSource, /<select/);
   assert.doesNotMatch(partViewsSource, /Chọn\.\.\./);
+});
+
+test('Part 6 image-choice mode renders one student image and five three-option questions', () => {
+  const answers = createEmptyMoverReadingWritingAnswers();
+  const part6 = createDefaultMoverReadingWritingContent().parts[5];
+  part6.studentImageUrl = '/media/part-6-reading.png';
+  part6.questions.forEach((question, questionIndex) => {
+    question.options.forEach((option, optionIndex) => { option.text = `Choice ${questionIndex + 1}.${optionIndex + 1}`; });
+  });
+  const markup = renderToStaticMarkup(createElement(ReadingPart6View, { part: part6, answers, onAnswers: () => undefined }));
+  assert.equal((markup.match(/<img/g) || []).length, 1);
+  assert.equal((markup.match(/type="radio"/g) || []).length, 15);
+  assert.equal((markup.match(/data-choice-layout="horizontal"/g) || []).length, 5);
+  assert.equal((markup.match(/grid-cols-3/g) || []).length, 5);
+  assert.match(markup, /Choice 1\.1/);
+  assert.doesNotMatch(markup, /Bảng lựa chọn Part 6/);
 });
 
 test('Part 2 uses one uninterrupted Examples panel and Part 6 inserts the example answer at the printed blank', () => {

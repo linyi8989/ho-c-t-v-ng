@@ -22,9 +22,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express5 = __toESM(require("express"), 1);
+var import_express6 = __toESM(require("express"), 1);
 var import_path5 = __toESM(require("path"), 1);
-var import_crypto3 = __toESM(require("crypto"), 1);
+var import_crypto4 = __toESM(require("crypto"), 1);
 
 // src/lib/grammarAnswers.ts
 var GRAMMAR_TEXT_GRADING_VERSION = 2;
@@ -464,6 +464,8 @@ var LEARNING_HISTORY_SCHEMA_MIGRATION_ID = "learning-history-schema-v1";
 var GUEST_CAPABILITY_STORAGE_MIGRATION_ID = "guest-capability-physical-v1";
 var LISTENING_SCHEMA_MIGRATION_ID = "listening-five-part-schema-v1";
 var MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = "mover-reading-writing-schema-v1";
+var EXAM_PLATFORM_SCHEMA_MIGRATION_ID = "exam-platform-schema-v1";
+var ACTIVITY_READ_INDEX_MIGRATION_ID = "activity-read-indexes-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -533,6 +535,16 @@ var collectionTableMap = {
   moverreadingattempts: "mover_reading_attempts",
   mover_reading_attempt_details: "mover_reading_attempt_details",
   moverreadingattemptdetails: "mover_reading_attempt_details",
+  exam_sets: "exam_sets",
+  examsets: "exam_sets",
+  exam_set_versions: "exam_set_versions",
+  examsetversions: "exam_set_versions",
+  exam_asset_usages: "exam_asset_usages",
+  examassetusages: "exam_asset_usages",
+  exam_attempts: "exam_attempts",
+  examattempts: "exam_attempts",
+  exam_attempt_details: "exam_attempt_details",
+  examattemptdetails: "exam_attempt_details",
   audit_logs: "audit_logs",
   auditlogs: "audit_logs",
   settings: "settings"
@@ -736,6 +748,56 @@ var sqlQueryFieldMap = {
     setId: "set_id",
     versionNumber: "version_number",
     status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  exam_sets: {
+    id: "id",
+    ownerId: "owner_id",
+    moduleId: "module_id",
+    paperId: "paper_id",
+    status: "status",
+    visibility: "visibility",
+    publishedVersionId: "published_version_id",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  exam_set_versions: {
+    id: "id",
+    setId: "set_id",
+    moduleId: "module_id",
+    paperId: "paper_id",
+    versionNumber: "version_number",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  exam_asset_usages: {
+    id: "id",
+    assetId: "asset_id",
+    setId: "set_id",
+    versionId: "version_id",
+    createdAt: "created_at"
+  },
+  exam_attempts: {
+    id: "id",
+    ownerKey: "owner_key",
+    userId: "user_id",
+    guestId: "guest_id",
+    moduleId: "module_id",
+    paperId: "paper_id",
+    setId: "set_id",
+    versionId: "version_id",
+    assignmentId: "assignment_id",
+    clientRunId: "client_run_id",
+    status: "status",
+    completedAt: "completed_at",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  exam_attempt_details: {
+    id: "id",
+    attemptId: "attempt_id",
     createdAt: "created_at",
     updatedAt: "updated_at"
   },
@@ -1035,9 +1097,9 @@ function readRowsWithSqlQuery(table, filters, orderField, orderDir = "asc", limi
     ...parseJson(row.data_json)
   }));
 }
-function readRow(table, id) {
+function readRow(table, id2) {
   if (table === "settings") {
-    const row2 = one("SELECT key as id, key, value_json, updated_at FROM settings WHERE key = ?", [id]);
+    const row2 = one("SELECT key as id, key, value_json, updated_at FROM settings WHERE key = ?", [id2]);
     if (!row2) return void 0;
     return {
       id: row2.id,
@@ -1047,18 +1109,18 @@ function readRow(table, id) {
     };
   }
   if (table === "learning_attempts") {
-    const row2 = one("SELECT * FROM learning_attempts WHERE attempt_id = ?", [id]);
+    const row2 = one("SELECT * FROM learning_attempts WHERE attempt_id = ?", [id2]);
     return row2 ? learningAttemptFromRow(row2) : void 0;
   }
   if (table === "attempt_details") {
-    const row2 = one("SELECT * FROM attempt_details WHERE attempt_id = ?", [id]);
+    const row2 = one("SELECT * FROM attempt_details WHERE attempt_id = ?", [id2]);
     return row2 ? attemptDetailFromRow(row2) : void 0;
   }
   if (table === "guest_profiles") {
-    const row2 = one("SELECT id, data_json FROM guest_profiles WHERE id = ?", [id]);
+    const row2 = one("SELECT id, data_json FROM guest_profiles WHERE id = ?", [id2]);
     return row2 ? guestProfileFromRow(row2) : void 0;
   }
-  const row = one(`SELECT id, data_json FROM ${table} WHERE id = ?`, [id]);
+  const row = one(`SELECT id, data_json FROM ${table} WHERE id = ?`, [id2]);
   if (!row) return void 0;
   return { id: row.id, ...parseJson(row.data_json) };
 }
@@ -1093,8 +1155,8 @@ function applyOrder(items, orderField, orderDir = "asc") {
 function getTimestamp(data, camelName, snakeName) {
   return data?.[camelName] || data?.[snakeName] || nowIso();
 }
-function upsertLearningAttempt(id, data) {
-  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id;
+function upsertLearningAttempt(id2, data) {
+  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id2;
   const sourceRecordId = optionalText(firstDefined(data, "sourceRecordId", "source_record_id"));
   const sourceType = optionalText(firstDefined(data, "sourceType", "source_type")) || "";
   const ownerKey = optionalText(firstDefined(data, "ownerKey", "owner_key"));
@@ -1162,7 +1224,7 @@ function upsertLearningAttempt(id, data) {
     const sourceRecord = sourceRecordId || "";
     const createdAt = optionalText(firstDefined(data, "createdAt", "created_at")) || timestamp;
     const updatedAt = optionalText(firstDefined(data, "updatedAt", "updated_at")) || timestamp;
-    const record = {
+    const record2 = {
       attempt_id: attemptId,
       source_record_id: sourceRecord,
       client_run_id: clientRunId,
@@ -1220,21 +1282,21 @@ function upsertLearningAttempt(id, data) {
       "attempt_number",
       "created_at"
     ]);
-    const columns = Object.keys(record);
+    const columns = Object.keys(record2);
     const updateColumns = columns.filter((column) => !immutableColumns.has(column));
     run(
       `INSERT INTO learning_attempts (${columns.join(", ")})
        VALUES (${columns.map(() => "?").join(", ")})
        ON CONFLICT(attempt_id) DO UPDATE SET
        ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
-      Object.values(record)
+      Object.values(record2)
     );
   }, "immediate");
 }
-function upsertAttemptDetail(id, data) {
-  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id;
+function upsertAttemptDetail(id2, data) {
+  const attemptId = optionalText(firstDefined(data, "attemptId", "attempt_id", "id")) || id2;
   const timestamp = nowIso();
-  const record = {
+  const record2 = {
     attempt_id: attemptId,
     client_run_id: optionalText(firstDefined(data, "clientRunId", "client_run_id")),
     source_type: optionalText(firstDefined(data, "sourceType", "source_type")) || "",
@@ -1248,19 +1310,19 @@ function upsertAttemptDetail(id, data) {
     expires_at: optionalText(firstDefined(data, "expiresAt", "expires_at")),
     schema_version: Math.max(1, nonNegativeInteger(firstDefined(data, "schemaVersion", "schema_version"), 1))
   };
-  const columns = Object.keys(record);
+  const columns = Object.keys(record2);
   const updateColumns = columns.filter((column) => column !== "attempt_id" && column !== "created_at");
   run(
     `INSERT INTO attempt_details (${columns.join(", ")})
      VALUES (${columns.map(() => "?").join(", ")})
      ON CONFLICT(attempt_id) DO UPDATE SET
      ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
-    Object.values(record)
+    Object.values(record2)
   );
 }
-function upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt) {
-  const record = {
-    id,
+function upsertPronunciationAttempt(id2, data, dataJson, createdAt, updatedAt) {
+  const record2 = {
+    id: id2,
     owner_key: optionalText(firstDefined(data, "ownerKey", "owner_key")),
     owner_type: optionalText(firstDefined(data, "ownerType", "owner_type")),
     user_id: optionalText(firstDefined(data, "userId", "user_id")),
@@ -1282,17 +1344,17 @@ function upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt) {
     updated_at: updatedAt,
     data_json: dataJson
   };
-  const columns = Object.keys(record);
+  const columns = Object.keys(record2);
   const updateColumns = columns.filter((column) => column !== "id" && column !== "created_at");
   run(
     `INSERT INTO pronunciation_attempts (${columns.join(", ")})
      VALUES (${columns.map(() => "?").join(", ")})
      ON CONFLICT(id) DO UPDATE SET
      ${updateColumns.map((column) => `${column} = excluded.${column}`).join(", ")}`,
-    Object.values(record)
+    Object.values(record2)
   );
 }
-function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt) {
+function upsertListeningDocument(table, id2, data, dataJson, createdAt, updatedAt) {
   if (table === "listening_sets") {
     run(
       `INSERT INTO listening_sets (
@@ -1308,7 +1370,7 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "ownerId", "owner_id", "createdBy")),
         optionalText(firstDefined(data, "title")),
         optionalText(firstDefined(data, "status")) || "draft",
@@ -1333,7 +1395,7 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "setId", "set_id")),
         Math.max(1, nonNegativeInteger(firstDefined(data, "versionNumber", "version_number"), 1)),
         optionalText(firstDefined(data, "status")) || "draft",
@@ -1360,7 +1422,7 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "ownerId", "owner_id")),
         optionalText(firstDefined(data, "kind")),
         optionalText(firstDefined(data, "mimeType", "mime_type")),
@@ -1388,7 +1450,7 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "assetId", "asset_id")),
         optionalText(firstDefined(data, "setId", "set_id")),
         optionalText(firstDefined(data, "versionId", "version_id")),
@@ -1420,7 +1482,7 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "ownerKey", "owner_key")),
         optionalText(firstDefined(data, "userId", "user_id")),
         optionalText(firstDefined(data, "guestId", "guest_id")),
@@ -1453,15 +1515,15 @@ function upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt
       updated_at = excluded.updated_at,
       data_json = excluded.data_json`,
     [
-      id,
-      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id,
+      id2,
+      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id2,
       createdAt,
       updatedAt,
       dataJson
     ]
   );
 }
-function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt, updatedAt) {
+function upsertMoverReadingWritingDocument(table, id2, data, dataJson, createdAt, updatedAt) {
   if (table === "mover_reading_sets") {
     run(
       `INSERT INTO mover_reading_sets (
@@ -1477,7 +1539,7 @@ function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "ownerId", "owner_id", "createdBy")),
         optionalText(firstDefined(data, "title")),
         optionalText(firstDefined(data, "status")) || "draft",
@@ -1502,7 +1564,7 @@ function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "setId", "set_id")),
         Math.max(1, nonNegativeInteger(firstDefined(data, "versionNumber", "version_number"), 1)),
         optionalText(firstDefined(data, "status")) || "published",
@@ -1527,7 +1589,7 @@ function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "assetId", "asset_id")),
         optionalText(firstDefined(data, "setId", "set_id")),
         optionalText(firstDefined(data, "versionId", "version_id")),
@@ -1559,7 +1621,7 @@ function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         optionalText(firstDefined(data, "ownerKey", "owner_key")),
         optionalText(firstDefined(data, "userId", "user_id")),
         optionalText(firstDefined(data, "guestId", "guest_id")),
@@ -1592,38 +1654,189 @@ function upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt,
       updated_at = excluded.updated_at,
       data_json = excluded.data_json`,
     [
-      id,
-      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id,
+      id2,
+      optionalText(firstDefined(data, "attemptId", "attempt_id")) || id2,
       createdAt,
       updatedAt,
       dataJson
     ]
   );
 }
-function upsertDoc(collectionName, id, inputData) {
+function upsertExamDocument(table, id2, data, dataJson, createdAt, updatedAt) {
+  if (table === "exam_sets") {
+    run(
+      `INSERT INTO exam_sets (
+        id, module_id, paper_id, owner_id, title, status, visibility,
+        published_version_id, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        module_id = excluded.module_id,
+        paper_id = excluded.paper_id,
+        owner_id = excluded.owner_id,
+        title = excluded.title,
+        status = excluded.status,
+        visibility = excluded.visibility,
+        published_version_id = excluded.published_version_id,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "moduleId", "module_id")),
+        optionalText(firstDefined(data, "paperId", "paper_id")),
+        optionalText(firstDefined(data, "ownerId", "owner_id", "createdBy")),
+        optionalText(firstDefined(data, "title")),
+        optionalText(firstDefined(data, "status")) || "draft",
+        optionalText(firstDefined(data, "visibility")) || "draft",
+        optionalText(firstDefined(data, "publishedVersionId", "published_version_id")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "exam_set_versions") {
+    run(
+      `INSERT INTO exam_set_versions (
+        id, set_id, module_id, paper_id, version_number, status,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        set_id = excluded.set_id,
+        module_id = excluded.module_id,
+        paper_id = excluded.paper_id,
+        version_number = excluded.version_number,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "moduleId", "module_id")),
+        optionalText(firstDefined(data, "paperId", "paper_id")),
+        Math.max(1, nonNegativeInteger(firstDefined(data, "versionNumber", "version_number"), 1)),
+        optionalText(firstDefined(data, "status")) || "published",
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "exam_asset_usages") {
+    run(
+      `INSERT INTO exam_asset_usages (
+        id, asset_id, set_id, version_id, entity_id, role, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        set_id = excluded.set_id,
+        version_id = excluded.version_id,
+        entity_id = excluded.entity_id,
+        role = excluded.role,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "assetId", "asset_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "entityId", "entity_id")),
+        optionalText(firstDefined(data, "role")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "exam_attempts") {
+    run(
+      `INSERT INTO exam_attempts (
+        id, owner_key, user_id, guest_id, module_id, paper_id, set_id, version_id,
+        assignment_id, client_run_id, run_secret_hash, status, student_name, class_id,
+        score, correct_count, incorrect_count, unanswered_count, pending_manual_count,
+        started_at, completed_at, duration_seconds, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        score = excluded.score,
+        correct_count = excluded.correct_count,
+        incorrect_count = excluded.incorrect_count,
+        unanswered_count = excluded.unanswered_count,
+        pending_manual_count = excluded.pending_manual_count,
+        completed_at = excluded.completed_at,
+        duration_seconds = excluded.duration_seconds,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "ownerKey", "owner_key")),
+        optionalText(firstDefined(data, "userId", "user_id")),
+        optionalText(firstDefined(data, "guestId", "guest_id")),
+        optionalText(firstDefined(data, "moduleId", "module_id")),
+        optionalText(firstDefined(data, "paperId", "paper_id")),
+        optionalText(firstDefined(data, "setId", "set_id")),
+        optionalText(firstDefined(data, "versionId", "version_id")),
+        optionalText(firstDefined(data, "assignmentId", "assignment_id")),
+        optionalText(firstDefined(data, "clientRunId", "client_run_id")),
+        optionalText(firstDefined(data, "runSecretHash", "run_secret_hash")),
+        optionalText(firstDefined(data, "status")) || "completed",
+        optionalText(firstDefined(data, "studentName", "student_name")),
+        optionalText(firstDefined(data, "classId", "class_id")),
+        Math.max(0, Math.min(100, finiteNumber(firstDefined(data, "score"), 0))),
+        nonNegativeInteger(firstDefined(data, "correctCount", "correct_count"), 0),
+        nonNegativeInteger(firstDefined(data, "incorrectCount", "incorrect_count"), 0),
+        nonNegativeInteger(firstDefined(data, "unansweredCount", "unanswered_count"), 0),
+        nonNegativeInteger(firstDefined(data, "pendingManualCount", "pending_manual_count"), 0),
+        optionalText(firstDefined(data, "startedAt", "started_at")) || createdAt,
+        optionalText(firstDefined(data, "completedAt", "completed_at")) || updatedAt,
+        nonNegativeInteger(firstDefined(data, "durationSeconds", "duration_seconds"), 0),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  run(
+    `INSERT INTO exam_attempt_details (id, attempt_id, created_at, updated_at, data_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      attempt_id = excluded.attempt_id,
+      updated_at = excluded.updated_at,
+      data_json = excluded.data_json`,
+    [id2, optionalText(firstDefined(data, "attemptId", "attempt_id")) || id2, createdAt, updatedAt, dataJson]
+  );
+}
+function upsertDoc(collectionName, id2, inputData) {
   const table = tableForCollection(collectionName);
-  const data = { ...inputData, id };
+  const data = { ...inputData, id: id2 };
   const dataJson = JSON.stringify(data);
   const createdAt = getTimestamp(data, "createdAt", "created_at");
   const updatedAt = data.updatedAt || data.updated_at || nowIso();
   if (table === "learning_attempts") {
-    upsertLearningAttempt(id, data);
+    upsertLearningAttempt(id2, data);
     return;
   }
   if (table === "attempt_details") {
-    upsertAttemptDetail(id, data);
+    upsertAttemptDetail(id2, data);
     return;
   }
   if (table === "pronunciation_attempts") {
-    upsertPronunciationAttempt(id, data, dataJson, createdAt, updatedAt);
+    upsertPronunciationAttempt(id2, data, dataJson, createdAt, updatedAt);
     return;
   }
   if (table === "listening_sets" || table === "listening_set_versions" || table === "listening_assets" || table === "listening_asset_usages" || table === "listening_attempts" || table === "listening_attempt_details") {
-    upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt);
+    upsertListeningDocument(table, id2, data, dataJson, createdAt, updatedAt);
+    return;
+  }
+  if (table === "exam_sets" || table === "exam_set_versions" || table === "exam_asset_usages" || table === "exam_attempts" || table === "exam_attempt_details") {
+    upsertExamDocument(table, id2, data, dataJson, createdAt, updatedAt);
     return;
   }
   if (table === "mover_reading_sets" || table === "mover_reading_set_versions" || table === "mover_reading_asset_usages" || table === "mover_reading_attempts" || table === "mover_reading_attempt_details") {
-    upsertMoverReadingWritingDocument(table, id, data, dataJson, createdAt, updatedAt);
+    upsertMoverReadingWritingDocument(table, id2, data, dataJson, createdAt, updatedAt);
     return;
   }
   if (table === "users") {
@@ -1638,7 +1851,7 @@ function upsertDoc(collectionName, id, inputData) {
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.firebase_uid || data.firebaseUid || data.id,
         data.email || null,
         data.display_name || data.displayName || data.name || null,
@@ -1673,7 +1886,7 @@ function upsertDoc(collectionName, id, inputData) {
         access_token_created_at = COALESCE(excluded.access_token_created_at, guest_profiles.access_token_created_at),
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.displayName || data.name || null,
         data.normalizedName || null,
         data.status || "active",
@@ -1700,7 +1913,7 @@ function upsertDoc(collectionName, id, inputData) {
           updated_at = excluded.updated_at,
           data_json = excluded.data_json`,
         [
-          id,
+          id2,
           data.title || null,
           data.description || null,
           data.owner_id || data.ownerId || data.createdBy || null,
@@ -1710,10 +1923,10 @@ function upsertDoc(collectionName, id, inputData) {
         ]
       );
       if (Array.isArray(data.items)) {
-        run("DELETE FROM vocab_items WHERE vocab_set_id = ?", [id]);
+        run("DELETE FROM vocab_items WHERE vocab_set_id = ?", [id2]);
         for (const item of data.items) {
-          const itemId = item.id || `${id}-item-${item.displayOrder || Math.random().toString(36).slice(2)}`;
-          upsertDoc("vocab_items", itemId, { ...item, id: itemId, vocabSetId: id, vocab_set_id: id });
+          const itemId = item.id || `${id2}-item-${item.displayOrder || Math.random().toString(36).slice(2)}`;
+          upsertDoc("vocab_items", itemId, { ...item, id: itemId, vocabSetId: id2, vocab_set_id: id2 });
         }
       }
     });
@@ -1733,7 +1946,7 @@ function upsertDoc(collectionName, id, inputData) {
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.vocab_set_id || data.vocabSetId || null,
         data.term || null,
         data.meaning || null,
@@ -1756,7 +1969,7 @@ function upsertDoc(collectionName, id, inputData) {
         teacher_id = excluded.teacher_id,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
-      [id, data.name || null, data.teacher_id || data.teacherId || null, createdAt, updatedAt, dataJson]
+      [id2, data.name || null, data.teacher_id || data.teacherId || null, createdAt, updatedAt, dataJson]
     );
     return;
   }
@@ -1770,7 +1983,7 @@ function upsertDoc(collectionName, id, inputData) {
         role = excluded.role,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.class_id || data.classId || null,
         data.user_id || data.userId || data.studentId || null,
         data.role || null,
@@ -1799,7 +2012,7 @@ function upsertDoc(collectionName, id, inputData) {
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.class_id || data.classId || null,
         data.user_id || data.userId || data.createdBy || null,
         data.vocab_set_id || data.vocabSetId || null,
@@ -1830,7 +2043,7 @@ function upsertDoc(collectionName, id, inputData) {
         expires_at = excluded.expires_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.assignment_id || data.assignmentId || null,
         data.user_id || data.userId || data.studentId || null,
         data.game_id || data.gameId || null,
@@ -1872,7 +2085,7 @@ function upsertDoc(collectionName, id, inputData) {
         expires_at = excluded.expires_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.assignment_id || data.assignmentId || null,
         data.user_id || data.userId || data.studentId || null,
         data.guest_id || data.guestId || null,
@@ -1899,7 +2112,7 @@ function upsertDoc(collectionName, id, inputData) {
       `INSERT INTO game_session_actions (id, session_id, sequence, action_type, created_at, updated_at, data_json)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, data_json = excluded.data_json`,
-      [id, data.sessionId || null, Number(data.sequence || 0), data.type || null, createdAt, updatedAt, dataJson]
+      [id2, data.sessionId || null, Number(data.sequence || 0), data.type || null, createdAt, updatedAt, dataJson]
     );
     return;
   }
@@ -1918,7 +2131,7 @@ function upsertDoc(collectionName, id, inputData) {
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.grammarSetId || data.grammar_set_id || null,
         data.userId || data.user_id || null,
         data.guestId || data.guest_id || null,
@@ -1946,7 +2159,7 @@ function upsertDoc(collectionName, id, inputData) {
         expires_at = excluded.expires_at,
         data_json = excluded.data_json`,
       [
-        id,
+        id2,
         data.sourceType || data.source_type || null,
         data.sourceId || data.source_id || null,
         data.studentKey || data.student_key || data.ownerKey || data.guestId || data.userId || null,
@@ -1969,7 +2182,7 @@ function upsertDoc(collectionName, id, inputData) {
         action = excluded.action,
         timestamp = excluded.timestamp,
         data_json = excluded.data_json`,
-      [id, data.user_id || data.userId || null, data.action || null, data.timestamp || createdAt, dataJson]
+      [id2, data.user_id || data.userId || null, data.action || null, data.timestamp || createdAt, dataJson]
     );
     return;
   }
@@ -1980,7 +2193,7 @@ function upsertDoc(collectionName, id, inputData) {
        ON CONFLICT(id) DO UPDATE SET
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
-      [id, createdAt, updatedAt, dataJson]
+      [id2, createdAt, updatedAt, dataJson]
     );
     return;
   }
@@ -1991,28 +2204,28 @@ function upsertDoc(collectionName, id, inputData) {
        ON CONFLICT(key) DO UPDATE SET
         value_json = excluded.value_json,
         updated_at = excluded.updated_at`,
-      [id, JSON.stringify(data.value ?? data), updatedAt]
+      [id2, JSON.stringify(data.value ?? data), updatedAt]
     );
   }
 }
-function updateDoc(collectionName, id, patch) {
-  const existing = readRow(tableForCollection(collectionName), id) || { id };
-  upsertDoc(collectionName, id, { ...existing, ...patch, id });
+function updateDoc(collectionName, id2, patch) {
+  const existing = readRow(tableForCollection(collectionName), id2) || { id: id2 };
+  upsertDoc(collectionName, id2, { ...existing, ...patch, id: id2 });
 }
-function deleteDoc(collectionName, id) {
+function deleteDoc(collectionName, id2) {
   const table = tableForCollection(collectionName);
   if (table === "settings") {
-    run("DELETE FROM settings WHERE key = ?", [id]);
+    run("DELETE FROM settings WHERE key = ?", [id2]);
     return;
   }
   if (table === "learning_attempts" || table === "attempt_details") {
-    run(`DELETE FROM ${table} WHERE attempt_id = ?`, [id]);
+    run(`DELETE FROM ${table} WHERE attempt_id = ?`, [id2]);
     return;
   }
   withTransaction(() => {
-    run(`DELETE FROM ${table} WHERE id = ?`, [id]);
+    run(`DELETE FROM ${table} WHERE id = ?`, [id2]);
     if (table === "vocab_sets") {
-      run("DELETE FROM vocab_items WHERE vocab_set_id = ?", [id]);
+      run("DELETE FROM vocab_items WHERE vocab_set_id = ?", [id2]);
     }
   });
 }
@@ -2256,12 +2469,12 @@ function runSchemaMigration() {
   );
   persistDb();
 }
-function hasMigration(id) {
-  return Boolean(one("SELECT id FROM migrations WHERE id = ?", [id]));
+function hasMigration(id2) {
+  return Boolean(one("SELECT id FROM migrations WHERE id = ?", [id2]));
 }
-function markMigration(id) {
-  run("INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)", [id, nowIso()]);
-  sqliteLastMigration = id;
+function markMigration(id2) {
+  run("INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)", [id2, nowIso()]);
+  sqliteLastMigration = id2;
 }
 function tableHasColumn(table, column) {
   return all(`PRAGMA table_info(${table})`).some((row) => row.name === column);
@@ -2869,6 +3082,152 @@ function migrateMoverReadingWritingSchema() {
   );
   sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
 }
+function migrateExamPlatformSchema() {
+  if (hasMigration(EXAM_PLATFORM_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = EXAM_PLATFORM_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS exam_sets (
+      id TEXT PRIMARY KEY,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'archived')),
+      visibility TEXT NOT NULL DEFAULT 'draft'
+        CHECK(visibility IN ('draft', 'public', 'assignment')),
+      published_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_set_versions (
+      id TEXT PRIMARY KEY,
+      set_id TEXT NOT NULL,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL CHECK(version_number >= 1),
+      status TEXT NOT NULL DEFAULT 'published'
+        CHECK(status IN ('published', 'superseded')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_asset_usages (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(asset_id) REFERENCES listening_assets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES exam_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      user_id TEXT,
+      guest_id TEXT,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      assignment_id TEXT,
+      client_run_id TEXT NOT NULL,
+      run_secret_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('completed', 'pending_review')),
+      student_name TEXT,
+      class_id TEXT,
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      correct_count INTEGER NOT NULL CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL CHECK(unanswered_count >= 0),
+      pending_manual_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_manual_count >= 0),
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES exam_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_attempt_details (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES exam_attempts(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_versions_set_number
+      ON exam_set_versions(set_id, version_number);
+    CREATE INDEX IF NOT EXISTS idx_exam_sets_module_paper_status
+      ON exam_sets(module_id, paper_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_sets_owner_status
+      ON exam_sets(owner_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_asset_usages_asset
+      ON exam_asset_usages(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_asset_usages_set
+      ON exam_asset_usages(set_id, version_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_attempts_client_run
+      ON exam_attempts(owner_key, module_id, paper_id, set_id, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_owner_completed
+      ON exam_attempts(owner_key, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_set_completed
+      ON exam_attempts(set_id, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_completed_at
+      ON exam_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_assignment
+      ON exam_attempts(assignment_id, completed_at DESC)
+      WHERE assignment_id IS NOT NULL;
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [EXAM_PLATFORM_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = EXAM_PLATFORM_SCHEMA_MIGRATION_ID;
+}
+function migrateActivityReadIndexes() {
+  if (hasMigration(ACTIVITY_READ_INDEX_MIGRATION_ID)) {
+    sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE INDEX IF NOT EXISTS idx_game_results_completed_at
+      ON game_results(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_grammar_attempts_completed_at
+      ON grammar_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_attempts_completed_at
+      ON listening_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_completed_at
+      ON mover_reading_attempts(completed_at DESC);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [ACTIVITY_READ_INDEX_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
+}
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -2892,8 +3251,8 @@ function importCollection(collectionName, items) {
   if (!Array.isArray(items)) return 0;
   withTransaction(() => {
     for (const item of items) {
-      const id = item.id || `${collectionName}-${Math.random().toString(36).slice(2)}`;
-      upsertDoc(collectionName, id, { ...item, id });
+      const id2 = item.id || `${collectionName}-${Math.random().toString(36).slice(2)}`;
+      upsertDoc(collectionName, id2, { ...item, id: id2 });
     }
   });
   return items.length;
@@ -2958,6 +3317,8 @@ async function initializeSQLiteStorage() {
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
         migrateMoverReadingWritingSchema();
+        migrateExamPlatformSchema();
+        migrateActivityReadIndexes();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
@@ -3033,8 +3394,8 @@ function configureSQLiteConnection(config) {
   }
 }
 var SQLiteDocSnapshot = class {
-  constructor(id, exists, ref, value) {
-    this.id = id;
+  constructor(id2, exists, ref, value) {
+    this.id = id2;
     this.exists = exists;
     this.ref = ref;
     this.value = value;
@@ -3054,9 +3415,9 @@ var SQLiteQuerySnapshot = class {
   }
 };
 var SQLiteDoc = class {
-  constructor(collectionName, id) {
+  constructor(collectionName, id2) {
     this.collectionName = collectionName;
-    this.id = id;
+    this.id = id2;
     this.ref = this;
   }
   async get() {
@@ -3114,8 +3475,8 @@ var SQLiteQuery = class {
       }
     }
     const docs = items.map((item) => {
-      const id = item.id || Math.random().toString(36).slice(2);
-      return new SQLiteDocSnapshot(id, true, new SQLiteDoc(this.collectionName, id), item);
+      const id2 = item.id || Math.random().toString(36).slice(2);
+      return new SQLiteDocSnapshot(id2, true, new SQLiteDoc(this.collectionName, id2), item);
     });
     return new SQLiteQuerySnapshot(docs);
   }
@@ -3124,10 +3485,10 @@ var SQLiteCollection = class extends SQLiteQuery {
   constructor(collectionName) {
     super(collectionName);
   }
-  doc(id) {
+  doc(id2) {
     return new SQLiteDoc(
       this.collectionName,
-      id || `${this.collectionName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      id2 || `${this.collectionName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     );
   }
   async add(data) {
@@ -3256,6 +3617,11 @@ async function getSQLiteDiagnostics() {
       mover_reading_asset_usages: await tableCount("mover_reading_asset_usages"),
       mover_reading_attempts: await tableCount("mover_reading_attempts"),
       mover_reading_attempt_details: await tableCount("mover_reading_attempt_details"),
+      exam_sets: await tableCount("exam_sets"),
+      exam_set_versions: await tableCount("exam_set_versions"),
+      exam_asset_usages: await tableCount("exam_asset_usages"),
+      exam_attempts: await tableCount("exam_attempts"),
+      exam_attempt_details: await tableCount("exam_attempt_details"),
       learning_history_backfill_state: await tableCount("learning_history_backfill_state")
     },
     lastMigration: lastMigration || sqliteLastMigration,
@@ -3482,8 +3848,8 @@ async function runDiagnostic() {
 }
 var firebaseDiagnosticReady = runDiagnostic();
 var FallbackDocSnapshot = class {
-  constructor(id, exists, ref, data) {
-    this.id = id;
+  constructor(id2, exists, ref, data) {
+    this.id = id2;
     this.exists = exists;
     this.ref = ref;
     this._data = data;
@@ -3503,9 +3869,9 @@ var FallbackQuerySnapshot = class {
   }
 };
 var FallbackDoc = class {
-  constructor(collectionName, id) {
+  constructor(collectionName, id2) {
     this.collectionName = collectionName;
-    this.id = id;
+    this.id = id2;
     this.ref = this;
   }
   async get() {
@@ -3630,8 +3996,8 @@ var FallbackQuery = class {
       results = results.slice(0, this.limitVal);
     }
     const docs = results.map((item) => {
-      const id = item.id || Math.random().toString(36).substring(2);
-      return new FallbackDocSnapshot(id, true, new FallbackDoc(this.collectionName, id), item);
+      const id2 = item.id || Math.random().toString(36).substring(2);
+      return new FallbackDocSnapshot(id2, true, new FallbackDoc(this.collectionName, id2), item);
     });
     return new FallbackQuerySnapshot(docs);
   }
@@ -3640,13 +4006,13 @@ var FallbackCollection = class extends FallbackQuery {
   constructor(name) {
     super(name);
   }
-  doc(id) {
-    const finalId = id || Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+  doc(id2) {
+    const finalId = id2 || Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
     return new FallbackDoc(this.collectionName, finalId);
   }
   async add(data) {
-    const id = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-    const doc = this.doc(id);
+    const id2 = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const doc = this.doc(id2);
     await doc.set(data);
     return doc;
   }
@@ -3953,34 +4319,205 @@ function transformListeningPoint(point, sourceScene, targetScene) {
   return isNormalizedPoint(transformed) ? transformed : null;
 }
 
+// src/features/exam-platform/types.ts
+var EXAM_CONTENT_SCHEMA_VERSION = 1;
+
+// src/features/exam-platform/definitions.ts
+var choiceTypes = ["single-choice", "matching"];
+var readingTypes = [
+  "single-choice",
+  "multiple-choice",
+  "short-answer",
+  "true-false",
+  "true-false-not-given",
+  "yes-no-not-given",
+  "matching"
+];
+var listeningTypes = ["single-choice", "multiple-choice", "short-answer", "matching"];
+function part(questionCount, title, defaultQuestionType, allowedQuestionTypes, options = {}) {
+  const index = Number(options.id?.replace(/\D/g, "") || 0);
+  return {
+    id: options.id || `part-${index || 1}`,
+    displayName: options.displayName || `Part ${index || 1}`,
+    title,
+    instruction: options.instruction || "\u0110\u1ECDc k\u1EF9 y\xEAu c\u1EA7u v\xE0 tr\u1EA3 l\u1EDDi t\u1EA5t c\u1EA3 c\xE2u h\u1ECFi.",
+    questionCount,
+    defaultQuestionType,
+    allowedQuestionTypes,
+    ...options
+  };
+}
+function indexed(parts) {
+  return parts.map((item, index) => ({ ...item, id: `part-${index + 1}`, displayName: `Part ${index + 1}` }));
+}
+function paper(moduleId, paperId, displayName, level, timeLimitMinutes, parts, options) {
+  const definedParts = indexed(parts);
+  return {
+    moduleId,
+    paperId,
+    displayName,
+    description: options.description,
+    level,
+    timeLimitMinutes,
+    parts: definedParts,
+    totalQuestionCount: definedParts.reduce((sum, item) => sum + item.questionCount, 0),
+    flexiblePartDistribution: options.flexiblePartDistribution
+  };
+}
+var EXAM_PAPER_DEFINITIONS = [
+  paper("starter", "listening", "Listening", "Pre A1 Starters", 20, [
+    part(5, "Listen and draw lines", "matching", choiceTypes, { requiresAudio: true }),
+    part(5, "Listen and write a name or number", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen and choose the picture", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen and colour", "single-choice", listeningTypes, { requiresAudio: true })
+  ], { description: "Pre A1 Starters Listening \xB7 4 Part \xB7 20 c\xE2u" }),
+  paper("starter", "reading-writing", "Reading & Writing", "Pre A1 Starters", 20, [
+    part(5, "Look and read. Put a tick or a cross", "true-false", ["true-false"]),
+    part(5, "Look and read. Write yes or no", "true-false", ["true-false"]),
+    part(5, "Spell the words", "short-answer", ["short-answer"]),
+    part(5, "Read and choose a word", "short-answer", ["short-answer", "single-choice"]),
+    part(5, "Look at the picture story and answer", "short-answer", ["short-answer"])
+  ], { description: "Pre A1 Starters Reading & Writing \xB7 5 Part \xB7 25 c\xE2u" }),
+  paper("flyer", "listening", "Listening", "A2 Flyers", 25, [
+    part(5, "Listen and draw lines", "matching", choiceTypes, { requiresAudio: true }),
+    part(5, "Listen and complete the notes", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen and match", "matching", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen and choose the picture", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen, colour and write", "short-answer", listeningTypes, { requiresAudio: true })
+  ], { description: "A2 Flyers Listening \xB7 5 Part \xB7 25 c\xE2u" }),
+  paper("flyer", "reading-writing", "Reading & Writing", "A2 Flyers", 40, [
+    part(10, "Match words and definitions", "matching", readingTypes),
+    part(5, "Complete the conversation", "matching", readingTypes),
+    part(6, "Complete the text and choose a title", "short-answer", readingTypes),
+    part(10, "Choose words to complete the text", "single-choice", readingTypes),
+    part(7, "Complete sentences about the story", "short-answer", readingTypes),
+    part(5, "Write one word in each gap", "short-answer", readingTypes),
+    part(1, "Write a story from three pictures", "long-writing", ["long-writing"], { longWriting: true, minWords: 20, pointsPerQuestion: 5, instruction: "Vi\u1EBFt m\u1ED9t c\xE2u chuy\u1EC7n d\u1EF1a tr\xEAn ba tranh." })
+  ], { description: "A2 Flyers Reading & Writing \xB7 7 Part \xB7 44 c\xE2u" }),
+  paper("ket", "reading-writing", "Reading & Writing", "A2 Key", 60, [
+    part(6, "Short texts: multiple choice", "single-choice", readingTypes),
+    part(7, "Multiple matching", "matching", readingTypes),
+    part(5, "Long text: multiple choice", "single-choice", readingTypes),
+    part(6, "Multiple-choice cloze", "single-choice", readingTypes),
+    part(6, "Open cloze", "short-answer", readingTypes),
+    part(1, "Guided email or note", "long-writing", ["long-writing"], { longWriting: true, minWords: 25, pointsPerQuestion: 15 }),
+    part(1, "Picture story", "long-writing", ["long-writing"], { longWriting: true, minWords: 35, pointsPerQuestion: 15 })
+  ], { description: "A2 Key Reading & Writing \xB7 7 Part \xB7 32 c\xE2u" }),
+  paper("ket", "listening", "Listening", "A2 Key", 30, [
+    part(5, "Visual multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(5, "Gap fill", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(5, "Dialogue multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(5, "Short recordings multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(5, "Matching", "matching", listeningTypes, { requiresAudio: true })
+  ], { description: "A2 Key Listening \xB7 5 Part \xB7 25 c\xE2u" }),
+  paper("pet", "reading", "Reading", "B1 Preliminary", 45, [
+    part(5, "Short texts: multiple choice", "single-choice", readingTypes),
+    part(5, "Multiple matching", "matching", readingTypes),
+    part(5, "Long text: multiple choice", "single-choice", readingTypes),
+    part(5, "Gapped text", "matching", readingTypes),
+    part(6, "Multiple-choice cloze", "single-choice", readingTypes),
+    part(6, "Open cloze", "short-answer", readingTypes)
+  ], { description: "B1 Preliminary Reading \xB7 6 Part \xB7 32 c\xE2u" }),
+  paper("pet", "writing", "Writing", "B1 Preliminary", 45, [
+    part(1, "Write an email", "long-writing", ["long-writing"], { longWriting: true, minWords: 100, pointsPerQuestion: 20 }),
+    part(1, "Write an article or story", "long-writing", ["long-writing"], { longWriting: true, minWords: 100, pointsPerQuestion: 20 })
+  ], { description: "B1 Preliminary Writing \xB7 2 b\xE0i" }),
+  paper("pet", "listening", "Listening", "B1 Preliminary", 30, [
+    part(7, "Visual multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(6, "Longer recording: multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(6, "Gap fill", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(6, "Multiple choice", "single-choice", listeningTypes, { requiresAudio: true })
+  ], { description: "B1 Preliminary Listening \xB7 4 Part \xB7 25 c\xE2u" }),
+  paper("fce", "reading-use-of-english", "Reading & Use of English", "B2 First", 75, [
+    part(8, "Multiple-choice cloze", "single-choice", readingTypes),
+    part(8, "Open cloze", "short-answer", readingTypes),
+    part(8, "Word formation", "short-answer", readingTypes),
+    part(6, "Key word transformations", "short-answer", readingTypes, { pointsPerQuestion: 2 }),
+    part(6, "Reading multiple choice", "single-choice", readingTypes, { pointsPerQuestion: 2 }),
+    part(6, "Gapped text", "matching", readingTypes, { pointsPerQuestion: 2 }),
+    part(10, "Multiple matching", "matching", readingTypes)
+  ], { description: "B2 First Reading & Use of English \xB7 7 Part \xB7 52 c\xE2u" }),
+  paper("fce", "writing", "Writing", "B2 First", 80, [
+    part(1, "Compulsory essay", "long-writing", ["long-writing"], { longWriting: true, minWords: 140, pointsPerQuestion: 20 }),
+    part(1, "Choice of text type", "long-writing", ["long-writing"], { longWriting: true, minWords: 140, pointsPerQuestion: 20 })
+  ], { description: "B2 First Writing \xB7 2 b\xE0i" }),
+  paper("fce", "listening", "Listening", "B2 First", 40, [
+    part(8, "Short recordings: multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(10, "Sentence completion", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(5, "Multiple matching", "matching", listeningTypes, { requiresAudio: true }),
+    part(7, "Long recording: multiple choice", "single-choice", listeningTypes, { requiresAudio: true })
+  ], { description: "B2 First Listening \xB7 4 Part \xB7 30 c\xE2u" }),
+  paper("ielts", "listening", "Listening", "IELTS Academic", 30, [
+    part(10, "Part 1", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(10, "Part 2", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(10, "Part 3", "single-choice", listeningTypes, { requiresAudio: true }),
+    part(10, "Part 4", "short-answer", listeningTypes, { requiresAudio: true })
+  ], { description: "IELTS Academic Listening \xB7 4 Part \xB7 40 c\xE2u" }),
+  paper("ielts", "academic-reading", "Academic Reading", "IELTS Academic", 60, [
+    part(13, "Reading passage 1", "single-choice", readingTypes, { questionCountFlexible: true }),
+    part(13, "Reading passage 2", "single-choice", readingTypes, { questionCountFlexible: true }),
+    part(14, "Reading passage 3", "single-choice", readingTypes, { questionCountFlexible: true })
+  ], { description: "IELTS Academic Reading \xB7 3 section \xB7 40 c\xE2u", flexiblePartDistribution: true }),
+  paper("ielts", "academic-writing", "Academic Writing", "IELTS Academic", 60, [
+    part(1, "Task 1: visual information", "long-writing", ["long-writing"], { longWriting: true, minWords: 150 }),
+    part(1, "Task 2: essay", "long-writing", ["long-writing"], { longWriting: true, minWords: 250, pointsPerQuestion: 2 })
+  ], { description: "IELTS Academic Writing \xB7 2 task" })
+];
+var definitionMap = new Map(EXAM_PAPER_DEFINITIONS.map((item) => [`${item.moduleId}:${item.paperId}`, item]));
+function getExamPaperDefinition(moduleId, paperId) {
+  return definitionMap.get(`${moduleId}:${paperId}`);
+}
+function getModuleExamPaperDefinitions(moduleId) {
+  return EXAM_PAPER_DEFINITIONS.filter((item) => item.moduleId === moduleId);
+}
+
 // src/features/listening-library/registry.ts
 var DEFAULT_LISTENING_MODULE_ID = "mover";
 var LISTENING_LIBRARY_SCHEMA_VERSION = 1;
-var comingSoonCapabilities = {
-  student: false,
-  admin: false,
-  scoring: false,
-  assignments: false
+var activeCapabilities = {
+  student: true,
+  admin: true,
+  scoring: true,
+  assignments: true
 };
+function genericPapers(moduleId) {
+  return getModuleExamPaperDefinitions(moduleId).map((definition) => ({
+    id: definition.paperId,
+    displayName: definition.displayName,
+    description: definition.description,
+    status: "active",
+    schemaVersion: 1,
+    partCount: definition.parts.length,
+    questionsPerPart: definition.parts.map((part2) => part2.questionCount),
+    totalQuestionCount: definition.totalQuestionCount,
+    parts: definition.parts.map((part2) => ({
+      id: part2.id,
+      displayName: part2.displayName,
+      schemaVersion: 1,
+      questionCount: part2.questionCount
+    })),
+    capabilities: activeCapabilities
+  }));
+}
 var LISTENING_MODULES = [
   {
     id: "starter",
-    displayName: "Starter",
+    displayName: "Starters",
     levelLabel: "Pre A1",
-    description: "Kho \u0111\u1EC1 Pre A1 Starters \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    description: "Kho \u0111\u1EC1 Pre A1 Starters g\u1ED3m Listening v\xE0 Reading & Writing.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("starter")
   },
   {
     id: "mover",
-    displayName: "Mover",
+    displayName: "Movers",
     levelLabel: "A1",
-    description: "Mover g\u1ED3m Listening v\xE0 Reading & Writing v\u1EDBi c\u1EA5u tr\xFAc ri\xEAng cho t\u1EEBng b\xE0i thi.",
+    description: "Movers g\u1ED3m Listening v\xE0 Reading & Writing v\u1EDBi c\u1EA5u tr\xFAc ri\xEAng cho t\u1EEBng b\xE0i thi.",
     status: "active",
     schemaVersion: 1,
     partCount: 5,
@@ -4001,7 +4538,7 @@ var LISTENING_MODULES = [
       {
         id: "listening",
         displayName: "Listening",
-        description: "B\u1ED9 \u0111\u1EC1 nghe Mover g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
+        description: "B\u1ED9 \u0111\u1EC1 nghe Movers g\u1ED3m 5 Part v\xE0 25 c\xE2u t\u01B0\u01A1ng t\xE1c.",
         status: "active",
         schemaVersion: 1,
         partCount: 5,
@@ -4022,7 +4559,7 @@ var LISTENING_MODULES = [
       {
         id: "reading-writing",
         displayName: "Reading & Writing",
-        description: "B\u1ED9 \u0111\u1EC1 Mover Reading & Writing g\u1ED3m 6 Part v\xE0 40 c\xE2u.",
+        description: "B\u1ED9 \u0111\u1EC1 Movers Reading & Writing g\u1ED3m 6 Part v\xE0 40 c\xE2u.",
         status: "active",
         schemaVersion: 1,
         partCount: 6,
@@ -4044,68 +4581,68 @@ var LISTENING_MODULES = [
   },
   {
     id: "flyer",
-    displayName: "Flyer",
+    displayName: "Flyers",
     levelLabel: "A2",
-    description: "Kho \u0111\u1EC1 A2 Flyers \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    description: "Kho \u0111\u1EC1 A2 Flyers g\u1ED3m Listening v\xE0 Reading & Writing.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("flyer")
   },
   {
     id: "ket",
     displayName: "KET",
     levelLabel: "A2 Key",
-    description: "Kho \u0111\u1EC1 A2 Key (KET) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    description: "Kho \u0111\u1EC1 A2 Key (KET) g\u1ED3m Reading & Writing v\xE0 Listening.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("ket")
   },
   {
     id: "pet",
     displayName: "PET",
     levelLabel: "B1 Preliminary",
-    description: "Kho \u0111\u1EC1 B1 Preliminary (PET) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    description: "Kho \u0111\u1EC1 B1 Preliminary (PET) g\u1ED3m Reading, Writing v\xE0 Listening.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("pet")
   },
   {
     id: "fce",
     displayName: "FCE",
     levelLabel: "B2 First",
-    description: "Kho \u0111\u1EC1 B2 First (FCE) \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    description: "Kho \u0111\u1EC1 B2 First (FCE) g\u1ED3m Reading & Use of English, Writing v\xE0 Listening.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("fce")
   },
   {
     id: "ielts",
     displayName: "IELTS",
-    levelLabel: "Academic & General",
-    description: "Kho \u0111\u1EC1 IELTS Academic v\xE0 General Training \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-    status: "coming_soon",
+    levelLabel: "Academic",
+    description: "Kho \u0111\u1EC1 IELTS Academic g\u1ED3m Listening, Academic Reading v\xE0 Academic Writing.",
+    status: "active",
     schemaVersion: 1,
     partCount: null,
     questionsPerPart: null,
     parts: [],
-    capabilities: comingSoonCapabilities,
-    papers: []
+    capabilities: activeCapabilities,
+    papers: genericPapers("ielts")
   }
 ];
 var moduleMap = new Map(
@@ -4138,6 +4675,9 @@ function publicListeningModuleManifest(module2) {
     papers: module2.papers
   };
 }
+function isListeningPaperId(value) {
+  return value === "listening" || value === "reading-writing" || value === "reading" || value === "writing" || value === "reading-use-of-english" || value === "academic-reading" || value === "academic-writing";
+}
 
 // src/features/listening/reviewPresentation.ts
 var INTERNAL_LISTENING_ID = /\bp[1-5]-(?:target|question|item|choice|option|colour|color|blank)-[a-z0-9-]{8,}\b/i;
@@ -4148,11 +4688,11 @@ function normalizedPart(value, globalIndex) {
   return Math.min(5, Math.max(1, Math.floor(Math.max(0, globalIndex) / 5) + 1));
 }
 function defaultListeningReviewQuestion(partValue, globalIndex) {
-  const part = normalizedPart(partValue, globalIndex);
+  const part2 = normalizedPart(partValue, globalIndex);
   const position = Math.max(0, globalIndex) % 5 + 1;
-  if (part === 1) return `Part 1 \xB7 V\u1ECB tr\xED nh\xE2n v\u1EADt ${position}`;
-  if (part === 5) return `Part 5 \xB7 V\xF9ng t\xF4 m\xE0u ${position}`;
-  return `Part ${part} \xB7 C\xE2u ${position}`;
+  if (part2 === 1) return `Part 1 \xB7 V\u1ECB tr\xED nh\xE2n v\u1EADt ${position}`;
+  if (part2 === 5) return `Part 5 \xB7 V\xF9ng t\xF4 m\xE0u ${position}`;
+  return `Part ${part2} \xB7 C\xE2u ${position}`;
 }
 function formatListeningReviewQuestion(value, partValue, globalIndex) {
   const source = String(value ?? "").trim();
@@ -4230,7 +4770,7 @@ function resolveListeningPart5SubmittedActions(actions, answers) {
 }
 function gradeListeningAttempt(content, answers) {
   const questions = [];
-  const push = (part, questionId, correct, unanswered) => questions.push({ part, questionId, correct, unanswered });
+  const push = (part2, questionId, correct, unanswered) => questions.push({ part: part2, questionId, correct, unanswered });
   for (const target of content.parts[0].targets) {
     const actual = answers.part1?.[target.id] || "";
     push(1, target.id, actual === target.choiceId, !actual);
@@ -4303,13 +4843,13 @@ function gradeListeningAttempt(content, answers) {
 var activityText = (value, max = 1e3) => String(value ?? "").trim().slice(0, max);
 function buildListeningReviewTranscripts(content) {
   if (!Array.isArray(content?.parts)) return [];
-  return content.parts.flatMap((part) => {
-    const transcript = typeof part?.audioTranscript === "string" ? part.audioTranscript.replace(/\r\n?/g, "\n").trim().slice(0, LISTENING_TRANSCRIPT_MAX_CHARS) : "";
-    return transcript ? [{ part: part.part, text: transcript }] : [];
+  return content.parts.flatMap((part2) => {
+    const transcript = typeof part2?.audioTranscript === "string" ? part2.audioTranscript.replace(/\r\n?/g, "\n").trim().slice(0, LISTENING_TRANSCRIPT_MAX_CHARS) : "";
+    return transcript ? [{ part: part2.part, text: transcript }] : [];
   });
 }
-function labelForId(items, id, getLabel) {
-  const normalizedId = activityText(id, 200);
+function labelForId(items, id2, getLabel) {
+  const normalizedId = activityText(id2, 200);
   const index = items.findIndex((item) => item.id === normalizedId);
   return index >= 0 ? activityText(getLabel(items[index], index), 500) : formatListeningReviewAnswer(normalizedId);
 }
@@ -4318,13 +4858,13 @@ function buildListeningActivityAnswerDetails(content, answers, questions) {
     questions.map((question) => [`${question.part}:${question.questionId}`, question])
   );
   const details = [];
-  const push = (part, questionId, questionText, userAnswer, correctAnswer, options = []) => {
-    const result = resultByQuestion.get(`${part}:${questionId}`);
+  const push = (part6, questionId, questionText, userAnswer, correctAnswer, options = []) => {
+    const result = resultByQuestion.get(`${part6}:${questionId}`);
     details.push({
       questionIndex: details.length,
       questionId,
-      questionText: formatListeningReviewQuestion(questionText, part, details.length),
-      part,
+      questionText: formatListeningReviewQuestion(questionText, part6, details.length),
+      part: part6,
       selectedAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1e3)),
       userAnswer: formatListeningReviewAnswer(activityText(userAnswer, 1e3)),
       correctAnswer: formatListeningReviewAnswer(activityText(correctAnswer, 1e3)),
@@ -4616,9 +5156,9 @@ function normalizeListeningVisualReviewSnapshot(value) {
   if (source.schemaVersion !== 2 || !Array.isArray(source.parts) || source.parts.length !== 5) return void 0;
   const serialized = JSON.stringify(source);
   if (serialized.length > 75e4 || /"targetRegion"\s*:/i.test(serialized)) return void 0;
-  const partNumbers = source.parts.map((part) => Number(part?.part));
-  if (partNumbers.some((part, index) => part !== index + 1)) return void 0;
-  if (source.parts.some((part) => !Array.isArray(part?.items) || part.items.length > 25)) return void 0;
+  const partNumbers = source.parts.map((part2) => Number(part2?.part));
+  if (partNumbers.some((part2, index) => part2 !== index + 1)) return void 0;
+  if (source.parts.some((part2) => !Array.isArray(part2?.items) || part2.items.length > 25)) return void 0;
   return structuredClone(source);
 }
 function normalizeListeningActivityAnswerDetails(detail) {
@@ -4720,15 +5260,19 @@ function listeningAttemptToActivity(attempt, detail) {
 // src/features/mover-reading-writing/types.ts
 var MOVER_READING_WRITING_PAPER_ID = "reading-writing";
 var MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION = 1;
-var MOVER_READING_WRITING_SCHEMA_VERSION = 2;
+var MOVER_READING_WRITING_INLINE_SCHEMA_VERSION = 2;
+var MOVER_READING_WRITING_SCHEMA_VERSION = 3;
 var MOVER_READING_WRITING_PART_COUNTS = [6, 6, 6, 7, 10, 5];
 var MOVER_READING_WRITING_TOTAL_QUESTIONS = 40;
+function isMoverReadingWritingPart6ImageChoice(part2) {
+  return part2.displayMode === "image-multiple-choice";
+}
 
 // src/features/mover-reading-writing/compatibility.ts
 var INTERNAL_MARKER = /\{\{[^}]+\}\}/;
 var PRINTED_BLANK = /(?:_{3,}|\.{4,}|(?:\.\s*){4,}|…{2,})/;
 function isSupportedMoverReadingWritingSchemaVersion(value) {
-  return value === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION || value === MOVER_READING_WRITING_SCHEMA_VERSION;
+  return value === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION || value === MOVER_READING_WRITING_INLINE_SCHEMA_VERSION || value === MOVER_READING_WRITING_SCHEMA_VERSION;
 }
 function ensureInlineQuestionTemplate(prompt, questionId) {
   const source = String(prompt || "").trim();
@@ -4738,11 +5282,11 @@ function ensureInlineQuestionTemplate(prompt, questionId) {
   return source ? `${source} ${marker}` : marker;
 }
 function normalizeTextQuestion(question) {
-  const id = String(question?.id || "");
+  const id2 = String(question?.id || "");
   return {
     ...question,
-    id,
-    prompt: ensureInlineQuestionTemplate(String(question?.prompt || ""), id),
+    id: id2,
+    prompt: ensureInlineQuestionTemplate(String(question?.prompt || ""), id2),
     acceptedAnswers: Array.isArray(question?.acceptedAnswers) ? question.acceptedAnswers.map((answer) => String(answer)) : []
   };
 }
@@ -4769,13 +5313,24 @@ function normalizeMoverReadingWritingContent(value) {
   if (!Array.isArray(content.parts) || content.parts.length !== 6) {
     throw new Error("Reading & Writing c\u1EA7n \u0111\xFAng 6 Part.");
   }
-  content.schemaVersion = MOVER_READING_WRITING_SCHEMA_VERSION;
+  const sourceSchemaVersion = content.schemaVersion;
   content.parts[0].questions = Array.isArray(content.parts[0]?.questions) ? content.parts[0].questions.map(normalizeTextQuestion) : [];
   content.parts[4].scenes = Array.isArray(content.parts[4]?.scenes) ? content.parts[4].scenes.map((scene) => ({
     ...scene,
     questions: Array.isArray(scene?.questions) ? scene.questions.map(normalizeTextQuestion) : []
   })) : [];
-  content.parts[5].gaps = Array.isArray(content.parts[5]?.gaps) ? content.parts[5].gaps.map(normalizePart6Gap) : [];
+  if (content.parts[5]?.displayMode === "image-multiple-choice") {
+    content.schemaVersion = MOVER_READING_WRITING_SCHEMA_VERSION;
+    content.parts[5].questions = Array.isArray(content.parts[5].questions) ? content.parts[5].questions.map((question, index) => ({
+      ...question,
+      questionNumber: index + 1,
+      options: Array.isArray(question?.options) ? question.options.slice(0, 3) : []
+    })) : [];
+  } else {
+    content.schemaVersion = sourceSchemaVersion === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION ? MOVER_READING_WRITING_INLINE_SCHEMA_VERSION : sourceSchemaVersion;
+    content.parts[5].displayMode = "passage-text";
+    content.parts[5].gaps = Array.isArray(content.parts[5]?.gaps) ? content.parts[5].gaps.map(normalizePart6Gap) : [];
+  }
   return content;
 }
 
@@ -4830,9 +5385,9 @@ function assertReviewQuestions(questions) {
     throw new Error(`Reading & Writing visual review requires ${MOVER_READING_WRITING_TOTAL_QUESTIONS} results.`);
   }
   MOVER_READING_WRITING_PART_COUNTS.forEach((count, index) => {
-    const part = index + 1;
-    if (questions.filter((question) => question.part === part).length !== count) {
-      throw new Error(`Reading & Writing visual review Part ${part} requires ${count} results.`);
+    const part2 = index + 1;
+    if (questions.filter((question) => question.part === part2).length !== count) {
+      throw new Error(`Reading & Writing visual review Part ${part2} requires ${count} results.`);
     }
   });
 }
@@ -4840,14 +5395,14 @@ function buildMoverReadingWritingVisualReviewSnapshot(inputContent, questions) {
   const content = normalizeMoverReadingWritingContent(inputContent);
   assertReviewQuestions(questions);
   const byQuestion = new Map(questions.map((question) => [`${question.part}:${question.questionId}`, question]));
-  const resultFor = (part, questionId) => {
-    const result = byQuestion.get(`${part}:${questionId}`);
-    if (!result) throw new Error(`Missing Reading & Writing visual review result for Part ${part}.`);
+  const resultFor = (part7, questionId) => {
+    const result = byQuestion.get(`${part7}:${questionId}`);
+    if (!result) throw new Error(`Missing Reading & Writing visual review result for Part ${part7}.`);
     return result;
   };
-  const common = (part) => ({
-    title: reviewText(part.title, 500),
-    instruction: reviewText(part.instruction, 2e3)
+  const common = (part7) => ({
+    title: reviewText(part7.title, 500),
+    instruction: reviewText(part7.instruction, 2e3)
   });
   const part1 = content.parts[0];
   const reviewPart1 = {
@@ -4936,7 +5491,13 @@ function buildMoverReadingWritingVisualReviewSnapshot(inputContent, questions) {
     }))
   };
   const part6 = content.parts[5];
-  const reviewPart6 = {
+  const reviewPart6 = isMoverReadingWritingPart6ImageChoice(part6) ? {
+    part: 6,
+    mode: "image-options",
+    ...common(part6),
+    imageUrl: part6.studentImageUrl,
+    items: part6.questions.map((question) => choiceItem(resultFor(6, question.id), question.questionNumber, question))
+  } : {
     part: 6,
     mode: "passage-text",
     ...common(part6),
@@ -4976,7 +5537,7 @@ function nullableNumber(value) {
 function mapItem(row) {
   return {
     attemptId: String(row.attempt_id || ""),
-    sourceType: row.source_type === "grammar" ? "grammar" : row.source_type === "reading_writing" ? "reading_writing" : row.source_type === "listening" ? "listening" : "vocabulary",
+    sourceType: row.source_type === "grammar" ? "grammar" : row.source_type === "exam" ? "exam" : row.source_type === "reading_writing" ? "reading_writing" : row.source_type === "listening" ? "listening" : "vocabulary",
     studentType: String(row.student_type || ""),
     studentName: String(row.student_name_snapshot || ""),
     classId: row.class_id || null,
@@ -5102,6 +5663,43 @@ history_attempts AS (
     'available' AS detail_status,
     'canonical' AS normalization_status
   FROM mover_reading_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'exam' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULLIF(json_extract(data_json, '$.assignmentDueAt'), '') AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'exam_set' AS lesson_type,
+    'exam:' || module_id || ':' || paper_id AS game_id,
+    UPPER(module_id) || ' \xB7 ' || paper_id AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    COALESCE(json_extract(data_json, '$.totalCount'), correct_count + incorrect_count + unanswered_count) AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM exam_attempts
+  WHERE status = 'completed'
 )`;
 function escapeLike(value) {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
@@ -5388,6 +5986,42 @@ async function findAttemptDetail(attemptId) {
       return storedRow;
     }
   }
+  const examRow = await sqliteQueryOne(
+    `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+            attempt.module_id, attempt.paper_id, attempt.version_id
+     FROM exam_attempt_details AS detail
+     JOIN exam_attempts AS attempt ON attempt.id = detail.attempt_id
+     WHERE detail.attempt_id = ? AND attempt.status = 'completed'`,
+    [attemptId]
+  );
+  if (examRow) {
+    let data2 = {};
+    try {
+      data2 = JSON.parse(String(examRow.data_json || "{}"));
+    } catch {
+      data2 = {};
+    }
+    const questions = Array.isArray(data2.questions) ? data2.questions : [];
+    return {
+      attempt_id: attemptId,
+      client_run_id: null,
+      source_type: "exam",
+      answer_details_json: JSON.stringify(questions),
+      question_snapshots_json: JSON.stringify(data2.questionSnapshots || []),
+      option_snapshots_json: JSON.stringify(data2.optionSnapshots || []),
+      extra_details_json: JSON.stringify({
+        moduleId: examRow.module_id,
+        paperId: examRow.paper_id,
+        versionId: examRow.version_id,
+        gradingVersion: data2.grade?.gradingVersion
+      }),
+      review_policy_json: JSON.stringify(data2.reviewPolicy || {}),
+      created_at: examRow.created_at,
+      updated_at: examRow.updated_at,
+      expires_at: null,
+      schema_version: 1
+    };
+  }
   const listeningRow = await sqliteQueryOne(
     `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
             attempt.version_id, version.data_json AS version_data_json
@@ -5515,7 +6149,7 @@ async function findAttemptDetail(attemptId) {
   };
 }
 async function findLegacySource(sourceType, sourceRecordId) {
-  if (sourceType === "listening" || sourceType === "reading_writing") return null;
+  if (sourceType === "listening" || sourceType === "reading_writing" || sourceType === "exam") return null;
   const table = sourceType === "grammar" ? "grammar_attempts" : "game_results";
   const row = await sqliteQueryOne(
     `SELECT data_json FROM ${table} WHERE id = ?`,
@@ -5765,13 +6399,13 @@ async function getLearningHistory(actor, filters) {
   return listLearningHistory(actor.ownerKey, filters);
 }
 async function getLearningHistoryDetail(actor, attemptId, options = {}) {
-  const record = await findLearningAttempt(attemptId);
-  if (!record) throw new LearningHistoryNotFoundError();
-  const isOwner = Boolean(record.ownerKey && record.ownerKey === actor.ownerKey);
+  const record2 = await findLearningAttempt(attemptId);
+  if (!record2) throw new LearningHistoryNotFoundError();
+  const isOwner = Boolean(record2.ownerKey && record2.ownerKey === actor.ownerKey);
   let staffAuthorized = isOwner && (actor.role === "teacher" || actor.role === "super_admin");
   if (!isOwner && (actor.role === "teacher" || actor.role === "super_admin")) {
     staffAuthorized = Boolean(
-      options.canStaffViewAttempt && await options.canStaffViewAttempt(actor, record.item)
+      options.canStaffViewAttempt && await options.canStaffViewAttempt(actor, record2.item)
     );
   }
   if (!isOwner && !staffAuthorized) {
@@ -5780,29 +6414,29 @@ async function getLearningHistoryDetail(actor, attemptId, options = {}) {
   const storedDetail = await findAttemptDetail(attemptId);
   if (storedDetail) {
     return {
-      attempt: record.item,
+      attempt: record2.item,
       detailStatus: "available",
-      detail: normalizeStoredDetail(actor, record.item, storedDetail, staffAuthorized)
+      detail: normalizeStoredDetail(actor, record2.item, storedDetail, staffAuthorized)
     };
   }
-  if (record.storedDetailStatus === "legacy") {
-    const legacy = await findLegacySource(record.item.sourceType, record.sourceRecordId);
+  if (record2.storedDetailStatus === "legacy") {
+    const legacy = await findLegacySource(record2.item.sourceType, record2.sourceRecordId);
     if (legacy) {
       return {
-        attempt: record.item,
+        attempt: record2.item,
         detailStatus: "available",
-        detail: normalizeLegacyDetail(actor, record.item, legacy, staffAuthorized)
+        detail: normalizeLegacyDetail(actor, record2.item, legacy, staffAuthorized)
       };
     }
     return {
-      attempt: record.item,
+      attempt: record2.item,
       detailStatus: "legacy_unavailable",
       detail: null
     };
   }
-  const status = record.storedDetailStatus === "expired" ? "expired" : "missing";
+  const status = record2.storedDetailStatus === "expired" ? "expired" : "missing";
   return {
-    attempt: record.item,
+    attempt: record2.item,
     detailStatus: status,
     detail: null
   };
@@ -5894,7 +6528,7 @@ function parseLearningHistoryFilters(query) {
   const sourceType = allowlisted(
     query.sourceType,
     "sourceType",
-    ["vocabulary", "grammar", "listening", "reading_writing"]
+    ["vocabulary", "grammar", "listening", "reading_writing", "exam"]
   );
   const historyType = allowlisted(
     query.historyType,
@@ -6098,41 +6732,41 @@ function validateRegionCollection(items, path11, errors) {
     }
   }
 }
-function validateBase(part, number2, errors) {
-  if (part?.schemaVersion !== void 0 && part.schemaVersion !== 1) {
+function validateBase(part2, number2, errors) {
+  if (part2?.schemaVersion !== void 0 && part2.schemaVersion !== 1) {
     errors.push(`Part ${number2}: phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.`);
   }
-  if (part?.part !== number2) errors.push(`Part ${number2}: sai lo\u1EA1i Part.`);
-  if (!isText(part?.title, 160)) errors.push(`Part ${number2}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
-  if (!isText(part?.instruction, 1e3)) errors.push(`Part ${number2}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
-  if (!isText(part?.audioAssetId, 160)) errors.push(`Part ${number2}: c\u1EA7n \u0111\xFAng m\u1ED9t file audio.`);
-  if (part?.audioTranscript !== void 0 && (typeof part.audioTranscript !== "string" || part.audioTranscript.length > LISTENING_TRANSCRIPT_MAX_CHARS)) {
+  if (part2?.part !== number2) errors.push(`Part ${number2}: sai lo\u1EA1i Part.`);
+  if (!isText(part2?.title, 160)) errors.push(`Part ${number2}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+  if (!isText(part2?.instruction, 1e3)) errors.push(`Part ${number2}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
+  if (!isText(part2?.audioAssetId, 160)) errors.push(`Part ${number2}: c\u1EA7n \u0111\xFAng m\u1ED9t file audio.`);
+  if (part2?.audioTranscript !== void 0 && (typeof part2.audioTranscript !== "string" || part2.audioTranscript.length > LISTENING_TRANSCRIPT_MAX_CHARS)) {
     errors.push(`Part ${number2}: transcript ph\u1EA3i l\xE0 v\u0103n b\u1EA3n t\u1ED1i \u0111a ${LISTENING_TRANSCRIPT_MAX_CHARS.toLocaleString("vi-VN")} k\xFD t\u1EF1.`);
   }
 }
-function validatePart1(part, errors) {
-  validateBase(part, 1, errors);
-  if (!isText(part.sceneAssetId, 160)) errors.push("Part 1: thi\u1EBFu h\xECnh t\xECnh hu\u1ED1ng.");
-  if (part.choices?.length !== 6) errors.push("Part 1: c\u1EA7n \u0111\xFAng 6 th\u1EBB t\xEAn (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
-  if (part.targets?.length !== 5) errors.push("Part 1: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
-  const choiceIds = (part.choices || []).map((choice2) => choice2.id);
-  if (!unique(choiceIds) || (part.choices || []).some((choice2) => !isText(choice2.id, 160) || !isText(choice2.label, 120))) {
+function validatePart1(part2, errors) {
+  validateBase(part2, 1, errors);
+  if (!isText(part2.sceneAssetId, 160)) errors.push("Part 1: thi\u1EBFu h\xECnh t\xECnh hu\u1ED1ng.");
+  if (part2.choices?.length !== 6) errors.push("Part 1: c\u1EA7n \u0111\xFAng 6 th\u1EBB t\xEAn (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
+  if (part2.targets?.length !== 5) errors.push("Part 1: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
+  const choiceIds = (part2.choices || []).map((choice2) => choice2.id);
+  if (!unique(choiceIds) || (part2.choices || []).some((choice2) => !isText(choice2.id, 160) || !isText(choice2.label, 120))) {
     errors.push("Part 1: ID v\xE0 nh\xE3n th\u1EBB t\xEAn ph\u1EA3i \u0111\u1EA7y \u0111\u1EE7, kh\xF4ng tr\xF9ng.");
   }
-  const targetIds = (part.targets || []).map((target) => target.id);
-  if (!unique(targetIds) || (part.targets || []).some((target) => !choiceIds.includes(target.choiceId))) {
+  const targetIds = (part2.targets || []).map((target) => target.id);
+  if (!unique(targetIds) || (part2.targets || []).some((target) => !choiceIds.includes(target.choiceId))) {
     errors.push("Part 1: v\xF9ng ho\u1EB7c \u0111\xE1p \xE1n v\xF9ng kh\xF4ng h\u1EE3p l\u1EC7.");
   }
-  validateRegionCollection(part.targets || [], "Part 1 targets", errors);
-  if (part.example) validateRegion(part.example.region, "Part 1 example.region", errors);
+  validateRegionCollection(part2.targets || [], "Part 1 targets", errors);
+  if (part2.example) validateRegion(part2.example.region, "Part 1 example.region", errors);
 }
-function validatePart2(part, errors) {
-  validateBase(part, 2, errors);
-  if (!isText(part.heading, 200)) errors.push("Part 2: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i.");
-  if (part.questions?.length !== 5) errors.push("Part 2: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
-  const ids = (part.questions || []).map((question) => question.id);
+function validatePart2(part2, errors) {
+  validateBase(part2, 2, errors);
+  if (!isText(part2.heading, 200)) errors.push("Part 2: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i.");
+  if (part2.questions?.length !== 5) errors.push("Part 2: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  const ids = (part2.questions || []).map((question) => question.id);
   if (!unique(ids)) errors.push("Part 2: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
-  (part.questions || []).forEach((question, index) => {
+  (part2.questions || []).forEach((question, index) => {
     if (!isText(question.prompt, 1e3)) errors.push(`Part 2 c\xE2u ${index + 1}: thi\u1EBFu n\u1ED9i dung.`);
     if (!question.blanks?.length) errors.push(`Part 2 c\xE2u ${index + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t \xF4 tr\u1ED1ng.`);
     const blankIds = (question.blanks || []).map((blank) => blank.id);
@@ -6147,68 +6781,68 @@ function validatePart2(part, errors) {
     });
   });
 }
-function validatePart3(part, errors) {
-  validateBase(part, 3, errors);
-  if (part.displayMode === "connect-image") {
-    if (!isText(part.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh \u0111\u1EC1 b\xE0i k\u1EBFt n\u1ED1i.");
-    if (part.connectionSchemaVersion !== 1) errors.push("Part 3: phi\xEAn b\u1EA3n k\u1EBFt n\u1ED1i kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
-    if (part.answers?.length !== 7) errors.push("Part 3: c\u1EA7n \u0111\xFAng 7 answer \u1EDF gi\u1EEFa, g\u1ED3m example, 5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u.");
-    if (part.pictures?.length !== 6) errors.push("Part 3: c\u1EA7n \u0111\xFAng 6 picture, ba b\xEAn tr\xE1i v\xE0 ba b\xEAn ph\u1EA3i.");
-    const answerIds = (part.answers || []).map((answer) => answer.id);
-    const pictureIds = (part.pictures || []).map((picture) => picture.id);
-    if (!unique(answerIds) || (part.answers || []).some((answer) => !isText(answer.id, 160) || !isText(answer.label, 120))) {
+function validatePart3(part2, errors) {
+  validateBase(part2, 3, errors);
+  if (part2.displayMode === "connect-image") {
+    if (!isText(part2.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh \u0111\u1EC1 b\xE0i k\u1EBFt n\u1ED1i.");
+    if (part2.connectionSchemaVersion !== 1) errors.push("Part 3: phi\xEAn b\u1EA3n k\u1EBFt n\u1ED1i kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    if (part2.answers?.length !== 7) errors.push("Part 3: c\u1EA7n \u0111\xFAng 7 answer \u1EDF gi\u1EEFa, g\u1ED3m example, 5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u.");
+    if (part2.pictures?.length !== 6) errors.push("Part 3: c\u1EA7n \u0111\xFAng 6 picture, ba b\xEAn tr\xE1i v\xE0 ba b\xEAn ph\u1EA3i.");
+    const answerIds = (part2.answers || []).map((answer) => answer.id);
+    const pictureIds = (part2.pictures || []).map((picture) => picture.id);
+    if (!unique(answerIds) || (part2.answers || []).some((answer) => !isText(answer.id, 160) || !isText(answer.label, 120))) {
       errors.push("Part 3: answer ID/label ph\u1EA3i \u0111\u1EA7y \u0111\u1EE7 v\xE0 kh\xF4ng tr\xF9ng.");
     }
     if (!unique(pictureIds)) errors.push("Part 3: picture ID b\u1ECB tr\xF9ng.");
-    const pictureSlots = (part.pictures || []).map((picture) => `${picture.side}:${picture.row}`);
-    if (!unique(pictureSlots) || (part.pictures || []).some((picture) => !["left", "right"].includes(picture.side) || ![1, 2, 3].includes(picture.row))) {
+    const pictureSlots = (part2.pictures || []).map((picture) => `${picture.side}:${picture.row}`);
+    if (!unique(pictureSlots) || (part2.pictures || []).some((picture) => !["left", "right"].includes(picture.side) || ![1, 2, 3].includes(picture.row))) {
       errors.push("Part 3: picture ph\u1EA3i n\u1EB1m \u0111\xFAng ba h\xE0ng b\xEAn tr\xE1i v\xE0 ba h\xE0ng b\xEAn ph\u1EA3i.");
     }
-    if ((part.answers || []).some((answer) => answer.leftAnchorOffset < 0 || answer.leftAnchorOffset > 1 || answer.rightAnchorOffset < 0 || answer.rightAnchorOffset > 1)) {
+    if ((part2.answers || []).some((answer) => answer.leftAnchorOffset < 0 || answer.leftAnchorOffset > 1 || answer.rightAnchorOffset < 0 || answer.rightAnchorOffset > 1)) {
       errors.push("Part 3: anchor answer ph\u1EA3i \u0111\u01B0\u1EE3c gi\u1EDBi h\u1EA1n tr\xEAn \u0111\xFAng c\u1EA1nh.");
     }
-    if ((part.pictures || []).some((picture) => picture.anchorOffset < 0 || picture.anchorOffset > 1)) {
+    if ((part2.pictures || []).some((picture) => picture.anchorOffset < 0 || picture.anchorOffset > 1)) {
       errors.push("Part 3: anchor picture ph\u1EA3i \u0111\u01B0\u1EE3c gi\u1EDBi h\u1EA1n tr\xEAn \u0111\xFAng c\u1EA1nh.");
     }
-    validateRegionCollection(part.answers || [], "Part 3 answers", errors);
-    validateRegionCollection(part.pictures || [], "Part 3 pictures", errors);
-    const example = part.exampleConnection;
+    validateRegionCollection(part2.answers || [], "Part 3 answers", errors);
+    validateRegionCollection(part2.pictures || [], "Part 3 pictures", errors);
+    const example = part2.exampleConnection;
     if (!example || !answerIds.includes(example.answerId) || !pictureIds.includes(example.pictureId)) {
       errors.push("Part 3: example connection kh\xF4ng h\u1EE3p l\u1EC7.");
     }
-    const mappings = part.correctConnections || [];
+    const mappings = part2.correctConnections || [];
     if (mappings.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 connection \u0111\u01B0\u1EE3c ch\u1EA5m \u0111i\u1EC3m.");
     if (!unique(mappings.map((item) => item.answerId)) || !unique(mappings.map((item) => item.pictureId)) || mappings.some((item) => !answerIds.includes(item.answerId) || !pictureIds.includes(item.pictureId)) || mappings.some((item) => item.answerId === example?.answerId || item.pictureId === example?.pictureId)) {
       errors.push("Part 3: mapping ch\u1EA5m \u0111i\u1EC3m b\u1ECB tr\xF9ng, tham chi\u1EBFu sai ho\u1EB7c d\xF9ng l\u1EA1i example.");
     }
-    const unusedAnswers = answerIds.filter((id) => id !== example?.answerId && !mappings.some((item) => item.answerId === id));
-    if (unusedAnswers.length !== 1 || unusedAnswers[0] !== part.distractorAnswerId) {
+    const unusedAnswers = answerIds.filter((id2) => id2 !== example?.answerId && !mappings.some((item) => item.answerId === id2));
+    if (unusedAnswers.length !== 1 || unusedAnswers[0] !== part2.distractorAnswerId) {
       errors.push("Part 3: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t answer nhi\u1EC5u kh\xF4ng \u0111\u01B0\u1EE3c n\u1ED1i.");
     }
     return;
   }
-  const composite = part.displayMode === "composite";
-  if (!["once", "multiple"].includes(part.reuseMode)) errors.push("Part 3: ch\u1EBF \u0111\u1ED9 d\xF9ng \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
-  if (composite && (part.options || []).length !== 6) errors.push("Part 3: b\u1EA3ng t\u1ED5ng h\u1EE3p c\u1EA7n \u0111\xFAng 6 l\u1EF1a ch\u1ECDn A\u2013F.");
-  if (!composite && (part.options || []).length < 5) errors.push("Part 3: c\u1EA7n \xEDt nh\u1EA5t 5 l\u1EF1a ch\u1ECDn h\xECnh \u1EA3nh.");
-  if (part.items?.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
-  if (composite && !isText(part.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh b\u1EA3ng A\u2013F t\u1ED5ng h\u1EE3p.");
-  const optionIds = (part.options || []).map((option) => option.id);
+  const composite = part2.displayMode === "composite";
+  if (!["once", "multiple"].includes(part2.reuseMode)) errors.push("Part 3: ch\u1EBF \u0111\u1ED9 d\xF9ng \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (composite && (part2.options || []).length !== 6) errors.push("Part 3: b\u1EA3ng t\u1ED5ng h\u1EE3p c\u1EA7n \u0111\xFAng 6 l\u1EF1a ch\u1ECDn A\u2013F.");
+  if (!composite && (part2.options || []).length < 5) errors.push("Part 3: c\u1EA7n \xEDt nh\u1EA5t 5 l\u1EF1a ch\u1ECDn h\xECnh \u1EA3nh.");
+  if (part2.items?.length !== 5) errors.push("Part 3: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+  if (composite && !isText(part2.boardAssetId, 160)) errors.push("Part 3: thi\u1EBFu \u1EA3nh b\u1EA3ng A\u2013F t\u1ED5ng h\u1EE3p.");
+  const optionIds = (part2.options || []).map((option) => option.id);
   if (!unique(optionIds)) errors.push("Part 3: ID l\u1EF1a ch\u1ECDn b\u1ECB tr\xF9ng.");
-  if (!composite && (part.options || []).some((option) => !isText(option.imageAssetId, 160))) {
+  if (!composite && (part2.options || []).some((option) => !isText(option.imageAssetId, 160))) {
     errors.push("Part 3: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n h\xECnh \u1EA3nh.");
   }
-  const answers = (part.items || []).map((item) => item.correctOptionId);
-  if ((part.items || []).some((item) => !composite && !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
+  const answers = (part2.items || []).map((item) => item.correctOptionId);
+  if ((part2.items || []).some((item) => !composite && !isText(item.imageAssetId, 160) || !optionIds.includes(item.correctOptionId))) {
     errors.push("Part 3: c\xE2u h\u1ECFi ho\u1EB7c \u0111\xE1p \xE1n h\xECnh \u1EA3nh kh\xF4ng h\u1EE3p l\u1EC7.");
   }
-  if (part.reuseMode === "once" && !unique(answers)) {
+  if (part2.reuseMode === "once" && !unique(answers)) {
     errors.push("Part 3: m\u1ED7i l\u1EF1a ch\u1ECDn ch\u1EC9 \u0111\u01B0\u1EE3c d\xF9ng m\u1ED9t l\u1EA7n.");
   }
 }
-function validatePart4(part, errors) {
-  validateBase(part, 4, errors);
-  if (part.questions?.length !== 5) errors.push("Part 4: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
+function validatePart4(part2, errors) {
+  validateBase(part2, 4, errors);
+  if (part2.questions?.length !== 5) errors.push("Part 4: c\u1EA7n \u0111\xFAng 5 c\xE2u.");
   const validateQuestion = (question, label) => {
     if (!isText(question.prompt, 1e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung.`);
     if (question.options?.length !== 3) errors.push(`${label}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
@@ -6220,42 +6854,44 @@ function validatePart4(part, errors) {
       errors.push(`${label}: m\u1ECDi l\u1EF1a ch\u1ECDn c\u1EA7n ID v\xE0 h\xECnh \u1EA3nh.`);
     }
   };
-  (part.questions || []).forEach((question, index) => {
+  (part2.questions || []).forEach((question, index) => {
     validateQuestion(question, `Part 4 c\xE2u ${index + 1}`);
   });
-  if (part.example) validateQuestion(part.example, "Part 4 example");
+  if (part2.example) validateQuestion(part2.example, "Part 4 example");
 }
-function validatePart5(part, errors) {
-  validateBase(part, 5, errors);
-  if (part.displayMode === "scene-colour-draw") {
-    if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\u01B0\u01A1ng t\xE1c.");
-    if (![1, 2].includes(part.interactionSchemaVersion)) errors.push("Part 5: phi\xEAn b\u1EA3n t\u01B0\u01A1ng t\xE1c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
-    if (part.colours?.length !== 20) errors.push("Part 5: palette m\xE0u c\u1EA7n \u0111\u1EE7 20 m\xE0u chu\u1EA9n.");
-    const colourIds2 = (part.colours || []).map((colour) => colour.id);
-    if (!unique(colourIds2) || (part.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
+function validatePart5(part2, errors) {
+  validateBase(part2, 5, errors);
+  if (part2.displayMode === "scene-colour-draw") {
+    if (!isText(part2.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\u01B0\u01A1ng t\xE1c.");
+    if (![1, 2, 3].includes(part2.interactionSchemaVersion)) errors.push("Part 5: phi\xEAn b\u1EA3n t\u01B0\u01A1ng t\xE1c kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    if (part2.colours?.length !== 20) errors.push("Part 5: palette m\xE0u c\u1EA7n \u0111\u1EE7 20 m\xE0u chu\u1EA9n.");
+    const colourIds2 = (part2.colours || []).map((colour) => colour.id);
+    if (!unique(colourIds2) || (part2.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
       errors.push("Part 5: m\xE0u ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 m\xE3 #RRGGBB h\u1EE3p l\u1EC7.");
     }
-    const studentColourIds = part.interactionSchemaVersion === 2 ? part.colourPaletteIds || [] : colourIds2;
-    if (part.interactionSchemaVersion === 2 && (studentColourIds.length !== 6 || !unique(studentColourIds) || studentColourIds.some((id) => !colourIds2.includes(id)))) errors.push("Part 5: palette h\u1ECDc sinh c\u1EA7n \u0111\xFAng 6 m\xE0u h\u1EE3p l\u1EC7, kh\xF4ng tr\xF9ng (g\u1ED3m m\xE0u nhi\u1EC5u).");
-    if (part.questions?.length !== 5 || !unique((part.questions || []).map((question) => String(question.questionNumber)))) {
+    const studentColourIds = part2.interactionSchemaVersion >= 2 ? part2.colourPaletteIds || [] : colourIds2;
+    if (part2.interactionSchemaVersion === 2 && (studentColourIds.length !== 6 || !unique(studentColourIds) || studentColourIds.some((id2) => !colourIds2.includes(id2)))) errors.push("Part 5: palette h\u1ECDc sinh c\u1EA7n \u0111\xFAng 6 m\xE0u h\u1EE3p l\u1EC7, kh\xF4ng tr\xF9ng (g\u1ED3m m\xE0u nhi\u1EC5u).");
+    if (part2.interactionSchemaVersion === 3 && (!unique(studentColourIds) || studentColourIds.some((id2) => !colourIds2.includes(id2)))) errors.push("Part 5: palette h\u1ECDc sinh ch\u1EC9 \u0111\u01B0\u1EE3c ch\u1EE9a c\xE1c m\xE0u chu\u1EA9n, kh\xF4ng tr\xF9ng.");
+    if (part2.questions?.length !== 5 || !unique((part2.questions || []).map((question) => String(question.questionNumber)))) {
       errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 c\xE2u c\xF3 questionNumber 1\u20135 kh\xF4ng tr\xF9ng.");
     }
-    const objectIds = (part.interactiveObjects || []).map((object) => object.id);
-    const paletteIds = (part.objectPalette || []).map((item) => item.id);
+    const objectIds = (part2.interactiveObjects || []).map((object) => object.id);
+    const paletteIds = (part2.objectPalette || []).map((item) => item.id);
     if (!unique(objectIds) || !unique(paletteIds)) errors.push("Part 5: ID object/palette b\u1ECB tr\xF9ng.");
-    if (part.interactionSchemaVersion === 2 && (paletteIds.length !== 3 || part.objectPalette.some((item) => !isText(item.label, 160) || !isText(item.tokenAssetId, 160)))) errors.push("Part 5: Draw c\u1EA7n \u0111\xFAng 3 icon PNG \u0111\xE3 upload (2 l\u1EF1a ch\u1ECDn l\xE0m b\xE0i v\xE0 1 nhi\u1EC5u).");
-    (part.interactiveObjects || []).forEach((object, index) => {
+    if (part2.interactionSchemaVersion === 2 && (paletteIds.length !== 3 || part2.objectPalette.some((item) => !isText(item.label, 160) || !isText(item.tokenAssetId, 160)))) errors.push("Part 5: Draw c\u1EA7n \u0111\xFAng 3 icon PNG \u0111\xE3 upload (2 l\u1EF1a ch\u1ECDn l\xE0m b\xE0i v\xE0 1 nhi\u1EC5u).");
+    if (part2.interactionSchemaVersion === 3 && part2.objectPalette.some((item) => !isText(item.objectType, 160) || !isText(item.label, 160) || !isText(item.tokenAssetId, 160))) errors.push("Part 5: m\u1ECDi v\u1EADt Draw \u0111\xE3 th\xEAm c\u1EA7n lo\u1EA1i v\u1EADt, t\xEAn v\xE0 icon PNG tr\u01B0\u1EDBc khi xu\u1EA5t b\u1EA3n.");
+    (part2.interactiveObjects || []).forEach((object, index) => {
       validateRegion(object.geometry, `Part 5 interactiveObjects[${index}].geometry`, errors);
-      if (part.interactionSchemaVersion === 2 && object.geometryConfirmedByTeacher !== true) {
+      if (part2.interactionSchemaVersion >= 2 && object.geometryConfirmedByTeacher !== true) {
         errors.push(`Part 5 interactiveObjects[${index}]: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn mask Colour.`);
       }
     });
-    const actionIds = (part.questions || []).flatMap((question) => (question.actions || []).map((action) => action.id));
+    const actionIds = (part2.questions || []).flatMap((question) => (question.actions || []).map((action) => action.id));
     if (!unique(actionIds)) errors.push("Part 5: action ID b\u1ECB tr\xF9ng.");
-    if (part.interactionSchemaVersion === 1 && (part.questions || []).some((question) => question.actions?.some((action) => action.type === "colour_object")) && objectIds.length < 2) {
+    if (part2.interactionSchemaVersion === 1 && (part2.questions || []).some((question) => question.actions?.some((action) => action.type === "colour_object")) && objectIds.length < 2) {
       errors.push("Part 5: colour_object c\u1EA7n \xEDt nh\u1EA5t hai public object \u0111\u1EC3 geometry kh\xF4ng tr\u1EDF th\xE0nh g\u1EE3i \xFD \u0111\xE1p \xE1n.");
     }
-    (part.questions || []).forEach((question, questionIndex) => {
+    (part2.questions || []).forEach((question, questionIndex) => {
       if (!isText(question.staffPrompt, 1e3)) errors.push(`Part 5 c\xE2u ${questionIndex + 1}: thi\u1EBFu n\u1ED9i dung.`);
       if (!question.actions?.length) errors.push(`Part 5 c\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t action.`);
       question.actions?.forEach((action, actionIndex) => {
@@ -6268,41 +6904,41 @@ function validatePart5(part, errors) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: object \u0111\u1EB7t kh\xF4ng h\u1EE3p l\u1EC7.`);
           }
           validateRegion(action.targetRegion, `Part 5 questions[${questionIndex}].actions[${actionIndex}].targetRegion`, errors);
-          if (part.interactionSchemaVersion === 2 && action.geometryConfirmedByTeacher !== true) {
+          if (part2.interactionSchemaVersion >= 2 && action.geometryConfirmedByTeacher !== true) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}, action ${actionIndex + 1}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn drop-zone Draw.`);
           }
-          const correctItem = part.objectPalette.find((item) => item.id === action.correctPaletteItemId);
-          if (part.interactionSchemaVersion === 1 && (!correctItem || !part.objectPalette.some((item) => item.id !== correctItem.id && item.objectType === correctItem.objectType))) {
+          const correctItem = part2.objectPalette.find((item) => item.id === action.correctPaletteItemId);
+          if (part2.interactionSchemaVersion === 1 && (!correctItem || !part2.objectPalette.some((item) => item.id !== correctItem.id && item.objectType === correctItem.objectType))) {
             errors.push(`Part 5 c\xE2u ${questionIndex + 1}: place_object c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t l\u1EF1a ch\u1ECDn nhi\u1EC5u c\xF9ng lo\u1EA1i.`);
           }
         }
       });
     });
-    if (part.interactionSchemaVersion === 2) {
-      const usedColourIds = new Set(part.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "colour_object" ? [action.correctColourId] : [])));
-      const usedPaletteIds = new Set(part.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "place_object" ? [action.correctPaletteItemId] : [])));
-      if (!studentColourIds.some((id) => !usedColourIds.has(id))) errors.push("Part 5: palette m\xE0u c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t m\xE0u nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
-      if (!paletteIds.some((id) => !usedPaletteIds.has(id))) errors.push("Part 5: object palette c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t icon nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
+    if (part2.interactionSchemaVersion === 2) {
+      const usedColourIds = new Set(part2.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "colour_object" ? [action.correctColourId] : [])));
+      const usedPaletteIds = new Set(part2.questions.flatMap((question) => question.actions.flatMap((action) => action.type === "place_object" ? [action.correctPaletteItemId] : [])));
+      if (!studentColourIds.some((id2) => !usedColourIds.has(id2))) errors.push("Part 5: palette m\xE0u c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t m\xE0u nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
+      if (!paletteIds.some((id2) => !usedPaletteIds.has(id2))) errors.push("Part 5: object palette c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t icon nhi\u1EC5u kh\xF4ng ph\u1EA3i \u0111\xE1p \xE1n.");
     }
     return;
   }
-  if (!isText(part.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\xF4 m\xE0u.");
-  if (part.colours?.length !== 6) errors.push("Part 5: c\u1EA7n \u0111\xFAng 6 m\xE0u (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
-  if (part.targets?.length !== 5) errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
-  const colourIds = (part.colours || []).map((colour) => colour.id);
-  if (!unique(colourIds) || (part.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
+  if (!isText(part2.sceneAssetId, 160)) errors.push("Part 5: thi\u1EBFu tranh t\xF4 m\xE0u.");
+  if (part2.colours?.length !== 6) errors.push("Part 5: c\u1EA7n \u0111\xFAng 6 m\xE0u (5 \u0111\xE1p \xE1n v\xE0 1 nhi\u1EC5u).");
+  if (part2.targets?.length !== 5) errors.push("Part 5: c\u1EA7n \u0111\xFAng 5 v\xF9ng ch\u1EA5m \u0111i\u1EC3m.");
+  const colourIds = (part2.colours || []).map((colour) => colour.id);
+  if (!unique(colourIds) || (part2.colours || []).some((colour) => !/^#[0-9a-f]{6}$/i.test(colour.value))) {
     errors.push("Part 5: m\xE0u ph\u1EA3i c\xF3 ID ri\xEAng v\xE0 m\xE3 #RRGGBB h\u1EE3p l\u1EC7.");
   }
-  if ((part.targets || []).some((target) => !colourIds.includes(target.correctColourId))) {
+  if ((part2.targets || []).some((target) => !colourIds.includes(target.correctColourId))) {
     errors.push("Part 5: v\xF9ng c\xF3 \u0111\xE1p \xE1n m\xE0u kh\xF4ng h\u1EE3p l\u1EC7.");
   }
-  validateRegionCollection(part.targets || [], "Part 5 targets", errors);
-  if (part.example) validateRegion(part.example.region, "Part 5 example.region", errors);
+  validateRegionCollection(part2.targets || [], "Part 5 targets", errors);
+  if (part2.example) validateRegion(part2.example.region, "Part 5 example.region", errors);
 }
 function validateListeningSetContent(content) {
   const errors = [];
   if (content?.moduleId !== void 0 && content.moduleId !== "mover") {
-    errors.push("B\u1ED9 \u0111\u1EC1 kh\xF4ng thu\u1ED9c module Mover.");
+    errors.push("B\u1ED9 \u0111\u1EC1 kh\xF4ng thu\u1ED9c module Movers.");
   }
   if (!content || content.schemaVersion !== 1) errors.push("Phi\xEAn b\u1EA3n c\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
   if (!isText(content?.title, 160)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
@@ -6324,12 +6960,12 @@ function validateListeningSetContent(content) {
 }
 function sanitizeListeningAnswers(value) {
   const source = value && typeof value === "object" ? value : {};
-  const record = (input, nested = false) => {
+  const record2 = (input, nested = false) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return {};
     const entries = Object.entries(input).slice(0, 100);
     return Object.fromEntries(entries.filter(([key]) => /^[a-zA-Z0-9_-]{1,160}$/.test(key)).map(([key, answer]) => [
       key,
-      nested ? record(answer, false) : String(answer ?? "").slice(0, 500)
+      nested ? record2(answer, false) : String(answer ?? "").slice(0, 500)
     ]));
   };
   const part5Record = (input) => {
@@ -6364,17 +7000,17 @@ function sanitizeListeningAnswers(value) {
     return sanitized;
   };
   return {
-    part1: record(source.part1),
-    part2: record(source.part2, true),
-    part3: record(source.part3),
-    part4: record(source.part4),
+    part1: record2(source.part1),
+    part2: record2(source.part2, true),
+    part3: record2(source.part3),
+    part4: record2(source.part4),
     part5: part5Record(source.part5)
   };
 }
 function sanitizeListeningContentForStudent(content) {
   const copy = structuredClone(content);
-  copy.parts.forEach((part) => {
-    delete part.audioTranscript;
+  copy.parts.forEach((part2) => {
+    delete part2.audioTranscript;
   });
   copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }) => target);
   if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
@@ -6392,7 +7028,7 @@ function sanitizeListeningContentForStudent(content) {
   copy.parts[3].questions = copy.parts[3].questions.map(({ correctOptionId: _answer, ...question }) => question);
   const part5 = copy.parts[4];
   if (part5.displayMode === "scene-colour-draw") {
-    if (part5.interactionSchemaVersion === 2) {
+    if (part5.interactionSchemaVersion >= 2) {
       const publicColourIds = new Set(part5.colourPaletteIds || []);
       part5.colours = part5.colours.filter((colour) => publicColourIds.has(colour.id));
     }
@@ -6454,8 +7090,8 @@ var PART1_SOL_PROVIDER_IDS = /* @__PURE__ */ new Set([
   "stali:gpt-5.6-sol",
   "devquota:gpt-5.6-sol"
 ]);
-function parseJson3(text4) {
-  const trimmed = text4.trim();
+function parseJson3(text6) {
+  const trimmed = text6.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
   try {
     return JSON.parse(trimmed);
@@ -6475,9 +7111,9 @@ function providerFailureDetails(reason) {
   }
   return details;
 }
-function providerFailureError(reason, part, schemaName, signal) {
+function providerFailureError(reason, part2, schemaName, signal) {
   const aborted = signal?.aborted || reason?.name === "AbortError";
-  const error = new Error(aborted ? `Smart Import Part ${part} \u0111\xE3 b\u1ECB h\u1EE7y do qu\xE1 th\u1EDDi gian x\u1EED l\xFD.` : `Nh\xE0 cung c\u1EA5p AI kh\xF4ng ho\xE0n t\u1EA5t ph\xE2n t\xEDch Part ${part}. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`);
+  const error = new Error(aborted ? `Smart Import Part ${part2} \u0111\xE3 b\u1ECB h\u1EE7y do qu\xE1 th\u1EDDi gian x\u1EED l\xFD.` : `Nh\xE0 cung c\u1EA5p AI kh\xF4ng ho\xE0n t\u1EA5t ph\xE2n t\xEDch Part ${part2}. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`);
   const upstreamStatus = Number(reason?.status);
   error.status = aborted ? 504 : upstreamStatus === 503 || upstreamStatus === 504 ? upstreamStatus : 502;
   error.details = providerFailureDetails(reason);
@@ -6512,9 +7148,9 @@ var cropSchema = {
   required: ["x", "y", "width", "height"],
   additionalProperties: false
 };
-function responseSchemaFor(part) {
+function responseSchemaFor(part2) {
   const numbered = { type: "integer", minimum: 1, maximum: 5 };
-  if (part === 1) return {
+  if (part2 === 1) return {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -6528,7 +7164,7 @@ function responseSchemaFor(part) {
     },
     required: ["printedNames", "targets", "answerMappings", "warnings"]
   };
-  if (part === 2) return {
+  if (part2 === 2) return {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -6542,7 +7178,7 @@ function responseSchemaFor(part) {
     },
     required: ["questions", "answers", "warnings"]
   };
-  if (part === 3) return {
+  if (part2 === 3) return {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -6554,7 +7190,7 @@ function responseSchemaFor(part) {
     },
     required: ["questionAnswers", "questionPictures", "answerKeyCells", "warnings"]
   };
-  if (part === 4) return {
+  if (part2 === 4) return {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -7183,18 +7819,18 @@ function fixedRegionFromPoint(point) {
     height
   };
 }
-function promptFor(part, pastedText) {
-  const common = `You extract structured data for Cambridge Movers Listening Part ${part}. Each attached image is explicitly preceded by its technical ROLE label; never infer roles from image order. Never use audio or transcript. Return only JSON. Coordinates are normalized 0..1. Do not invent unreadable text, answers, objects, colours, geometry or IDs. Never return UUID/database/question/action/object/choice IDs. Use warnings for uncertainty.`;
+function promptFor(part2, pastedText) {
+  const common = `You extract structured data for Cambridge Movers Listening Part ${part2}. Each attached image is explicitly preceded by its technical ROLE label; never infer roles from image order. Never use audio or transcript. Return only JSON. Coordinates are normalized 0..1. Do not invent unreadable text, answers, objects, colours, geometry or IDs. Never return UUID/database/question/action/object/choice IDs. Use warnings for uncertainty.`;
   const pasted = pastedText ? `
 Teacher supplied an explicit manual OCR fallback for the answer text:
 ${pastedText}` : "";
-  if (part === 1) return `${common}
+  if (part2 === 1) return `${common}
 ROLE question: detect every printed name, identify and separate the example, and locate the canonical scene. After removing the example there must be six draggable names. ROLE answer_key: read the five name-to-picture mappings. ROLE position_key: identify the five line endpoints on the picture/person side, never the name-side endpoints, plus the corresponding scene rectangle. Return questionScene, positionScene, printedNames, example, targets and answerMappings. Each target should have visualLabel, optional targetNumber, targetEndpoint and confidence; each mapping should have visualLabel/targetNumber and choiceLabel.${pasted}`;
-  if (part === 2) return `${common}
+  if (part2 === 2) return `${common}
 ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. ROLE answer_key supplies accepted answers numbered 1..5. Never infer an answer from the question image. Preserve text such as 4b exactly and split variants only when the source explicitly separates them with |. Return heading, instruction, exampleText, questions [{questionNumber,prompt}], answers [{questionNumber,correctAnswer,answerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
-  if (part === 3) return `${common}
+  if (part2 === 3) return `${common}
 ROLE question is the full worksheet: detect seven centre answer labels/regions with left/right anchor hints, six picture regions arranged three left and three right, and the printed example connection. ROLE answer_key is a two-column by three-row mapping; preserve side+row and do not flatten OCR order. Return questionAnswers, questionPictures, questionExample, answerKeyCells and warnings. The example is unscored and the remaining unused answer is the distractor.${pasted}`;
-  if (part === 4) return `${common}
+  if (part2 === 4) return `${common}
 ROLE question contains one example followed by exactly five numbered questions. Read only the example prompt and five numbered prompts; deterministic browser pixel code handles all picture crops, so crops may be omitted. ROLE answer_key supplies only scored answers 1..5 as A/B/C; map by questionNumber, never OCR index. Only the explicit example marker on the question image may set the example answer. Return valid JSON with example, questions, answers, orderedFallbackEvidence and warnings using exactly the supplied schema.${pasted}`;
   return `${common}
 ROLE question, ROLE answer_key and ROLE position_key supply Part 5 content. Detect every colour_object/place_object action and return Draw target regions in ROLE question coordinates by comparing the completed position key with the clean question. Never return Colour masks or technical IDs; teachers paint Colour regions manually. Colours must use only: ${MOVER_COLOUR_CATALOG.map((colour) => colour.label).join(", ")}.${pasted}`;
@@ -7648,7 +8284,6 @@ function normalizePart5(raw, currentPart, warnings) {
   if (colourActions.length) warnings.push("Part 5: gi\xE1o vi\xEAn ph\u1EA3i t\xF4/x\xE1c nh\u1EADn c\xE1c v\xF9ng Colour; AI kh\xF4ng t\u1EF1 t\u1EA1o mask Colour.");
   const paletteTypes = new Set(paletteItems.map((item) => comparable(item.objectType)));
   if (placeActions.some((action) => !paletteTypes.has(comparable(action.objectType)))) warnings.push("Part 5: palette thi\u1EBFu token \u0111\xFAng cho \xEDt nh\u1EA5t m\u1ED9t place action; gi\xE1o vi\xEAn ph\u1EA3i b\u1ED5 sung.");
-  if (placeActions.length && paletteItems.length <= new Set(placeActions.map((action) => comparable(action.objectType))).size) warnings.push("Part 5: object palette ch\u01B0a c\xF3 distractor; kh\xF4ng t\u1EF1 t\u1EA1o object gi\u1EA3.");
   if (currentPart.part === 5 && currentPart.displayMode === "scene-colour-draw") {
     currentPart.questions.forEach((question) => question.actions.forEach((action) => {
       const matched = questions.some((nextQuestion) => nextQuestion.questionNumber === question.questionNumber && nextQuestion.actions.some((next) => {
@@ -7668,18 +8303,18 @@ function normalizePart5(raw, currentPart, warnings) {
   }
   return { part: 5, paletteItems, questions };
 }
-function normalizeData(part, raw, currentPart, warnings) {
-  if (part === 1) return normalizePart1(raw, warnings);
-  if (part === 2) return normalizePart2(raw, warnings);
-  if (part === 3) return normalizePart3(raw, currentPart, warnings);
-  if (part === 4) return normalizePart4(raw, warnings);
+function normalizeData(part2, raw, currentPart, warnings) {
+  if (part2 === 1) return normalizePart1(raw, warnings);
+  if (part2 === 2) return normalizePart2(raw, warnings);
+  if (part2 === 3) return normalizePart3(raw, currentPart, warnings);
+  if (part2 === 4) return normalizePart4(raw, warnings);
   return normalizePart5(raw, currentPart, warnings);
 }
-function localFallback(part, text4) {
-  const rows = localNumberedLines(text4);
-  if (part === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
-  if (part === 3) {
-    const lines = text4.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+function localFallback(part2, text6) {
+  const rows = localNumberedLines(text6);
+  if (part2 === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
+  if (part2 === 3) {
+    const lines = text6.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const explicit = lines.flatMap((line) => {
       const match = line.match(/^(left|right)\s*([1-3])\s*[:=\-]\s*(.+)$/i);
       return match ? [{ side: match[1].toLowerCase(), row: Number(match[2]), answerLabel: match[3].trim() }] : [];
@@ -7953,13 +8588,13 @@ Your previous response was not valid for the required JSON schema and extraction
 }
 
 // src/features/listening-editor/smart-import/types.ts
-function getListeningSmartImportRoleDefinitions(part) {
-  if (part === 1) return [
+function getListeningSmartImportRoleDefinitions(part2) {
+  if (part2 === 1) return [
     { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true },
     { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: true }
   ];
-  if (part === 5) return [
+  if (part2 === 5) return [
     { role: "question", label: "\u1EA2nh \u0111\u1EC1 b\xE0i", required: true },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true },
     { role: "position_key", label: "\u1EA2nh \u0111\xE1p \xE1n + v\u1ECB tr\xED", required: true }
@@ -8028,8 +8663,8 @@ Return each complete Movers Listening Test that is visibly supported. For every 
 - Keep tests ordered by testNumber and pages in reading order.
 
 Return JSON only using the supplied schema.`.trim();
-function parseJson4(text4) {
-  const trimmed = text4.trim();
+function parseJson4(text6) {
+  const trimmed = text6.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u manifest.");
   try {
     return JSON.parse(trimmed);
@@ -8305,25 +8940,25 @@ function publicSetSummary(set) {
   } = set || {};
   return withListeningModuleMetadata(summary);
 }
-function withListeningModuleMetadata(record) {
+function withListeningModuleMetadata(record2) {
   return {
-    ...record,
-    moduleId: resolveListeningModuleId(record?.moduleId),
-    schemaVersion: Number(record?.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
-    moduleSchemaVersion: Number(record?.moduleSchemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION)
+    ...record2,
+    moduleId: resolveListeningModuleId(record2?.moduleId),
+    schemaVersion: Number(record2?.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
+    moduleSchemaVersion: Number(record2?.moduleSchemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION)
   };
 }
-function belongsToMoverModule(record) {
-  return resolveListeningModuleId(record?.moduleId) === DEFAULT_LISTENING_MODULE_ID;
+function belongsToMoverModule(record2) {
+  return resolveListeningModuleId(record2?.moduleId) === DEFAULT_LISTENING_MODULE_ID;
 }
 function withMoverContentMetadata(content) {
   return {
     ...content,
     moduleId: DEFAULT_LISTENING_MODULE_ID,
     schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
-    parts: content.parts.map((part) => ({
-      ...part,
-      schemaVersion: part.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION
+    parts: content.parts.map((part2) => ({
+      ...part2,
+      schemaVersion: part2.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION
     }))
   };
 }
@@ -8365,13 +9000,13 @@ function hasValidMagic(buffer, mimeType) {
 }
 function collectAssetReferences(content) {
   const references = [];
-  const add = (id, kind, entityId, role) => {
-    const assetId = text(id, 160);
+  const add = (id2, kind, entityId, role) => {
+    const assetId = text(id2, 160);
     if (assetId) references.push({ id: assetId, kind, entityId, role });
   };
   add(content.coverAssetId, "image", "set", "cover");
   add(content.backgroundAssetId, "image", "set", "background");
-  content.parts.forEach((part) => add(part.audioAssetId, "audio", `part-${part.part}`, "audio"));
+  content.parts.forEach((part2) => add(part2.audioAssetId, "audio", `part-${part2.part}`, "audio"));
   add(content.parts[0].sceneAssetId, "image", "part-1", "scene");
   add(content.parts[1].illustrationAssetId, "image", "part-2", "illustration");
   const part3 = content.parts[2];
@@ -8425,11 +9060,11 @@ async function resolveContentAssets(db, content, user) {
       throw apiError(400, `Icon Draw "${asset.name || asset.id}" ph\u1EA3i l\xE0 file PNG.`);
     }
   }
-  const url = (id) => id ? assets.get(id)?.url : void 0;
+  const url = (id2) => id2 ? assets.get(id2)?.url : void 0;
   clone.coverUrl = url(clone.coverAssetId);
   clone.backgroundUrl = url(clone.backgroundAssetId);
-  clone.parts.forEach((part) => {
-    part.audioUrl = url(part.audioAssetId);
+  clone.parts.forEach((part2) => {
+    part2.audioUrl = url(part2.audioAssetId);
   });
   clone.parts[0].sceneUrl = url(clone.parts[0].sceneAssetId);
   clone.parts[1].illustrationUrl = url(clone.parts[1].illustrationAssetId);
@@ -8463,17 +9098,17 @@ async function resolveContentAssets(db, content, user) {
   }
   return { content: clone, references };
 }
-async function getSet(db, id) {
-  const document = await db.collection("listening_sets").doc(id).get();
+async function getSet(db, id2) {
+  const document = await db.collection("listening_sets").doc(id2).get();
   if (!document.exists) return null;
-  const record = { id: document.id, ...document.data() };
-  return belongsToMoverModule(record) ? withListeningModuleMetadata(record) : null;
+  const record2 = { id: document.id, ...document.data() };
+  return belongsToMoverModule(record2) ? withListeningModuleMetadata(record2) : null;
 }
-async function getVersion(db, id) {
-  const document = await db.collection("listening_set_versions").doc(id).get();
+async function getVersion(db, id2) {
+  const document = await db.collection("listening_set_versions").doc(id2).get();
   if (!document.exists) return null;
-  const record = { id: document.id, ...document.data() };
-  return belongsToMoverModule(record) ? withListeningModuleMetadata(record) : null;
+  const record2 = { id: document.id, ...document.data() };
+  return belongsToMoverModule(record2) ? withListeningModuleMetadata(record2) : null;
 }
 async function getAssignmentByToken(db, token) {
   if (!token) return null;
@@ -8709,7 +9344,8 @@ function createListeningRouter(dependencies) {
       if (!isSuperAdmin(req.user) && asset.ownerId !== req.user.id) throw apiError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u tr\u1EEF media n\xE0y.");
       const usage = await db.collection("listening_asset_usages").where("assetId", "==", asset.id).get();
       const readingUsage = await db.collection("mover_reading_asset_usages").where("assetId", "==", asset.id).get();
-      if (!usage.empty || !readingUsage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
+      const examUsage = await db.collection("exam_asset_usages").where("assetId", "==", asset.id).get();
+      if (!usage.empty || !readingUsage.empty || !examUsage.empty) throw apiError(409, "Media \u0111ang \u0111\u01B0\u1EE3c m\u1ED9t phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n s\u1EED d\u1EE5ng.");
       await document.ref.update({ status: "archived", updatedAt: nowIso2() });
       res.json({ success: true });
     } catch (error) {
@@ -8845,11 +9481,11 @@ function createListeningRouter(dependencies) {
       if (recentUsage.length >= 20) throw apiError(429, "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n 20 l\u01B0\u1EE3t Smart Import trong 10 ph\xFAt.");
       recentUsage.push(Date.now());
       smartImportUsage.set(usageKey, recentUsage);
-      if (req.body?.moduleId !== "mover") throw apiError(400, "Smart Import hi\u1EC7n ch\u1EC9 h\u1ED7 tr\u1EE3 Mover.");
-      const part = Number(req.body?.part);
-      if (![1, 2, 3, 4, 5].includes(part)) throw apiError(400, "Part kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (req.body?.moduleId !== "mover") throw apiError(400, "Smart Import hi\u1EC7n ch\u1EC9 h\u1ED7 tr\u1EE3 Movers.");
+      const part2 = Number(req.body?.part);
+      if (![1, 2, 3, 4, 5].includes(part2)) throw apiError(400, "Part kh\xF4ng h\u1EE3p l\u1EC7.");
       const currentPart = req.body?.currentPart;
-      if (!currentPart || currentPart.part !== part) throw apiError(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (!currentPart || currentPart.part !== part2) throw apiError(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
       const basePartHash = text(req.body?.basePartHash, 64).toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError(400, "Thi\u1EBFu hash c\u1EE7a Part hi\u1EC7n t\u1EA1i.");
       if (sha256(JSON.stringify(currentPart)) !== basePartHash) {
@@ -8867,7 +9503,7 @@ function createListeningRouter(dependencies) {
       if (selectedProvider && !selectedProvider.enabled) {
         throw apiError(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh tr\xEAn m\xE1y ch\u1EE7.`);
       }
-      const roleDefinitions = getListeningSmartImportRoleDefinitions(part);
+      const roleDefinitions = getListeningSmartImportRoleDefinitions(part2);
       const allowedRoles = new Set(roleDefinitions.map((definition) => definition.role));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
       if (rawSources.length > 3) throw apiError(400, "Smart Import ch\u1EC9 nh\u1EADn t\u1ED1i \u0111a ba \u1EA3nh role-based.");
@@ -8889,7 +9525,7 @@ function createListeningRouter(dependencies) {
         sourceRequests.push({ role, ...assetId ? { assetId } : { transientToken } });
       }
       const missingRoles = roleDefinitions.filter((definition) => definition.required && !seenRoles.has(definition.role));
-      const answerTextFallback = Boolean(pastedText) && (part === 2 || part === 3);
+      const answerTextFallback = Boolean(pastedText) && (part2 === 2 || part2 === 3);
       const effectiveMissingRoles = missingRoles.filter((definition) => !(answerTextFallback && definition.role === "answer_key"));
       if (effectiveMissingRoles.length) {
         throw apiError(400, `Thi\u1EBFu ngu\u1ED3n b\u1EAFt bu\u1ED9c: ${effectiveMissingRoles.map((definition) => definition.label).join(", ")}.`);
@@ -8936,7 +9572,7 @@ function createListeningRouter(dependencies) {
       }
       const importAbortController = new AbortController();
       const importPromise = createListeningSmartImportCandidate({
-        part,
+        part: part2,
         currentPart,
         basePartHash,
         sources,
@@ -8965,7 +9601,7 @@ function createListeningRouter(dependencies) {
         req.user.name,
         req.user.email,
         "ANALYZE_LISTENING_PART",
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
+        `Smart Import Movers Part ${part2}; candidate ${candidate.id}; ${sources.length} \u1EA3nh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
       await Promise.allSettled(transientRemovers.map((remove) => remove()));
       transientRemovers.length = 0;
@@ -9580,10 +10216,11 @@ function createListeningLibraryRouter() {
       return res.status(404).json({ error: "Module k\u1EF3 thi kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
     const serverModule = getListeningServerModule(req.params.moduleId);
+    const genericAvailable = req.params.moduleId !== "mover" && getModuleExamPaperDefinitions(req.params.moduleId).length > 0;
     return res.json({
       ...publicListeningModuleManifest(manifest2),
-      available: Boolean(serverModule && manifest2.status === "active"),
-      gradingVersion: serverModule?.gradingVersion
+      available: Boolean((serverModule || genericAvailable) && manifest2.status === "active"),
+      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? "exam-platform-objective-v1" : void 0)
     });
   });
   return router;
@@ -9596,57 +10233,56 @@ var import_fs4 = __toESM(require("fs"), 1);
 var import_path4 = __toESM(require("path"), 1);
 
 // src/features/mover-reading-writing/smart-import/types.ts
-function getMoverReadingWritingSmartImportRoleDefinitions(part) {
-  if (part === 1) return [
+function getMoverReadingWritingSmartImportRoleDefinitions(part2) {
+  if (part2 === 1) return [
     { role: "word_bank", label: "\u1EA2nh ng\xE2n h\xE0ng t\u1EEB", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
     { role: "questions", label: "\u1EA2nh 6 c\xE2u h\u1ECFi", required: true, source: "transient", help: "Trang ch\u1EE9a s\xE1u c\xE2u c\u1EA7n nh\u1EADp." },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c, kh\xF4ng d\xF9ng AI t\u1EF1 gi\u1EA3i." }
   ];
-  if (part === 2) return [
+  if (part2 === 2) return [
     { role: "scene", label: "\u1EA2nh t\xECnh hu\u1ED1ng/v\xED d\u1EE5", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
     { role: "questions", label: "\u1EA2nh 6 nh\u1EADn \u0111\u1ECBnh", required: true, source: "transient", help: "Trang ch\u1EE9a s\xE1u nh\u1EADn \u0111\u1ECBnh Yes/No." },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n Yes/No ch\xEDnh th\u1EE9c." }
   ];
-  if (part === 3) return [
+  if (part2 === 3) return [
     { role: "scene", label: "\u1EA2nh h\u1ED9i tho\u1EA1i/v\xED d\u1EE5", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
     { role: "questions", label: "\u1EA2nh c\xE1c c\xE2u h\u1ED9i tho\u1EA1i", required: true, source: "transient", help: "Trang ch\u1EE9a \u0111\u1EE7 s\xE1u c\xE2u v\xE0 l\u1EF1a ch\u1ECDn A/B/C." },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n A/B/C ch\xEDnh th\u1EE9c." }
   ];
-  if (part === 4) return [
+  if (part2 === 4) return [
     { role: "word_bank", label: "\u1EA2nh ng\xE2n h\xE0ng t\u1EEB", required: true, source: "asset", help: "\u1EA2nh h\u1ECDc sinh s\u1EBD nh\xECn th\u1EA5y \u1EDF b\xEAn tr\xE1i." },
     { role: "story", label: "\u1EA2nh b\xE0i \u0111\u1ECDc v\xE0 c\xE2u 7", required: true, source: "transient", help: "Trang ch\u1EE9a truy\u1EC7n, s\xE1u ch\u1ED7 tr\u1ED1ng v\xE0 c\xE2u ch\u1ECDn ti\xEAu \u0111\u1EC1." },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n s\xE1u ch\u1ED7 tr\u1ED1ng v\xE0 c\xE2u 7." }
   ];
-  if (part === 5) return [
+  if (part2 === 5) return [
     { role: "scene_1", label: "Trang/tranh 1", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
     { role: "scene_2", label: "Trang/tranh 2", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
     { role: "scene_3", label: "Trang/tranh 3", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m \u1EA3nh h\u1ECDc sinh nh\xECn th\u1EA5y v\xE0 l\xE0m ngu\u1ED3n OCR." },
     { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "Ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c cho \u0111\u1EE7 m\u01B0\u1EDDi c\xE2u." }
   ];
   return [
-    { role: "passage", label: "\u1EA2nh ngu\u1ED3n b\xE0i \u0111\u1ECDc", required: true, source: "asset", help: "Ngu\u1ED3n OCR v\xE0 ngu\u1ED3n \u0111\u1EC3 crop \u1EA3nh b\xE0i \u0111\u1ECDc hi\u1EC3n th\u1ECB cho h\u1ECDc sinh." },
-    { role: "options", label: "\u1EA2nh b\u1EA3ng l\u1EF1a ch\u1ECDn", required: true, source: "asset", help: "D\xF9ng tr\u1EF1c ti\u1EBFp l\xE0m ng\xE2n h\xE0ng t\u1EEB \u0111\u1EC3 h\u1ECDc sinh nh\xECn v\xE0 t\u1EF1 vi\u1EBFt v\xE0o ch\u1ED7 tr\u1ED1ng." },
-    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n", required: true, source: "transient", help: "\u0110\u1ECDc nguy\xEAn v\u0103n t\u1EEB \u0111\xFAng theo s\u1ED1 c\xE2u; kh\xF4ng quy \u0111\u1ED5i sang A/B/C." }
+    { role: "options", label: "\u1EA2nh b\u1EA3ng l\u1EF1a ch\u1ECDn", required: true, source: "asset", help: "Ngu\u1ED3n OCR ba l\u1EF1a ch\u1ECDn A/B/C cho t\u1EEBng c\xE2u; \u1EA3nh n\xE0y ch\u1EC9 d\xF9ng khi so\u1EA1n \u0111\u1EC1." },
+    { role: "answer_key", label: "\u1EA2nh \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c", required: true, source: "transient", help: "Ngu\u1ED3n duy nh\u1EA5t \u0111\u1EC3 \xE1nh x\u1EA1 correctOption theo s\u1ED1 c\xE2u; AI kh\xF4ng \u0111\u01B0\u1EE3c t\u1EF1 gi\u1EA3i b\xE0i." }
   ];
 }
 
 // src/server/mover-reading-writing/moverReadingWritingGrader.ts
-var MOVER_READING_WRITING_GRADING_VERSION = "mover-reading-writing-v2";
+var MOVER_READING_WRITING_GRADING_VERSION = "mover-reading-writing-v3";
 function normalizeMoverReadingWritingText(value) {
   return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
 }
-function displayOption(options, id) {
-  const index = options.findIndex((option) => option.id === id);
+function displayOption(options, id2) {
+  const index = options.findIndex((option) => option.id === id2);
   if (index < 0) return "";
   const label = String.fromCharCode(65 + index);
   return `${label}. ${options[index].text}`.trim();
 }
-var displayTextPrompt = (prompt, id) => String(prompt || "").split(`{{${id}}}`).join("_____");
+var displayTextPrompt = (prompt, id2) => String(prompt || "").split(`{{${id2}}}`).join("_____");
 function gradeMoverReadingWritingAttempt(inputContent, answers) {
   const content = normalizeMoverReadingWritingContent(inputContent);
   const questions = [];
-  const push = (part, questionId, prompt, userAnswer, correctAnswer, correct) => questions.push({
-    part,
+  const push = (part2, questionId, prompt, userAnswer, correctAnswer, correct) => questions.push({
+    part: part2,
     questionId,
     prompt,
     userAnswer,
@@ -9682,18 +10318,33 @@ function gradeMoverReadingWritingAttempt(inputContent, answers) {
     const accepted = question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized);
     push(5, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", wordCount >= 1 && wordCount <= 3 && accepted);
   }));
-  content.parts[5].gaps.forEach((gap, index) => {
-    const actual = String(answers.part6?.[gap.id] || "");
-    const normalized = normalizeMoverReadingWritingText(actual);
-    push(
-      6,
-      gap.id,
-      `Ch\u1ED7 tr\u1ED1ng ${index + 1}`,
-      actual,
-      gap.acceptedAnswers[0] || "",
-      Boolean(normalized) && normalized.split(" ").length === 1 && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized)
-    );
-  });
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.questions.forEach((question) => {
+      const actualId = String(answers.part6?.[question.id] || "");
+      push(
+        6,
+        question.id,
+        `C\xE2u ${question.questionNumber}`,
+        displayOption(question.options, actualId),
+        displayOption(question.options, question.correctOptionId),
+        actualId === question.correctOptionId
+      );
+    });
+  } else {
+    part6.gaps.forEach((gap, index) => {
+      const actual = String(answers.part6?.[gap.id] || "");
+      const normalized = normalizeMoverReadingWritingText(actual);
+      push(
+        6,
+        gap.id,
+        `Ch\u1ED7 tr\u1ED1ng ${index + 1}`,
+        actual,
+        gap.acceptedAnswers[0] || "",
+        Boolean(normalized) && normalized.split(" ").length === 1 && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized)
+      );
+    });
+  }
   if (questions.length !== MOVER_READING_WRITING_TOTAL_QUESTIONS) {
     throw new Error(`Published Mover Reading & Writing version must contain exactly ${MOVER_READING_WRITING_TOTAL_QUESTIONS} questions; received ${questions.length}.`);
   }
@@ -9715,7 +10366,7 @@ var nonEmptyText = (value, max = 1e3) => typeof value === "string" && value.trim
 var unique2 = (values) => values.length === new Set(values).size;
 var normalizedWordCount = (value) => value.normalize("NFKC").trim().split(/\s+/).filter(Boolean).length;
 var templateText = (value) => value.replace(/\{\{[^}]+\}\}/g, "").trim();
-var markerCount = (template, id) => template.split(`{{${id}}}`).length - 1;
+var markerCount = (template, id2) => template.split(`{{${id2}}}`).length - 1;
 function validateTextAnswers(acceptedAnswers, label, errors, maxWords) {
   if (!Array.isArray(acceptedAnswers) || acceptedAnswers.length < 1 || acceptedAnswers.length > 20) {
     errors.push(`${label}: c\u1EA7n t\u1EEB 1 \u0111\u1EBFn 20 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn.`);
@@ -9728,12 +10379,12 @@ function validateTextAnswers(acceptedAnswers, label, errors, maxWords) {
     errors.push(`${label}: m\u1ED7i \u0111\xE1p \xE1n t\u1ED1i \u0111a ${maxWords} t\u1EEB.`);
   }
 }
-function validateChoiceQuestion(question, label, errors) {
+function validateChoiceQuestion(question, label, errors, requirePrompt = true) {
   if (!question || !nonEmptyText(question.id, 160)) {
     errors.push(`${label}: thi\u1EBFu ID c\xE2u h\u1ECFi.`);
     return;
   }
-  if (!nonEmptyText(question.prompt, 1e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
+  if (requirePrompt && !nonEmptyText(question.prompt, 1e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
   if (!Array.isArray(question.options) || question.options.length !== 3) {
     errors.push(`${label}: c\u1EA7n \u0111\xFAng 3 l\u1EF1a ch\u1ECDn.`);
     return;
@@ -9756,7 +10407,7 @@ function validateMoverReadingWritingContent(input) {
     return [error?.message || "C\u1EA5u tr\xFAc Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7."];
   }
   if (content.moduleId !== "mover" || content.paperId !== MOVER_READING_WRITING_PAPER_ID) {
-    errors.push("B\u1ED9 \u0111\u1EC1 ph\u1EA3i thu\u1ED9c Mover / Reading & Writing.");
+    errors.push("B\u1ED9 \u0111\u1EC1 ph\u1EA3i thu\u1ED9c Movers / Reading & Writing.");
   }
   if (!nonEmptyText(content.title, 160)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
   if (typeof content.description !== "string" || content.description.length > 2e3) errors.push("M\xF4 t\u1EA3 t\u1ED1i \u0111a 2.000 k\xFD t\u1EF1.");
@@ -9765,10 +10416,10 @@ function validateMoverReadingWritingContent(input) {
     errors.push("Gi\u1EDBi h\u1EA1n th\u1EDDi gian ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 300 ph\xFAt.");
   }
   if (!Array.isArray(content.parts) || content.parts.length !== 6) return [...errors, "Reading & Writing c\u1EA7n \u0111\xFAng 6 Part."];
-  content.parts.forEach((part, index) => {
-    if (part?.part !== index + 1) errors.push(`Part ${index + 1}: sai th\u1EE9 t\u1EF1 ho\u1EB7c lo\u1EA1i Part.`);
-    if (!nonEmptyText(part?.title, 160)) errors.push(`Part ${index + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
-    if (!nonEmptyText(part?.instruction, 1e3)) errors.push(`Part ${index + 1}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
+  content.parts.forEach((part7, index) => {
+    if (part7?.part !== index + 1) errors.push(`Part ${index + 1}: sai th\u1EE9 t\u1EF1 ho\u1EB7c lo\u1EA1i Part.`);
+    if (!nonEmptyText(part7?.title, 160)) errors.push(`Part ${index + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+    if (!nonEmptyText(part7?.instruction, 1e3)) errors.push(`Part ${index + 1}: thi\u1EBFu h\u01B0\u1EDBng d\u1EABn.`);
   });
   const part1 = content.parts[0];
   if (!nonEmptyText(part1.wordBankAssetId, 160)) errors.push("Part 1: thi\u1EBFu \u1EA3nh ng\xE2n h\xE0ng t\u1EEB.");
@@ -9818,18 +10469,30 @@ function validateMoverReadingWritingContent(input) {
     });
   });
   const part6 = content.parts[5];
-  if (!nonEmptyText(part6.illustrationAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\xE0i \u0111\u1ECDc \u0111\xE3 crop \u0111\u1EC3 hi\u1EC3n th\u1ECB.");
-  if (!nonEmptyText(part6.optionsAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\u1EA3ng l\u1EF1a ch\u1ECDn.");
-  if (!nonEmptyText(part6.passageTitle, 300)) errors.push("Part 6: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i \u0111\u1ECDc.");
-  if (!nonEmptyText(part6.passageTemplate, 2e4)) errors.push("Part 6: thi\u1EBFu n\u1ED9i dung b\xE0i \u0111\u1ECDc.");
-  if (/\[\[[^\]]+\]\]/.test(part6.passageTemplate || "")) errors.push("Part 6: b\xE0i \u0111\u1ECDc c\xF2n marker Smart Import ch\u01B0a \u0111\u01B0\u1EE3c chu\u1EA9n h\xF3a.");
-  if (part6.gaps?.length !== 5) errors.push("Part 6: c\u1EA7n \u0111\xFAng 5 ch\u1ED7 tr\u1ED1ng.");
-  if (!unique2((part6.gaps || []).map((gap) => gap.id))) errors.push("Part 6: ID ch\u1ED7 tr\u1ED1ng b\u1ECB tr\xF9ng.");
-  (part6.gaps || []).forEach((gap, index) => {
-    if (!nonEmptyText(gap.id, 160)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: thi\u1EBFu ID.`);
-    validateTextAnswers(gap.acceptedAnswers, `Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}`, errors, 1);
-    if (!part6.passageTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: b\xE0i \u0111\u1ECDc thi\u1EBFu token {{${gap.id}}}.`);
-  });
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    if (!nonEmptyText(part6.studentImageAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\xE0i \u0111\u1ECDc hi\u1EC3n th\u1ECB cho h\u1ECDc sinh.");
+    if (!nonEmptyText(part6.optionsSourceAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\u1EA3ng l\u1EF1a ch\u1ECDn d\xF9ng \u0111\u1EC3 nh\u1EADn di\u1EC7n \u0111\xE1p \xE1n.");
+    if (part6.questions?.length !== 5) errors.push("Part 6: c\u1EA7n \u0111\xFAng 5 c\xE2u tr\u1EAFc nghi\u1EC7m.");
+    if (!unique2((part6.questions || []).map((question) => question.id))) errors.push("Part 6: ID c\xE2u h\u1ECFi b\u1ECB tr\xF9ng.");
+    const questionNumbers = (part6.questions || []).map((question) => question.questionNumber);
+    if (!unique2(questionNumbers.map(String)) || [1, 2, 3, 4, 5].some((number2) => !questionNumbers.includes(number2))) {
+      errors.push("Part 6: questionNumber ph\u1EA3i \u0111\u1EE7 v\xE0 kh\xF4ng tr\xF9ng t\u1EEB 1 \u0111\u1EBFn 5.");
+    }
+    (part6.questions || []).forEach((question, index) => validateChoiceQuestion(question, `Part 6 c\xE2u ${index + 1}`, errors, false));
+  } else {
+    if (!nonEmptyText(part6.illustrationAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\xE0i \u0111\u1ECDc \u0111\xE3 crop \u0111\u1EC3 hi\u1EC3n th\u1ECB.");
+    if (!nonEmptyText(part6.optionsAssetId, 160)) errors.push("Part 6: thi\u1EBFu \u1EA3nh b\u1EA3ng l\u1EF1a ch\u1ECDn.");
+    if (!nonEmptyText(part6.passageTitle, 300)) errors.push("Part 6: thi\u1EBFu ti\xEAu \u0111\u1EC1 b\xE0i \u0111\u1ECDc.");
+    if (!nonEmptyText(part6.passageTemplate, 2e4)) errors.push("Part 6: thi\u1EBFu n\u1ED9i dung b\xE0i \u0111\u1ECDc.");
+    if (/\[\[[^\]]+\]\]/.test(part6.passageTemplate || "")) errors.push("Part 6: b\xE0i \u0111\u1ECDc c\xF2n marker Smart Import ch\u01B0a \u0111\u01B0\u1EE3c chu\u1EA9n h\xF3a.");
+    if (part6.gaps?.length !== 5) errors.push("Part 6: c\u1EA7n \u0111\xFAng 5 ch\u1ED7 tr\u1ED1ng.");
+    if (!unique2((part6.gaps || []).map((gap) => gap.id))) errors.push("Part 6: ID ch\u1ED7 tr\u1ED1ng b\u1ECB tr\xF9ng.");
+    (part6.gaps || []).forEach((gap, index) => {
+      if (!nonEmptyText(gap.id, 160)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: thi\u1EBFu ID.`);
+      validateTextAnswers(gap.acceptedAnswers, `Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}`, errors, 1);
+      if (!part6.passageTemplate.includes(`{{${gap.id}}}`)) errors.push(`Part 6 ch\u1ED7 tr\u1ED1ng ${index + 1}: b\xE0i \u0111\u1ECDc thi\u1EBFu token {{${gap.id}}}.`);
+    });
+  }
   return errors;
 }
 function sanitizeMoverReadingWritingContentForStudent(content) {
@@ -9840,9 +10503,15 @@ function sanitizeMoverReadingWritingContentForStudent(content) {
   clone.parts[3].gaps.forEach((gap) => delete gap.acceptedAnswers);
   delete clone.parts[3].titleQuestion.correctOptionId;
   clone.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => delete question.acceptedAnswers));
-  delete clone.parts[5].passageSourceAssetId;
-  delete clone.parts[5].passageSourceUrl;
-  clone.parts[5].gaps.forEach((gap) => delete gap.acceptedAnswers);
+  if (clone.parts[5].displayMode === "image-multiple-choice") {
+    delete clone.parts[5].optionsSourceAssetId;
+    delete clone.parts[5].optionsSourceUrl;
+    clone.parts[5].questions.forEach((question) => delete question.correctOptionId);
+  } else {
+    delete clone.parts[5].passageSourceAssetId;
+    delete clone.parts[5].passageSourceUrl;
+    clone.parts[5].gaps.forEach((gap) => delete gap.acceptedAnswers);
+  }
   return clone;
 }
 var safeAnswer = (value) => typeof value === "string" ? value.normalize("NFKC").slice(0, 300) : "";
@@ -9876,9 +10545,17 @@ function sanitizeMoverReadingWritingAnswers(inputContent, input) {
   content.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => {
     answers.part5[question.id] = safeAnswer(raw.part5?.[question.id]);
   }));
-  content.parts[5].gaps.forEach((gap) => {
-    answers.part6[gap.id] = safeAnswer(raw.part6?.[gap.id]);
-  });
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.questions.forEach((question) => {
+      const value = safeAnswer(raw.part6?.[question.id]);
+      answers.part6[question.id] = question.options.some((option) => option.id === value) ? value : "";
+    });
+  } else {
+    part6.gaps.forEach((gap) => {
+      answers.part6[gap.id] = safeAnswer(raw.part6?.[gap.id]);
+    });
+  }
   return answers;
 }
 
@@ -9886,7 +10563,7 @@ function sanitizeMoverReadingWritingAnswers(inputContent, input) {
 var import_node_crypto6 = __toESM(require("node:crypto"), 1);
 
 // src/features/mover-reading-writing/smart-import/contracts.ts
-var schemaId = (part) => `mover-rw-part${part}-external-v${part === 1 || part === 5 || part === 6 ? 2 : 1}`;
+var schemaId = (part2) => `mover-rw-part${part2}-external-v${part2 === 6 ? 3 : part2 === 1 || part2 === 5 ? 2 : 1}`;
 var isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 var cleanText2 = (value, max = 2e4) => typeof value === "string" ? value.normalize("NFKC").replace(/\r\n?/g, "\n").trim().slice(0, max) : "";
 function fail(message) {
@@ -9975,14 +10652,6 @@ function choiceQuestionAt(value, label, warnings, withNumber) {
   if (!result.prompt) warnings.push(`${label}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c c\xE2u d\u1EABn; n\u1ED9i dung hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
   return withNumber ? { ...result, questionNumber: Number(row.questionNumber) } : result;
 }
-function textGapAt(value, label, warnings) {
-  const row = objectAt(value, label);
-  assertKeys(row, ["gapNumber", "acceptedAnswers"], label);
-  return {
-    gapNumber: Number(row.gapNumber),
-    acceptedAnswers: answersAt(row.acceptedAnswers, `${label} \u0111\xE1p \xE1n`, warnings, 1)
-  };
-}
 function validateQuestionMarker(template, number2, label) {
   const markers = [...template.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
   if (markers.length !== 1 || markers[0] !== String(number2)) {
@@ -9995,26 +10664,26 @@ function validateMarkers(template, count, label) {
   const expected = Array.from({ length: count }, (_, index) => index + 1);
   if (allMarkers.length !== found.length || found.length !== count || new Set(found).size !== count || expected.some((number2) => !found.includes(number2))) fail(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t l\u1EA7n c\xE1c marker [[1]] \u0111\u1EBFn [[${count}]].`);
 }
-function rootAt(part, value, allowed) {
-  const root = objectAt(value, `JSON Part ${part}`);
-  assertKeys(root, ["schema", "part", ...allowed], `JSON Part ${part}`);
-  if (root.schema !== schemaId(part)) fail(`schema ph\u1EA3i l\xE0 "${schemaId(part)}".`);
-  if (Number(root.part) !== part) fail(`D\u1EEF li\u1EC7u kh\xF4ng thu\u1ED9c Part ${part}.`);
+function rootAt(part2, value, allowed) {
+  const root = objectAt(value, `JSON Part ${part2}`);
+  assertKeys(root, ["schema", "part", ...allowed], `JSON Part ${part2}`);
+  if (root.schema !== schemaId(part2)) fail(`schema ph\u1EA3i l\xE0 "${schemaId(part2)}".`);
+  if (Number(root.part) !== part2) fail(`D\u1EEF li\u1EC7u kh\xF4ng thu\u1ED9c Part ${part2}.`);
   return root;
 }
-function validateAndNormalizeMoverReadingWritingImport(part, value) {
+function validateAndNormalizeMoverReadingWritingImport(part2, value) {
   const warnings = [];
-  if (part === 1) {
-    const root2 = rootAt(part, value, ["title", "instruction", "example", "questions"]);
-    const questions = exactNumbered(
+  if (part2 === 1) {
+    const root2 = rootAt(part2, value, ["title", "instruction", "example", "questions"]);
+    const questions2 = exactNumbered(
       arrayAt(root2.questions, "Part 1 questions").map((row, index) => textQuestionAt(row, `Part 1 c\xE2u ${index + 1}`, warnings)),
       6,
       "Part 1 questions"
     );
-    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 1 example", warnings), questions }, warnings };
+    return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 1 example", warnings), questions: questions2 }, warnings };
   }
-  if (part === 2) {
-    const root2 = rootAt(part, value, ["title", "instruction", "examples", "questions"]);
+  if (part2 === 2) {
+    const root2 = rootAt(part2, value, ["title", "instruction", "examples", "questions"]);
     const examples = arrayAt(root2.examples, "Part 2 examples").slice(0, 4).flatMap((value2, index) => {
       const row = objectAt(value2, `Part 2 example ${index + 1}`);
       assertKeys(row, ["prompt", "answer"], `Part 2 example ${index + 1}`);
@@ -10025,7 +10694,7 @@ function validateAndNormalizeMoverReadingWritingImport(part, value) {
       if (!answer) warnings.push(`Part 2 example ${index + 1}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n Yes/No.`);
       return [{ prompt, answer }];
     });
-    const questions = exactNumbered(arrayAt(root2.questions, "Part 2 questions").map((value2, index) => {
+    const questions2 = exactNumbered(arrayAt(root2.questions, "Part 2 questions").map((value2, index) => {
       const row = objectAt(value2, `Part 2 c\xE2u ${index + 1}`);
       assertKeys(row, ["questionNumber", "statement", "correctAnswer"], `Part 2 c\xE2u ${index + 1}`);
       const answerText = cleanText2(row.correctAnswer, 20).toLowerCase();
@@ -10035,33 +10704,33 @@ function validateAndNormalizeMoverReadingWritingImport(part, value) {
       if (!statement) warnings.push(`Part 2 c\xE2u ${index + 1}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c nh\u1EADn \u0111\u1ECBnh.`);
       return { questionNumber: Number(row.questionNumber), statement, correctAnswer };
     }), 6, "Part 2 questions");
-    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), examples, questions }, warnings };
+    return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), examples, questions: questions2 }, warnings };
   }
-  if (part === 3) {
-    const root2 = rootAt(part, value, ["title", "instruction", "example", "questions"]);
+  if (part2 === 3) {
+    const root2 = rootAt(part2, value, ["title", "instruction", "example", "questions"]);
     const example = root2.example ? choiceQuestionAt(root2.example, "Part 3 example", warnings, false) : void 0;
-    const questions = exactNumbered(
+    const questions2 = exactNumbered(
       arrayAt(root2.questions, "Part 3 questions").map((row, index) => choiceQuestionAt(row, `Part 3 c\xE2u ${index + 1}`, warnings, true)),
       6,
       "Part 3 questions"
     );
-    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example, questions }, warnings };
+    return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example, questions: questions2 }, warnings };
   }
-  if (part === 4) {
-    const root2 = rootAt(part, value, ["title", "instruction", "storyTemplate", "example", "gaps", "titleQuestion"]);
+  if (part2 === 4) {
+    const root2 = rootAt(part2, value, ["title", "instruction", "storyTemplate", "example", "gaps", "titleQuestion"]);
     const storyTemplate = cleanText2(root2.storyTemplate);
     validateMarkers(storyTemplate, 6, "Part 4 storyTemplate");
-    const gaps2 = arrayAt(root2.gaps, "Part 4 gaps").map((value2, index) => {
+    const gaps = arrayAt(root2.gaps, "Part 4 gaps").map((value2, index) => {
       const row = objectAt(value2, `Part 4 gap ${index + 1}`);
       assertKeys(row, ["gapNumber", "acceptedAnswers"], `Part 4 gap ${index + 1}`);
       return { gapNumber: Number(row.gapNumber), acceptedAnswers: answersAt(row.acceptedAnswers, `Part 4 gap ${index + 1}`, warnings) };
     });
-    exactNumbered(gaps2.map((row) => ({ ...row, questionNumber: row.gapNumber })), 6, "Part 4 gaps");
+    exactNumbered(gaps.map((row) => ({ ...row, questionNumber: row.gapNumber })), 6, "Part 4 gaps");
     const titleQuestion = choiceQuestionAt(root2.titleQuestion, "Part 4 c\xE2u 7", warnings, false);
-    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), storyTemplate, example: exampleAt(root2.example, "Part 4 example", warnings), gaps: gaps2.sort((a, b) => a.gapNumber - b.gapNumber), titleQuestion }, warnings };
+    return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), storyTemplate, example: exampleAt(root2.example, "Part 4 example", warnings), gaps: gaps.sort((a, b) => a.gapNumber - b.gapNumber), titleQuestion }, warnings };
   }
-  if (part === 5) {
-    const root2 = rootAt(part, value, ["title", "instruction", "example", "scenes"]);
+  if (part2 === 5) {
+    const root2 = rootAt(part2, value, ["title", "instruction", "example", "scenes"]);
     const scenes = arrayAt(root2.scenes, "Part 5 scenes").map((value2, sceneIndex) => {
       const row = objectAt(value2, `Part 5 scene ${sceneIndex + 1}`);
       assertKeys(row, ["sceneNumber", "passage", "questions"], `Part 5 scene ${sceneIndex + 1}`);
@@ -10081,21 +10750,27 @@ function validateAndNormalizeMoverReadingWritingImport(part, value) {
       if (!scene.passage) warnings.push(`Part 5 scene ${scene.sceneNumber}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c n\u1ED9i dung truy\u1EC7n.`);
       if (!scene.questions.length) fail(`Part 5 scene ${scene.sceneNumber} ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u.`);
     });
-    return { data: { part, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 5 example", warnings), scenes: scenes.sort((a, b) => a.sceneNumber - b.sceneNumber) }, warnings };
+    return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 5 example", warnings), scenes: scenes.sort((a, b) => a.sceneNumber - b.sceneNumber) }, warnings };
   }
-  const root = rootAt(part, value, ["title", "instruction", "passageTitle", "passageTemplate", "example", "gaps"]);
-  const passageTemplate = cleanText2(root.passageTemplate);
-  validateMarkers(passageTemplate, 5, "Part 6 passageTemplate");
-  const gaps = arrayAt(root.gaps, "Part 6 gaps").map((row, index) => textGapAt(row, `Part 6 gap ${index + 1}`, warnings));
-  exactNumbered(
-    gaps.map((row) => ({ ...row, questionNumber: row.gapNumber })),
+  const root = rootAt(part2, value, ["questions"]);
+  const questions = exactNumbered(
+    arrayAt(root.questions, "Part 6 questions").map((value2, index) => {
+      const row = objectAt(value2, `Part 6 c\xE2u ${index + 1}`);
+      assertKeys(row, ["questionNumber", "options", "correctOption"], `Part 6 c\xE2u ${index + 1}`);
+      const rawOptions = arrayAt(row.options, `Part 6 c\xE2u ${index + 1} l\u1EF1a ch\u1ECDn`);
+      if (rawOptions.length !== 3) fail(`Part 6 c\xE2u ${index + 1} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
+      const options = rawOptions.map((option) => cleanText2(option, 500));
+      if (options.some((option) => !option)) warnings.push(`Part 6 c\xE2u ${index + 1}: c\xF3 l\u1EF1a ch\u1ECDn ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c; n\u1ED9i dung draft hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
+      return {
+        questionNumber: Number(row.questionNumber),
+        options,
+        correctOption: normalizeCorrectOption(row.correctOption, `Part 6 c\xE2u ${index + 1}`, warnings)
+      };
+    }),
     5,
-    "Part 6 gaps"
+    "Part 6 questions"
   );
-  gaps.sort((first, second) => first.gapNumber - second.gapNumber);
-  const passageTitle = cleanText2(root.passageTitle, 300);
-  if (!passageTitle) warnings.push("Part 6: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c ti\xEAu \u0111\u1EC1 b\xE0i \u0111\u1ECDc.");
-  return { data: { part, title: cleanText2(root.title, 160), instruction: cleanText2(root.instruction, 1e3), passageTitle, passageTemplate, example: exampleAt(root.example, "Part 6 example", warnings), gaps }, warnings };
+  return { data: { part: part2, questions }, warnings };
 }
 var choice = (questionNumber2, prompt = "") => ({ questionNumber: questionNumber2, prompt, promptSpeaker: "", answerSpeaker: "", options: ["A", "B", "C"], correctOption: "A" });
 var textQuestion = (questionNumber2) => ({ questionNumber: questionNumber2, promptTemplate: `Question text [[${questionNumber2}]]`, acceptedAnswers: [""] });
@@ -10109,16 +10784,16 @@ var templates = {
     { sceneNumber: 2, passage: "", questions: [4, 5, 6, 7].map(textQuestion) },
     { sceneNumber: 3, passage: "", questions: [8, 9, 10].map(textQuestion) }
   ] },
-  6: { schema: schemaId(6), part: 6, title: "Part 6", instruction: "Read the text. Choose the right words...", passageTitle: "", passageTemplate: "Text [[1]] text [[2]] text [[3]] text [[4]] text [[5]].", example: { prompt: "", answer: "" }, gaps: Array.from({ length: 5 }, (_, index) => ({ gapNumber: index + 1, acceptedAnswers: ["and"] })) }
+  6: { schema: schemaId(6), part: 6, questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, options: ["A option", "B option", "C option"], correctOption: "A" })) }
 };
-var moverReadingWritingExternalTemplate = (part) => JSON.stringify(templates[part], null, 2);
+var moverReadingWritingExternalTemplate = (part2) => JSON.stringify(templates[part2], null, 2);
 var moverReadingWritingExternalHelp = {
   1: "\u0110\u1ECDc \u1EA3nh ng\xE2n h\xE0ng t\u1EEB, s\xE1u c\xE2u m\xF4 t\u1EA3 v\xE0 answer key. M\u1ED7i promptTemplate ph\u1EA3i ch\u1EE9a \u0111\xFAng marker [[questionNumber]] t\u1EA1i v\u1ECB tr\xED h\u1ECDc sinh vi\u1EBFt \u0111\xE1p \xE1n; acceptedAnswers ch\u1EC9 l\u1EA5y t\u1EEB ngu\u1ED3n \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c.",
   2: "\u0110\u1ECDc c\xE1c v\xED d\u1EE5, \u0111\xFAng s\xE1u nh\u1EADn \u0111\u1ECBnh v\xE0 \u0111\xE1p \xE1n yes/no theo s\u1ED1 c\xE2u.",
   3: "\u0110\u1ECDc v\xED d\u1EE5 v\xE0 \u0111\xFAng s\xE1u l\u01B0\u1EE3t h\u1ED9i tho\u1EA1i, m\u1ED7i c\xE2u ba l\u1EF1a ch\u1ECDn A/B/C; \u0111\xE1p \xE1n \u0111\xFAng ch\u1EC9 l\u1EA5y t\u1EEB answer key.",
   4: "D\xF9ng marker [[1]]\u2026[[6]] \u0111\xFAng m\u1ED9t l\u1EA7n trong truy\u1EC7n, s\xE1u \u0111\xE1p \xE1n v\xE0 m\u1ED9t c\xE2u ch\u1ECDn ti\xEAu \u0111\u1EC1.",
   5: "\u0110\u1ECDc ba scene theo th\u1EE9 t\u1EF1, t\u1ED5ng \u0111\xFAng m\u01B0\u1EDDi c\xE2u. M\u1ED7i promptTemplate ph\u1EA3i ch\u1EE9a \u0111\xFAng marker [[questionNumber]] t\u1EA1i v\u1ECB tr\xED h\u1ECDc sinh vi\u1EBFt \u0111\xE1p \xE1n; m\u1ED7i acceptedAnswers kh\xF4ng qu\xE1 ba t\u1EEB.",
-  6: "D\xF9ng marker [[1]]\u2026[[5]] \u0111\xFAng m\u1ED9t l\u1EA7n trong b\xE0i \u0111\u1ECDc; kh\xF4ng \u0111\u01B0a d\xF2ng Example v\xE0o passageTemplate. M\u1ED7i gap ch\u1EC9 tr\u1EA3 gapNumber v\xE0 acceptedAnswers l\u1EA5y nguy\xEAn v\u0103n t\u1EEB answer key, t\u1ED1i \u0111a m\u1ED9t t\u1EEB; kh\xF4ng tr\u1EA3 A/B/C ho\u1EB7c t\u1EF1 gi\u1EA3i t\u1EEB b\u1EA3ng l\u1EF1a ch\u1ECDn."
+  6: "Ch\u1EC9 \u0111\u1ECDc \u0111\xFAng n\u0103m h\xE0ng \u0111\xE1nh s\u1ED1 t\u1EEB \u1EA3nh b\u1EA3ng l\u1EF1a ch\u1ECDn v\xE0 tr\u1EA3 \u0111\xFAng ba options A/B/C cho m\u1ED7i h\xE0ng. correctOption ch\u1EC9 \u0111\u01B0\u1EE3c \xE1nh x\u1EA1 t\u1EEB \u1EA3nh \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c c\xF9ng s\u1ED1 c\xE2u; kh\xF4ng OCR b\xE0i \u0111\u1ECDc v\xE0 tuy\u1EC7t \u0111\u1ED1i kh\xF4ng t\u1EF1 gi\u1EA3i."
 };
 function schemaFromTemplate(value) {
   if (Array.isArray(value)) return { type: "array", items: schemaFromTemplate(value[0] ?? ""), maxItems: 20 };
@@ -10129,8 +10804,8 @@ function schemaFromTemplate(value) {
   if (typeof value === "number") return { type: "number" };
   return { type: "string", maxLength: 2e4 };
 }
-var moverReadingWritingImportResponseSchema = (part) => schemaFromTemplate(templates[part]);
-var moverReadingWritingImportSchemaName = (part) => `mover_rw_part_${part}_v${part === 1 || part === 5 || part === 6 ? 2 : 1}`;
+var moverReadingWritingImportResponseSchema = (part2) => schemaFromTemplate(templates[part2]);
+var moverReadingWritingImportSchemaName = (part2) => `mover_rw_part_${part2}_v${part2 === 6 ? 3 : part2 === 1 || part2 === 5 ? 2 : 1}`;
 
 // src/server/mover-reading-writing/moverReadingWritingSmartImportService.ts
 var parseJson5 = (source) => {
@@ -10138,16 +10813,29 @@ var parseJson5 = (source) => {
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim() || trimmed;
   return JSON.parse(fenced);
 };
-function promptForPart(part) {
+function promptForPart(part2) {
+  if (part2 === 6) {
+    return [
+      "Extract Cambridge Movers Reading & Writing Part 6 answer choices from the two role-labelled images.",
+      "ROLE options contains exactly five numbered rows. Transcribe exactly three choices A/B/C for each questionNumber 1..5.",
+      "ROLE answer_key is the sole authority for correctOption. Map its official answer to A/B/C by question number.",
+      "Never read, reconstruct or return the passage. Never solve the exercise and never infer a missing correct answer.",
+      'If a choice or official answer is unreadable, return an empty string for that choice or "unknown" for correctOption.',
+      "Do not output UUIDs, database IDs, question IDs, choice IDs, option IDs or fields outside the schema.",
+      moverReadingWritingExternalHelp[part2],
+      "Return exactly one JSON value using this structural example:",
+      moverReadingWritingExternalTemplate(part2)
+    ].join("\n\n");
+  }
   return [
-    `Extract Cambridge Movers Reading & Writing Part ${part} from the role-labelled images.`,
+    `Extract Cambridge Movers Reading & Writing Part ${part2} from the role-labelled images.`,
     "The answer_key image is the only authority for correct answers. Never solve the exercise and never infer a missing answer.",
     "Read question/order/text from the question, scene, story, passage or options roles. Preserve spelling, punctuation and printed numbering.",
     'If text is unreadable use an empty string or empty acceptedAnswers array. If a correct answer is unreadable use "unknown".',
     "Do not output UUIDs, database IDs, question IDs, choice IDs, option IDs or gap IDs.",
-    moverReadingWritingExternalHelp[part],
+    moverReadingWritingExternalHelp[part2],
     "Return exactly one JSON value using this structural example:",
-    moverReadingWritingExternalTemplate(part)
+    moverReadingWritingExternalTemplate(part2)
   ].join("\n\n");
 }
 function boundedProviderDetails(reason) {
@@ -10254,7 +10942,7 @@ function apiError2(status, message, details) {
 }
 function sendError2(res, error) {
   res.status(Number(error?.status || 500)).json({
-    error: error?.message || "Kh\xF4ng th\u1EC3 x\u1EED l\xFD y\xEAu c\u1EA7u Mover Reading & Writing.",
+    error: error?.message || "Kh\xF4ng th\u1EC3 x\u1EED l\xFD y\xEAu c\u1EA7u Movers Reading & Writing.",
     ...error?.details ? { details: error.details } : {}
   });
 }
@@ -10290,8 +10978,8 @@ function decodeTicket2(ticket, secret) {
     throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   }
 }
-async function getSet2(db, id) {
-  const document = await db.collection("mover_reading_sets").doc(id).get();
+async function getSet2(db, id2) {
+  const document = await db.collection("mover_reading_sets").doc(id2).get();
   if (!document.exists) return null;
   const set = { id: document.id, ...document.data() };
   if (set.draftContent && isSupportedMoverReadingWritingSchemaVersion(set.draftContent.schemaVersion)) {
@@ -10299,8 +10987,8 @@ async function getSet2(db, id) {
   }
   return set;
 }
-async function getVersion2(db, id) {
-  const document = await db.collection("mover_reading_set_versions").doc(id).get();
+async function getVersion2(db, id2) {
+  const document = await db.collection("mover_reading_set_versions").doc(id2).get();
   if (!document.exists) return null;
   const version = { id: document.id, ...document.data() };
   if (version.content && isSupportedMoverReadingWritingSchemaVersion(version.content.schemaVersion)) {
@@ -10357,8 +11045,8 @@ async function resolveActor2(req, resolveGuestProfile2, classInfo = {}) {
 }
 function collectAssetReferences2(content) {
   const references = [];
-  const add = (id, entityId, role) => {
-    const assetId = text2(id, 160);
+  const add = (id2, entityId, role) => {
+    const assetId = text2(id2, 160);
     if (assetId) references.push({ id: assetId, entityId, role });
   };
   add(content.coverAssetId, "set", "cover");
@@ -10367,9 +11055,15 @@ function collectAssetReferences2(content) {
   add(content.parts[2].sceneAssetId, "part-3", "scene");
   add(content.parts[3].wordBankAssetId, "part-4", "word-bank");
   content.parts[4].scenes.forEach((scene, index) => add(scene.imageAssetId, scene.id || `part-5-scene-${index + 1}`, "scene"));
-  add(content.parts[5].passageSourceAssetId, "part-6-source", "passage-source");
-  add(content.parts[5].illustrationAssetId, "part-6", "illustration");
-  add(content.parts[5].optionsAssetId, "part-6-options", "options");
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    add(part6.studentImageAssetId, "part-6", "student-image");
+    add(part6.optionsSourceAssetId, "part-6-options-source", "options-source");
+  } else {
+    add(part6.passageSourceAssetId, "part-6-source", "passage-source");
+    add(part6.illustrationAssetId, "part-6", "illustration");
+    add(part6.optionsAssetId, "part-6-options", "options");
+  }
   return references;
 }
 async function resolveContentAssets2(db, content, user) {
@@ -10384,7 +11078,7 @@ async function resolveContentAssets2(db, content, user) {
     if (!isSuperAdmin2(user) && asset.ownerId !== user.id) throw apiError2(403, `B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng h\xECnh \u1EA3nh "${asset.name || asset.id}".`);
     assets.set(assetId, asset);
   }));
-  const url = (id) => id ? assets.get(id)?.url : void 0;
+  const url = (id2) => id2 ? assets.get(id2)?.url : void 0;
   clone.coverUrl = url(clone.coverAssetId);
   clone.parts[0].wordBankUrl = url(clone.parts[0].wordBankAssetId);
   clone.parts[1].sceneUrl = url(clone.parts[1].sceneAssetId);
@@ -10393,18 +11087,25 @@ async function resolveContentAssets2(db, content, user) {
   clone.parts[4].scenes.forEach((scene) => {
     scene.imageUrl = url(scene.imageAssetId);
   });
-  clone.parts[5].passageSourceUrl = url(clone.parts[5].passageSourceAssetId);
-  clone.parts[5].illustrationUrl = url(clone.parts[5].illustrationAssetId);
-  clone.parts[5].optionsUrl = url(clone.parts[5].optionsAssetId);
+  const part6 = clone.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.studentImageUrl = url(part6.studentImageAssetId);
+    part6.optionsSourceUrl = url(part6.optionsSourceAssetId);
+  } else {
+    part6.passageSourceUrl = url(part6.passageSourceAssetId);
+    part6.illustrationUrl = url(part6.illustrationAssetId);
+    part6.optionsUrl = url(part6.optionsAssetId);
+  }
   return { content: clone, references };
 }
 function playableSet2(set, version) {
+  const content = sanitizeMoverReadingWritingContentForStudent(version.content);
   return {
     ...publicSetSummary2(set),
-    schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+    schemaVersion: content.schemaVersion,
     versionId: version.id,
     versionNumber: version.versionNumber,
-    content: sanitizeMoverReadingWritingContentForStudent(version.content)
+    content
   };
 }
 function createMoverReadingWritingRouter(dependencies) {
@@ -10495,12 +11196,15 @@ function createMoverReadingWritingRouter(dependencies) {
       recentUsage.push(Date.now());
       smartImportUsage.set(req.user.id, recentUsage);
       if (req.body?.moduleId !== "mover" || req.body?.paperId !== MOVER_READING_WRITING_PAPER_ID) {
-        throw apiError2(400, "Smart Import n\xE0y ch\u1EC9 h\u1ED7 tr\u1EE3 Mover Reading & Writing.");
+        throw apiError2(400, "Smart Import n\xE0y ch\u1EC9 h\u1ED7 tr\u1EE3 Movers Reading & Writing.");
       }
-      const part = Number(req.body?.part);
-      if (![1, 2, 3, 4, 5, 6].includes(part)) throw apiError2(400, "Part Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7.");
+      const part2 = Number(req.body?.part);
+      if (![1, 2, 3, 4, 5, 6].includes(part2)) throw apiError2(400, "Part Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7.");
       const currentPart = req.body?.currentPart;
-      if (!currentPart || currentPart.part !== part) throw apiError2(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (!currentPart || currentPart.part !== part2) throw apiError2(400, "D\u1EEF li\u1EC7u Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (currentPart.part === 6 && currentPart.displayMode !== "image-multiple-choice") {
+        throw apiError2(409, "H\xE3y chuy\u1EC3n Part 6 text-gap c\u0169 sang c\u1EA5u tr\xFAc tr\u1EAFc nghi\u1EC7m \u1EA3nh tr\u01B0\u1EDBc khi ph\xE2n t\xEDch.");
+      }
       const basePartHash = text2(req.body?.basePartHash, 64).toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError2(400, "Thi\u1EBFu hash c\u1EE7a Part hi\u1EC7n t\u1EA1i.");
       if (sha2562(JSON.stringify(currentPart)) !== basePartHash) {
@@ -10512,7 +11216,7 @@ function createMoverReadingWritingRouter(dependencies) {
       if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
         throw apiError2(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a s\u1EB5n s\xE0ng cho \u1EA3nh.`);
       }
-      const definitions = getMoverReadingWritingSmartImportRoleDefinitions(part);
+      const definitions = getMoverReadingWritingSmartImportRoleDefinitions(part2);
       const definitionByRole = new Map(definitions.map((definition) => [definition.role, definition]));
       const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
       if (rawSources.length > 4) throw apiError2(400, "Smart Import Reading & Writing nh\u1EADn t\u1ED1i \u0111a b\u1ED1n \u1EA3nh theo vai tr\xF2.");
@@ -10581,7 +11285,7 @@ function createMoverReadingWritingRouter(dependencies) {
       const abortController = new AbortController();
       let timeoutId;
       const candidatePromise = createMoverReadingWritingSmartImportCandidate({
-        part,
+        part: part2,
         basePartHash,
         images,
         preferredProvider,
@@ -10604,7 +11308,7 @@ function createMoverReadingWritingRouter(dependencies) {
         req.user.name,
         req.user.email,
         "ANALYZE_MOVER_READING_SMART_IMPORT",
-        `Ph\xE2n t\xEDch Reading & Writing Part ${part} b\u1EB1ng ${candidate.provider}; ${candidate.warnings.length} c\u1EA3nh b\xE1o.`
+        `Ph\xE2n t\xEDch Reading & Writing Part ${part2} b\u1EB1ng ${candidate.provider}; ${candidate.warnings.length} c\u1EA3nh b\xE1o.`
       );
       res.json(candidate);
     } catch (error) {
@@ -10638,10 +11342,10 @@ function createMoverReadingWritingRouter(dependencies) {
         id: identifier2("mrwset"),
         moduleId: "mover",
         paperId: MOVER_READING_WRITING_PAPER_ID,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: content.schemaVersion,
         ownerId: req.user.id,
         createdBy: req.user.id,
-        title: text2(content.title, 160) || "Mover Reading & Writing",
+        title: text2(content.title, 160) || "Movers Reading & Writing",
         description: text2(content.description, 2e3),
         level: text2(content.level, 80) || "Movers",
         status: "draft",
@@ -10700,7 +11404,7 @@ function createMoverReadingWritingRouter(dependencies) {
           title: text2(content.title, 160),
           description: text2(content.description, 2e3),
           level: text2(content.level, 80),
-          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
           draftContent: content,
@@ -10748,7 +11452,7 @@ function createMoverReadingWritingRouter(dependencies) {
           title: text2(content.title, 160),
           description: text2(content.description, 2e3),
           level: text2(content.level, 80),
-          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
           draftContent: content,
@@ -10789,7 +11493,7 @@ function createMoverReadingWritingRouter(dependencies) {
         id: identifier2("mrwset"),
         moduleId: "mover",
         paperId: MOVER_READING_WRITING_PAPER_ID,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: content.schemaVersion,
         ownerId: req.user.id,
         createdBy: req.user.id,
         title: cloneTitle,
@@ -10831,7 +11535,7 @@ function createMoverReadingWritingRouter(dependencies) {
         setId: set.id,
         versionNumber,
         status: "published",
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: resolved.content.schemaVersion,
         content: resolved.content,
         createdAt: now,
         updatedAt: now,
@@ -10845,7 +11549,7 @@ function createMoverReadingWritingRouter(dependencies) {
       }
       const publishedSet = {
         ...set,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: resolved.content.schemaVersion,
         title: resolved.content.title,
         description: resolved.content.description,
         level: resolved.content.level,
@@ -11103,6 +11807,1085 @@ function createMoverReadingWritingRouter(dependencies) {
   return router;
 }
 
+// src/server/exam-platform/examRouter.ts
+var import_crypto3 = __toESM(require("crypto"), 1);
+var import_express5 = __toESM(require("express"), 1);
+
+// src/server/exam-platform/examValidation.ts
+var text3 = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
+var objectiveTypes = /* @__PURE__ */ new Set([
+  "single-choice",
+  "multiple-choice",
+  "short-answer",
+  "true-false",
+  "true-false-not-given",
+  "yes-no-not-given",
+  "matching"
+]);
+var choiceQuestionTypes = /* @__PURE__ */ new Set([
+  "single-choice",
+  "multiple-choice",
+  "true-false",
+  "true-false-not-given",
+  "yes-no-not-given",
+  "matching"
+]);
+var smartImportTechnicalFields = /* @__PURE__ */ new Set([
+  "id",
+  "imageAssetId",
+  "imageUrl",
+  "audioAssetId",
+  "audioUrl",
+  "correctOptionIds"
+]);
+var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+function findTechnicalSmartImportField(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTechnicalSmartImportField(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  for (const [key, child] of Object.entries(value)) {
+    if (smartImportTechnicalFields.has(key)) return key;
+    const found = findTechnicalSmartImportField(child);
+    if (found) return found;
+  }
+  return null;
+}
+function defaultSmartImportOptions(type) {
+  if (type === "true-false") return ["True", "False"];
+  if (type === "true-false-not-given") return ["True", "False", "Not Given"];
+  if (type === "yes-no-not-given") return ["Yes", "No", "Not Given"];
+  if (type === "single-choice" || type === "matching" || type === "multiple-choice") return ["A", "B", "C"];
+  return [];
+}
+function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
+  const errors = [];
+  const warnings = [];
+  const technicalField = findTechnicalSmartImportField(candidateValue);
+  if (technicalField) {
+    return {
+      part: currentPart,
+      errors: [`Smart Import kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a tr\u01B0\u1EDDng k\u1EF9 thu\u1EADt "${technicalField}".`],
+      warnings
+    };
+  }
+  const candidate = record(candidateValue);
+  const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : null;
+  if (!rawQuestions) errors.push("Smart Import ph\u1EA3i c\xF3 m\u1EA3ng questions.");
+  if (rawQuestions && !definition.questionCountFlexible && rawQuestions.length !== definition.questionCount) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.questionCount} c\xE2u.`);
+  }
+  if (rawQuestions && definition.questionCountFlexible && rawQuestions.length > 40) {
+    errors.push(`${definition.displayName} kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 40 c\xE2u.`);
+  }
+  if (errors.length || !rawQuestions) return { part: currentPart, errors, warnings };
+  const questions = rawQuestions.map((rawValue, questionIndex) => {
+    const raw = record(rawValue);
+    const currentQuestion = currentPart.questions[questionIndex];
+    const proposedType = text3(raw.type, 80);
+    const type = definition.allowedQuestionTypes.includes(proposedType) ? proposedType : currentQuestion?.type && definition.allowedQuestionTypes.includes(currentQuestion.type) ? currentQuestion.type : definition.defaultQuestionType;
+    if (proposedType && proposedType !== type) {
+      errors.push(`C\xE2u ${questionIndex + 1}: d\u1EA1ng c\xE2u "${proposedType}" kh\xF4ng ph\xF9 h\u1EE3p ${definition.displayName}.`);
+    }
+    const rawOptions = Array.isArray(raw.options) ? raw.options : [];
+    const optionValues = rawOptions.length ? rawOptions : choiceQuestionTypes.has(type) ? defaultSmartImportOptions(type) : [];
+    const options = optionValues.map((optionValue, optionIndex2) => {
+      const option = typeof optionValue === "string" ? { text: optionValue } : record(optionValue);
+      const currentOption = currentQuestion?.type === type ? currentQuestion.options[optionIndex2] : void 0;
+      return {
+        id: currentOption?.id || `option-${crypto.randomUUID()}`,
+        label: text3(option.label || String.fromCharCode(65 + optionIndex2), 8),
+        text: text3(option.text, 4e3)
+      };
+    });
+    if (choiceQuestionTypes.has(type) && options.length < 2) {
+      errors.push(`C\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
+    }
+    const refs = [
+      ...Array.isArray(raw.correctOptionLabels) ? raw.correctOptionLabels : [],
+      ...Array.isArray(raw.correctOptions) ? raw.correctOptions : []
+    ].map((value) => normalizeExamText(value)).filter(Boolean);
+    const indexes = Array.isArray(raw.correctOptionIndexes) ? raw.correctOptionIndexes.map((value) => Number(value) - 1).filter((value) => Number.isInteger(value) && value >= 0) : [];
+    const correctOptionIds = choiceQuestionTypes.has(type) ? options.filter((option, optionIndex2) => refs.includes(normalizeExamText(option.label)) || refs.includes(normalizeExamText(option.text)) || indexes.includes(optionIndex2)).map((option) => option.id) : [];
+    const acceptedAnswers = type === "short-answer" && Array.isArray(raw.acceptedAnswers) ? raw.acceptedAnswers.map((value) => text3(value, 4e3)).filter(Boolean).slice(0, 30) : [];
+    if (choiceQuestionTypes.has(type) && !correctOptionIds.length) {
+      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n \u0111\xFAng; gi\xE1o vi\xEAn ph\u1EA3i ch\u1ECDn trong editor.`);
+    }
+    if (choiceQuestionTypes.has(type) && type !== "multiple-choice" && correctOptionIds.length > 1) {
+      errors.push(`C\xE2u ${questionIndex + 1}: ch\u1EC9 \u0111\u01B0\u1EE3c c\xF3 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+    }
+    if (type === "short-answer" && !acceptedAnswers.length) {
+      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn; gi\xE1o vi\xEAn ph\u1EA3i nh\u1EADp trong editor.`);
+    }
+    const points = Number(raw.points);
+    return {
+      id: currentQuestion?.id || `question-${crypto.randomUUID()}`,
+      number: currentQuestion?.number || questionIndex + 1,
+      type,
+      prompt: text3(raw.prompt, 8e3),
+      ...text3(raw.context, 8e3) ? { context: text3(raw.context, 8e3) } : {},
+      ...currentQuestion?.imageAssetId ? { imageAssetId: currentQuestion.imageAssetId } : {},
+      ...currentQuestion?.imageUrl ? { imageUrl: currentQuestion.imageUrl } : {},
+      options,
+      correctOptionIds,
+      acceptedAnswers,
+      points: Number.isFinite(points) && points > 0 && points <= 100 ? points : currentQuestion?.points || definition.pointsPerQuestion || 1,
+      ...Number(raw.maxSelections) > 0 ? { maxSelections: Number(raw.maxSelections) } : {},
+      ...Number(raw.maxWords) > 0 ? { maxWords: Number(raw.maxWords) } : {},
+      ...Number(raw.minWords) > 0 ? { minWords: Number(raw.minWords) } : currentQuestion?.minWords ? { minWords: currentQuestion.minWords } : definition.minWords ? { minWords: definition.minWords } : {},
+      ...type === "long-writing" ? {
+        rubric: text3(raw.rubric, 8e3) || currentQuestion?.rubric || "Gi\xE1o vi\xEAn ch\u1EA5m theo rubric c\u1EE7a b\xE0i thi.",
+        ...text3(raw.modelAnswer, 2e4) ? { modelAnswer: text3(raw.modelAnswer, 2e4) } : {}
+      } : {}
+    };
+  });
+  return {
+    part: {
+      id: currentPart.id,
+      part: currentPart.part,
+      title: text3(candidate.title, 240) || currentPart.title,
+      instruction: text3(candidate.instruction, 4e3) || currentPart.instruction,
+      ...text3(candidate.passage, 2e4) ? { passage: text3(candidate.passage, 2e4) } : {},
+      ...currentPart.imageAssetId ? { imageAssetId: currentPart.imageAssetId } : {},
+      ...currentPart.imageUrl ? { imageUrl: currentPart.imageUrl } : {},
+      ...currentPart.audioAssetId ? { audioAssetId: currentPart.audioAssetId } : {},
+      ...currentPart.audioUrl ? { audioUrl: currentPart.audioUrl } : {},
+      questions
+    },
+    errors,
+    warnings
+  };
+}
+function normalizeExamText(value) {
+  return text3(value, 4e3).normalize("NFKC").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().toLocaleLowerCase("en");
+}
+function validateExamPaperContent(content) {
+  const errors = [];
+  if (!content || typeof content !== "object") return ["N\u1ED9i dung \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7."];
+  if (content.schemaVersion !== EXAM_CONTENT_SCHEMA_VERSION) errors.push("Schema \u0111\u1EC1 thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+  const definition = getExamPaperDefinition(content.moduleId, content.paperId);
+  if (!definition) return ["Module ho\u1EB7c lo\u1EA1i b\xE0i thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3."];
+  if (!text3(content.title, 240)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
+  if (content.parts?.length !== definition.parts.length) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.parts.length} Part/Section.`);
+    return errors;
+  }
+  const allIds = /* @__PURE__ */ new Set();
+  let totalQuestions = 0;
+  content.parts.forEach((part2, partIndex) => {
+    const partDefinition = definition.parts[partIndex];
+    if (!part2 || part2.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} kh\xF4ng \u0111\xFAng th\u1EE9 t\u1EF1.`);
+    if (!text3(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+    if (partDefinition.requiresAudio && !text3(part2?.audioAssetId, 180)) {
+      errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn audio t\u1EEB th\u01B0 vi\u1EC7n media.`);
+    }
+    if (!partDefinition.questionCountFlexible && part2?.questions?.length !== partDefinition.questionCount) {
+      errors.push(`Part ${partIndex + 1}: ph\u1EA3i c\xF3 \u0111\xFAng ${partDefinition.questionCount} c\xE2u.`);
+    }
+    totalQuestions += part2?.questions?.length || 0;
+    (part2?.questions || []).forEach((question, questionIndex) => {
+      const label = `Part ${partIndex + 1}, c\xE2u ${questionIndex + 1}`;
+      if (!question?.id || allIds.has(question.id)) errors.push(`${label}: ID c\xE2u h\u1ECFi b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+      else allIds.add(question.id);
+      if (!partDefinition.allowedQuestionTypes.includes(question.type)) errors.push(`${label}: d\u1EA1ng c\xE2u h\u1ECFi kh\xF4ng ph\xF9 h\u1EE3p Part n\xE0y.`);
+      if (!text3(question.prompt, 8e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
+      if (!Number.isFinite(question.points) || question.points <= 0 || question.points > 100) errors.push(`${label}: \u0111i\u1EC3m t\u1ED1i \u0111a kh\xF4ng h\u1EE3p l\u1EC7.`);
+      if (question.type === "long-writing") {
+        if (!text3(question.rubric, 8e3)) errors.push(`${label}: thi\u1EBFu rubric \u0111\u1EC3 gi\xE1o vi\xEAn ch\u1EA5m.`);
+        return;
+      }
+      if (!objectiveTypes.has(question.type)) return;
+      if (["single-choice", "multiple-choice", "true-false", "true-false-not-given", "yes-no-not-given", "matching"].includes(question.type)) {
+        if (question.options.length < 2) errors.push(`${label}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
+        const optionIds = new Set(question.options.map((option) => option.id));
+        if (optionIds.size !== question.options.length || optionIds.has("")) errors.push(`${label}: ID l\u1EF1a ch\u1ECDn b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+        if (!question.correctOptionIds.length) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng.`);
+        if (question.correctOptionIds.some((id2) => !optionIds.has(id2))) errors.push(`${label}: \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng thu\u1ED9c danh s\xE1ch l\u1EF1a ch\u1ECDn.`);
+        if (question.type !== "multiple-choice" && question.correctOptionIds.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+      } else if (!question.acceptedAnswers.some((answer) => normalizeExamText(answer))) {
+        errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.`);
+      }
+    });
+  });
+  if (definition.flexiblePartDistribution && totalQuestions !== definition.totalQuestionCount) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.totalQuestionCount} c\xE2u tr\xEAn to\xE0n b\xE0i.`);
+  }
+  return errors;
+}
+function sanitizeExamContentForStudent(content) {
+  return {
+    ...structuredClone(content),
+    parts: content.parts.map((part2) => ({
+      ...structuredClone(part2),
+      questions: part2.questions.map((question) => {
+        const safe = structuredClone(question);
+        delete safe.correctOptionIds;
+        delete safe.acceptedAnswers;
+        delete safe.modelAnswer;
+        if (question.type !== "long-writing") delete safe.rubric;
+        return safe;
+      })
+    }))
+  };
+}
+function sanitizeExamAnswers(raw, content) {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const allowed = new Map(content.parts.flatMap((part2) => part2.questions.map((question) => [question.id, question])));
+  const answers = {};
+  for (const [questionId, question] of allowed) {
+    const value = input[questionId];
+    if (Array.isArray(value)) {
+      answers[questionId] = [...new Set(value.map((item) => text3(item, 500)).filter(Boolean))].slice(0, 20);
+    } else {
+      answers[questionId] = text3(value, question.type === "long-writing" ? 2e4 : 4e3);
+    }
+  }
+  return answers;
+}
+function displayCorrectAnswer(question) {
+  if (question.correctOptionIds.length) {
+    const byId = new Map(question.options.map((option) => [option.id, option.text]));
+    return question.correctOptionIds.map((id2) => byId.get(id2) || "").filter(Boolean);
+  }
+  return question.acceptedAnswers;
+}
+
+// src/server/exam-platform/examGrader.ts
+var EXAM_GRADING_VERSION = "exam-platform-objective-v1";
+function answerEmpty(value) {
+  return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
+}
+function gradeObjective(question, answer) {
+  if (question.correctOptionIds.length) {
+    const actual2 = new Set((Array.isArray(answer) ? answer : [answer || ""]).filter(Boolean));
+    const expected = new Set(question.correctOptionIds);
+    return actual2.size === expected.size && [...expected].every((item) => actual2.has(item));
+  }
+  const actual = normalizeExamText(Array.isArray(answer) ? answer.join(" ") : answer);
+  return question.acceptedAnswers.some((value) => normalizeExamText(value) === actual);
+}
+function displayUserAnswer(question, answer) {
+  if (!question.options.length) return answer || "";
+  const byId = new Map(question.options.map((option) => [option.id, option.text || option.label]));
+  if (Array.isArray(answer)) return answer.map((value) => byId.get(value) || "").filter(Boolean);
+  return answer ? byId.get(answer) || "" : "";
+}
+function gradeExamAttempt(content, answers) {
+  const questions = [];
+  let objectiveAwarded = 0;
+  let objectiveMaximum = 0;
+  let correctCount = 0;
+  let incorrectCount = 0;
+  let unansweredCount = 0;
+  let pendingManualCount = 0;
+  content.parts.forEach((part2) => part2.questions.forEach((question) => {
+    const answer = answers[question.id];
+    const unanswered = answerEmpty(answer);
+    if (question.type === "long-writing") {
+      pendingManualCount += 1;
+      questions.push({
+        questionId: question.id,
+        part: part2.part,
+        number: question.number,
+        type: question.type,
+        prompt: question.prompt,
+        userAnswer: displayUserAnswer(question, answer),
+        correct: null,
+        unanswered,
+        pointsAwarded: 0,
+        maxPoints: question.points,
+        pendingManualReview: true
+      });
+      return;
+    }
+    objectiveMaximum += question.points;
+    const correct = !unanswered && gradeObjective(question, answer);
+    if (unanswered) unansweredCount += 1;
+    else if (correct) correctCount += 1;
+    else incorrectCount += 1;
+    if (correct) objectiveAwarded += question.points;
+    questions.push({
+      questionId: question.id,
+      part: part2.part,
+      number: question.number,
+      type: question.type,
+      prompt: question.prompt,
+      userAnswer: displayUserAnswer(question, answer),
+      correctAnswer: displayCorrectAnswer(question),
+      correct,
+      unanswered,
+      pointsAwarded: correct ? question.points : 0,
+      maxPoints: question.points,
+      pendingManualReview: false
+    });
+  }));
+  const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
+  return {
+    gradingVersion: EXAM_GRADING_VERSION,
+    status: pendingManualCount ? "pending_review" : "completed",
+    score: pendingManualCount ? objectiveScore : objectiveScore,
+    objectiveScore,
+    objectiveAwarded,
+    objectiveMaximum,
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    totalCount: questions.length,
+    pendingManualCount,
+    questions
+  };
+}
+function applyManualExamGrades(grade, manualGrades) {
+  let manualAwarded = 0;
+  let manualMaximum = 0;
+  const questions = grade.questions.map((question) => {
+    if (!question.pendingManualReview) return question;
+    const awarded2 = Math.max(0, Math.min(question.maxPoints, Number(manualGrades[question.questionId] || 0)));
+    manualAwarded += awarded2;
+    manualMaximum += question.maxPoints;
+    return { ...question, pointsAwarded: awarded2, pendingManualReview: false };
+  });
+  const maximum = grade.objectiveMaximum + manualMaximum;
+  const awarded = grade.objectiveAwarded + manualAwarded;
+  return {
+    ...grade,
+    questions,
+    status: "completed",
+    score: maximum > 0 ? Math.round(awarded / maximum * 100) : 0,
+    pendingManualCount: 0,
+    manualAwarded,
+    manualMaximum
+  };
+}
+
+// src/server/exam-platform/examRouter.ts
+var text4 = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+var nowIso4 = () => (/* @__PURE__ */ new Date()).toISOString();
+var id = (prefix) => `${prefix}-${import_crypto3.default.randomUUID()}`;
+var sha2563 = (value) => import_crypto3.default.createHash("sha256").update(value).digest("hex");
+var safeEqual2 = (left, right) => {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && import_crypto3.default.timingSafeEqual(a, b);
+};
+function apiError3(status, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  error.details = details;
+  return error;
+}
+function sendError3(res, error) {
+  res.status(Number(error?.status || 500)).json({
+    error: error?.message || "Kh\xF4ng th\u1EC3 x\u1EED l\xFD y\xEAu c\u1EA7u kho \u0111\u1EC1 luy\u1EC7n thi.",
+    ...error?.details ? { details: error.details } : {}
+  });
+}
+var isStaff = (user) => user?.role === "teacher" || user?.role === "super_admin";
+var canManage = (user, set) => user?.role === "super_admin" || user?.role === "teacher" && set?.ownerId === user.id;
+function routeIdentity(req) {
+  const moduleId = req.params.moduleId;
+  const paperId = req.params.paperId;
+  if (!isListeningModuleId(moduleId) || moduleId === "mover" || !isListeningPaperId(paperId)) {
+    throw apiError3(404, "Module ho\u1EB7c lo\u1EA1i b\xE0i thi kh\xF4ng t\u1ED3n t\u1EA1i.");
+  }
+  const definition = getExamPaperDefinition(moduleId, paperId);
+  if (!definition) throw apiError3(404, "Lo\u1EA1i b\xE0i thi ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
+  return { moduleId, paperId, definition };
+}
+function publicSummary(set) {
+  const {
+    draftContent: _draftContent,
+    draftRevision: _draftRevision,
+    validationErrors: _validationErrors,
+    shareToken: _shareToken,
+    assignmentSlug: _assignmentSlug,
+    ownerId: _ownerId,
+    ...summary
+  } = set || {};
+  return summary;
+}
+async function getSet3(db, setId) {
+  const snapshot = await db.collection("exam_sets").doc(setId).get();
+  return snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null;
+}
+async function getVersion3(db, versionId) {
+  const snapshot = await db.collection("exam_set_versions").doc(versionId).get();
+  return snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null;
+}
+function assertRouteSet(set, moduleId, paperId) {
+  if (!set || set.moduleId !== moduleId || set.paperId !== paperId) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+}
+function encodeTicket3(payload, secret) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = import_crypto3.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+function decodeTicket3(value, secret) {
+  const [encoded, signature, extra] = String(value || "").split(".");
+  if (!encoded || !signature || extra) throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  const expected = import_crypto3.default.createHmac("sha256", secret).update(encoded).digest("base64url");
+  if (!safeEqual2(signature, expected)) throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (Number(payload.ticketExpiresAt || 0) < Date.now()) throw apiError3(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.");
+    return payload;
+  } catch (error) {
+    if (error?.status) throw error;
+    throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+}
+async function resolveActor3(req, resolveGuestProfile2, classInfo = {}) {
+  if (req.authBlocked) throw apiError3(403, "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB kh\xF3a.");
+  if (req.user) {
+    return { ownerKey: `user:${req.user.id}`, userId: req.user.id, guestId: "", studentName: req.user.name || "H\u1ECDc sinh" };
+  }
+  const guestId = text4(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const studentName = text4(req.body?.studentName || req.query?.studentName, 120);
+  if (!guestId || !studentName) throw apiError3(401, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh tr\u01B0\u1EDBc khi l\xE0m b\xE0i.");
+  const profile = await resolveGuestProfile2(guestId, studentName, true, classInfo);
+  return {
+    ownerKey: `guest:${guestId}`,
+    userId: "",
+    guestId,
+    studentName: profile.displayName || profile.name || studentName
+  };
+}
+async function findAssignment(db, token) {
+  if (!token) return null;
+  const snapshot = await db.collection("assignments").where("shareToken", "==", token).get();
+  let match = null;
+  snapshot.forEach((document) => {
+    const candidate = { id: document.id, ...document.data() };
+    if (!match && (candidate.shareToken === token || candidate.assignmentSlug === token)) match = candidate;
+  });
+  return match;
+}
+async function resolveAccess(db, set, req) {
+  if (!set || set.status !== "published" || !set.publishedVersionId) throw apiError3(404, "B\u1ED9 \u0111\u1EC1 ch\u01B0a \u0111\u01B0\u1EE3c xu\u1EA5t b\u1EA3n.");
+  if (canManage(req.user, set)) return { assignment: null };
+  const token = text4(req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.query?.accessToken, 240);
+  if (token && set.shareToken && safeEqual2(token, String(set.shareToken))) return { assignment: null };
+  if (token) {
+    const assignment = await findAssignment(db, token);
+    const assignmentStatus = String(assignment?.status || "active").toLowerCase();
+    const resourceId = assignment?.resourceId || assignment?.examSetId;
+    if (assignment?.resourceType === "exam" && resourceId === set.id && !["draft", "deleted", "inactive", "archived"].includes(assignmentStatus)) {
+      return { assignment };
+    }
+  }
+  if (set.visibility === "public") return { assignment: null };
+  throw apiError3(403, "Link b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp.");
+}
+function collectAssetFields(content) {
+  const fields = [];
+  const add = (assetId, kind, entityId, role, apply) => {
+    const value = text4(assetId, 180);
+    if (value) fields.push({ assetId: value, kind, entityId, role, apply });
+  };
+  add(content.coverAssetId, "image", "paper", "cover", (url) => {
+    content.coverUrl = url;
+  });
+  content.parts.forEach((part2) => {
+    add(part2.imageAssetId, "image", part2.id, "part-image", (url) => {
+      part2.imageUrl = url;
+    });
+    add(part2.audioAssetId, "audio", part2.id, "part-audio", (url) => {
+      part2.audioUrl = url;
+    });
+    part2.questions.forEach((question) => {
+      add(question.imageAssetId, "image", question.id, "question-image", (url) => {
+        question.imageUrl = url;
+      });
+      question.options.forEach((option) => add(option.imageAssetId, "image", option.id, "option-image", (url) => {
+        option.imageUrl = url;
+      }));
+    });
+  });
+  return fields;
+}
+async function resolveContentAssets3(db, raw, user) {
+  const content = structuredClone(raw);
+  const requireAssetIdForUrl = (assetId, url, label) => {
+    if (text4(url, 2e3) && !text4(assetId, 180)) throw apiError3(400, `${label} ph\u1EA3i \u0111\u01B0\u1EE3c ch\u1ECDn t\u1EEB th\u01B0 vi\u1EC7n media.`);
+  };
+  requireAssetIdForUrl(content.coverAssetId, content.coverUrl, "\u1EA2nh b\xECa");
+  content.parts.forEach((part2) => {
+    requireAssetIdForUrl(part2.imageAssetId, part2.imageUrl, `\u1EA2nh Part ${part2.part}`);
+    requireAssetIdForUrl(part2.audioAssetId, part2.audioUrl, `Audio Part ${part2.part}`);
+    part2.questions.forEach((question) => {
+      requireAssetIdForUrl(question.imageAssetId, question.imageUrl, `\u1EA2nh c\xE2u ${question.number}`);
+      question.options.forEach((option) => requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `\u1EA2nh l\u1EF1a ch\u1ECDn ${option.label}`));
+    });
+  });
+  const fields = collectAssetFields(content);
+  const unique3 = /* @__PURE__ */ new Map();
+  await Promise.all([...new Set(fields.map((item) => item.assetId))].map(async (assetId) => {
+    const snapshot = await db.collection("listening_assets").doc(assetId).get();
+    if (!snapshot.exists) throw apiError3(400, `Kh\xF4ng t\xECm th\u1EA5y media "${assetId}".`);
+    const asset = { id: snapshot.id, ...snapshot.data() };
+    if (asset.status !== "active") throw apiError3(400, `Media "${asset.name || asset.id}" \u0111\xE3 b\u1ECB l\u01B0u tr\u1EEF.`);
+    if (user?.role !== "super_admin" && asset.ownerId !== user?.id) throw apiError3(403, `B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng media "${asset.name || asset.id}".`);
+    unique3.set(assetId, asset);
+  }));
+  fields.forEach((field) => {
+    const asset = unique3.get(field.assetId);
+    if (asset?.kind !== field.kind) throw apiError3(400, `Media "${asset?.name || field.assetId}" kh\xF4ng \u0111\xFAng lo\u1EA1i ${field.kind}.`);
+    field.apply(String(asset.url || ""));
+  });
+  return content;
+}
+function playableSet3(set, version) {
+  return {
+    ...publicSummary(set),
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    content: sanitizeExamContentForStudent(version.content)
+  };
+}
+function attemptSummary(attempt) {
+  const { runSecretHash: _secret, ownerKey: _owner, userId: _user, guestId: _guest, ...safe } = attempt;
+  return safe;
+}
+function createExamRouter(dependencies) {
+  const { db, authenticateUser: authenticateUser2, authenticateOptionalUser: authenticateOptionalUser2, requireStaff, ticketSecret, resolveGuestProfile: resolveGuestProfile2, logAudit } = dependencies;
+  const router = import_express5.default.Router();
+  const draftLocks = /* @__PURE__ */ new Map();
+  const withDraftLock = async (setId, operation) => {
+    const previous = draftLocks.get(setId) || Promise.resolve();
+    let release;
+    const current = new Promise((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    draftLocks.set(setId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (draftLocks.get(setId) === queued) draftLocks.delete(setId);
+    }
+  };
+  router.get("/admin/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const snapshot = await db.collection("exam_sets").get();
+      const rows = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (set.status !== "archived" && canManage(req.user, set)) rows.push(set);
+      });
+      rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(rows);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/modules/:moduleId/papers/:paperId/sets", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const snapshot = await db.collection("exam_sets").get();
+      const rows = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (set.moduleId === moduleId && set.paperId === paperId && set.status === "published" && set.visibility === "public") rows.push(publicSummary(set));
+      });
+      rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(rows);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/admin/modules/:moduleId/papers/:paperId/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const snapshot = await db.collection("exam_sets").get();
+      const rows = [];
+      snapshot.forEach((document) => {
+        const set = { id: document.id, ...document.data() };
+        if (set.moduleId === moduleId && set.paperId === paperId && set.status !== "archived" && canManage(req.user, set)) rows.push(set);
+      });
+      rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      res.json(rows);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/admin/modules/:moduleId/papers/:paperId/sets", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError3(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const { moduleId, paperId, definition } = routeIdentity(req);
+      if (req.body?.content?.moduleId !== moduleId || req.body?.content?.paperId !== paperId) throw apiError3(400, "N\u1ED9i dung kh\xF4ng kh\u1EDBp module/paper tr\xEAn URL.");
+      const content = await resolveContentAssets3(db, req.body.content, req.user);
+      const timestamp = nowIso4();
+      const setId = id("examset");
+      const set = {
+        id: setId,
+        moduleId,
+        paperId,
+        schemaVersion: content.schemaVersion,
+        title: content.title,
+        description: content.description,
+        level: content.level || definition.level,
+        ownerId: req.user.id,
+        visibility: "draft",
+        status: "draft",
+        draftContent: content,
+        draftRevision: 1,
+        validationErrors: validateExamPaperContent(content),
+        coverUrl: content.coverUrl || "",
+        timeLimitMinutes: content.timeLimitMinutes,
+        shareToken: import_crypto3.default.randomBytes(24).toString("base64url"),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      await db.collection("exam_sets").doc(setId).set(set);
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "CREATE_EXAM_SET", `${moduleId}/${paperId}: ${set.title}`);
+      res.status(201).json(set);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/admin/modules/:moduleId/papers/:paperId/sets/:setId", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+      const versionsSnapshot = await db.collection("exam_set_versions").where("setId", "==", set.id).get();
+      const versions = versionsSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+      versions.sort((a, b) => Number(b.versionNumber) - Number(a.versionNumber));
+      res.json({ ...set, versions });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  const saveDraft = async (req, res, autosave) => {
+    try {
+      if (!req.user) throw apiError3(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const { moduleId, paperId } = routeIdentity(req);
+      await withDraftLock(req.params.setId, async () => {
+        const set = await getSet3(db, req.params.setId);
+        assertRouteSet(set, moduleId, paperId);
+        if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+        const baseRevision = Number(req.body?.baseRevision);
+        if (!Number.isInteger(baseRevision) || baseRevision !== Number(set.draftRevision || 0)) {
+          throw apiError3(409, "B\u1EA3n nh\xE1p \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EEDa \u1EDF phi\xEAn kh\xE1c.", { code: "EXAM_DRAFT_REVISION_CONFLICT", currentRevision: set.draftRevision || 0 });
+        }
+        const raw = req.body?.content;
+        if (raw?.moduleId !== moduleId || raw?.paperId !== paperId) throw apiError3(400, "N\u1ED9i dung kh\xF4ng kh\u1EDBp module/paper tr\xEAn URL.");
+        const content = await resolveContentAssets3(db, raw, req.user);
+        const revision = Number(set.draftRevision || 0) + 1;
+        const updatedAt = nowIso4();
+        const validationErrors = validateExamPaperContent(content);
+        const next = {
+          ...set,
+          title: content.title,
+          description: content.description,
+          level: content.level,
+          coverUrl: content.coverUrl || "",
+          timeLimitMinutes: content.timeLimitMinutes,
+          visibility: ["draft", "public", "assignment"].includes(req.body?.visibility) ? req.body.visibility : set.visibility,
+          draftContent: content,
+          draftRevision: revision,
+          validationErrors,
+          updatedAt
+        };
+        await db.collection("exam_sets").doc(set.id).set(next);
+        if (autosave) res.json({ draftRevision: revision, updatedAt, validationErrors });
+        else res.json(next);
+      });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  };
+  router.put("/admin/modules/:moduleId/papers/:paperId/sets/:setId", authenticateUser2, requireStaff, (req, res) => void saveDraft(req, res, false));
+  router.post("/admin/modules/:moduleId/papers/:paperId/sets/:setId/draft/autosave", authenticateUser2, requireStaff, (req, res) => void saveDraft(req, res, true));
+  router.post("/admin/modules/:moduleId/papers/:paperId/sets/:setId/publish", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError3(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const { moduleId, paperId } = routeIdentity(req);
+      const result = await withDraftLock(req.params.setId, async () => {
+        const set = await getSet3(db, req.params.setId);
+        assertRouteSet(set, moduleId, paperId);
+        if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+        const resolvedContent = await resolveContentAssets3(db, set.draftContent, req.user);
+        const errors = validateExamPaperContent(resolvedContent);
+        if (errors.length) throw apiError3(400, "B\u1ED9 \u0111\u1EC1 ch\u01B0a \u0111\u1EE7 \u0111i\u1EC1u ki\u1EC7n xu\u1EA5t b\u1EA3n.", errors);
+        const versionsSnapshot = await db.collection("exam_set_versions").where("setId", "==", set.id).get();
+        const versionNumber = Math.max(0, ...versionsSnapshot.docs.map((document) => Number(document.data()?.versionNumber || 0))) + 1;
+        const timestamp = nowIso4();
+        const version = {
+          id: id("examver"),
+          setId: set.id,
+          moduleId,
+          paperId,
+          versionNumber,
+          schemaVersion: resolvedContent.schemaVersion,
+          gradingVersion: EXAM_GRADING_VERSION,
+          status: "published",
+          content: structuredClone(resolvedContent),
+          createdBy: req.user.id,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        };
+        const batch = db.batch();
+        batch.set(db.collection("exam_set_versions").doc(version.id), version);
+        for (const document of versionsSnapshot.docs) {
+          if (document.data()?.status === "published") batch.update(document.ref, { status: "superseded", updatedAt: timestamp });
+        }
+        const published = {
+          ...set,
+          status: "published",
+          publishedVersionId: version.id,
+          publishedVersionNumber: versionNumber,
+          validationErrors: [],
+          updatedAt: timestamp
+        };
+        batch.set(db.collection("exam_sets").doc(set.id), published);
+        collectAssetFields(resolvedContent).forEach((reference, referenceIndex) => {
+          const usageId = `examusage-${sha2563(`${version.id}:${reference.assetId}:${reference.entityId}:${reference.role}:${referenceIndex}`).slice(0, 32)}`;
+          batch.set(db.collection("exam_asset_usages").doc(usageId), {
+            id: usageId,
+            assetId: reference.assetId,
+            setId: set.id,
+            versionId: version.id,
+            entityId: reference.entityId,
+            role: reference.role,
+            createdAt: timestamp,
+            updatedAt: timestamp
+          });
+        });
+        await batch.commit();
+        return { set: publicSummary(published), version: { id: version.id, versionNumber } };
+      });
+      await logAudit?.(req.user.id, req.user.name, req.user.email, "PUBLISH_EXAM_SET", `${moduleId}/${paperId}: ${result.set.title}`);
+      res.json(result);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/admin/modules/:moduleId/papers/:paperId/sets/:setId/clone", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      if (!req.user) throw apiError3(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
+      const { moduleId, paperId } = routeIdentity(req);
+      const source = await getSet3(db, req.params.setId);
+      assertRouteSet(source, moduleId, paperId);
+      if (!canManage(req.user, source)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+      const timestamp = nowIso4();
+      const clone = {
+        ...source,
+        id: id("examset"),
+        title: `${source.title} (B\u1EA3n sao)`,
+        ownerId: req.user.id,
+        status: "draft",
+        visibility: "draft",
+        publishedVersionId: void 0,
+        publishedVersionNumber: void 0,
+        draftContent: { ...structuredClone(source.draftContent), title: `${source.title} (B\u1EA3n sao)` },
+        draftRevision: 1,
+        shareToken: import_crypto3.default.randomBytes(24).toString("base64url"),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      await db.collection("exam_sets").doc(clone.id).set(clone);
+      res.status(201).json(clone);
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.delete("/admin/modules/:moduleId/papers/:paperId/sets/:setId", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+      await db.collection("exam_sets").doc(set.id).update({ status: "archived", updatedAt: nowIso4() });
+      res.json({ success: true, recoverable: true });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/admin/modules/:moduleId/papers/:paperId/sets/:setId/results", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+      const snapshot = await db.collection("exam_attempts").where("setId", "==", set.id).get();
+      const rows = await Promise.all(snapshot.docs.map(async (document) => {
+        const attempt = { id: document.id, ...document.data() };
+        const detailSnapshot = await db.collection("exam_attempt_details").doc(attempt.id).get();
+        return { ...attemptSummary(attempt), questions: detailSnapshot.exists ? detailSnapshot.data()?.questions || [] : [] };
+      }));
+      rows.sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+      res.json({ set: publicSummary(set), attempts: rows });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/admin/modules/:moduleId/papers/:paperId/sets/:setId/attempts/:attemptId/manual-grade", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y b\u1ED9 \u0111\u1EC1.");
+      const attemptSnapshot = await db.collection("exam_attempts").doc(req.params.attemptId).get();
+      if (!attemptSnapshot.exists) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const attempt = { id: attemptSnapshot.id, ...attemptSnapshot.data() };
+      if (attempt.setId !== set.id || attempt.status !== "pending_review") throw apiError3(409, "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng \u1EDF tr\u1EA1ng th\xE1i ch\u1EDD ch\u1EA5m.");
+      const detailSnapshot = await db.collection("exam_attempt_details").doc(attempt.id).get();
+      if (!detailSnapshot.exists) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y chi ti\u1EBFt l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const detail = { id: detailSnapshot.id, ...detailSnapshot.data() };
+      const grades = req.body?.grades && typeof req.body.grades === "object" ? req.body.grades : {};
+      const pendingQuestions = (detail.grade?.questions || []).filter((question) => question.pendingManualReview);
+      const invalidGrade = pendingQuestions.find((question) => {
+        const value = Number(grades[question.questionId]);
+        return !Object.prototype.hasOwnProperty.call(grades, question.questionId) || !Number.isFinite(value) || value < 0 || value > Number(question.maxPoints || 0);
+      });
+      if (invalidGrade) throw apiError3(400, `\u0110i\u1EC3m Writing cho c\xE2u ${invalidGrade.number} b\u1ECB thi\u1EBFu ho\u1EB7c ngo\xE0i ph\u1EA1m vi cho ph\xE9p.`);
+      const finalized = applyManualExamGrades(detail.grade, grades);
+      const timestamp = nowIso4();
+      const nextAttempt = { ...attempt, status: "completed", score: finalized.score, pendingManualCount: 0, reviewedBy: req.user?.id, reviewedAt: timestamp, updatedAt: timestamp };
+      const nextDetail = { ...detail, grade: finalized, questions: finalized.questions, finalAwarded: finalized.objectiveAwarded + finalized.manualAwarded, finalMaximum: finalized.objectiveMaximum + finalized.manualMaximum, updatedAt: timestamp };
+      const batch = db.batch();
+      batch.set(db.collection("exam_attempts").doc(attempt.id), nextAttempt);
+      batch.set(db.collection("exam_attempt_details").doc(attempt.id), nextDetail);
+      await batch.commit();
+      res.json(attemptSummary(nextAttempt));
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/modules/:moduleId/papers/:paperId/sets/:setId", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      await resolveAccess(db, set, req);
+      const version = await getVersion3(db, set.publishedVersionId);
+      if (!version || version.setId !== set.id) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
+      res.json(playableSet3(set, version));
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/modules/:moduleId/papers/:paperId/sets/:setId/attempts/prepare", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      const access = await resolveAccess(db, set, req);
+      const actor = await resolveActor3(req, resolveGuestProfile2, {
+        classId: access.assignment?.classId,
+        className: access.assignment?.className,
+        verified: Boolean(access.assignment)
+      });
+      const clientRunId = text4(req.body?.clientRunId, 180);
+      const runSecret = text4(req.body?.runSecret, 300);
+      if (!clientRunId || runSecret.length < 20) throw apiError3(400, "Th\xF4ng tin l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+      const startedAt = nowIso4();
+      const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 6e4).toISOString() : void 0;
+      const ticket = encodeTicket3({
+        moduleId,
+        paperId,
+        setId: set.id,
+        versionId: set.publishedVersionId,
+        ownerKey: actor.ownerKey,
+        clientRunId,
+        runSecretHash: sha2563(runSecret),
+        assignmentId: access.assignment?.id || "",
+        classId: access.assignment?.classId || "",
+        className: access.assignment?.className || "",
+        assignmentTitle: access.assignment?.title || "",
+        assignmentDueAt: access.assignment?.dueDate || "",
+        startedAt,
+        deadlineAt,
+        ticketExpiresAt: Date.now() + Math.max(24 * 60 * 6e4, Number(set.timeLimitMinutes || 0) * 6e4 + 60 * 6e4)
+      }, ticketSecret);
+      res.json({ ticket, startedAt, deadlineAt, versionId: set.publishedVersionId });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/modules/:moduleId/papers/:paperId/sets/:setId/attempts/submit", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const ticket = decodeTicket3(req.body?.ticket, ticketSecret);
+      if (ticket.moduleId !== moduleId || ticket.paperId !== paperId || ticket.setId !== req.params.setId) throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
+      const set = await getSet3(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      const actor = await resolveActor3(req, resolveGuestProfile2, { classId: ticket.classId, className: ticket.className, verified: Boolean(ticket.assignmentId) });
+      const runSecret = text4(req.body?.runSecret, 300);
+      if (actor.ownerKey !== ticket.ownerKey || sha2563(runSecret) !== ticket.runSecretHash) throw apiError3(401, "Kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+      if (ticket.deadlineAt && Date.now() > new Date(ticket.deadlineAt).getTime() + 12e4) {
+        throw apiError3(410, "Th\u1EDDi gian l\xE0m b\xE0i \u0111\xE3 k\u1EBFt th\xFAc.");
+      }
+      const attemptId = `examattempt-${sha2563(`${actor.ownerKey}:${moduleId}:${paperId}:${set.id}:${ticket.clientRunId}`).slice(0, 40)}`;
+      const existingSnapshot = await db.collection("exam_attempts").doc(attemptId).get();
+      if (existingSnapshot.exists) {
+        const existing = { id: existingSnapshot.id, ...existingSnapshot.data() };
+        if (!safeEqual2(existing.runSecretHash, sha2563(runSecret))) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+        return res.json(attemptSummary(existing));
+      }
+      const version = await getVersion3(db, ticket.versionId);
+      if (!version || version.setId !== set.id || version.moduleId !== moduleId || version.paperId !== paperId) throw apiError3(409, "Phi\xEAn b\u1EA3n \u0111\u1EC1 thi kh\xF4ng c\xF2n h\u1EE3p l\u1EC7.");
+      const answers = sanitizeExamAnswers(req.body?.answers, version.content);
+      const grade = gradeExamAttempt(version.content, answers);
+      const completedAt = nowIso4();
+      const durationSeconds = Math.max(0, Math.floor((new Date(completedAt).getTime() - new Date(ticket.startedAt).getTime()) / 1e3));
+      const attempt = {
+        id: attemptId,
+        moduleId,
+        paperId,
+        setId: set.id,
+        setTitle: set.title,
+        versionId: version.id,
+        ownerKey: actor.ownerKey,
+        userId: actor.userId,
+        guestId: actor.guestId,
+        studentName: actor.studentName,
+        assignmentId: ticket.assignmentId || "",
+        assignmentTitle: ticket.assignmentTitle || "",
+        assignmentDueAt: ticket.assignmentDueAt || "",
+        classId: ticket.classId || "",
+        className: ticket.className || "",
+        clientRunId: ticket.clientRunId,
+        runSecretHash: sha2563(runSecret),
+        gradingVersion: EXAM_GRADING_VERSION,
+        status: grade.status,
+        score: grade.score,
+        objectiveScore: grade.objectiveScore,
+        correctCount: grade.correctCount,
+        incorrectCount: grade.incorrectCount,
+        unansweredCount: grade.unansweredCount,
+        totalCount: grade.totalCount,
+        pendingManualCount: grade.pendingManualCount,
+        startedAt: ticket.startedAt,
+        completedAt,
+        durationSeconds,
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const detail = {
+        id: attemptId,
+        attemptId,
+        setId: set.id,
+        versionId: version.id,
+        answers,
+        grade,
+        questions: grade.questions,
+        objectiveAwarded: grade.objectiveAwarded,
+        objectiveMaximum: grade.objectiveMaximum,
+        questionSnapshots: version.content.parts.flatMap((part2) => part2.questions.map((question) => ({
+          questionId: question.id,
+          part: part2.part,
+          number: question.number,
+          type: question.type,
+          prompt: question.prompt,
+          rubric: question.rubric
+        }))),
+        optionSnapshots: version.content.parts.flatMap((part2) => part2.questions.map((question) => ({ questionId: question.id, options: question.options }))),
+        reviewPolicy: { showReviewAfterSubmit: version.content.showReviewAfterSubmit === true, policyVersion: 1 },
+        createdAt: completedAt,
+        updatedAt: completedAt
+      };
+      const batch = db.batch();
+      batch.set(db.collection("exam_attempts").doc(attemptId), attempt);
+      batch.set(db.collection("exam_attempt_details").doc(attemptId), detail);
+      await batch.commit();
+      res.status(201).json(attemptSummary(attempt));
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.get("/modules/:moduleId/papers/:paperId/sets/:setId/attempts/:attemptId/review", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const attemptSnapshot = await db.collection("exam_attempts").doc(req.params.attemptId).get();
+      if (!attemptSnapshot.exists) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const attempt = { id: attemptSnapshot.id, ...attemptSnapshot.data() };
+      if (attempt.setId !== req.params.setId || attempt.moduleId !== moduleId || attempt.paperId !== paperId) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const staff = isStaff(req.user);
+      if (staff) {
+        const set = await getSet3(db, attempt.setId);
+        if (!canManage(req.user, set)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      }
+      if (!staff) {
+        const actor = await resolveActor3(req, resolveGuestProfile2);
+        if (actor.ownerKey !== attempt.ownerKey) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+        if (actor.guestId) {
+          const secret = text4(req.headers["x-exam-run-secret"], 300);
+          if (!secret || !safeEqual2(sha2563(secret), attempt.runSecretHash)) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
+        }
+      }
+      const detailSnapshot = await db.collection("exam_attempt_details").doc(attempt.id).get();
+      if (!detailSnapshot.exists) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y chi ti\u1EBFt l\u01B0\u1EE3t l\xE0m b\xE0i.");
+      const detail = detailSnapshot.data();
+      if (!staff && (attempt.status !== "completed" || detail?.reviewPolicy?.showReviewAfterSubmit !== true)) throw apiError3(403, "Gi\xE1o vi\xEAn ch\u01B0a cho ph\xE9p xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
+      res.json({ attempt: attemptSummary(attempt), questions: detail?.questions || [] });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  router.post("/admin/modules/:moduleId/papers/:paperId/smart-import/validate", authenticateUser2, requireStaff, async (req, res) => {
+    try {
+      const { definition } = routeIdentity(req);
+      const partIndex = Number(req.body?.partIndex);
+      const candidate = req.body?.part;
+      const currentPart = req.body?.currentPart;
+      if (!Number.isInteger(partIndex) || partIndex < 0 || partIndex >= definition.parts.length || !candidate) throw apiError3(400, "Part Smart Import kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (!currentPart || typeof currentPart !== "object" || !Array.isArray(currentPart.questions) || currentPart.part !== partIndex + 1) {
+        throw apiError3(400, "B\u1EA3n nh\xE1p Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
+      }
+      const normalized = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex]);
+      if (normalized.errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", normalized.errors);
+      const validationPart = structuredClone(normalized.part);
+      if (definition.parts[partIndex].requiresAudio && !validationPart.audioAssetId) {
+        validationPart.audioAssetId = "smart-import-placeholder-audio";
+      }
+      const shell = {
+        schemaVersion: 1,
+        moduleId: definition.moduleId,
+        paperId: definition.paperId,
+        title: "Smart Import validation",
+        description: "",
+        level: definition.level,
+        showReviewAfterSubmit: true,
+        parts: definition.parts.map((partDefinition, index) => index === partIndex ? validationPart : {
+          id: `placeholder-${index}`,
+          part: index + 1,
+          title: partDefinition.title,
+          instruction: partDefinition.instruction,
+          ...partDefinition.requiresAudio ? { audioAssetId: "smart-import-placeholder-audio" } : {},
+          questions: Array.from({ length: partDefinition.questionCount }, (_, questionIndex) => ({
+            id: `placeholder-${index}-${questionIndex}`,
+            number: questionIndex + 1,
+            type: partDefinition.longWriting ? "long-writing" : "short-answer",
+            prompt: "Placeholder",
+            options: [],
+            correctOptionIds: [],
+            acceptedAnswers: partDefinition.longWriting ? [] : ["placeholder"],
+            points: 1,
+            ...partDefinition.longWriting ? { rubric: "Placeholder rubric" } : {}
+          }))
+        })
+      };
+      const validationMessages = validateExamPaperContent(shell).filter((error) => error.startsWith(`Part ${partIndex + 1}`));
+      const deferredAnswerMessages = validationMessages.filter((error) => error.includes("ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng") || error.includes("ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn") || error.includes("ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng"));
+      const errors = validationMessages.filter((error) => !deferredAnswerMessages.includes(error));
+      if (errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", errors);
+      res.json({ part: normalized.part, warnings: [...normalized.warnings, ...deferredAnswerMessages], validated: true });
+    } catch (error) {
+      sendError3(res, error);
+    }
+  });
+  return router;
+}
+
 // src/server/listening-smart-import/devQuotaProvider.ts
 var DEVQUOTA_PROVIDER_ID = "devquota:gpt-5.6-sol";
 var DEVQUOTA_MODEL = "gpt-5.6-sol";
@@ -11211,10 +12994,10 @@ async function generateWithDevQuotaVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text4 = extractDevQuotaResponseText(data);
-  if (!text4) throw new Error("DevQuota response did not include text output.");
+  const text6 = extractDevQuotaResponseText(data);
+  if (!text6) throw new Error("DevQuota response did not include text output.");
   return {
-    text: text4,
+    text: text6,
     provider: DEVQUOTA_PROVIDER_ID,
     model: DEVQUOTA_MODEL
   };
@@ -11344,10 +13127,10 @@ async function generateWithStaliVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text4 = extractStaliChatCompletionText(data);
-  if (!text4) throw new Error("Stali response did not include text output.");
+  const text6 = extractStaliChatCompletionText(data);
+  if (!text6) throw new Error("Stali response did not include text output.");
   return {
-    text: text4,
+    text: text6,
     provider: definition.id,
     model: definition.model
   };
@@ -11383,7 +13166,7 @@ var import_node_crypto7 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
-function text3(value, max = 500) {
+function text5(value, max = 500) {
   return String(value ?? "").normalize("NFKC").trim().slice(0, max);
 }
 function nonNegative(value) {
@@ -11397,7 +13180,7 @@ function clampScore(value) {
   return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Number(value) : 0));
 }
 function isoOrNull(value) {
-  const raw = text3(value, 80);
+  const raw = text5(value, 80);
   if (!raw) return null;
   const date = new Date(raw);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
@@ -11419,7 +13202,7 @@ function studyDateInBangkok(value) {
     month: "2-digit",
     day: "2-digit"
   }).formatToParts(date);
-  const get = (type) => parts.find((part) => part.type === type)?.value || "";
+  const get = (type) => parts.find((part2) => part2.type === type)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function deterministicLearningAttemptId(sourceType, sourceRecordId) {
@@ -11427,9 +13210,9 @@ function deterministicLearningAttemptId(sourceType, sourceRecordId) {
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
-  const declaredOwnerKey = text3(source?.ownerKey || source?.owner_key, 260);
-  const userId = text3(source?.userId || source?.user_id, 180);
-  const guestId = text3(source?.guestId || source?.guest_id, 180);
+  const declaredOwnerKey = text5(source?.ownerKey || source?.owner_key, 260);
+  const userId = text5(source?.userId || source?.user_id, 180);
+  const guestId = text5(source?.guestId || source?.guest_id, 180);
   if (declaredOwnerKey.startsWith("user:") && userId) {
     return {
       studentType: "authenticated",
@@ -11475,7 +13258,7 @@ function resolveOwnership(source) {
   };
 }
 function vocabularyCounts(session) {
-  const gameId = text3(session?.gameId, 120);
+  const gameId = text5(session?.gameId, 120);
   const sourceCorrect = integer2(session?.correctAnswers ?? session?.correct);
   const sourceIncorrect = integer2(session?.incorrectAnswers ?? session?.incorrect);
   let total = integer2(session?.totalQuestions);
@@ -11533,7 +13316,7 @@ function createDetail(sourceType, attemptId, clientRunId, completedAt, values, d
   };
 }
 function projectVocabularyAttempt(session, options = {}) {
-  const sourceRecordId = text3(session?.id || session?.sourceId, 200);
+  const sourceRecordId = text5(session?.id || session?.sourceId, 200);
   if (!sourceRecordId) throw new Error("Vocabulary projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("vocabulary", sourceRecordId);
   const ownership = resolveOwnership(session);
@@ -11544,7 +13327,7 @@ function projectVocabularyAttempt(session, options = {}) {
   const counts = vocabularyCounts(session);
   const now = isoOrNull(session?.updatedAt) || activityAt;
   const assignmentVerified = Boolean(session?.assignmentVerified || session?.assignmentAccessVerified);
-  const assignmentId = assignmentVerified ? text3(session?.assignmentId, 180) || null : null;
+  const assignmentId = assignmentVerified ? text5(session?.assignmentId, 180) || null : null;
   const includeDetail = options.includeDetail !== false && status === "completed";
   const answerDetails = Array.isArray(session?.answerDetails) ? session.answerDetails : [];
   const snapshotItems = Array.isArray(session?.privateSnapshot?.items) ? session.privateSnapshot.items : [];
@@ -11552,20 +13335,20 @@ function projectVocabularyAttempt(session, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text3(session?.clientRunId, 180) || null,
+    clientRunId: text5(session?.clientRunId, 180) || null,
     sourceType: "vocabulary",
     ...ownership,
-    studentNameSnapshot: text3(session?.studentName, 240),
-    classId: text3(session?.classId, 180) || null,
-    classNameSnapshot: text3(session?.className, 240),
+    studentNameSnapshot: text5(session?.studentName, 240),
+    classId: text5(session?.classId, 180) || null,
+    classNameSnapshot: text5(session?.className, 240),
     assignmentId,
-    assignmentTitleSnapshot: assignmentId ? text3(session?.assignmentTitle || session?.assignmentName, 300) : "",
+    assignmentTitleSnapshot: assignmentId ? text5(session?.assignmentTitle || session?.assignmentName, 300) : "",
     assignmentDueAtSnapshot: assignmentId ? isoOrNull(session?.assignmentDueAt || session?.dueDate) : null,
-    lessonId: text3(session?.vocabSetId || session?.vocabularySetId, 200),
-    lessonTitleSnapshot: text3(session?.vocabSetTitle || session?.lessonTitle, 300),
+    lessonId: text5(session?.vocabSetId || session?.vocabularySetId, 200),
+    lessonTitleSnapshot: text5(session?.vocabSetTitle || session?.lessonTitle, 300),
     lessonType: "vocab_set",
-    gameId: text3(session?.gameId, 160) || "vocabulary-practice",
-    gameTitleSnapshot: text3(session?.gameName || session?.gameTitle || session?.gameId, 240),
+    gameId: text5(session?.gameId, 160) || "vocabulary-practice",
+    gameTitleSnapshot: text5(session?.gameName || session?.gameTitle || session?.gameId, 240),
     score: counts.score,
     rawScore: counts.rawScore,
     maxScore: counts.maxScore,
@@ -11593,15 +13376,15 @@ function projectVocabularyAttempt(session, options = {}) {
     answerDetails,
     questionSnapshots: snapshotItems.map((item, index) => ({
       questionIndex: index,
-      wordId: text3(item?.id, 180),
-      term: text3(item?.term, 500),
-      meaning: text3(item?.meaning, 1e3),
-      ipa: text3(item?.ipa, 180),
-      example: text3(item?.example, 1500)
+      wordId: text5(item?.id, 180),
+      term: text5(item?.term, 500),
+      meaning: text5(item?.meaning, 1e3),
+      ipa: text5(item?.ipa, 180),
+      example: text5(item?.example, 1500)
     })),
     extraDetails: {
       gameId: attempt.gameId,
-      gradingMode: text3(session?.gradingMode, 80)
+      gradingMode: text5(session?.gradingMode, 80)
     },
     reviewPolicy: {
       showReviewAfterSubmit: true,
@@ -11634,7 +13417,7 @@ function grammarReviewPolicy(attempt, set, capturedAt) {
   };
 }
 function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
-  const sourceRecordId = text3(grammarAttempt?.id, 200);
+  const sourceRecordId = text5(grammarAttempt?.id, 200);
   if (!sourceRecordId) throw new Error("Grammar projection requires a source record id.");
   const attemptId = deterministicLearningAttemptId("grammar", sourceRecordId);
   const ownership = resolveOwnership(grammarAttempt);
@@ -11658,20 +13441,20 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
   const attempt = {
     attemptId,
     sourceRecordId,
-    clientRunId: text3(grammarAttempt?.clientRunId, 180) || null,
+    clientRunId: text5(grammarAttempt?.clientRunId, 180) || null,
     sourceType: "grammar",
     ...ownership,
-    studentNameSnapshot: text3(grammarAttempt?.studentName, 240),
-    classId: text3(grammarAttempt?.classId, 180) || null,
-    classNameSnapshot: text3(grammarAttempt?.className, 240),
-    assignmentId: grammarAttempt?.assignmentVerified ? text3(grammarAttempt?.assignmentId, 180) || null : null,
-    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text3(grammarAttempt?.assignmentTitle, 300) : "",
+    studentNameSnapshot: text5(grammarAttempt?.studentName, 240),
+    classId: text5(grammarAttempt?.classId, 180) || null,
+    classNameSnapshot: text5(grammarAttempt?.className, 240),
+    assignmentId: grammarAttempt?.assignmentVerified ? text5(grammarAttempt?.assignmentId, 180) || null : null,
+    assignmentTitleSnapshot: grammarAttempt?.assignmentVerified ? text5(grammarAttempt?.assignmentTitle, 300) : "",
     assignmentDueAtSnapshot: grammarAttempt?.assignmentVerified ? isoOrNull(grammarAttempt?.assignmentDueAt) : null,
-    lessonId: text3(grammarAttempt?.grammarSetId, 200),
-    lessonTitleSnapshot: text3(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
+    lessonId: text5(grammarAttempt?.grammarSetId, 200),
+    lessonTitleSnapshot: text5(grammarAttempt?.grammarSetTitle || grammarSet?.title, 300),
     lessonType: "grammar_set",
     gameId: "grammar-practice",
-    gameTitleSnapshot: text3(
+    gameTitleSnapshot: text5(
       grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
       240
     ),
@@ -11701,23 +13484,23 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
       const answer = answerByQuestion.get(question?.id);
       const questionType = question?.questionType === "rewrite" ? "rewrite" : "multiple_choice";
       const optionSnapshots = Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : [];
-      const selectedOptionId = text3(answer?.selectedOptionId, 200);
-      const correctOptionId = text3(question?.correctOptionId || answer?.correctOptionId, 200);
+      const selectedOptionId = text5(answer?.selectedOptionId, 200);
+      const correctOptionId = text5(question?.correctOptionId || answer?.correctOptionId, 200);
       const selectedOption = optionSnapshots.find(
-        (option) => text3(option?.id, 200) === selectedOptionId
+        (option) => text5(option?.id, 200) === selectedOptionId
       );
       const correctOption = optionSnapshots.find(
-        (option) => text3(option?.id, 200) === correctOptionId
+        (option) => text5(option?.id, 200) === correctOptionId
       );
-      const userAnswer = questionType === "rewrite" ? text3(answer?.textAnswer, 4e3) : text3(selectedOption?.text, 2e3);
-      const correctAnswer = questionType === "rewrite" ? text3(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text3(correctOption?.text, 2e3);
+      const userAnswer = questionType === "rewrite" ? text5(answer?.textAnswer, 4e3) : text5(selectedOption?.text, 2e3);
+      const correctAnswer = questionType === "rewrite" ? text5(question?.correctAnswerSnapshot || answer?.correctAnswer, 4e3) : text5(correctOption?.text, 2e3);
       return {
         questionIndex: Number(question?.displayPosition || index + 1) - 1,
-        attemptQuestionId: text3(question?.id, 200),
-        questionId: text3(question?.questionId, 200),
+        attemptQuestionId: text5(question?.id, 200),
+        questionId: text5(question?.questionId, 200),
         questionType,
         selectedOptionId,
-        textAnswer: text3(answer?.textAnswer, 4e3),
+        textAnswer: text5(answer?.textAnswer, 4e3),
         selectedAnswer: userAnswer,
         userAnswer,
         isCorrect: Boolean(answer?.isCorrect),
@@ -11725,32 +13508,32 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options = {}) {
         answeredAt: isoOrNull(answer?.answeredAt),
         correctOptionId,
         correctAnswer,
-        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text3(value, 4e3)) : [],
-        explanation: text3(question?.explanationSnapshot, 4e3)
+        acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text5(value, 4e3)) : [],
+        explanation: text5(question?.explanationSnapshot, 4e3)
       };
     }),
     questionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text3(question?.id, 200),
-      questionId: text3(question?.questionId, 200),
+      attemptQuestionId: text5(question?.id, 200),
+      questionId: text5(question?.questionId, 200),
       questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
-      questionText: text3(question?.questionSnapshot, 4e3),
-      explanation: text3(question?.explanationSnapshot, 4e3),
-      correctOptionId: text3(question?.correctOptionId, 200),
-      correctAnswer: text3(question?.correctAnswerSnapshot, 4e3),
-      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text3(value, 4e3)) : []
+      questionText: text5(question?.questionSnapshot, 4e3),
+      explanation: text5(question?.explanationSnapshot, 4e3),
+      correctOptionId: text5(question?.correctOptionId, 200),
+      correctAnswer: text5(question?.correctAnswerSnapshot, 4e3),
+      acceptedAnswers: Array.isArray(question?.acceptedAnswersSnapshot) ? question.acceptedAnswersSnapshot.map((value) => text5(value, 4e3)) : []
     })),
     optionSnapshots: questions.map((question, index) => ({
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
-      attemptQuestionId: text3(question?.id, 200),
+      attemptQuestionId: text5(question?.id, 200),
       options: Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot.map((option) => ({
-        id: text3(option?.id, 200),
-        text: text3(option?.text, 2e3)
+        id: text5(option?.id, 200),
+        text: text5(option?.text, 2e3)
       })) : []
     })),
     extraDetails: {
-      grammarSetVersion: text3(grammarAttempt?.grammarSetVersion, 180),
-      gradingVersion: text3(
+      grammarSetVersion: text5(grammarAttempt?.grammarSetVersion, 180),
+      gradingVersion: text5(
         answers.find((answer) => answer?.gradingVersion)?.gradingVersion,
         120
       )
@@ -11820,7 +13603,7 @@ function normalizeYupVoxBaseUrl(value) {
 }
 function isPrivateIpv4(hostname) {
   const parts = hostname.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  if (parts.length !== 4 || parts.some((part2) => !Number.isInteger(part2) || part2 < 0 || part2 > 255)) return false;
   const [a, b] = parts;
   return a === 10 || a === 127 || a === 0 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168;
 }
@@ -11844,10 +13627,10 @@ function assertSafeYupVoxAudioUrl(value) {
 async function generateYupVoxAudioUrl(options) {
   const apiKey = String(options.apiKey || "").trim();
   const voiceId = String(options.voiceId || "").trim();
-  const text4 = String(options.text || "").trim();
+  const text6 = String(options.text || "").trim();
   if (!apiKey) throw new Error("YUPVOX_API_KEY is not configured.");
   if (!voiceId) throw new Error("Missing YupVox voiceId.");
-  if (!text4) throw new Error("Missing YupVox TTS text.");
+  if (!text6) throw new Error("Missing YupVox TTS text.");
   const baseUrl = normalizeYupVoxBaseUrl(options.baseUrl);
   const maxPollAttempts = clampInteger(options.maxPollAttempts, DEFAULT_MAX_POLL_ATTEMPTS, 1, 120);
   const pollIntervalMs = clampInteger(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, 250, 1e4);
@@ -11859,7 +13642,7 @@ async function generateYupVoxAudioUrl(options) {
   const createResponse = await options.fetchImpl(`${baseUrl}/v1/tts`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ voiceId, text: text4 })
+    body: JSON.stringify({ voiceId, text: text6 })
   });
   const createPayload = await readJsonResponse(createResponse);
   if (!createResponse.ok) {
@@ -11901,7 +13684,7 @@ if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
 if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
-var app2 = (0, import_express5.default)();
+var app2 = (0, import_express6.default)();
 var PORT = Number(process.env.PORT) || 3e3;
 var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
 var AUDIO_PUBLIC_PREFIX = "/audio";
@@ -11927,7 +13710,7 @@ var LISTENING_TICKET_SECRET = CONFIGURED_LISTENING_TICKET_SECRET || `${PUBLIC_ID
 if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
-app2.use(import_express5.default.json());
+app2.use(import_express6.default.json());
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -11936,9 +13719,9 @@ app2.use((req, _res, next) => {
   });
 });
 import_fs5.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express5.default.static(AUDIO_DIR));
+app2.use(AUDIO_PUBLIC_PREFIX, import_express6.default.static(AUDIO_DIR));
 import_fs5.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
-app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express5.default.static(LISTENING_MEDIA_DIR, {
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express6.default.static(LISTENING_MEDIA_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -12102,6 +13885,7 @@ var authenticateUser = async (req, res, next) => {
         status: "active"
       });
       await userRef.set(userProfile);
+      invalidateCanonicalStudentNameCache();
       await logAuditAction(
         userProfile.id,
         userProfile.name,
@@ -12157,6 +13941,7 @@ var authenticateOptionalUser = async (req, _res, next) => {
         status: "active"
       });
       await userRef.set(userProfile);
+      invalidateCanonicalStudentNameCache();
     } else {
       userProfile = buildUserProfileFromToken(decodedToken, doc.data());
     }
@@ -12174,11 +13959,45 @@ var ACTIVITY_TTL_DAYS = Number.isFinite(requestedRecentActivityDays) ? Math.max(
 var ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1e3;
 var LEADERBOARD_RETENTION_DAYS = 62;
 var LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
+var LEADERBOARD_READ_MODEL_SETTING_ID = "leaderboard-read-model-v1";
 function addDaysIso2(baseIso, days) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1e3).toISOString();
 }
 function getActivityTime(data) {
   return data.completedAt || data.endedAt || data.createdAt || data.startedAt || "";
+}
+var MAX_ACTIVITY_RESULT_LIMIT = 500;
+function parseActivityResultLimit(value) {
+  if (value === void 0 || value === null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(1, Math.min(MAX_ACTIVITY_RESULT_LIMIT, Math.floor(parsed)));
+}
+function toActivitySummary(activity, sourceType, sourceId) {
+  const {
+    answerDetails: _answerDetails,
+    privateSnapshot: _privateSnapshot,
+    sessionToken: _sessionToken,
+    sessionTokenHash: _sessionTokenHash,
+    runSecretHash: _runSecretHash,
+    ...summary
+  } = activity || {};
+  const resolvedSourceType = safeText(sourceType || summary.sourceType || "vocabulary", 80);
+  return {
+    ...summary,
+    sourceType: resolvedSourceType,
+    sourceId: safeText(sourceId || summary.sourceId || summary.id || "", 180)
+  };
+}
+function sanitizeActivityDetail(activity) {
+  const {
+    privateSnapshot: _privateSnapshot,
+    sessionToken: _sessionToken,
+    sessionTokenHash: _sessionTokenHash,
+    runSecretHash: _runSecretHash,
+    ...safe
+  } = activity || {};
+  return safe;
 }
 function isExpiredActivity(data, nowMs = Date.now()) {
   if (data.expiresAt && new Date(data.expiresAt).getTime() < nowMs) return true;
@@ -12186,10 +14005,10 @@ function isExpiredActivity(data, nowMs = Date.now()) {
   return Boolean(createdOrCompleted && nowMs - new Date(createdOrCompleted).getTime() > ACTIVITY_TTL_MS);
 }
 function createSessionToken() {
-  return import_crypto3.default.randomBytes(32).toString("hex");
+  return import_crypto4.default.randomBytes(32).toString("hex");
 }
 function hashSessionToken(token) {
-  return import_crypto3.default.createHash("sha256").update(token).digest("hex");
+  return import_crypto4.default.createHash("sha256").update(token).digest("hex");
 }
 function sanitizePublicStudentRecord2(data) {
   return sanitizePublicStudentRecord(data || {}, PUBLIC_IDENTITY_SECRET);
@@ -12269,8 +14088,8 @@ function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
     displayOrder: Number(item.displayOrder || index + 1)
   })).filter((item) => item.id && item.term).filter((item) => !quizContract || isQuizItemEligible(item, quizContract));
   const byId = new Map(canonicalItems.map((item) => [item.id, item]));
-  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id) => safeText(id, 160)).filter((id, index, list2) => id && byId.has(id) && list2.indexOf(id) === index) : [];
-  const items = orderedIds.length ? orderedIds.map((id) => byId.get(id)) : canonicalItems;
+  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id2) => safeText(id2, 160)).filter((id2, index, list2) => id2 && byId.has(id2) && list2.indexOf(id2) === index) : [];
+  const items = orderedIds.length ? orderedIds.map((id2) => byId.get(id2)) : canonicalItems;
   const config = quizContract ? quizContract : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
   return { itemOrder: items.map((item) => item.id), items, config };
 }
@@ -12518,6 +14337,7 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
         needsReview: false
       };
       await profileRef.set(repaired);
+      invalidateCanonicalStudentNameCache();
       return repaired;
     }
     const classId = classInfo.verified ? safeText(classInfo.classId, 160) : "";
@@ -12570,93 +14390,52 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     accessTokenCreatedAt: now
   };
   await profileRef.set(profile);
+  invalidateCanonicalStudentNameCache();
   return {
     ...omitGuestCapabilitySecrets(profile),
     guestAccessToken,
     guestAccessTokenVersion
   };
 }
-async function ensureLegacyGuestProfiles() {
-  const [profilesSnapshot, sessionsSnapshot, attemptsSnapshot] = await Promise.all([
-    adminDb.collection("guest_profiles").get(),
-    adminDb.collection("game_sessions").get(),
-    adminDb.collection("grammar_attempts").get()
-  ]);
-  const existingIds = /* @__PURE__ */ new Set();
-  profilesSnapshot.forEach((doc) => existingIds.add(doc.id));
-  const candidates = /* @__PURE__ */ new Map();
-  const collect = (data) => {
-    if (!isGuestOwnedRecord(data)) return;
-    const guestId = getGuestProfileId(data.guestId);
-    const activityAt = getActivityTime(data) || data.updatedAt || data.createdAt || (/* @__PURE__ */ new Date(0)).toISOString();
-    const existing = candidates.get(guestId);
-    const createdAt = data.createdAt || data.startedAt || activityAt;
-    if (!existing || new Date(activityAt).getTime() >= new Date(existing.lastActiveAt).getTime()) {
-      candidates.set(guestId, {
-        guestId,
-        displayName: safeText(data.studentName || "H\u1ECDc sinh", 120),
-        createdAt: existing?.createdAt && new Date(existing.createdAt).getTime() < new Date(createdAt).getTime() ? existing.createdAt : createdAt,
-        lastActiveAt: activityAt
-      });
-    } else if (new Date(createdAt).getTime() < new Date(existing.createdAt).getTime()) {
-      existing.createdAt = createdAt;
-    }
-  };
-  sessionsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
-  attemptsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
-  const missing = [...candidates.values()].filter((candidate) => !existingIds.has(candidate.guestId));
-  for (let offset = 0; offset < missing.length; offset += 400) {
-    const batch = adminDb.batch();
-    for (const candidate of missing.slice(offset, offset + 400)) {
-      const validation = validateStudentDisplayName(candidate.displayName);
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      batch.set(adminDb.collection("guest_profiles").doc(candidate.guestId), {
-        id: candidate.guestId,
-        guestId: candidate.guestId,
-        accountType: "guest",
-        displayName: candidate.displayName,
-        name: candidate.displayName,
-        normalizedName: normalizePersonName(candidate.displayName),
-        role: "student",
-        status: "active",
-        createdAt: candidate.createdAt || now,
-        updatedAt: now,
-        lastActiveAt: candidate.lastActiveAt || now,
-        needsReview: !validation.valid
-      });
-    }
-    await batch.commit();
-  }
-}
-var legacyGuestProfileBackfillPromise = null;
-async function ensureLegacyGuestProfilesOnce() {
-  if (!legacyGuestProfileBackfillPromise) {
-    legacyGuestProfileBackfillPromise = ensureLegacyGuestProfiles().catch((err) => {
-      legacyGuestProfileBackfillPromise = null;
-      throw err;
-    });
-  }
-  await legacyGuestProfileBackfillPromise;
+var CANONICAL_STUDENT_NAME_CACHE_TTL_MS = 6e4;
+var canonicalStudentNameCache = null;
+var canonicalStudentNameLoadPromise = null;
+function invalidateCanonicalStudentNameCache() {
+  canonicalStudentNameCache = null;
 }
 async function getCanonicalStudentNameMaps() {
-  await ensureLegacyGuestProfilesOnce();
-  const [usersSnapshot, profilesSnapshot] = await Promise.all([
-    adminDb.collection("users").get(),
-    adminDb.collection("guest_profiles").get()
-  ]);
-  const users = /* @__PURE__ */ new Map();
-  const guests = /* @__PURE__ */ new Map();
-  usersSnapshot.forEach((doc) => {
-    const data = doc.data();
-    const name = safeText(data.name || data.displayName, 120);
-    if (name) users.set(doc.id, name);
-  });
-  profilesSnapshot.forEach((doc) => {
-    const data = doc.data();
-    const name = safeText(data.displayName || data.name, 120);
-    if (name) guests.set(doc.id, name);
-  });
-  return { users, guests };
+  if (canonicalStudentNameCache?.expiresAt && canonicalStudentNameCache.expiresAt > Date.now()) {
+    return canonicalStudentNameCache.value;
+  }
+  if (!canonicalStudentNameLoadPromise) {
+    canonicalStudentNameLoadPromise = (async () => {
+      const [usersSnapshot, profilesSnapshot] = await Promise.all([
+        adminDb.collection("users").get(),
+        adminDb.collection("guest_profiles").get()
+      ]);
+      const users = /* @__PURE__ */ new Map();
+      const guests = /* @__PURE__ */ new Map();
+      usersSnapshot.forEach((doc) => {
+        const data = doc.data();
+        const name = safeText(data.name || data.displayName, 120);
+        if (name) users.set(doc.id, name);
+      });
+      profilesSnapshot.forEach((doc) => {
+        const data = doc.data();
+        const name = safeText(data.displayName || data.name, 120);
+        if (name) guests.set(doc.id, name);
+      });
+      const value = { users, guests };
+      canonicalStudentNameCache = {
+        expiresAt: Date.now() + CANONICAL_STUDENT_NAME_CACHE_TTL_MS,
+        value
+      };
+      return value;
+    })().finally(() => {
+      canonicalStudentNameLoadPromise = null;
+    });
+  }
+  return canonicalStudentNameLoadPromise;
 }
 function enrichStudentName(data, maps) {
   if (!data) return data;
@@ -12797,6 +14576,13 @@ async function canStaffViewLearningAttempt(actor, attempt) {
   if (attempt.sourceType === "grammar") {
     const setDoc2 = await adminDb.collection("grammar_sets").doc(attempt.lessonId).get();
     return Boolean(setDoc2.exists && canManageGrammarSet(user, { id: setDoc2.id, ...setDoc2.data() }));
+  }
+  const examCollection = attempt.sourceType === "listening" ? "listening_sets" : attempt.sourceType === "reading_writing" ? "mover_reading_sets" : attempt.sourceType === "exam" ? "exam_sets" : "";
+  if (examCollection) {
+    const setDoc2 = await adminDb.collection(examCollection).doc(attempt.lessonId).get();
+    if (!setDoc2.exists) return false;
+    const set = { id: setDoc2.id, ...setDoc2.data() };
+    return set.ownerId === user.id;
   }
   const setDoc = await adminDb.collection("vocab_sets").doc(attempt.lessonId).get();
   return Boolean(setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() }));
@@ -12989,7 +14775,7 @@ function grammarAttemptToActivity(attempt, set = {}) {
   };
 }
 function leaderboardEventId(sourceType, sourceId) {
-  const hash = import_crypto3.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
+  const hash = import_crypto4.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
   return `leaderboard-${hash}`;
 }
 function getLeaderboardEventTime(data) {
@@ -13008,7 +14794,7 @@ function sanitizeLeaderboardEvent(event) {
   const sourceId = safeText(event.sourceId || event.id || "", 180);
   const completedAt = getLeaderboardEventTime(event);
   return {
-    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto3.default.randomUUID()),
+    id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto4.default.randomUUID()),
     sourceType,
     sourceId,
     assignmentId: safeText(event.assignmentId || "", 180),
@@ -13083,18 +14869,31 @@ function mergeLeaderboardEvents(events) {
   }
   return [...bySource.values()].sort((a, b) => new Date(getLeaderboardEventTime(b)).getTime() - new Date(getLeaderboardEventTime(a)).getTime());
 }
-async function loadLeaderboardEventsFromSources() {
+async function loadLeaderboardEventsFromSources(timing) {
   const events = [];
   const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
-  const storedSnapshot = await adminDb.collection("leaderboard_events").where("completedAt", ">=", leaderboardCutoff).get();
+  const [storedSnapshot, readModelSettingDoc] = await Promise.all([
+    adminDb.collection("leaderboard_events").where("completedAt", ">=", leaderboardCutoff).get(),
+    adminDb.collection("settings").doc(LEADERBOARD_READ_MODEL_SETTING_ID).get()
+  ]);
   storedSnapshot.forEach((doc) => {
     const data = sanitizeLeaderboardEvent({ id: doc.id, ...doc.data() });
     if (!isExpiredStoredLeaderboardEvent(data)) events.push(data);
   });
-  const gameSnapshot = await adminDb.collection("game_sessions").where("completedAt", ">=", leaderboardCutoff).get();
-  const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").where("completedAt", ">=", leaderboardCutoff).get();
-  const grammarSetsById = await getGrammarSetMap();
-  const vocabSetsById = await getVocabSetMap();
+  timing?.mark("read_model");
+  const readModelSetting = readModelSettingDoc.exists ? readModelSettingDoc.data()?.value : null;
+  if (readModelSetting?.ready === true && Number(readModelSetting?.version) === 1) {
+    const named2 = await enrichStudentNames(mergeLeaderboardEvents(events));
+    timing?.mark("names");
+    return named2;
+  }
+  const [gameSnapshot, grammarAttemptsSnapshot, grammarSetsById, vocabSetsById] = await Promise.all([
+    adminDb.collection("game_sessions").where("completedAt", ">=", leaderboardCutoff).get(),
+    adminDb.collection("grammar_attempts").where("completedAt", ">=", leaderboardCutoff).get(),
+    getGrammarSetMap(),
+    getVocabSetMap()
+  ]);
+  timing?.mark("legacy_sources");
   gameSnapshot.forEach((doc) => {
     const data = { id: doc.id, ...doc.data() };
     if (data.status && data.status !== "completed") return;
@@ -13113,7 +14912,9 @@ async function loadLeaderboardEventsFromSources() {
     if (isOutsideLeaderboardRetention(data)) return;
     events.push(grammarAttemptToLeaderboardEvent(data, grammarSetsById.get(data.grammarSetId)));
   });
-  return enrichStudentNames(mergeLeaderboardEvents(events));
+  const named = await enrichStudentNames(mergeLeaderboardEvents(events));
+  timing?.mark("names");
+  return named;
 }
 async function getGrammarSetMap() {
   const snapshot = await adminDb.collection("grammar_sets").get();
@@ -13161,35 +14962,35 @@ var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENC
 var ttsQueue = [];
 var ttsInFlight = /* @__PURE__ */ new Map();
 var isProcessingTtsQueue = false;
-function normalizeTtsText(text4) {
-  return text4.normalize("NFKC").trim().replace(/\s+/g, " ");
+function normalizeTtsText(text6) {
+  return text6.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 function sanitizeTtsInput(input) {
   const warnings = [];
-  let text4 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
-  if (!text4) return { text: "", warnings };
-  const lines = text4.split("\n").map((line) => line.trim()).filter(Boolean);
+  let text6 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text6) return { text: "", warnings };
+  const lines = text6.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 1) {
     warnings.push("Only the first non-empty line was used for TTS.");
-    text4 = lines[0];
+    text6 = lines[0];
   }
-  const dashSplit = text4.split(/\s+[–—-]\s+/);
+  const dashSplit = text6.split(/\s+[–—-]\s+/);
   if (dashSplit.length > 1) {
     warnings.push("Text after the separator was removed before TTS.");
-    text4 = dashSplit[0];
+    text6 = dashSplit[0];
   }
-  const beforeNotes = text4;
-  text4 = text4.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
-  if (text4 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
-  const beforeIpa = text4;
-  text4 = text4.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
-  if (text4 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
-  text4 = normalizeTtsText(text4).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
-  if (text4.length > 120) {
+  const beforeNotes = text6;
+  text6 = text6.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text6 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text6;
+  text6 = text6.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text6 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text6 = normalizeTtsText(text6).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text6.length > 120) {
     warnings.push("TTS text was shortened to 120 characters.");
-    text4 = text4.slice(0, 120).trim();
+    text6 = text6.slice(0, 120).trim();
   }
-  return { text: text4, warnings };
+  return { text: text6, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
@@ -13207,10 +15008,10 @@ function normalizeTtsSettings(settings = {}) {
     speed
   };
 }
-function createAudioHash(text4, settings) {
-  const normalizedText = normalizeTtsText(text4);
+function createAudioHash(text6, settings) {
+  const normalizedText = normalizeTtsText(text6);
   const generationSpeed = settings.provider === "yupvox" ? DEFAULT_TTS_SPEED : settings.speed;
-  return import_crypto3.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`).digest("hex");
+  return import_crypto4.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`).digest("hex");
 }
 function audioFileName(audioHash) {
   return `${audioHash}.mp3`;
@@ -13308,11 +15109,11 @@ async function runWithConcurrency(items, limit, worker) {
   }));
   return results;
 }
-async function requestAi33TtsTask(text4, settings, fileName) {
+async function requestAi33TtsTask(text6, settings, fileName) {
   const apiKey = getAi33ApiKey();
   if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
   const form = new FormData();
-  form.set("text", text4);
+  form.set("text", text6);
   form.set("voice_id", settings.voice);
   form.set("speed", String(settings.speed));
   form.set("with_transcript", "false");
@@ -13351,13 +15152,13 @@ async function pollAi33AudioUrl(taskId) {
   }
   throw new Error("TTS task timed out before audio was ready.");
 }
-async function requestTtsProviderAudioUrl(text4, settings, fileName) {
+async function requestTtsProviderAudioUrl(text6, settings, fileName) {
   if (settings.provider === "yupvox") {
     const audioUrl = await generateYupVoxAudioUrl({
       apiKey: getYupVoxApiKey(),
       baseUrl: process.env.YUPVOX_BASE_URL,
       voiceId: settings.voice,
-      text: text4,
+      text: text6,
       maxPollAttempts: Number(process.env.YUPVOX_TTS_POLL_ATTEMPTS || 40),
       pollIntervalMs: Number(process.env.YUPVOX_TTS_POLL_INTERVAL_MS || 1500),
       fetchImpl: fetchWithTimeout,
@@ -13365,7 +15166,7 @@ async function requestTtsProviderAudioUrl(text4, settings, fileName) {
     });
     return { audioUrl, validateAudioUrl: assertSafeYupVoxAudioUrl };
   }
-  const taskId = await requestAi33TtsTask(text4, settings, fileName);
+  const taskId = await requestAi33TtsTask(text6, settings, fileName);
   return { audioUrl: await pollAi33AudioUrl(taskId) };
 }
 async function downloadAudioToCache(sourceUrl, targetPath, validateAudioUrl) {
@@ -13778,11 +15579,11 @@ async function generateWithOpenAI(prompt) {
     throw error;
   }
   const data = await response.json();
-  const text4 = extractOpenAIText(data);
-  if (!text4) {
+  const text6 = extractOpenAIText(data);
+  if (!text6) {
     throw new Error("OpenAI response did not include text output.");
   }
-  return text4;
+  return text6;
 }
 async function generateAiVisionJson(prompt, images, options, signal) {
   const errors = [];
@@ -13858,10 +15659,10 @@ async function generateAiText(prompt, geminiConfig) {
     errors.push("Gemini: GEMINI_API_KEY is not configured.");
   }
   try {
-    const text4 = await generateWithOpenAI(prompt);
-    if (text4) {
+    const text6 = await generateWithOpenAI(prompt);
+    if (text6) {
       return {
-        text: text4.trim(),
+        text: text6.trim(),
         provider: "openai",
         errors
       };
@@ -13878,8 +15679,8 @@ async function generateAiText(prompt, geminiConfig) {
     errors
   };
 }
-function parseAiJson(text4) {
-  const trimmed = String(text4 || "").trim();
+function parseAiJson(text6) {
+  const trimmed = String(text6 || "").trim();
   if (!trimmed) throw new Error("AI returned empty text.");
   try {
     return JSON.parse(trimmed);
@@ -14097,6 +15898,7 @@ app2.post("/api/register", authenticateUser, async (req, res) => {
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     await userRef.set(updatedProfile);
+    invalidateCanonicalStudentNameCache();
     res.json(updatedProfile);
   } catch (err) {
     sendApiError(res, err);
@@ -14228,6 +16030,18 @@ app2.use(
     }
   })
 );
+app2.use(
+  "/api/exam-platform",
+  createExamRouter({
+    db: adminDb,
+    authenticateUser,
+    authenticateOptionalUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    ticketSecret: `${LISTENING_TICKET_SECRET}:exam-platform-v1`,
+    resolveGuestProfile,
+    logAudit: logAuditAction
+  })
+);
 var ALLOWED_PARTS_OF_SPEECH = [
   "Noun",
   "Pronoun",
@@ -14241,18 +16055,18 @@ var ALLOWED_PARTS_OF_SPEECH = [
   "Determiner"
 ];
 function normalizePartOfSpeech(value) {
-  const text4 = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text4);
+  const text6 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text6);
   if (match) return match;
-  if (text4.includes("pronoun")) return "Pronoun";
-  if (text4.includes("adjective")) return "Adjective";
-  if (text4.includes("adverb")) return "Adverb";
-  if (text4.includes("preposition")) return "Preposition";
-  if (text4.includes("conjunction")) return "Conjunction";
-  if (text4.includes("interjection")) return "Interjection";
-  if (text4.includes("article")) return "Article";
-  if (text4.includes("determiner")) return "Determiner";
-  if (text4.includes("verb")) return "Verb";
+  if (text6.includes("pronoun")) return "Pronoun";
+  if (text6.includes("adjective")) return "Adjective";
+  if (text6.includes("adverb")) return "Adverb";
+  if (text6.includes("preposition")) return "Preposition";
+  if (text6.includes("conjunction")) return "Conjunction";
+  if (text6.includes("interjection")) return "Interjection";
+  if (text6.includes("article")) return "Article";
+  if (text6.includes("determiner")) return "Determiner";
+  if (text6.includes("verb")) return "Verb";
   return "Noun";
 }
 function normalizeForExampleCheck(value) {
@@ -14508,16 +16322,35 @@ app2.get("/api/public/vocab-sets", async (req, res) => {
   }
 });
 app2.get("/api/public/results", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/public/results");
   try {
     const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const snapshot = await adminDb.collection("game_sessions").where("completedAt", ">=", recentCutoff).get();
-    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").where("completedAt", ">=", recentCutoff).get();
-    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts").where("completedAt", ">=", recentCutoff).get();
-    const grammarSetsById = await getGrammarSetMap();
-    const vocabSetsById = await getVocabSetMap();
-    const assignmentsSnapshot = await adminDb.collection("assignments").get();
-    const classesSnapshot = await adminDb.collection("classes").get();
-    const membersSnapshot = await adminDb.collection("class_members").get();
+    const resultLimit = parseActivityResultLimit(req.query.limit);
+    const loadRecent = (collectionName) => {
+      let query = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
+      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
+      return query.get();
+    };
+    const [
+      snapshot,
+      grammarAttemptsSnapshot,
+      listeningAttemptsSnapshot,
+      grammarSetsById,
+      vocabSetsById,
+      assignmentsSnapshot,
+      classesSnapshot,
+      membersSnapshot
+    ] = await Promise.all([
+      loadRecent("game_sessions"),
+      loadRecent("grammar_attempts"),
+      loadRecent("listening_attempts"),
+      getGrammarSetMap(),
+      getVocabSetMap(),
+      adminDb.collection("assignments").get(),
+      adminDb.collection("classes").get(),
+      adminDb.collection("class_members").get()
+    ]);
+    timing.mark("sources");
     const assignmentsById = /* @__PURE__ */ new Map();
     const classesById = /* @__PURE__ */ new Map();
     const uniqueAssignmentClassByVocabSet = /* @__PURE__ */ new Map();
@@ -14601,17 +16434,25 @@ app2.get("/api/public/results", async (req, res) => {
       list2.push(listeningAttemptToActivity(data));
     });
     list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const named = await enrichStudentNames(list2);
+    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
+    timing.mark("shape");
+    const named = await enrichStudentNames(bounded);
+    timing.mark("names");
+    timing.finish(res);
     res.json(named.map(sanitizePublicStudentRecord2));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.get("/api/public/leaderboard-results", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/public/leaderboard-results");
   try {
-    const list2 = await loadLeaderboardEventsFromSources();
+    const list2 = await loadLeaderboardEventsFromSources(timing);
+    timing.finish(res);
     res.json(list2.map(sanitizePublicStudentRecord2));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -14654,17 +16495,17 @@ app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_ad
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const set = req.body;
-    const id = `set-${Date.now()}`;
+    const id2 = `set-${Date.now()}`;
     const newSet = normalizeVocabSetForSave({
       ...set,
-      id,
+      id: id2,
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id,
       creatorName: req.user.name
     });
-    await adminDb.collection("vocab_sets").doc(id).set(newSet);
+    await adminDb.collection("vocab_sets").doc(id2).set(newSet);
     if (newSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id, newSet.ttsSettings);
+      enqueueVocabSetAudio(id2, newSet.ttsSettings);
     }
     await logAuditAction(
       req.user.id,
@@ -14681,9 +16522,9 @@ app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_ad
 app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
+    const id2 = req.params.id;
     const payload = req.body;
-    const docRef = adminDb.collection("vocab_sets").doc(id);
+    const docRef = adminDb.collection("vocab_sets").doc(id2);
     const existingDoc = await docRef.get();
     if (!existingDoc.exists) {
       return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -14691,10 +16532,10 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
     if (!canManageVocabSet(req.user, existingDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
     }
-    const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
+    const updatedSet = normalizeVocabSetForSave({ ...payload, id: id2 }, existingDoc.data());
     await docRef.set(updatedSet);
     if (updatedSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id, updatedSet.ttsSettings);
+      enqueueVocabSetAudio(id2, updatedSet.ttsSettings);
     }
     await logAuditAction(
       req.user.id,
@@ -14711,10 +16552,10 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
 app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text4 = String(req.body?.text || "apple").trim();
+    const text6 = String(req.body?.text || "apple").trim();
     const force = Boolean(req.body?.force);
-    if (!text4) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text4, settings, force);
+    if (!text6) return res.status(400).json({ error: "Missing preview text." });
+    const result = await generateCachedTtsAudio(text6, settings, force);
     res.json({
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
@@ -14733,12 +16574,12 @@ app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "s
     const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
     if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
     const prepared = rawItems.map((item, index) => {
-      const text4 = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text4);
+      const text6 = String(item?.text || item?.term || "").trim();
+      const sanitized = sanitizeTtsInput(text6);
       const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
       return {
         id: String(item?.id || `item-${index + 1}`),
-        text: text4,
+        text: text6,
         sanitized,
         audioHash
       };
@@ -14877,8 +16718,8 @@ app2.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requir
 app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-    const docRef = adminDb.collection("vocab_sets").doc(id);
+    const id2 = req.params.id;
+    const docRef = adminDb.collection("vocab_sets").doc(id2);
     const existing = await docRef.get();
     if (!existing.exists) {
       return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -14887,7 +16728,7 @@ app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "su
       return res.status(403).json({ error: "Ban khong co quyen xoa bo tu vung nay." });
     }
     const setDetails = existing.data();
-    const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
+    const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id2).get();
     if (!isSuperAdmin3(req.user)) {
       const classesSnapshot = await adminDb.collection("classes").get();
       const classesById = /* @__PURE__ */ new Map();
@@ -14924,8 +16765,8 @@ app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "su
 app2.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-    const existing = await adminDb.collection("vocab_sets").doc(id).get();
+    const id2 = req.params.id;
+    const existing = await adminDb.collection("vocab_sets").doc(id2).get();
     if (!existing.exists) {
       return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
@@ -14974,16 +16815,16 @@ app2.post("/api/classes", authenticateUser, requireRole(["teacher", "super_admin
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const payload = req.body;
-    const id = `class-${Date.now()}`;
+    const id2 = `class-${Date.now()}`;
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const newClass = {
       ...payload,
-      id,
+      id: id2,
       code,
       teacherId: req.user.id,
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-    await adminDb.collection("classes").doc(id).set(newClass);
+    await adminDb.collection("classes").doc(id2).set(newClass);
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -14999,8 +16840,8 @@ app2.post("/api/classes", authenticateUser, requireRole(["teacher", "super_admin
 app2.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-    const classRef = adminDb.collection("classes").doc(id);
+    const id2 = req.params.id;
+    const classRef = adminDb.collection("classes").doc(id2);
     const existing = await classRef.get();
     if (!existing.exists) {
       return res.status(404).json({ error: "L\u1EDBp h\u1ECDc kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -15010,11 +16851,11 @@ app2.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super
     }
     const classDetails = existing.data();
     await classRef.delete();
-    const membersSnapshot = await adminDb.collection("class_members").where("classId", "==", id).get();
+    const membersSnapshot = await adminDb.collection("class_members").where("classId", "==", id2).get();
     const batch = adminDb.batch();
     membersSnapshot.forEach((doc) => batch.delete(doc.ref));
     await batch.commit();
-    const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id).get();
+    const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id2).get();
     const batch2 = adminDb.batch();
     assignmentsSnapshot.forEach((doc) => batch2.delete(doc.ref));
     await batch2.commit();
@@ -15059,13 +16900,13 @@ app2.post("/api/classes/:classId/members", authenticateUser, requireRole(["teach
     if (!canManageClass(req.user, classDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
     }
-    const id = `member-${Date.now()}`;
+    const id2 = `member-${Date.now()}`;
     const newMember = {
-      id,
+      id: id2,
       classId,
       studentName
     };
-    await adminDb.collection("class_members").doc(id).set(newMember);
+    await adminDb.collection("class_members").doc(id2).set(newMember);
     res.status(201).json(newMember);
   } catch (err) {
     sendApiError(res, err);
@@ -15114,14 +16955,14 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
     const payload = req.body;
-    const id = `assign-${Date.now()}`;
+    const id2 = `assign-${Date.now()}`;
     const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
     const classData = { id: classDoc.id, ...classDoc.data() };
     if (!canManageClass(req.user, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
-    const resourceType = payload.resourceType === "listening" ? "listening" : payload.resourceType === "mover_reading_writing" ? "mover_reading_writing" : "vocabulary";
+    const resourceType = payload.resourceType === "listening" ? "listening" : payload.resourceType === "mover_reading_writing" ? "mover_reading_writing" : payload.resourceType === "exam" ? "exam" : "vocabulary";
     let resource;
     if (resourceType === "listening") {
       const resourceId = String(payload.resourceId || payload.listeningSetId || "");
@@ -15135,11 +16976,20 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     } else if (resourceType === "mover_reading_writing") {
       const resourceId = String(payload.resourceId || payload.moverReadingWritingSetId || "");
       const readingWritingDoc = await adminDb.collection("mover_reading_sets").doc(resourceId).get();
-      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Mover Reading & Writing set not found." });
+      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Movers Reading & Writing set not found." });
       resource = { id: readingWritingDoc.id, ...readingWritingDoc.data() };
       const canManageReadingWriting = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
       if (!canManageReadingWriting || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 Mover Reading & Writing n\xE0y." });
+        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 Movers Reading & Writing n\xE0y." });
+      }
+    } else if (resourceType === "exam") {
+      const resourceId = String(payload.resourceId || "");
+      const examDoc = await adminDb.collection("exam_sets").doc(resourceId).get();
+      if (!examDoc.exists) return res.status(404).json({ error: "Exam set not found." });
+      resource = { id: examDoc.id, ...examDoc.data() };
+      const canManageExam = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
+      if (!canManageExam || resource.status !== "published" || resource.visibility === "draft") {
+        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 thi n\xE0y." });
       }
     } else {
       const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
@@ -15152,7 +17002,7 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     const shareToken = createShareToken();
     const newAssign = {
       ...payload,
-      id,
+      id: id2,
       shareToken,
       assignmentSlug: shareToken,
       classId: classData.id,
@@ -15167,15 +17017,20 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
         listeningSetId: resource.id,
         listeningSetTitle: resource.title || payload.resourceTitle || "",
         gameId: "listening-five-part"
-      } : {
+      } : resourceType === "mover_reading_writing" ? {
         moverReadingWritingSetId: resource.id,
         moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
         gameId: "mover-reading-writing"
+      } : {
+        examSetId: resource.id,
+        examModuleId: resource.moduleId,
+        examPaperId: resource.paperId,
+        gameId: `exam:${resource.moduleId}:${resource.paperId}`
       },
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
       createdBy: req.user.id
     };
-    await adminDb.collection("assignments").doc(id).set(newAssign);
+    await adminDb.collection("assignments").doc(id2).set(newAssign);
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -15191,13 +17046,13 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
 app2.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-    const docRef = adminDb.collection("assignments").doc(id);
+    const id2 = req.params.id;
+    const docRef = adminDb.collection("assignments").doc(id2);
     const existing = await docRef.get();
     if (!existing.exists) {
       return res.status(404).json({ error: "B\xE0i t\u1EADp kh\xF4ng t\u1ED3n t\u1EA1i." });
     }
-    const assignDetails = { id: existing.id || id, ...existing.data() };
+    const assignDetails = { id: existing.id || id2, ...existing.data() };
     const classDoc = assignDetails.classId ? await adminDb.collection("classes").doc(assignDetails.classId).get() : null;
     const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : null;
     if (!canManageAssignment(req.user, assignDetails, classData)) {
@@ -15285,9 +17140,9 @@ app2.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
 app2.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = makeId("grammar-set");
-    const set = normalizeGrammarSetForSave({ ...req.body, id }, {}, req.user);
-    await adminDb.collection("grammar_sets").doc(id).set(set);
+    const id2 = makeId("grammar-set");
+    const set = normalizeGrammarSetForSave({ ...req.body, id: id2 }, {}, req.user);
+    await adminDb.collection("grammar_sets").doc(id2).set(set);
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -15933,13 +17788,13 @@ app2.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, r
     if (context.gameId !== "speaking-ai") {
       return res.status(400).json({ error: "Chi game Speaking AI moi can kich hoat session som." });
     }
-    const id = deterministicRunDocumentId("session-v3", [
+    const id2 = deterministicRunDocumentId("session-v3", [
       context.actor.ownerKey,
       context.vocabSetId,
       context.gameId,
       credentials.clientRunId
     ]);
-    const docRef = adminDb.collection("game_sessions").doc(id);
+    const docRef = adminDb.collection("game_sessions").doc(id2);
     const existing = await docRef.get();
     timing.mark("idempotency_lookup");
     if (existing.exists) {
@@ -15951,7 +17806,7 @@ app2.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, r
       return res.json({ ...omitSensitiveSessionFields(session2), sessionToken: credentials.runSecret, alreadyActivated: true });
     }
     const session = buildGameSessionRecord(context, payload, {
-      id,
+      id: id2,
       sessionTokenHash: hashSessionToken(credentials.runSecret),
       schemaVersion: 3,
       clientRunId: credentials.clientRunId,
@@ -15985,13 +17840,13 @@ app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (r
     if (context.gameId === "speaking-ai") {
       return res.status(400).json({ error: "Speaking AI phai kich hoat session khi bat dau ghi am." });
     }
-    const id = deterministicRunDocumentId("session-v3", [
+    const id2 = deterministicRunDocumentId("session-v3", [
       context.actor.ownerKey,
       context.vocabSetId,
       context.gameId,
       credentials.clientRunId
     ]);
-    const docRef = adminDb.collection("game_sessions").doc(id);
+    const docRef = adminDb.collection("game_sessions").doc(id2);
     const existing = await docRef.get();
     timing.mark("idempotency_lookup");
     if (existing.exists) {
@@ -16006,7 +17861,7 @@ app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (r
     }
     const actions = sanitizeSubmittedGameActions(payload.actions);
     const baseSession = existing.exists ? existing.data() : buildGameSessionRecord(context, payload, {
-      id,
+      id: id2,
       sessionTokenHash: hashSessionToken(credentials.runSecret),
       schemaVersion: 3,
       clientRunId: credentials.clientRunId,
@@ -16028,7 +17883,7 @@ app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (r
       durationSeconds: Math.round(durationMs / 1e3),
       expiresAt: addDaysIso2(completedAt, ACTIVITY_TTL_DAYS)
     };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id });
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: id2 });
     const batch = adminDb.batch();
     batch.set(docRef, completed);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
@@ -16061,7 +17916,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
     timing.mark("identity");
-    const id = `session-${import_crypto3.default.randomUUID()}`;
+    const id2 = `session-${import_crypto4.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const vocabSetId = safeText(payload.vocabSetId, 160);
@@ -16135,7 +17990,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     timing.mark("class_resolve");
     const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
     const newSession = {
-      id,
+      id: id2,
       ownerKey: actor.ownerKey,
       ownerType: actor.ownerType,
       userId: actor.userId,
@@ -16167,7 +18022,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       incorrectAnswers: 0,
       sessionTokenHash: hashSessionToken(sessionToken)
     };
-    await adminDb.collection("game_sessions").doc(id).set(newSession);
+    await adminDb.collection("game_sessions").doc(id2).set(newSession);
     timing.mark("persist");
     timing.finish(res);
     res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
@@ -16178,9 +18033,9 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
 });
 app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => {
   try {
-    const id = req.params.id;
+    const id2 = req.params.id;
     const payload = req.body || {};
-    const docRef = adminDb.collection("game_sessions").doc(id);
+    const docRef = adminDb.collection("game_sessions").doc(id2);
     const existing = await docRef.get();
     if (!existing.exists) {
       return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
@@ -16225,7 +18080,7 @@ app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) =>
       completedAt: endedAt,
       expiresAt: addDaysIso2(endedAt, ACTIVITY_TTL_DAYS)
     };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id });
+    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id: id2 });
     const batch = adminDb.batch();
     batch.set(docRef, updatedSession);
     batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
@@ -16381,9 +18236,9 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
     if (!actor) {
       return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
     }
-    const id = `pronunciation-${import_crypto3.default.randomUUID()}`;
+    const id2 = `pronunciation-${import_crypto4.default.randomUUID()}`;
     const attempt = {
-      id,
+      id: id2,
       ownerKey: actor.ownerKey,
       ownerType: actor.ownerType,
       userId: actor.userId || "",
@@ -16403,25 +18258,140 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
       playedAt: now,
       createdAt: now
     };
-    await adminDb.collection("pronunciation_attempts").doc(id).set(attempt);
+    await adminDb.collection("pronunciation_attempts").doc(id2).set(attempt);
     res.status(201).json(attempt);
   } catch (err) {
     sendApiError(res, err);
   }
 });
+app2.get("/api/results/:sourceType/:resultId", authenticateUser, async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/results/:sourceType/:resultId");
+  try {
+    if (!req.user) {
+      timing.finish(res);
+      return res.status(401).json({ error: "Unauthenticated" });
+    }
+    const sourceType = safeText(req.params.sourceType, 80);
+    const requestedId = safeText(req.params.resultId, 200);
+    if (!requestedId || !["vocabulary", "grammar", "listening"].includes(sourceType)) {
+      timing.finish(res);
+      return res.status(400).json({ error: "Lo\u1EA1i k\u1EBFt qu\u1EA3 kh\xF4ng h\u1EE3p l\u1EC7." });
+    }
+    let activity = null;
+    if (sourceType === "vocabulary") {
+      const sessionDoc = await adminDb.collection("game_sessions").doc(requestedId).get();
+      if (!sessionDoc.exists) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const session = { id: sessionDoc.id, ...sessionDoc.data() };
+      if (!session.completedAt || isExpiredActivity(session)) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const [vocabSetDoc, assignmentDoc] = await Promise.all([
+        session.vocabSetId ? adminDb.collection("vocab_sets").doc(session.vocabSetId).get() : Promise.resolve(null),
+        session.assignmentId ? adminDb.collection("assignments").doc(session.assignmentId).get() : Promise.resolve(null)
+      ]);
+      const vocabSet = vocabSetDoc?.exists ? { id: vocabSetDoc.id, ...vocabSetDoc.data() } : null;
+      const assignment = assignmentDoc?.exists ? { id: assignmentDoc.id, ...assignmentDoc.data() } : null;
+      const classIds = Array.from(new Set([session.classId, assignment?.classId].filter(Boolean)));
+      const classDocs = await Promise.all(classIds.map((classId) => adminDb.collection("classes").doc(classId).get()));
+      const vocabSetsById = new Map(vocabSet ? [[vocabSet.id, vocabSet]] : []);
+      const assignmentsById = new Map(assignment ? [[assignment.id, assignment]] : []);
+      const classesById = /* @__PURE__ */ new Map();
+      classDocs.forEach((doc) => {
+        if (doc.exists) classesById.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+      if (!canViewResultSession(req.user, session, vocabSetsById, assignmentsById, classesById)) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const gradeClass = getLessonGradeClass(vocabSet);
+      activity = sanitizeActivityDetail({
+        ...session,
+        sourceType: "vocabulary",
+        sourceId: session.id,
+        classId: session.classId || gradeClass.classId || "",
+        className: session.className || gradeClass.className || ""
+      });
+    } else if (sourceType === "grammar") {
+      const sourceId = requestedId.startsWith("grammar-") ? requestedId.slice("grammar-".length) : requestedId;
+      const attemptDoc = await adminDb.collection("grammar_attempts").doc(sourceId).get();
+      if (!attemptDoc.exists) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const attempt = { id: attemptDoc.id, ...attemptDoc.data() };
+      const setDoc = attempt.grammarSetId ? await adminDb.collection("grammar_sets").doc(attempt.grammarSetId).get() : null;
+      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
+      if (attempt.status !== "completed" || !attempt.completedAt || isExpiredActivity(attempt) || !canViewGrammarActivity(req.user, attempt, set)) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      activity = grammarAttemptToActivity(attempt, set);
+      activity.sourceId = attempt.id;
+    } else {
+      const attemptDoc = await adminDb.collection("listening_attempts").doc(requestedId).get();
+      if (!attemptDoc.exists) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const attempt = { id: attemptDoc.id, ...attemptDoc.data() };
+      const setDoc = attempt.setId ? await adminDb.collection("listening_sets").doc(attempt.setId).get() : null;
+      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
+      const canView = req.user.role === "super_admin" || attempt.userId === req.user.id || attempt.ownerKey === `user:${req.user.id}` || req.user.role === "teacher" && set?.ownerId === req.user.id;
+      if (!attempt.completedAt || !canView) {
+        timing.finish(res);
+        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
+      }
+      const isStaffResultReview = req.user.role === "teacher" || req.user.role === "super_admin";
+      const detail = isStaffResultReview ? await resolveListeningActivityDetailForStaff(adminDb, attempt) : null;
+      activity = listeningAttemptToActivity(attempt, detail);
+    }
+    timing.mark("detail");
+    const [named] = await enrichStudentNames([activity]);
+    timing.mark("names");
+    timing.finish(res);
+    res.json(named);
+  } catch (err) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
 app2.get("/api/results", authenticateUser, async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/results");
   try {
     const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const snapshot = await adminDb.collection("game_sessions").where("completedAt", ">=", recentCutoff).get();
-    const grammarAttemptsSnapshot = await adminDb.collection("grammar_attempts").where("completedAt", ">=", recentCutoff).get();
-    const listeningAttemptsSnapshot = await adminDb.collection("listening_attempts").where("completedAt", ">=", recentCutoff).get();
-    const grammarSetsById = await getGrammarSetMap();
-    const vocabSetsById = await getVocabSetMap();
-    const listeningSetsSnapshot = await adminDb.collection("listening_sets").get();
+    const summaryView = req.query.view === "summary";
+    const resultLimit = summaryView ? parseActivityResultLimit(req.query.limit) : null;
+    const loadRecent = (collectionName) => {
+      let query = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
+      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
+      return query.get();
+    };
+    const [
+      snapshot,
+      grammarAttemptsSnapshot,
+      listeningAttemptsSnapshot,
+      grammarSetsById,
+      vocabSetsById,
+      listeningSetsSnapshot,
+      assignmentsSnapshot,
+      classesSnapshot
+    ] = await Promise.all([
+      loadRecent("game_sessions"),
+      loadRecent("grammar_attempts"),
+      loadRecent("listening_attempts"),
+      getGrammarSetMap(),
+      getVocabSetMap(),
+      adminDb.collection("listening_sets").get(),
+      adminDb.collection("assignments").get(),
+      adminDb.collection("classes").get()
+    ]);
+    timing.mark("sources");
     const listeningSetsById = /* @__PURE__ */ new Map();
     listeningSetsSnapshot.forEach((doc) => listeningSetsById.set(doc.id, { id: doc.id, ...doc.data() }));
-    const assignmentsSnapshot = await adminDb.collection("assignments").get();
-    const classesSnapshot = await adminDb.collection("classes").get();
     const assignmentsById = /* @__PURE__ */ new Map();
     const classesById = /* @__PURE__ */ new Map();
     assignmentsSnapshot.forEach((doc) => {
@@ -16440,12 +18410,15 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
         if (!canViewResultSession(req.user, data, vocabSetsById, assignmentsById, classesById)) return;
         const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-        list2.push({
+        const activity = sanitizeActivityDetail({
           ...data,
           id: data.id || doc.id,
+          sourceType: "vocabulary",
+          sourceId: data.id || doc.id,
           classId: data.classId || gradeClass.classId || "",
           className: data.className || gradeClass.className || ""
         });
+        list2.push(summaryView ? toActivitySummary(activity, "vocabulary", data.id || doc.id) : activity);
       }
     });
     grammarAttemptsSnapshot.forEach((doc) => {
@@ -16454,7 +18427,8 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
       if (isExpiredActivity(data)) return;
       if (new Date(getActivityTime(data)).getTime() < cutoff) return;
       if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
-      list2.push(grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId)));
+      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
+      list2.push(summaryView ? toActivitySummary(activity, "grammar", data.id) : { ...activity, sourceId: data.id });
     });
     const visibleListeningAttempts = [];
     listeningAttemptsSnapshot.forEach((doc) => {
@@ -16467,7 +18441,10 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
     const isStaffResultReview = req.user?.role === "teacher" || req.user?.role === "super_admin";
     const listeningVersionContentCache = /* @__PURE__ */ new Map();
     const listeningActivities = await Promise.all(visibleListeningAttempts.map(async (data) => {
-      if (!isStaffResultReview) return listeningAttemptToActivity(data);
+      if (summaryView || !isStaffResultReview) {
+        const activity = listeningAttemptToActivity(data);
+        return summaryView ? toActivitySummary(activity, "listening", data.id) : activity;
+      }
       const detail = await resolveListeningActivityDetailForStaff(
         adminDb,
         data,
@@ -16477,18 +18454,28 @@ app2.get("/api/results", authenticateUser, async (req, res) => {
     }));
     list2.push(...listeningActivities);
     list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    res.json(await enrichStudentNames(list2));
+    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
+    timing.mark("shape");
+    const named = await enrichStudentNames(bounded);
+    timing.mark("names");
+    timing.finish(res);
+    res.json(named);
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.get("/api/leaderboard-results", authenticateUser, async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/leaderboard-results");
   try {
-    const events = await loadLeaderboardEventsFromSources();
-    const grammarSetsById = await getGrammarSetMap();
-    const vocabSetsById = await getVocabSetMap();
-    const assignmentsSnapshot = await adminDb.collection("assignments").get();
-    const classesSnapshot = await adminDb.collection("classes").get();
+    const events = await loadLeaderboardEventsFromSources(timing);
+    const [grammarSetsById, vocabSetsById, assignmentsSnapshot, classesSnapshot] = await Promise.all([
+      getGrammarSetMap(),
+      getVocabSetMap(),
+      adminDb.collection("assignments").get(),
+      adminDb.collection("classes").get()
+    ]);
+    timing.mark("scope_sources");
     const assignmentsById = /* @__PURE__ */ new Map();
     const classesById = /* @__PURE__ */ new Map();
     assignmentsSnapshot.forEach((doc) => {
@@ -16506,8 +18493,11 @@ app2.get("/api/leaderboard-results", authenticateUser, async (req, res) => {
       }
       return canViewResultSession(req.user, event, vocabSetsById, assignmentsById, classesById);
     });
+    timing.mark("scope");
+    timing.finish(res);
     res.json(scoped);
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -16524,7 +18514,6 @@ app2.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), asy
 app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    await ensureLegacyGuestProfilesOnce();
     const [usersSnapshot, guestsSnapshot] = await Promise.all([
       adminDb.collection("users").get(),
       adminDb.collection("guest_profiles").get()
@@ -16580,6 +18569,7 @@ app2.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(
     const existing = userDoc.data();
     const now = (/* @__PURE__ */ new Date()).toISOString();
     await userRef.update({ name: validation.value, updatedAt: now });
+    invalidateCanonicalStudentNameCache();
     let authWarning = "";
     try {
       await adminAuth.updateUser(req.params.userId, { displayName: validation.value });
@@ -16618,6 +18608,7 @@ app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, re
       needsReview: false,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
+    invalidateCanonicalStudentNameCache();
     await logAuditAction(
       req.user.id,
       req.user.name,
@@ -16794,11 +18785,11 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path5.default.join(process.cwd(), "dist", "client");
-    app2.use("/assets", import_express5.default.static(import_path5.default.join(distPath, "assets"), {
+    app2.use("/assets", import_express6.default.static(import_path5.default.join(distPath, "assets"), {
       immutable: true,
       maxAge: "365d"
     }));
-    app2.use(import_express5.default.static(distPath));
+    app2.use(import_express6.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path5.default.join(distPath, "index.html"));
     });
@@ -16838,7 +18829,7 @@ function toLegacyStatus(visibility) {
   return visibility === "assignment" ? "private" : visibility;
 }
 function createShareToken() {
-  return import_crypto3.default.randomBytes(16).toString("hex");
+  return import_crypto4.default.randomBytes(16).toString("hex");
 }
 function normalizePersonName(value) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ");
@@ -16880,7 +18871,7 @@ function normalizeVocabSetForRead(set) {
   };
 }
 function normalizeVocabItemForSave(item, index, errors) {
-  const id = safeText(item?.id, 160) || makeId(`item-${index + 1}`);
+  const id2 = safeText(item?.id, 160) || makeId(`item-${index + 1}`);
   const term = safeText(item?.term, 160);
   const meaning = safeText(item?.meaning, 500);
   if (!term) errors.push(`Dong ${index + 1}: missing English word.`);
@@ -16906,7 +18897,7 @@ function normalizeVocabItemForSave(item, index, errors) {
   const status = safeText(item?.audioStatus, 20);
   const audioStatus = ["missing", "queued", "generating", "ready", "failed"].includes(status) ? status : void 0;
   const normalized = {
-    id,
+    id: id2,
     term,
     meaning,
     ipa: safeText(item?.ipa, 120),
@@ -17035,18 +19026,18 @@ function safeText(value, max = 2e3) {
   return String(value || "").normalize("NFKC").trim().slice(0, max);
 }
 function makeId(prefix) {
-  return `${prefix}-${Date.now()}-${import_crypto3.default.randomBytes(4).toString("hex")}`;
+  return `${prefix}-${Date.now()}-${import_crypto4.default.randomBytes(4).toString("hex")}`;
 }
 function fisherYates(input) {
   const items = [...input];
   for (let i = items.length - 1; i > 0; i--) {
-    const j = import_crypto3.default.randomInt(0, i + 1);
+    const j = import_crypto4.default.randomInt(0, i + 1);
     [items[i], items[j]] = [items[j], items[i]];
   }
   return items;
 }
 function seededUnitInterval(seed, index) {
-  const digest = import_crypto3.default.createHash("sha256").update(`${seed}:${index}`).digest();
+  const digest = import_crypto4.default.createHash("sha256").update(`${seed}:${index}`).digest();
   return digest.readUInt32BE(0) / 4294967296;
 }
 function deterministicShuffle(input, seed) {
@@ -17372,13 +19363,13 @@ function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken 
   if (attemptToken) sanitizedAttempt.attemptToken = attemptToken;
   return sanitizedAttempt;
 }
-async function getGrammarSetOr404(id) {
-  const doc = await adminDb.collection("grammar_sets").doc(id).get();
+async function getGrammarSetOr404(id2) {
+  const doc = await adminDb.collection("grammar_sets").doc(id2).get();
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
-async function getGrammarAttemptOr404(id) {
-  const doc = await adminDb.collection("grammar_attempts").doc(id).get();
+async function getGrammarAttemptOr404(id2) {
+  const doc = await adminDb.collection("grammar_attempts").doc(id2).get();
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }

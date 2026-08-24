@@ -56,6 +56,8 @@ function mapItem(row: Record<string, any>): LearningHistoryItem {
     attemptId: String(row.attempt_id || ''),
     sourceType: row.source_type === 'grammar'
       ? 'grammar'
+      : row.source_type === 'exam'
+        ? 'exam'
       : row.source_type === 'reading_writing'
         ? 'reading_writing'
       : row.source_type === 'listening'
@@ -194,6 +196,43 @@ history_attempts AS (
     'available' AS detail_status,
     'canonical' AS normalization_status
   FROM mover_reading_attempts
+  UNION ALL
+  SELECT
+    id AS attempt_id,
+    id AS source_record_id,
+    'exam' AS source_type,
+    CASE WHEN guest_id IS NOT NULL AND guest_id <> '' THEN 'guest' ELSE 'authenticated' END AS student_type,
+    owner_key,
+    COALESCE(student_name, '') AS student_name_snapshot,
+    NULLIF(class_id, '') AS class_id,
+    COALESCE(json_extract(data_json, '$.className'), '') AS class_name_snapshot,
+    NULLIF(assignment_id, '') AS assignment_id,
+    COALESCE(json_extract(data_json, '$.assignmentTitle'), '') AS assignment_title_snapshot,
+    NULLIF(json_extract(data_json, '$.assignmentDueAt'), '') AS assignment_due_at_snapshot,
+    set_id AS lesson_id,
+    COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
+    'exam_set' AS lesson_type,
+    'exam:' || module_id || ':' || paper_id AS game_id,
+    UPPER(module_id) || ' · ' || paper_id AS game_title_snapshot,
+    score,
+    score AS raw_score,
+    100 AS max_score,
+    correct_count,
+    incorrect_count,
+    unanswered_count,
+    incorrect_count + unanswered_count AS mistake_count,
+    COALESCE(json_extract(data_json, '$.totalCount'), correct_count + incorrect_count + unanswered_count) AS total_questions,
+    started_at,
+    completed_at,
+    completed_at AS activity_at,
+    substr(completed_at, 1, 10) AS study_date,
+    duration_seconds,
+    'completed' AS attempt_status,
+    1 AS attempt_number,
+    'available' AS detail_status,
+    'canonical' AS normalization_status
+  FROM exam_attempts
+  WHERE status = 'completed'
 )`;
 
 function escapeLike(value: string) {
@@ -504,6 +543,43 @@ export async function findAttemptDetail(attemptId: string) {
     }
   }
 
+  const examRow = await sqliteQueryOne<Record<string, any>>(
+    `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
+            attempt.module_id, attempt.paper_id, attempt.version_id
+     FROM exam_attempt_details AS detail
+     JOIN exam_attempts AS attempt ON attempt.id = detail.attempt_id
+     WHERE detail.attempt_id = ? AND attempt.status = 'completed'`,
+    [attemptId],
+  );
+  if (examRow) {
+    let data: Record<string, any> = {};
+    try {
+      data = JSON.parse(String(examRow.data_json || '{}'));
+    } catch {
+      data = {};
+    }
+    const questions = Array.isArray(data.questions) ? data.questions : [];
+    return {
+      attempt_id: attemptId,
+      client_run_id: null,
+      source_type: 'exam',
+      answer_details_json: JSON.stringify(questions),
+      question_snapshots_json: JSON.stringify(data.questionSnapshots || []),
+      option_snapshots_json: JSON.stringify(data.optionSnapshots || []),
+      extra_details_json: JSON.stringify({
+        moduleId: examRow.module_id,
+        paperId: examRow.paper_id,
+        versionId: examRow.version_id,
+        gradingVersion: data.grade?.gradingVersion,
+      }),
+      review_policy_json: JSON.stringify(data.reviewPolicy || {}),
+      created_at: examRow.created_at,
+      updated_at: examRow.updated_at,
+      expires_at: null,
+      schema_version: 1,
+    };
+  }
+
   const listeningRow = await sqliteQueryOne<Record<string, any>>(
     `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
             attempt.version_id, version.data_json AS version_data_json
@@ -639,7 +715,7 @@ export async function findLegacySource(
   sourceType: string,
   sourceRecordId: string,
 ): Promise<Record<string, any> | null> {
-  if (sourceType === 'listening' || sourceType === 'reading_writing') return null;
+  if (sourceType === 'listening' || sourceType === 'reading_writing' || sourceType === 'exam') return null;
   const table = sourceType === 'grammar' ? 'grammar_attempts' : 'game_results';
   const row = await sqliteQueryOne<{ data_json?: string }>(
     `SELECT data_json FROM ${table} WHERE id = ?`,

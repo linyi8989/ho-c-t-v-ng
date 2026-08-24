@@ -9,7 +9,7 @@ import type {
 export const MOVER_READING_WRITING_EXTERNAL_PROVIDER = 'external-parameters';
 
 const schemaId = (part: MoverReadingWritingSmartImportPartId) => (
-  `mover-rw-part${part}-external-v${part === 1 || part === 5 || part === 6 ? 2 : 1}`
+  `mover-rw-part${part}-external-v${part === 6 ? 3 : part === 1 || part === 5 ? 2 : 1}`
 );
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const cleanText = (value: unknown, max = 20_000) => typeof value === 'string'
@@ -258,21 +258,25 @@ export function validateAndNormalizeMoverReadingWritingImport(
     return { data: { part, title: cleanText(root.title, 160), instruction: cleanText(root.instruction, 1_000), example: exampleAt(root.example, 'Part 5 example', warnings), scenes: scenes.sort((a, b) => a.sceneNumber - b.sceneNumber) }, warnings };
   }
 
-  const root = rootAt(part, value, ['title', 'instruction', 'passageTitle', 'passageTemplate', 'example', 'gaps']);
-  const passageTemplate = cleanText(root.passageTemplate);
-  validateMarkers(passageTemplate, 5, 'Part 6 passageTemplate');
-  const gaps = arrayAt(root.gaps, 'Part 6 gaps').map((row, index) => (
-    textGapAt(row, `Part 6 gap ${index + 1}`, warnings)
-  ));
-  exactNumbered(
-    gaps.map(row => ({ ...row, questionNumber: row.gapNumber })),
+  const root = rootAt(part, value, ['questions']);
+  const questions = exactNumbered(
+    arrayAt(root.questions, 'Part 6 questions').map((value, index) => {
+      const row = objectAt(value, `Part 6 câu ${index + 1}`);
+      assertKeys(row, ['questionNumber', 'options', 'correctOption'], `Part 6 câu ${index + 1}`);
+      const rawOptions = arrayAt(row.options, `Part 6 câu ${index + 1} lựa chọn`);
+      if (rawOptions.length !== 3) fail(`Part 6 câu ${index + 1} phải có đúng ba lựa chọn A/B/C.`);
+      const options = rawOptions.map(option => cleanText(option, 500)) as [string, string, string];
+      if (options.some(option => !option)) warnings.push(`Part 6 câu ${index + 1}: có lựa chọn chưa đọc được; nội dung draft hiện có sẽ được giữ nguyên.`);
+      return {
+        questionNumber: Number(row.questionNumber),
+        options,
+        correctOption: normalizeCorrectOption(row.correctOption, `Part 6 câu ${index + 1}`, warnings),
+      };
+    }),
     5,
-    'Part 6 gaps',
+    'Part 6 questions',
   );
-  gaps.sort((first, second) => first.gapNumber - second.gapNumber);
-  const passageTitle = cleanText(root.passageTitle, 300);
-  if (!passageTitle) warnings.push('Part 6: chưa đọc được tiêu đề bài đọc.');
-  return { data: { part, title: cleanText(root.title, 160), instruction: cleanText(root.instruction, 1_000), passageTitle, passageTemplate, example: exampleAt(root.example, 'Part 6 example', warnings), gaps }, warnings };
+  return { data: { part, questions }, warnings };
 }
 
 function stripJsonFence(source: string) {
@@ -302,7 +306,7 @@ const templates: Record<MoverReadingWritingSmartImportPartId, Record<string, unk
     { sceneNumber: 2, passage: '', questions: [4, 5, 6, 7].map(textQuestion) },
     { sceneNumber: 3, passage: '', questions: [8, 9, 10].map(textQuestion) },
   ] },
-  6: { schema: schemaId(6), part: 6, title: 'Part 6', instruction: 'Read the text. Choose the right words...', passageTitle: '', passageTemplate: 'Text [[1]] text [[2]] text [[3]] text [[4]] text [[5]].', example: { prompt: '', answer: '' }, gaps: Array.from({ length: 5 }, (_, index) => ({ gapNumber: index + 1, acceptedAnswers: ['and'] })) },
+  6: { schema: schemaId(6), part: 6, questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, options: ['A option', 'B option', 'C option'], correctOption: 'A' })) },
 };
 
 export const moverReadingWritingExternalTemplate = (part: MoverReadingWritingSmartImportPartId) => JSON.stringify(templates[part], null, 2);
@@ -313,7 +317,7 @@ export const moverReadingWritingExternalHelp: Record<MoverReadingWritingSmartImp
   3: 'Đọc ví dụ và đúng sáu lượt hội thoại, mỗi câu ba lựa chọn A/B/C; đáp án đúng chỉ lấy từ answer key.',
   4: 'Dùng marker [[1]]…[[6]] đúng một lần trong truyện, sáu đáp án và một câu chọn tiêu đề.',
   5: 'Đọc ba scene theo thứ tự, tổng đúng mười câu. Mỗi promptTemplate phải chứa đúng marker [[questionNumber]] tại vị trí học sinh viết đáp án; mỗi acceptedAnswers không quá ba từ.',
-  6: 'Dùng marker [[1]]…[[5]] đúng một lần trong bài đọc; không đưa dòng Example vào passageTemplate. Mỗi gap chỉ trả gapNumber và acceptedAnswers lấy nguyên văn từ answer key, tối đa một từ; không trả A/B/C hoặc tự giải từ bảng lựa chọn.',
+  6: 'Chỉ đọc đúng năm hàng đánh số từ ảnh bảng lựa chọn và trả đúng ba options A/B/C cho mỗi hàng. correctOption chỉ được ánh xạ từ ảnh đáp án chính thức cùng số câu; không OCR bài đọc và tuyệt đối không tự giải.',
 };
 
 export const moverReadingWritingExternalInstructions = (part: MoverReadingWritingSmartImportPartId) => [
@@ -338,4 +342,4 @@ function schemaFromTemplate(value: unknown): any {
 }
 
 export const moverReadingWritingImportResponseSchema = (part: MoverReadingWritingSmartImportPartId) => schemaFromTemplate(templates[part]);
-export const moverReadingWritingImportSchemaName = (part: MoverReadingWritingSmartImportPartId) => `mover_rw_part_${part}_v${part === 1 || part === 5 || part === 6 ? 2 : 1}`;
+export const moverReadingWritingImportSchemaName = (part: MoverReadingWritingSmartImportPartId) => `mover_rw_part_${part}_v${part === 6 ? 3 : part === 1 || part === 5 ? 2 : 1}`;

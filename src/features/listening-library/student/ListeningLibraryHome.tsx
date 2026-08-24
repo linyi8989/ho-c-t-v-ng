@@ -5,11 +5,13 @@ import { examModulePath } from '../routes';
 interface ListeningLibraryHomeProps {
   embedded?: boolean;
   onBack?: () => void;
+  onNavigate: (href: string) => void;
 }
 
 export default function ListeningLibraryHome({
   embedded = false,
   onBack,
+  onNavigate,
 }: ListeningLibraryHomeProps) {
   const modules = getVisibleListeningModules();
   const content = (
@@ -51,7 +53,10 @@ export default function ListeningLibraryHome({
               {active ? (
                 <button
                   type="button"
-                  onClick={() => { window.location.href = examModulePath(module.id); }}
+                  onClick={() => {
+                    const href = examModulePath(module.id);
+                    onNavigate(href);
+                  }}
                   className="listening-library-primary-action mt-5 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black"
                 >
                   Xem danh sách

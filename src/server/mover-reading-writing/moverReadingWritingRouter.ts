@@ -20,6 +20,7 @@ import type {
 import {
   MOVER_READING_WRITING_PAPER_ID,
   MOVER_READING_WRITING_SCHEMA_VERSION,
+  isMoverReadingWritingPart6ImageChoice,
 } from '../../features/mover-reading-writing/types.js';
 import {
   isSupportedMoverReadingWritingSchemaVersion,
@@ -106,7 +107,7 @@ function apiError(status: number, message: string, details?: unknown) {
 
 function sendError(res: express.Response, error: any) {
   res.status(Number(error?.status || 500)).json({
-    error: error?.message || 'Không thể xử lý yêu cầu Mover Reading & Writing.',
+    error: error?.message || 'Không thể xử lý yêu cầu Movers Reading & Writing.',
     ...(error?.details ? { details: error.details } : {}),
   });
 }
@@ -236,9 +237,15 @@ function collectAssetReferences(content: MoverReadingWritingContent) {
   add(content.parts[2].sceneAssetId, 'part-3', 'scene');
   add(content.parts[3].wordBankAssetId, 'part-4', 'word-bank');
   content.parts[4].scenes.forEach((scene, index) => add(scene.imageAssetId, scene.id || `part-5-scene-${index + 1}`, 'scene'));
-  add(content.parts[5].passageSourceAssetId, 'part-6-source', 'passage-source');
-  add(content.parts[5].illustrationAssetId, 'part-6', 'illustration');
-  add(content.parts[5].optionsAssetId, 'part-6-options', 'options');
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    add(part6.studentImageAssetId, 'part-6', 'student-image');
+    add(part6.optionsSourceAssetId, 'part-6-options-source', 'options-source');
+  } else {
+    add(part6.passageSourceAssetId, 'part-6-source', 'passage-source');
+    add(part6.illustrationAssetId, 'part-6', 'illustration');
+    add(part6.optionsAssetId, 'part-6-options', 'options');
+  }
   return references;
 }
 
@@ -261,19 +268,26 @@ async function resolveContentAssets(db: any, content: MoverReadingWritingContent
   clone.parts[2].sceneUrl = url(clone.parts[2].sceneAssetId);
   clone.parts[3].wordBankUrl = url(clone.parts[3].wordBankAssetId);
   clone.parts[4].scenes.forEach(scene => { scene.imageUrl = url(scene.imageAssetId); });
-  clone.parts[5].passageSourceUrl = url(clone.parts[5].passageSourceAssetId);
-  clone.parts[5].illustrationUrl = url(clone.parts[5].illustrationAssetId);
-  clone.parts[5].optionsUrl = url(clone.parts[5].optionsAssetId);
+  const part6 = clone.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.studentImageUrl = url(part6.studentImageAssetId);
+    part6.optionsSourceUrl = url(part6.optionsSourceAssetId);
+  } else {
+    part6.passageSourceUrl = url(part6.passageSourceAssetId);
+    part6.illustrationUrl = url(part6.illustrationAssetId);
+    part6.optionsUrl = url(part6.optionsAssetId);
+  }
   return { content: clone, references };
 }
 
 function playableSet(set: any, version: any): MoverReadingWritingPlayableSet {
+  const content = sanitizeMoverReadingWritingContentForStudent(version.content);
   return {
     ...publicSetSummary(set),
-    schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+    schemaVersion: content.schemaVersion,
     versionId: version.id,
     versionNumber: version.versionNumber,
-    content: sanitizeMoverReadingWritingContentForStudent(version.content),
+    content,
   } as MoverReadingWritingPlayableSet;
 }
 
@@ -367,12 +381,15 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
       smartImportUsage.set(req.user.id, recentUsage);
 
       if (req.body?.moduleId !== 'mover' || req.body?.paperId !== MOVER_READING_WRITING_PAPER_ID) {
-        throw apiError(400, 'Smart Import này chỉ hỗ trợ Mover Reading & Writing.');
+        throw apiError(400, 'Smart Import này chỉ hỗ trợ Movers Reading & Writing.');
       }
       const part = Number(req.body?.part) as MoverReadingWritingSmartImportPartId;
       if (![1, 2, 3, 4, 5, 6].includes(part)) throw apiError(400, 'Part Reading & Writing không hợp lệ.');
       const currentPart = req.body?.currentPart as MoverReadingWritingPart;
       if (!currentPart || currentPart.part !== part) throw apiError(400, 'Dữ liệu Part hiện tại không hợp lệ.');
+      if (currentPart.part === 6 && currentPart.displayMode !== 'image-multiple-choice') {
+        throw apiError(409, 'Hãy chuyển Part 6 text-gap cũ sang cấu trúc trắc nghiệm ảnh trước khi phân tích.');
+      }
       const basePartHash = text(req.body?.basePartHash, 64).toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError(400, 'Thiếu hash của Part hiện tại.');
       if (sha256(JSON.stringify(currentPart)) !== basePartHash) {
@@ -508,10 +525,10 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
         id: identifier('mrwset'),
         moduleId: 'mover',
         paperId: MOVER_READING_WRITING_PAPER_ID,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: content.schemaVersion,
         ownerId: req.user.id,
         createdBy: req.user.id,
-        title: text(content.title, 160) || 'Mover Reading & Writing',
+        title: text(content.title, 160) || 'Movers Reading & Writing',
         description: text(content.description, 2000),
         level: text(content.level, 80) || 'Movers',
         status: 'draft',
@@ -568,7 +585,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
           title: text(content.title, 160),
           description: text(content.description, 2000),
           level: text(content.level, 80),
-          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
           draftContent: content,
@@ -616,7 +633,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
           title: text(content.title, 160),
           description: text(content.description, 2000),
           level: text(content.level, 80),
-          schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+          schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
           draftContent: content,
@@ -654,7 +671,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
       const now = nowIso();
       const clone = {
         id: identifier('mrwset'), moduleId: 'mover', paperId: MOVER_READING_WRITING_PAPER_ID,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION, ownerId: req.user.id, createdBy: req.user.id,
+        schemaVersion: content.schemaVersion, ownerId: req.user.id, createdBy: req.user.id,
         title: cloneTitle, description: text(content.description, 2000), level: text(content.level, 80),
         status: 'draft', visibility: 'draft', draftRevision: 1, draftContent: content,
         validationErrors: validateMoverReadingWritingContent(content), createdAt: now, updatedAt: now,
@@ -681,7 +698,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
       const now = nowIso();
       const version = {
         id: identifier('mrwver'), setId: set.id, versionNumber, status: 'published',
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION, content: resolved.content,
+        schemaVersion: resolved.content.schemaVersion, content: resolved.content,
         createdAt: now, updatedAt: now, publishedAt: now,
       };
       const batch = db.batch();
@@ -692,7 +709,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
       }
       const publishedSet = {
         ...set,
-        schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
+        schemaVersion: resolved.content.schemaVersion,
         title: resolved.content.title,
         description: resolved.content.description,
         level: resolved.content.level,

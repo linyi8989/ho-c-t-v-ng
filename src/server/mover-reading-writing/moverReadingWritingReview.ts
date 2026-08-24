@@ -11,6 +11,7 @@ import type {
 import {
   MOVER_READING_WRITING_PART_COUNTS,
   MOVER_READING_WRITING_TOTAL_QUESTIONS,
+  isMoverReadingWritingPart6ImageChoice,
 } from '../../features/mover-reading-writing/types.js';
 import { normalizeMoverReadingWritingContent } from '../../features/mover-reading-writing/compatibility.js';
 
@@ -210,22 +211,32 @@ export function buildMoverReadingWritingVisualReviewSnapshot(
   };
 
   const part6 = content.parts[5];
-  const reviewPart6 = {
-    part: 6 as const,
-    mode: 'passage-text' as const,
-    ...common(part6),
-    illustrationUrl: part6.illustrationUrl,
-    optionsUrl: part6.optionsUrl,
-    passageTitle: reviewText(part6.passageTitle, 500),
-    passageTemplate: presentationTemplate(
-      part6.passageTemplate.replace(/\[\[\s*example\s*\]\]/gi, part6.example?.answer || ''),
-      part6.gaps,
-    ),
-    example: safeExample(part6.example),
-    items: part6.gaps.map((gap, index) => (
-      baseItem(resultFor(6, gap.id), index + 1, `Chỗ trống ${index + 1}`)
-    )),
-  };
+  const reviewPart6 = isMoverReadingWritingPart6ImageChoice(part6)
+    ? {
+        part: 6 as const,
+        mode: 'image-options' as const,
+        ...common(part6),
+        imageUrl: part6.studentImageUrl,
+        items: part6.questions.map(question => (
+          choiceItem(resultFor(6, question.id), question.questionNumber, question)
+        )),
+      }
+    : {
+        part: 6 as const,
+        mode: 'passage-text' as const,
+        ...common(part6),
+        illustrationUrl: part6.illustrationUrl,
+        optionsUrl: part6.optionsUrl,
+        passageTitle: reviewText(part6.passageTitle, 500),
+        passageTemplate: presentationTemplate(
+          part6.passageTemplate.replace(/\[\[\s*example\s*\]\]/gi, part6.example?.answer || ''),
+          part6.gaps,
+        ),
+        example: safeExample(part6.example),
+        items: part6.gaps.map((gap, index) => (
+          baseItem(resultFor(6, gap.id), index + 1, `Chỗ trống ${index + 1}`)
+        )),
+      };
 
   return {
     schemaVersion: 1,
@@ -242,6 +253,6 @@ export function normalizeMoverReadingWritingVisualReviewSnapshot(value: unknown)
   if (source.parts.some((part, index) => Number((part as any)?.part) !== index + 1)) return undefined;
   const serialized = JSON.stringify(source);
   if (serialized.length > 750_000) return undefined;
-  if (/"(?:questionId|correctOptionId|acceptedAnswers|assetId|passageSource(?:AssetId|Url))"\s*:/i.test(serialized)) return undefined;
+  if (/"(?:questionId|correctOptionId|acceptedAnswers|assetId|(?:passage|options)Source(?:AssetId|Url))"\s*:/i.test(serialized)) return undefined;
   return structuredClone(source) as unknown as MoverReadingWritingVisualReviewSnapshot;
 }

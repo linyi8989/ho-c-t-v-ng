@@ -78,33 +78,38 @@ function getWeeklyLearningQuote() {
 export default function App() {
   const { user, token, logout, loading } = useAuth();
   const [adminMode, setAdminMode] = useState(false);
+  const [browserLocation, setBrowserLocation] = useState(() => ({
+    pathname: window.location.pathname,
+    search: window.location.search
+  }));
+  const currentPathname = browserLocation.pathname.replace(/\/+$/, '') || '/';
   const [studentHistoryOpen, setStudentHistoryOpen] = useState(() => (
     (window.location.pathname.replace(/\/+$/, '') || '/') === '/history'
   ));
   const privateAssignmentToken = React.useMemo(() => {
-    const match = window.location.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
+    const match = browserLocation.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
-  }, []);
+  }, [browserLocation.pathname]);
   const privateGrammarToken = React.useMemo(() => {
-    const match = window.location.pathname.match(/^\/grammar\/private\/([^/?#]+)/);
+    const match = browserLocation.pathname.match(/^\/grammar\/private\/([^/?#]+)/);
     return match ? decodeURIComponent(match[1]) : '';
-  }, []);
+  }, [browserLocation.pathname]);
   const listeningLibraryRoute = React.useMemo(() => (
-    parseListeningLibraryRoute(window.location.pathname, window.location.search)
-  ), []);
+    parseListeningLibraryRoute(browserLocation.pathname, browserLocation.search)
+  ), [browserLocation.pathname, browserLocation.search]);
   const authRoute = React.useMemo(() => {
-    const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+    const pathname = browserLocation.pathname.replace(/\/+$/, '') || '/';
     if (pathname === '/reg' || pathname === '/register') return 'register';
     if (pathname === '/login' || pathname === '/admin') return 'login';
     return '';
-  }, []);
+  }, [browserLocation.pathname]);
+  const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [listeningSets, setListeningSets] = useState<any[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [, setResults] = useState<GameSession[]>([]);
   const [leaderboardResults, setLeaderboardResults] = useState<GameSession[]>([]);
   const [privateAssignmentSet, setPrivateAssignmentSet] = useState<VocabSet | null>(null);
   const [privateAssignmentLoading, setPrivateAssignmentLoading] = useState(!!privateAssignmentToken);
@@ -124,10 +129,26 @@ export default function App() {
   const [studentName, setStudentName] = useState('');
   const [activeAssignmentId, setActiveAssignmentId] = useState<string | undefined>(undefined);
   const [activeGameId, setActiveGameId] = useState<string | undefined>(undefined);
+  const homeDataRequestIdRef = React.useRef(0);
+
+  const navigateInternal = React.useCallback((href: string) => {
+    const target = new URL(href, window.location.origin);
+    if (target.origin !== window.location.origin) {
+      window.location.href = target.href;
+      return;
+    }
+    const nextHref = `${target.pathname}${target.search}${target.hash}`;
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextHref !== currentHref) window.history.pushState({ appNavigation: true }, '', nextHref);
+    setBrowserLocation({ pathname: target.pathname, search: target.search });
+    setStudentHistoryOpen((target.pathname.replace(/\/+$/, '') || '/') === '/history');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
 
   useEffect(() => {
     const syncStudentScreenFromPath = () => {
       const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+      setBrowserLocation({ pathname: window.location.pathname, search: window.location.search });
       setStudentHistoryOpen(pathname === '/history');
     };
     window.addEventListener('popstate', syncStudentScreenFromPath);
@@ -136,17 +157,8 @@ export default function App() {
 
   const navigateToStudentHistory = React.useCallback((open: boolean) => {
     const nextPath = open ? '/history' : '/';
-    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
-    if (currentPath !== nextPath) {
-      window.history.pushState(
-        open ? { studentScreen: 'history' } : { studentScreen: 'home' },
-        '',
-        nextPath
-      );
-    }
-    setStudentHistoryOpen(open);
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
+    navigateInternal(nextPath);
+  }, [navigateInternal]);
 
   const homeGradeOptions = React.useMemo(() => {
     return Array.from(new Set([
@@ -162,210 +174,143 @@ export default function App() {
   }, [leaderboardResults, assignments, leaderboardPeriod]);
   const weeklyLearningQuote = React.useMemo(() => getWeeklyLearningQuote(), []);
 
-  // Load data on mount or token change. Guests only receive public study data.
-  const loadHomeData = async () => {
-    if (!token) {
-      setClasses([]);
-      setAssignments([]);
-      setGrammarSets([]);
-      setListeningSets([]);
+  const isHomeDataView = currentPathname === '/'
+    && !studentHistoryOpen
+    && !privateAssignmentToken
+    && !privateGrammarToken
+    && !listeningLibraryRoute
+    && !authRoute
+    && !selectedSet
+    && !selectedGrammarSet
+    && user?.status !== 'blocked'
+    && (!isStaff || adminMode);
 
-      try {
-        const res = await fetch('/api/public/vocab-sets');
-        if (!res.ok) throw new Error("Public vocab API response error");
-        const data = await res.json();
-        setVocabSets(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn("Backend /api/public/vocab-sets API unreachable:", err);
-        setVocabSets([]);
-      }
-
-      try {
-        const res = await fetch('/api/public/grammar-sets');
-        if (!res.ok) throw new Error("Public grammar API response error");
-        const data = await res.json();
-        setGrammarSets(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn("Backend /api/public/grammar-sets API unreachable:", err);
-        setGrammarSets([]);
-      }
-
-      try {
-        const res = await fetch('/api/listening/sets');
-        if (!res.ok) throw new Error("Public listening API response error");
-        const data = await res.json();
-        setListeningSets(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn("Backend public listening API unreachable:", err);
-        setListeningSets([]);
-      }
-
-      try {
-        const res = await fetch('/api/public/results');
-        if (!res.ok) throw new Error("Public results API response error");
-        const data = await res.json();
-        const fallbackResults = Array.isArray(data) ? data : [];
-        setResults(fallbackResults);
-        setLeaderboardResults(fallbackResults);
-      } catch (err) {
-        console.warn("Backend /api/public/results API unreachable:", err);
-        setResults([]);
-        setLeaderboardResults([]);
-      }
-
-      try {
-        const res = await fetch('/api/public/leaderboard-results');
-        if (!res.ok) throw new Error("Public leaderboard API response error");
-        const data = await res.json();
-        setLeaderboardResults(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn("Backend /api/public/leaderboard-results API unreachable, falling back to recent results:", err);
-      }
-
-      return;
-    }
-
-    // Load Grammar Sets
-    try {
-      const res = await fetch('/api/grammar-sets', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Grammar API response error");
-      const data = await res.json();
-      setGrammarSets(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend /api/grammar-sets API unreachable:", err);
-      setGrammarSets([]);
-    }
-
-    try {
-      const res = await fetch('/api/listening/sets', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Listening API response error");
-      const data = await res.json();
-      setListeningSets(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend listening API unreachable:", err);
-      setListeningSets([]);
-    }
-
-    // Load Vocabulary Sets
-    try {
-      const res = await fetch('/api/vocab-sets', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("API response error");
-      const data = await res.json();
-      setVocabSets(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend /api/vocab-sets API unreachable, falling back to direct Firestore Client-side query:", err);
-      try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebaseDb');
-        const querySnapshot = await getDocs(collection(db, 'vocab_sets'));
-        const setsList: VocabSet[] = [];
-        querySnapshot.forEach((docSnap) => {
-          setsList.push({ id: docSnap.id, ...docSnap.data() } as any);
-        });
-        setVocabSets(setsList);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore vocab_sets fetch failed:", firestoreErr);
-      }
-    }
-
-    // Load Assignments
-    try {
-      const res = await fetch('/api/assignments', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("API response error");
-      const data = await res.json();
-      setAssignments(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend /api/assignments API unreachable, falling back to direct Firestore Client-side query:", err);
-      try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebaseDb');
-        const querySnapshot = await getDocs(collection(db, 'assignments'));
-        const list: Assignment[] = [];
-        querySnapshot.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() } as any);
-        });
-        setAssignments(list);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore assignments fetch failed:", firestoreErr);
-      }
-    }
-
-    // Load Classes
-    try {
-      const res = await fetch('/api/classes', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("API response error");
-      const data = await res.json();
-      setClasses(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend /api/classes API unreachable, falling back to direct Firestore Client-side query:", err);
-      try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebaseDb');
-        const querySnapshot = await getDocs(collection(db, 'classes'));
-        const list: Class[] = [];
-        querySnapshot.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() } as any);
-        });
-        setClasses(list);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore classes fetch failed:", firestoreErr);
-      }
-    }
-
-    // Load completed learning/game results for the student leaderboard
-    try {
-      const res = await fetch('/api/results', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("API response error");
-      const data = await res.json();
-      const fallbackResults = Array.isArray(data) ? data : [];
-      setResults(fallbackResults);
-      setLeaderboardResults(fallbackResults);
-    } catch (err) {
-      console.warn("Backend /api/results API unreachable, falling back to direct Firestore Client-side query:", err);
-      try {
-        const { collection, getDocs } = await import('firebase/firestore');
-        const { db } = await import('./lib/firebaseDb');
-        const querySnapshot = await getDocs(collection(db, 'game_sessions'));
-        const list: GameSession[] = [];
-        querySnapshot.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() } as any);
-        });
-        setResults(list);
-        setLeaderboardResults(list);
-      } catch (firestoreErr) {
-        console.error("Direct Firestore game_sessions fetch failed:", firestoreErr);
-      }
-    }
-
-    try {
-      const res = await fetch('/api/leaderboard-results', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Leaderboard API response error");
-      const data = await res.json();
-      setLeaderboardResults(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Backend /api/leaderboard-results API unreachable, falling back to recent results:", err);
-    }
-  };
-
+  // Load only data owned by the student home. Each run is abortable and may
+  // update state only while it is still the latest auth/route generation.
   useEffect(() => {
-    if (!studentHistoryOpen) {
-      void loadHomeData();
-    }
-  }, [token, user, studentHistoryOpen]);
+    if (loading || !isHomeDataView) return;
+
+    const controller = new AbortController();
+    const requestId = ++homeDataRequestIdRef.current;
+    const requestToken = token;
+    const isCurrent = () => (
+      !controller.signal.aborted && homeDataRequestIdRef.current === requestId
+    );
+    const isAbortError = (error: unknown) => (
+      controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')
+    );
+    const loadJson = async (url: string) => {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: requestToken ? { 'Authorization': `Bearer ${requestToken}` } : undefined
+      });
+      if (!res.ok) throw new Error(`${url} failed with HTTP ${res.status}`);
+      return res.json();
+    };
+
+    const loadGuestHome = async () => {
+      if (isCurrent()) {
+        setClasses([]);
+        setAssignments([]);
+      }
+      const tasks = [
+        loadJson('/api/public/vocab-sets')
+          .then(data => { if (isCurrent()) setVocabSets(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Public vocab API unreachable:', error); setVocabSets([]); } }),
+        loadJson('/api/public/grammar-sets')
+          .then(data => { if (isCurrent()) setGrammarSets(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Public grammar API unreachable:', error); setGrammarSets([]); } }),
+        loadJson('/api/listening/sets')
+          .then(data => { if (isCurrent()) setListeningSets(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Public listening API unreachable:', error); setListeningSets([]); } }),
+        loadJson('/api/public/leaderboard-results')
+          .then(data => { if (isCurrent()) setLeaderboardResults(Array.isArray(data) ? data : []); })
+          .catch(async error => {
+            if (isAbortError(error) || !isCurrent()) return;
+            console.warn('Public leaderboard API unreachable; using bounded recent results:', error);
+            try {
+              const fallback = await loadJson('/api/public/results?limit=100');
+              if (isCurrent()) setLeaderboardResults(Array.isArray(fallback) ? fallback : []);
+            } catch (fallbackError) {
+              if (!isAbortError(fallbackError) && isCurrent()) setLeaderboardResults([]);
+            }
+          })
+      ];
+      await Promise.allSettled(tasks);
+    };
+
+    const loadAuthenticatedHome = async () => {
+      const authTasks = [
+        loadJson('/api/grammar-sets')
+          .then(data => { if (isCurrent()) setGrammarSets(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Grammar API unreachable:', error); setGrammarSets([]); } }),
+        loadJson('/api/listening/sets')
+          .then(data => { if (isCurrent()) setListeningSets(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Listening API unreachable:', error); setListeningSets([]); } }),
+        loadJson('/api/vocab-sets')
+          .then(data => { if (isCurrent()) setVocabSets(Array.isArray(data) ? data : []); })
+          .catch(async error => {
+            if (isAbortError(error) || !isCurrent()) return;
+            console.warn('Vocab API unreachable; trying Firestore fallback:', error);
+            try {
+              const [{ collection, getDocs }, { db }] = await Promise.all([
+                import('firebase/firestore'), import('./lib/firebaseDb')
+              ]);
+              const snapshot = await getDocs(collection(db, 'vocab_sets'));
+              const list: VocabSet[] = [];
+              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
+              if (isCurrent()) setVocabSets(list);
+            } catch (fallbackError) {
+              if (isCurrent()) console.error('Direct Firestore vocab_sets fetch failed:', fallbackError);
+            }
+          }),
+        loadJson('/api/assignments')
+          .then(data => { if (isCurrent()) setAssignments(Array.isArray(data) ? data : []); })
+          .catch(async error => {
+            if (isAbortError(error) || !isCurrent()) return;
+            console.warn('Assignments API unreachable; trying Firestore fallback:', error);
+            try {
+              const [{ collection, getDocs }, { db }] = await Promise.all([
+                import('firebase/firestore'), import('./lib/firebaseDb')
+              ]);
+              const snapshot = await getDocs(collection(db, 'assignments'));
+              const list: Assignment[] = [];
+              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
+              if (isCurrent()) setAssignments(list);
+            } catch (fallbackError) {
+              if (isCurrent()) console.error('Direct Firestore assignments fetch failed:', fallbackError);
+            }
+          }),
+        loadJson('/api/classes')
+          .then(data => { if (isCurrent()) setClasses(Array.isArray(data) ? data : []); })
+          .catch(async error => {
+            if (isAbortError(error) || !isCurrent()) return;
+            console.warn('Classes API unreachable; trying Firestore fallback:', error);
+            try {
+              const [{ collection, getDocs }, { db }] = await Promise.all([
+                import('firebase/firestore'), import('./lib/firebaseDb')
+              ]);
+              const snapshot = await getDocs(collection(db, 'classes'));
+              const list: Class[] = [];
+              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
+              if (isCurrent()) setClasses(list);
+            } catch (fallbackError) {
+              if (isCurrent()) console.error('Direct Firestore classes fetch failed:', fallbackError);
+            }
+          }),
+        loadJson('/api/leaderboard-results')
+          .then(data => { if (isCurrent()) setLeaderboardResults(Array.isArray(data) ? data : []); })
+          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Leaderboard API unreachable:', error); setLeaderboardResults([]); } })
+      ];
+      await Promise.allSettled(authTasks);
+    };
+
+    void (requestToken ? loadAuthenticatedHome() : loadGuestHome());
+    return () => {
+      controller.abort();
+      if (homeDataRequestIdRef.current === requestId) homeDataRequestIdRef.current += 1;
+    };
+  }, [adminMode, isHomeDataView, loading, token]);
 
   useEffect(() => {
     if (!privateAssignmentToken) return;
@@ -517,8 +462,8 @@ export default function App() {
   if (authRoute === 'register' && !user) {
     return (
       <Register
-        onNavigateToLogin={() => { window.location.href = '/login'; }}
-        onNavigateToHome={() => { window.location.href = '/'; }}
+        onNavigateToLogin={() => navigateInternal('/login')}
+        onNavigateToHome={() => navigateInternal('/')}
       />
     );
   }
@@ -526,21 +471,22 @@ export default function App() {
   if (authRoute === 'login' && !user) {
     return (
       <Login
-        onNavigateToRegister={() => { window.location.href = '/reg'; }}
-        onNavigateToHome={() => { window.location.href = '/'; }}
+        onNavigateToRegister={() => navigateInternal('/reg')}
+        onNavigateToHome={() => navigateInternal('/')}
       />
     );
   }
 
   if (listeningLibraryRoute?.kind === 'library') {
-    return <ListeningLibraryHome onBack={() => { window.location.href = '/'; }} />;
+    return <ListeningLibraryHome onBack={() => navigateInternal('/')} onNavigate={navigateInternal} />;
   }
 
   if (listeningLibraryRoute?.kind === 'module') {
     return (
       <ListeningModulePage
         moduleId={listeningLibraryRoute.moduleId}
-        onBack={() => { window.location.href = examLibraryPath(); }}
+        onBack={() => navigateInternal(examLibraryPath())}
+        onNavigate={navigateInternal}
       />
     );
   }
@@ -550,7 +496,8 @@ export default function App() {
       <ListeningPaperPage
         moduleId={listeningLibraryRoute.moduleId}
         paperId={listeningLibraryRoute.paperId}
-        onBack={() => { window.location.href = examModulePath(listeningLibraryRoute.moduleId); }}
+        onBack={() => navigateInternal(examModulePath(listeningLibraryRoute.moduleId))}
+        onNavigate={navigateInternal}
       />
     );
   }
@@ -562,7 +509,7 @@ export default function App() {
         paperId={listeningLibraryRoute.paperId}
         examId={listeningLibraryRoute.examId}
         accessToken={listeningLibraryRoute.accessToken}
-        onBack={() => { window.location.href = examModulePath(listeningLibraryRoute.moduleId); }}
+        onBack={() => navigateInternal(examModulePath(listeningLibraryRoute.moduleId))}
       />
     );
   }
@@ -573,9 +520,7 @@ export default function App() {
         moduleId={listeningLibraryRoute.moduleId}
         examId={listeningLibraryRoute.examId}
         accessToken={listeningLibraryRoute.accessToken}
-        onBack={() => {
-          window.location.href = examModulePath(listeningLibraryRoute.moduleId);
-        }}
+        onBack={() => navigateInternal(examModulePath(listeningLibraryRoute.moduleId))}
       />
     );
   }
@@ -598,7 +543,7 @@ export default function App() {
             <h1 className="text-xl font-black text-gray-900">Không tìm thấy bài ngữ pháp hoặc link không hợp lệ</h1>
             <p className="text-sm text-gray-500">Vui lòng kiểm tra lại đường link giáo viên đã gửi.</p>
             <button
-              onClick={() => { window.location.href = '/'; }}
+              onClick={() => navigateInternal('/')}
               className="w-full py-3 !bg-emerald-600 hover:!bg-emerald-700 !text-white font-bold text-sm rounded-2xl transition-all"
             >
               Về trang chủ
@@ -612,7 +557,7 @@ export default function App() {
       <GrammarLearningArea
         grammarSet={privateGrammarSet}
         accessToken={privateGrammarToken || undefined}
-        onBack={() => { window.location.href = '/'; }}
+        onBack={() => navigateInternal('/')}
       />
     );
   }
@@ -635,7 +580,7 @@ export default function App() {
             <h1 className="text-xl font-black text-gray-900">Không tìm thấy bài tập hoặc link không hợp lệ</h1>
             <p className="text-sm text-gray-500">Vui lòng kiểm tra lại đường link giáo viên đã gửi.</p>
             <button
-              onClick={() => { window.location.href = '/'; }}
+              onClick={() => navigateInternal('/')}
               className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-2xl transition-all"
             >
               Về trang chủ
@@ -655,7 +600,7 @@ export default function App() {
         accessToken={privateAssignmentToken || undefined}
         accessType={privateAssignmentSet.accessType}
         initialGameId={privateAssignmentSet.assignmentGameId}
-        onBack={() => { window.location.href = '/'; }}
+        onBack={() => navigateInternal('/')}
       />
     );
   }
@@ -723,7 +668,6 @@ export default function App() {
 
   // 5. ADMIN/TEACHER DASHBOARD SCREEN
   // If user is teacher/super_admin and NOT in student simulated view mode
-  const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
   if (isStaff && !adminMode) {
     return (
       <div className="relative">
@@ -824,14 +768,14 @@ export default function App() {
             ) : (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { window.location.href = '/login'; }}
+                  onClick={() => navigateInternal('/login')}
                   className="px-3 py-2 bg-gray-50 hover:bg-indigo-50 text-gray-600 hover:text-indigo-700 border border-gray-100 rounded-xl text-xs font-bold transition-all"
                   id="teacher-admin-login-btn"
                 >
                   Giáo viên/Admin
                 </button>
                 <button
-                  onClick={() => { window.location.href = '/reg'; }}
+                  onClick={() => navigateInternal('/reg')}
                   className="hidden sm:inline-flex px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
                   id="public-register-btn"
                 >
@@ -873,7 +817,7 @@ export default function App() {
         {/* Left Area: Vocab sets directory */}
         <section className="lg:col-span-8 space-y-6" id="home-sets-directory">
 
-          <ListeningLibraryHome embedded />
+          <ListeningLibraryHome embedded onNavigate={navigateInternal} />
 
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pt-8 pb-4 border-t border-b border-gray-200">
             <div className="space-y-0.5">

@@ -25,8 +25,11 @@ import type {
   MoverReadingWritingPart4,
   MoverReadingWritingPart5,
   MoverReadingWritingPart6,
+  MoverReadingWritingPart6ImageChoice,
+  MoverReadingWritingPart6Text,
   MoverReadingWritingTextQuestion,
 } from '../types';
+import { isMoverReadingWritingPart6ImageChoice } from '../types';
 
 interface BaseProps<TPart extends MoverReadingWritingPart> {
   part: TPart;
@@ -340,7 +343,13 @@ export function ReadingPart5Editor({ part, token, assets, smartImportCapability,
   );
 }
 
-export function ReadingPart6Editor({ part, token, assets, smartImportCapability, onUpload, onChange, onSmartImport }: BaseProps<MoverReadingWritingPart6>) {
+function LegacyReadingPart6Editor({
+  part,
+  assets,
+  onUpload,
+  onChange,
+  onConvert,
+}: BaseProps<MoverReadingWritingPart6Text> & { onConvert: () => void }) {
   const [crop, setCrop] = useState<SmartImportCrop>({ x: 0, y: 0, width: 1, height: 1 });
   const [cropping, setCropping] = useState(false);
   const sourceAsset = assets.find(asset => asset.id === part.passageSourceAssetId);
@@ -364,7 +373,12 @@ export function ReadingPart6Editor({ part, token, assets, smartImportCapability,
 
   return (
     <div className="space-y-5">
-      <PartHeader part={part} onChange={patch => onChange({ ...part, ...patch } as MoverReadingWritingPart6)} />
+      <PartHeader part={part} onChange={patch => onChange({ ...part, ...patch } as MoverReadingWritingPart6Text)} />
+      <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+        <p className="text-sm font-black text-amber-950">Part 6 text-gap cũ</p>
+        <p className="mt-1 text-xs font-semibold text-amber-800">Dữ liệu cũ vẫn được giữ nguyên để chơi và chấm. Chuyển sang cấu trúc trắc nghiệm ảnh để dùng Smart Import mới; thao tác này chỉ thay working draft.</p>
+        <button type="button" onClick={onConvert} className="mt-3 rounded-xl bg-amber-700 px-4 py-2.5 text-xs font-black text-white">Chuyển sang trắc nghiệm 3 lựa chọn</button>
+      </section>
       <div className="grid gap-4 lg:grid-cols-2">
         <ListeningAssetPicker {...imagePickerProps(assets, onUpload)} label="Ảnh nguồn bài đọc (để OCR và crop)" kind="image" value={part.passageSourceAssetId} onChange={passageSourceAssetId => onChange({ ...part, passageSourceAssetId })} />
         <ListeningAssetPicker {...imagePickerProps(assets, onUpload)} label="Ảnh bảng lựa chọn (học sinh sẽ nhìn thấy)" kind="image" value={part.optionsAssetId} onChange={optionsAssetId => onChange({ ...part, optionsAssetId })} />
@@ -382,19 +396,6 @@ export function ReadingPart6Editor({ part, token, assets, smartImportCapability,
         </section>
       )}
       <ListeningAssetPicker {...imagePickerProps(assets, onUpload)} label="Ảnh bài đọc đã crop (học sinh sẽ nhìn thấy)" kind="image" value={part.illustrationAssetId} onChange={illustrationAssetId => onChange({ ...part, illustrationAssetId })} />
-      <SmartImportBlock
-        part={part}
-        token={token}
-        assets={assets}
-        smartImportCapability={smartImportCapability}
-        assetSourceByRole={{ passage: part.passageSourceAssetId || '', options: part.optionsAssetId || '' }}
-        onUpload={onUpload}
-        onAssetSourceChange={(role, assetId) => {
-          if (role === 'passage') onChange({ ...part, passageSourceAssetId: assetId });
-          if (role === 'options') onChange({ ...part, optionsAssetId: assetId });
-        }}
-        onSmartImport={onSmartImport}
-      />
       <EditorField label="Tiêu đề bài đọc" value={part.passageTitle} onChange={passageTitle => onChange({ ...part, passageTitle })} />
       <EditorTextArea
         label="Bài đọc (giữ marker [[1]] đến [[5]] tại vị trí ô trống)"
@@ -415,4 +416,102 @@ export function ReadingPart6Editor({ part, token, assets, smartImportCapability,
       ))}
     </div>
   );
+}
+
+function ImageChoiceReadingPart6Editor({ part, token, assets, smartImportCapability, onUpload, onChange, onSmartImport }: BaseProps<MoverReadingWritingPart6ImageChoice>) {
+  return (
+    <div className="space-y-5" data-mover-reading-part6-image-choice>
+      <PartHeader part={part} onChange={patch => onChange({ ...part, ...patch } as MoverReadingWritingPart6ImageChoice)} />
+      <ListeningAssetPicker
+        {...imagePickerProps(assets, onUpload)}
+        label="Ảnh bài đọc duy nhất · học sinh sẽ nhìn thấy"
+        kind="image"
+        value={part.studentImageAssetId}
+        onChange={studentImageAssetId => onChange({ ...part, studentImageAssetId })}
+      />
+      <SmartImportBlock
+        part={part}
+        token={token}
+        assets={assets}
+        smartImportCapability={smartImportCapability}
+        assetSourceByRole={{ options: part.optionsSourceAssetId }}
+        onUpload={onUpload}
+        onAssetSourceChange={(role, assetId) => {
+          if (role === 'options') onChange({ ...part, optionsSourceAssetId: assetId });
+        }}
+        onSmartImport={onSmartImport}
+      />
+      <section className="space-y-3">
+        <div>
+          <h4 className="text-sm font-black text-slate-950">Đáp án trắc nghiệm Part 6</h4>
+          <p className="mt-1 text-xs font-semibold text-slate-600">Ba lựa chọn lấy từ ảnh bảng dữ liệu. Đáp án đúng chỉ được ánh xạ từ ảnh đáp án chính thức và vẫn có thể được giáo viên kiểm tra lại.</p>
+        </div>
+        {part.questions.map((question, questionIndex) => (
+          <article key={question.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="mb-3 text-sm font-black text-blue-800">Câu {question.questionNumber}</p>
+            <div className="grid gap-3 lg:grid-cols-3">
+              {question.options.map((option, optionIndex) => (
+                <label key={option.id} className={`space-y-2 rounded-xl border p-3 ${question.correctOptionId === option.id ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                  <span className="flex items-center gap-2 text-xs font-black text-slate-800">
+                    <input
+                      type="radio"
+                      name={`part6-correct-${question.id}`}
+                      checked={question.correctOptionId === option.id}
+                      onChange={() => onChange({
+                        ...part,
+                        questions: part.questions.map((item, index) => index === questionIndex ? { ...item, correctOptionId: option.id } : item),
+                      })}
+                    />
+                    {String.fromCharCode(65 + optionIndex)} · đáp án đúng
+                  </span>
+                  <EditorField
+                    label={`Lựa chọn ${String.fromCharCode(65 + optionIndex)}`}
+                    value={option.text}
+                    onChange={text => onChange({
+                      ...part,
+                      questions: part.questions.map((item, index) => index === questionIndex
+                        ? { ...item, options: item.options.map(entry => entry.id === option.id ? { ...entry, text } : entry) as typeof item.options }
+                        : item),
+                    })}
+                  />
+                </label>
+              ))}
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+export function ReadingPart6Editor(props: BaseProps<MoverReadingWritingPart6>) {
+  if (isMoverReadingWritingPart6ImageChoice(props.part)) {
+    return <ImageChoiceReadingPart6Editor {...props} part={props.part} onChange={props.onChange as (part: MoverReadingWritingPart6ImageChoice) => void} />;
+  }
+  const legacyPart = props.part;
+  const convert = () => {
+    const questions = Array.from({ length: 5 }, (_, index) => {
+      const options = Array.from({ length: 3 }, (_, optionIndex) => ({
+        id: editorId(`rw-p6-q${index + 1}-option-${optionIndex + 1}`),
+        text: '',
+      })) as MoverReadingWritingPart6ImageChoice['questions'][number]['options'];
+      return {
+        id: editorId(`rw-p6-q${index + 1}`),
+        questionNumber: (index + 1) as 1 | 2 | 3 | 4 | 5,
+        prompt: '',
+        options,
+        correctOptionId: '',
+      };
+    });
+    props.onChange({
+      part: 6,
+      displayMode: 'image-multiple-choice',
+      title: legacyPart.title,
+      instruction: 'Read the text. Choose the correct answer for each numbered question.',
+      studentImageAssetId: legacyPart.illustrationAssetId,
+      optionsSourceAssetId: legacyPart.optionsAssetId || '',
+      questions,
+    });
+  };
+  return <LegacyReadingPart6Editor {...props} part={legacyPart} onChange={props.onChange as (part: MoverReadingWritingPart6Text) => void} onConvert={convert} />;
 }

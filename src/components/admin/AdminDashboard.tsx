@@ -17,6 +17,11 @@ import {
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation';
 import { examPaperExamPath } from '../../features/listening-library/routes';
+import {
+  buildMultipleChoiceGrammarBulkImportPrompt,
+  buildRewriteGrammarBulkImportPrompt,
+  buildVocabularyBulkImportPrompt,
+} from '../../lib/adminBulkImportPrompts';
 
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 
@@ -27,6 +32,7 @@ interface AdminDashboardProps {
 
 type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'listening-library' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
 type VocabVisibility = 'public' | 'assignment' | 'draft';
+type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | null;
 
 const getSetVisibility = (set: VocabSet): VocabVisibility => {
   if (set.visibility === 'public' || set.visibility === 'assignment' || set.visibility === 'draft') {
@@ -57,6 +63,12 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
       ? `${window.location.origin}${examPaperExamPath('mover', 'reading-writing', setId, token)}`
       : '';
   }
+  if (assignment.resourceType === 'exam') {
+    const setId = assignment.resourceId || assignment.examSetId;
+    return setId && assignment.examModuleId && assignment.examPaperId
+      ? `${window.location.origin}${examPaperExamPath(assignment.examModuleId, assignment.examPaperId, setId, token)}`
+      : '';
+  }
   return `${window.location.origin}/assignment/${token}`;
 };
 
@@ -69,6 +81,31 @@ function formatVisibilityLabel(value: string) {
   if (value === 'public') return 'Công khai';
   if (value === 'draft') return 'Bản nháp';
   return 'Link riêng';
+}
+
+async function copyAdminPromptToClipboard(value: string): Promise<'copied' | 'manual'> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(value);
+    return 'copied';
+  } catch {
+    const fallback = document.createElement('textarea');
+    fallback.value = value;
+    fallback.readOnly = true;
+    fallback.style.position = 'fixed';
+    fallback.style.left = '-9999px';
+    document.body.appendChild(fallback);
+    let copied = false;
+    try {
+      fallback.select();
+      copied = document.execCommand('copy');
+    } finally {
+      fallback.remove();
+    }
+    if (copied) return 'copied';
+    window.prompt('Nhấn Ctrl+C để sao chép prompt:', value);
+    return 'manual';
+  }
 }
 
 function getCreatedAtTimestamp(value?: string) {
@@ -506,6 +543,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [grammarSets, setGrammarSets] = useState<GrammarSet[]>([]);
   const [listeningSets, setListeningSets] = useState<any[]>([]);
   const [moverReadingWritingSets, setMoverReadingWritingSets] = useState<any[]>([]);
+  const [examSets, setExamSets] = useState<any[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -537,6 +575,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardVocabSetId, setLeaderboardVocabSetId] = useState('');
   const [selectedActivity, setSelectedActivity] = useState<GameSession | null>(null);
+  const [activityDetailLoading, setActivityDetailLoading] = useState(false);
+  const [activityDetailError, setActivityDetailError] = useState('');
   const [activitySearch, setActivitySearch] = useState('');
   const [isDashboardActivityExpanded, setIsDashboardActivityExpanded] = useState(false);
   const [isDashboardLeaderboardExpanded, setIsDashboardLeaderboardExpanded] = useState(false);
@@ -566,6 +606,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [batchExamples, setBatchExamples] = useState('');
   const [batchExampleMeanings, setBatchExampleMeanings] = useState('');
   const [batchVocabularyText, setBatchVocabularyText] = useState('');
+  const [copiedBulkPrompt, setCopiedBulkPrompt] = useState<CopiedBulkPrompt>(null);
 
   // Grammar editor state
   const [editingGrammarSetId, setEditingGrammarSetId] = useState<string | null>(null);
@@ -605,7 +646,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   
   // New Assignment States
   const [assignClassId, setAssignClassId] = useState('');
-  const [assignResourceType, setAssignResourceType] = useState<'vocabulary' | 'listening' | 'mover_reading_writing'>('vocabulary');
+  const [assignResourceType, setAssignResourceType] = useState<'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam'>('vocabulary');
   const [assignSetId, setAssignSetId] = useState('');
   const [assignGameId, setAssignGameId] = useState('flashcard-en-vi');
   const [assignDueDate, setAssignDueDate] = useState('');
@@ -614,6 +655,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   // Notifications
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [shareLinkNotice, setShareLinkNotice] = useState<{ title: string; url: string } | null>(null);
+  const refreshGenerationRef = React.useRef(0);
+  const activityDetailRequestRef = React.useRef(0);
 
   const gradeOptions = React.useMemo(() => {
     return Array.from(new Set([
@@ -662,75 +705,89 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   // Load all initial data from our Express backend
-  const refreshData = () => {
+  const refreshData = (signal?: AbortSignal) => {
     if (!token) return;
+    const generation = ++refreshGenerationRef.current;
+    const isCurrent = () => !signal?.aborted && refreshGenerationRef.current === generation;
+    const requestOptions = signal ? { signal } : {};
+    const reportLoadError = (label: string, err: any) => {
+      if (signal?.aborted || err?.name === 'AbortError') return;
+      console.error(`Error loading ${label}:`, err);
+    };
 
     // Vocab Sets
-    authFetchJson<VocabSet[]>('/api/vocab-sets')
-      .then(data => setVocabSets(data))
-      .catch(err => console.error("Error loading vocab sets:", err));
+    authFetchJson<VocabSet[]>('/api/vocab-sets', requestOptions)
+      .then(data => { if (isCurrent()) setVocabSets(data); })
+      .catch(err => reportLoadError('vocab sets', err));
 
     // Grammar Sets
-    authFetchJson<GrammarSet[]>('/api/grammar-sets')
-      .then(data => setGrammarSets(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading grammar sets:", err));
+    authFetchJson<GrammarSet[]>('/api/grammar-sets', requestOptions)
+      .then(data => { if (isCurrent()) setGrammarSets(Array.isArray(data) ? data : []); })
+      .catch(err => reportLoadError('grammar sets', err));
 
-    authFetchJson<any[]>('/api/listening/admin/sets')
-      .then(data => setListeningSets(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading listening sets:", err));
+    authFetchJson<any[]>('/api/listening/admin/sets', requestOptions)
+      .then(data => { if (isCurrent()) setListeningSets(Array.isArray(data) ? data : []); })
+      .catch(err => reportLoadError('listening sets', err));
 
-    authFetchJson<any[]>('/api/mover-reading-writing/admin/sets')
-      .then(data => setMoverReadingWritingSets(Array.isArray(data) ? data : []))
-      .catch(err => console.error("Error loading Mover Reading & Writing sets:", err));
+    authFetchJson<any[]>('/api/mover-reading-writing/admin/sets', requestOptions)
+      .then(data => { if (isCurrent()) setMoverReadingWritingSets(Array.isArray(data) ? data : []); })
+      .catch(err => reportLoadError('Movers Reading & Writing sets', err));
+
+    authFetchJson<any[]>('/api/exam-platform/admin/sets', requestOptions)
+      .then(data => { if (isCurrent()) setExamSets(Array.isArray(data) ? data : []); })
+      .catch(err => reportLoadError('exam sets', err));
 
     // Classes
-    authFetchJson<Class[]>('/api/classes')
-      .then(data => setClasses(data))
-      .catch(err => console.error("Error loading classes:", err));
+    authFetchJson<Class[]>('/api/classes', requestOptions)
+      .then(data => { if (isCurrent()) setClasses(data); })
+      .catch(err => reportLoadError('classes', err));
 
     // Class Members
-    authFetchJson<ClassMember[]>('/api/class-members')
-      .then(data => setClassMembers(data))
-      .catch(err => console.error("Error loading class members:", err));
+    authFetchJson<ClassMember[]>('/api/class-members', requestOptions)
+      .then(data => { if (isCurrent()) setClassMembers(data); })
+      .catch(err => reportLoadError('class members', err));
 
     // Assignments
-    authFetchJson<Assignment[]>('/api/assignments')
-      .then(data => setAssignments(data))
-      .catch(err => console.error("Error loading assignments:", err));
+    authFetchJson<Assignment[]>('/api/assignments', requestOptions)
+      .then(data => { if (isCurrent()) setAssignments(data); })
+      .catch(err => reportLoadError('assignments', err));
 
     // Game Results (Completed sessions)
-    authFetchJson<GameSession[]>('/api/results')
+    authFetchJson<GameSession[]>('/api/results?view=summary&limit=500', requestOptions)
       .then(data => {
+        if (!isCurrent()) return;
         const recentResults = Array.isArray(data) ? data : [];
         setResults(recentResults);
         setLeaderboardResults(prev => prev.length ? prev : recentResults);
       })
-      .catch(err => console.error("Error loading results:", err));
+      .catch(err => reportLoadError('results', err));
 
     // Longer-lived leaderboard summary. Falls back to recent results if unavailable.
-    authFetchJson<GameSession[]>('/api/leaderboard-results')
+    authFetchJson<GameSession[]>('/api/leaderboard-results', requestOptions)
       .then(data => {
-        if (Array.isArray(data)) setLeaderboardResults(data);
+        if (isCurrent() && Array.isArray(data)) setLeaderboardResults(data);
       })
-      .catch(err => console.error("Error loading leaderboard results:", err));
+      .catch(err => reportLoadError('leaderboard results', err));
 
     // Teachers receive only guest students from classes they manage; super admins receive all accounts.
     if (user?.role === 'teacher' || user?.role === 'super_admin') {
-      authFetchJson<any[]>('/api/admin/accounts')
-        .then(data => setUsersList(Array.isArray(data) ? data : []))
-        .catch(err => console.error("Error loading admin users:", err));
+      authFetchJson<any[]>('/api/admin/accounts', requestOptions)
+        .then(data => { if (isCurrent()) setUsersList(Array.isArray(data) ? data : []); })
+        .catch(err => reportLoadError('admin users', err));
     }
 
     if (user?.role === 'super_admin') {
-      authFetchJson<any[]>('/api/admin/audit-logs')
-        .then(data => setAuditLogs(Array.isArray(data) ? data : []))
-        .catch(err => console.error("Error loading admin logs:", err));
+      authFetchJson<any[]>('/api/admin/audit-logs', requestOptions)
+        .then(data => { if (isCurrent()) setAuditLogs(Array.isArray(data) ? data : []); })
+        .catch(err => reportLoadError('admin logs', err));
     }
   };
 
   useEffect(() => {
-    refreshData();
-  }, [token, user]);
+    const controller = new AbortController();
+    refreshData(controller.signal);
+    return () => controller.abort();
+  }, [token, user?.id, user?.role]);
 
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -757,6 +814,44 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setBatchExamples('');
     setBatchExampleMeanings('');
     setActiveTab('editor');
+  };
+
+  const handleCopyBulkImportPrompt = async (kind: Exclude<CopiedBulkPrompt, null>) => {
+    const prompt = kind === 'vocabulary'
+      ? buildVocabularyBulkImportPrompt({
+          title: editorTitle,
+          description: editorDescription,
+          grade: editorGrade,
+          subject: editorSubject,
+          tags: editorTags,
+        })
+      : kind === 'grammar-rewrite'
+        ? buildRewriteGrammarBulkImportPrompt({
+            title: grammarTitle,
+            description: grammarDescription,
+            grade: grammarGrade,
+            subject: grammarSubject,
+            topic: grammarTopic,
+            tags: grammarTags,
+          })
+        : buildMultipleChoiceGrammarBulkImportPrompt({
+            title: grammarTitle,
+            description: grammarDescription,
+            grade: grammarGrade,
+            subject: grammarSubject,
+            topic: grammarTopic,
+            tags: grammarTags,
+          });
+    const result = await copyAdminPromptToClipboard(prompt);
+    if (result === 'manual') {
+      showNotification('Trình duyệt đã mở prompt để bạn sao chép thủ công.', 'error');
+      return;
+    }
+    setCopiedBulkPrompt(kind);
+    showNotification('Đã sao chép prompt. Hãy dán vào ChatGPT web.');
+    window.setTimeout(() => {
+      setCopiedBulkPrompt(current => current === kind ? null : current);
+    }, 2_200);
   };
 
   const handleOpenNewGrammarEditor = (questionType: GrammarQuestionType = 'multiple_choice') => {
@@ -1721,7 +1816,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       ? listeningSets.find(s => s.id === assignSetId)
       : assignResourceType === 'mover_reading_writing'
         ? moverReadingWritingSets.find(s => s.id === assignSetId)
-        : vocabSets.find(s => s.id === assignSetId);
+        : assignResourceType === 'exam'
+          ? examSets.find(s => s.id === assignSetId)
+          : vocabSets.find(s => s.id === assignSetId);
 
     if (!selectedClass || !selectedSet) return;
 
@@ -1741,10 +1838,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             listeningSetId: assignSetId,
             listeningSetTitle: selectedSet.title,
             gameId: 'listening-five-part'
-          } : {
+          } : assignResourceType === 'mover_reading_writing' ? {
             moverReadingWritingSetId: assignSetId,
             moverReadingWritingSetTitle: selectedSet.title,
             gameId: 'mover-reading-writing'
+          } : {
+            examSetId: assignSetId,
+            examModuleId: selectedSet.moduleId,
+            examPaperId: selectedSet.paperId,
+            gameId: `exam:${selectedSet.moduleId}:${selectedSet.paperId}`
           }),
       dueDate: assignDueDate,
       createdBy: user?.id || "teacher-1",
@@ -1752,7 +1854,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         ? `Luyện nghe: ${selectedSet.title}`
         : assignResourceType === 'mover_reading_writing'
           ? `Reading & Writing: ${selectedSet.title}`
-          : `Học từ vựng: ${selectedSet.title}`)
+          : assignResourceType === 'exam'
+            ? `${selectedSet.level || selectedSet.moduleId} · ${selectedSet.title}`
+            : `Học từ vựng: ${selectedSet.title}`)
     };
 
     authFetch('/api/assignments', {
@@ -1915,6 +2019,34 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       ...grammarSets.map(set => ({ id: `grammar:${set.id}`, title: `Grammar: ${set.title}` }))
     ];
   }, [vocabSets, grammarSets]);
+
+  const closeActivityDetail = () => {
+    activityDetailRequestRef.current += 1;
+    setSelectedActivity(null);
+    setActivityDetailLoading(false);
+    setActivityDetailError('');
+  };
+
+  const openActivityDetail = async (activity: GameSession) => {
+    const requestId = ++activityDetailRequestRef.current;
+    const sourceType = String((activity as any).sourceType || 'vocabulary');
+    const sourceId = String((activity as any).sourceId || activity.id);
+    setSelectedActivity(activity);
+    setActivityDetailLoading(true);
+    setActivityDetailError('');
+    try {
+      const detail = await authFetchJson<GameSession>(
+        `/api/results/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}`
+      );
+      if (activityDetailRequestRef.current === requestId) setSelectedActivity(detail);
+    } catch (err: any) {
+      if (activityDetailRequestRef.current === requestId) {
+        setActivityDetailError(err?.message || 'Không thể tải chi tiết lượt luyện tập.');
+      }
+    } finally {
+      if (activityDetailRequestRef.current === requestId) setActivityDetailLoading(false);
+    }
+  };
 
   const selectedActivityAnswerDetails = React.useMemo(() => {
     if (!selectedActivity || !Array.isArray(selectedActivity.answerDetails)) return [];
@@ -2102,7 +2234,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                 <p className="text-xs font-semibold text-gray-500">{selectedActivity.vocabSetTitle}</p>
               </div>
               <button
-                onClick={() => setSelectedActivity(null)}
+                onClick={closeActivityDetail}
                 className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700"
                 aria-label="Đóng chi tiết hoạt động"
               >
@@ -2147,7 +2279,21 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   <span className="text-xs font-bold text-gray-500">{selectedActivityAnswerDetails.length} dòng</span>
                 </div>
 
-                {selectedActivityAnswerDetails.length === 0 ? (
+                {activityDetailLoading ? (
+                  <div className="p-8 text-center text-sm font-bold text-blue-600">
+                    Đang tải chi tiết từng câu...
+                  </div>
+                ) : activityDetailError ? (
+                  <div className="p-8 text-center space-y-3">
+                    <p className="text-sm font-semibold text-rose-600">{activityDetailError}</p>
+                    <button
+                      onClick={() => void openActivityDetail(selectedActivity)}
+                      className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-700"
+                    >
+                      Thử tải lại
+                    </button>
+                  </div>
+                ) : selectedActivityAnswerDetails.length === 0 ? (
                   <div className="p-8 text-center text-sm text-gray-400">
                     Lượt chơi này chưa có dữ liệu chi tiết từng câu.
                   </div>
@@ -2452,7 +2598,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     recentResults.map((res) => (
                       <button
                         key={res.id}
-                        onClick={() => setSelectedActivity(res)}
+                        onClick={() => void openActivityDetail(res)}
                         className="w-full p-3.5 bg-gray-50/50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl flex justify-between items-start text-left transition-all"
                       >
                         <div className="space-y-1 min-w-0 pr-3">
@@ -2539,7 +2685,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     filteredActivityResults.map((res) => (
                       <button
                         key={`dashboard-expanded-${res.id}`}
-                        onClick={() => setSelectedActivity(res)}
+                        onClick={() => void openActivityDetail(res)}
                         className="w-full p-4 bg-gray-50/60 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-left transition-all"
                       >
                         <div className="space-y-1 min-w-0">
@@ -3345,13 +3491,28 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             </div>
 
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
-              <div>
-                <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
-                <p className="text-xs text-gray-500">
-                  {grammarQuestionType === 'rewrite'
-                    ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION; ACCEPTED là tùy chọn và mỗi đáp án thay thế nằm trên một dòng.'
-                    : 'Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.'}
-                </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
+                  <p className="text-xs text-gray-500">
+                    {grammarQuestionType === 'rewrite'
+                      ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION; ACCEPTED là tùy chọn và mỗi đáp án thay thế nằm trên một dòng.'
+                      : 'Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyBulkImportPrompt(grammarQuestionType === 'rewrite' ? 'grammar-rewrite' : 'grammar-multiple-choice')}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-100"
+                  aria-live="polite"
+                >
+                  {copiedBulkPrompt === (grammarQuestionType === 'rewrite' ? 'grammar-rewrite' : 'grammar-multiple-choice')
+                    ? <Check size={15} aria-hidden="true" />
+                    : <Copy size={15} aria-hidden="true" />}
+                  {copiedBulkPrompt === (grammarQuestionType === 'rewrite' ? 'grammar-rewrite' : 'grammar-multiple-choice')
+                    ? 'Đã sao chép'
+                    : grammarQuestionType === 'rewrite' ? 'Sao chép prompt tự luận' : 'Sao chép prompt trắc nghiệm'}
+                </button>
               </div>
               <textarea
                 value={grammarBulkText}
@@ -3823,7 +3984,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
             {/* Quick Batch Paste Board */}
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-5" id="batch-paste-panel">
-              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 border-b border-gray-50 pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-gray-50 pb-4">
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
                     <ListPlus className="text-indigo-600" size={20} />
@@ -3836,6 +3997,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     Mỗi dòng ở các ô bên dưới sẽ ghép thành một dòng tương ứng trong bảng từ vựng.
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyBulkImportPrompt('vocabulary')}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-100"
+                  aria-live="polite"
+                >
+                  {copiedBulkPrompt === 'vocabulary' ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+                  {copiedBulkPrompt === 'vocabulary' ? 'Đã sao chép' : 'Sao chép prompt từ vựng'}
+                </button>
               </div>
 
               <div className="space-y-2">
@@ -4320,14 +4490,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     <select
                       value={assignResourceType}
                       onChange={(e) => {
-                        setAssignResourceType(e.target.value as 'vocabulary' | 'listening' | 'mover_reading_writing');
+                        setAssignResourceType(e.target.value as 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam');
                         setAssignSetId('');
                       }}
                       className="w-full p-3 bg-gray-50 border border-gray-100 rounded-2xl outline-none font-bold text-gray-600 text-sm focus:bg-white"
                     >
                       <option value="vocabulary">Từ vựng</option>
                       <option value="listening">Bộ đề nghe 5 Part</option>
-                      <option value="mover_reading_writing">Mover Reading &amp; Writing 6 Part</option>
+                      <option value="mover_reading_writing">Movers Reading &amp; Writing 6 Part</option>
+                      <option value="exam">Starters / Flyers / KET / PET / FCE / IELTS Academic</option>
                     </select>
                   </div>
 
@@ -4337,6 +4508,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         ? 'Chọn bộ đề nghe *'
                         : assignResourceType === 'mover_reading_writing'
                           ? 'Chọn bộ đề Reading & Writing *'
+                          : assignResourceType === 'exam'
+                            ? 'Chọn bộ đề Cambridge / IELTS *'
                           : 'Chọn bộ từ vựng *'}
                     </label>
                     <select
@@ -4350,6 +4523,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         ? listeningSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
                         : assignResourceType === 'mover_reading_writing'
                           ? moverReadingWritingSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
+                        : assignResourceType === 'exam'
+                          ? examSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.level || s.moduleId} · {s.paperId} · {s.title}</option>)
                         : vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
@@ -4425,6 +4600,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                                 ? 'Nghe 5 Part'
                                 : assign.resourceType === 'mover_reading_writing'
                                   ? 'Reading & Writing 6 Part'
+                                : assign.resourceType === 'exam'
+                                  ? `${assign.examModuleId || 'Exam'} · ${assign.examPaperId || ''}`
                                 : GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
                             </span>
                           </div>
@@ -4455,7 +4632,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         <div className="flex space-x-1 shrink-0">
                           <button
                             onClick={() => {
-                              if (assign.resourceType === 'listening' || assign.resourceType === 'mover_reading_writing') {
+                              if (assign.resourceType === 'listening' || assign.resourceType === 'mover_reading_writing' || assign.resourceType === 'exam') {
                                 if (assignmentLink) window.open(assignmentLink, '_blank', 'noopener,noreferrer');
                                 return;
                               }
@@ -4575,7 +4752,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   filteredActivityResults.map((res) => (
                     <button
                       key={res.id}
-                      onClick={() => setSelectedActivity(res)}
+                      onClick={() => void openActivityDetail(res)}
                       className="w-full p-4 bg-gray-50/60 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 rounded-2xl flex flex-col sm:flex-row sm:items-start justify-between gap-3 text-left transition-all"
                     >
                       <div className="space-y-1 min-w-0">

@@ -18,7 +18,7 @@ test('external parameter model guides cover all five strict schemas without Mark
   for (const part of [1, 2, 3, 4, 5] as const) {
     const guide = externalParametersModelInstructions(part);
     assert.match(guide, new RegExp(`mover-part${part}-external-v1`));
-    assert.match(guide, new RegExp(`Listening Mover Part ${part}`));
+    assert.match(guide, new RegExp(`Listening Movers Part ${part}`));
     assert.match(guide, /Không sinh ID kỹ thuật, UUID, database ID/);
     assert.match(guide, /Không dùng audio hoặc transcript/);
     assert.ok(guide.endsWith(externalParametersTemplate(part)));
@@ -106,7 +106,18 @@ test('Part 5 external parameters import logical Colour/Draw data but never creat
   assert.equal(imported.questions.length, 5);
   assert.equal(imported.interactiveObjects.length >= 4, true);
   assert.ok(imported.interactiveObjects.every(object => object.geometryConfirmedByTeacher === false));
-  assert.equal(imported.objectPalette.length, 3);
+  assert.equal(imported.interactionSchemaVersion, 3);
+  assert.equal(imported.objectPalette.length, 2);
+});
+
+test('Part 5 external parameters accept more than three Draw palette items', () => {
+  const payload = JSON.parse(externalParametersTemplate(5));
+  payload.paletteItems = Array.from({ length: 5 }, (_, index) => ({
+    objectType: `object-${index + 1}`,
+    label: `Object ${index + 1}`,
+  }));
+  const parsed = parseExternalParametersImport(5, JSON.stringify(payload));
+  assert.equal(parsed.data.paletteItems.length, 7, 'five supplied items plus two Draw items referenced by the questions');
 });
 
 test('external parameter parsers reject technical ID injection for Parts 2-5', () => {

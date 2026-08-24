@@ -238,6 +238,37 @@ test('better-sqlite3 facade persists CRUD data, enables WAL, and rolls batches b
        HAVING COUNT(*) > 1`
     ).all();
     assert.deepEqual(duplicates, []);
+    const activityIndexes = new Set(
+      migrationReader.prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'index' AND name IN (
+           'idx_game_results_completed_at',
+           'idx_grammar_attempts_completed_at',
+           'idx_listening_attempts_completed_at',
+           'idx_mover_reading_attempts_completed_at'
+         )`
+      ).all().map((row: any) => row.name)
+    );
+    assert.deepEqual(activityIndexes, new Set([
+      'idx_game_results_completed_at',
+      'idx_grammar_attempts_completed_at',
+      'idx_listening_attempts_completed_at',
+      'idx_mover_reading_attempts_completed_at',
+    ]));
+    for (const [tableName, indexName] of [
+      ['game_results', 'idx_game_results_completed_at'],
+      ['grammar_attempts', 'idx_grammar_attempts_completed_at'],
+      ['listening_attempts', 'idx_listening_attempts_completed_at'],
+    ]) {
+      const plan = migrationReader.prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT id FROM ${tableName}
+         WHERE completed_at >= ?
+         ORDER BY completed_at DESC
+         LIMIT 100`
+      ).all('2026-01-01T00:00:00.000Z').map((row: any) => String(row.detail)).join(' ');
+      assert.match(plan, new RegExp(indexName));
+    }
   } finally {
     migrationReader.close();
   }

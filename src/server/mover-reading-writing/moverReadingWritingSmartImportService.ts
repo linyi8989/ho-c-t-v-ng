@@ -33,6 +33,19 @@ const parseJson = (source: string) => {
 };
 
 function promptForPart(part: MoverReadingWritingSmartImportPartId) {
+  if (part === 6) {
+    return [
+      'Extract Cambridge Movers Reading & Writing Part 6 answer choices from the two role-labelled images.',
+      'ROLE options contains exactly five numbered rows. Transcribe exactly three choices A/B/C for each questionNumber 1..5.',
+      'ROLE answer_key is the sole authority for correctOption. Map its official answer to A/B/C by question number.',
+      'Never read, reconstruct or return the passage. Never solve the exercise and never infer a missing correct answer.',
+      'If a choice or official answer is unreadable, return an empty string for that choice or "unknown" for correctOption.',
+      'Do not output UUIDs, database IDs, question IDs, choice IDs, option IDs or fields outside the schema.',
+      moverReadingWritingExternalHelp[part],
+      'Return exactly one JSON value using this structural example:',
+      moverReadingWritingExternalTemplate(part),
+    ].join('\n\n');
+  }
   return [
     `Extract Cambridge Movers Reading & Writing Part ${part} from the role-labelled images.`,
     'The answer_key image is the only authority for correct answers. Never solve the exercise and never infer a missing answer.',

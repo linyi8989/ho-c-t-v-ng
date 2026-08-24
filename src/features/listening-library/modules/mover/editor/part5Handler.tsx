@@ -39,27 +39,19 @@ function LegacyPart5Editor({ part, props }: { part: ListeningPart5Legacy; props:
   </div>;
 }
 
-function upgradeScenePart5(part: ListeningPart5SceneColourDraw): ListeningPart5SceneColourDraw | undefined {
+function upgradeScenePart5(part: ListeningPart5SceneColourDraw): ListeningPart5SceneColourDraw {
   const usedColourIds = part.questions.flatMap(question => question.actions.flatMap(action => action.type === 'colour_object' ? [action.correctColourId] : []));
   const colourPaletteIds = [...new Set([
     ...usedColourIds,
     ...(part.colourPaletteIds || []),
-    ...part.colours.map(colour => colour.id),
-  ].filter(id => part.colours.some(colour => colour.id === id)))].slice(0, 6);
+  ].filter(id => part.colours.some(colour => colour.id === id)))];
   const usedPaletteIds = [...new Set(part.questions.flatMap(question => question.actions.flatMap(action => action.type === 'place_object' ? [action.correctPaletteItemId] : [])))];
-  if (usedPaletteIds.length > 2) return undefined;
-  const paletteById = new Map(part.objectPalette.map(item => [item.id, item]));
-  const objectPalette = [...usedPaletteIds.map(id => paletteById.get(id)).filter(Boolean), ...part.objectPalette.filter(item => !usedPaletteIds.includes(item.id))]
-    .slice(0, 3) as ListeningPart5SceneColourDraw['objectPalette'];
-  while (objectPalette.length < 3) {
-    const index = objectPalette.length;
-    objectPalette.push({
-      id: createMoverEditorId('p5-token'),
-      objectType: `draw-object-${index + 1}`,
-      label: index === 2 ? 'Vật nhiễu' : `Vật ${index + 1}`,
-    });
-  }
-  return { ...part, interactionSchemaVersion: 2, colourPaletteIds, objectPalette };
+  const objectPalette = part.objectPalette.filter(item => (
+    usedPaletteIds.includes(item.id)
+    || Boolean(item.tokenAssetId)
+    || !/^draw-object-\d+$/.test(item.objectType)
+  ));
+  return { ...part, interactionSchemaVersion: 3, colourPaletteIds, objectPalette };
 }
 
 function ScenePart5Editor({ part, props }: { part: ListeningPart5SceneColourDraw; props: MoverPartEditorProps<ListeningPart5> }) {
@@ -96,17 +88,13 @@ function ScenePart5Editor({ part, props }: { part: ListeningPart5SceneColourDraw
     <ListeningAssetPicker assets={assets} aiCapability={aiCapability} onUpload={onUpload} label="Ảnh đề bài · hiển thị cho học sinh" kind="image" value={part.sceneAssetId} onChange={sceneAssetId => commit({ ...part, sceneAssetId })} />
 
     <section className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
-      <div><h4 className="text-sm font-black text-emerald-950">6 màu cho học sinh</h4><p className="text-[11px] font-semibold text-emerald-800">Chọn 5 màu dùng trong bài và 1 màu nhiễu. Mỗi màu chỉ được chọn một lần.</p></div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">{Array.from({ length: 6 }, (_, index) => {
-        const colourId = paletteColourIds[index] || '';
-        const colour = part.colours.find(item => item.id === colourId);
-        return <label key={index} className="space-y-2 rounded-xl border bg-white p-3"><span className="text-[11px] font-black">Màu {index + 1}{index === 5 ? ' · nhiễu' : ''}</span><select value={colourId} onChange={event => commit({ ...part, colourPaletteIds: Array.from({ length: 6 }, (_, slot) => slot === index ? event.target.value : paletteColourIds[slot] || '') })} className="w-full rounded-lg border p-2 text-xs"><option value="">— Chọn màu —</option>{part.colours.map(item => <option key={item.id} value={item.id} disabled={paletteColourIds.some((selectedId, slot) => slot !== index && selectedId === item.id)}>{item.label}</option>)}</select>{colour && <span className="block h-6 rounded-lg border" style={{ backgroundColor: colour.value }} />}</label>;
-      })}</div>
+      <div><h4 className="text-sm font-black text-emerald-950">Màu hiển thị cho học sinh</h4><p className="text-[11px] font-semibold text-emerald-800">Danh sách màu do AI hoặc thông số bài soạn cung cấp, không yêu cầu số lượng cố định.</p></div>
+      <div className="flex flex-wrap gap-2">{paletteColours.map(colour => <span key={colour.id} className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-xs font-black"><span className="h-5 w-5 rounded-md border" style={{ backgroundColor: colour.value }} />{colour.label}</span>)}</div>
     </section>
 
     <section className="space-y-3 rounded-2xl border border-sky-200 bg-sky-50/40 p-4">
-      <div><h4 className="text-sm font-black text-sky-950">3 vật để kéo thả</h4><p className="text-[11px] font-semibold text-sky-800">Upload 2 icon PNG dùng làm đáp án và 1 icon PNG nhiễu. Nền trong suốt được khuyến nghị.</p></div>
-      <div className="grid gap-3 lg:grid-cols-3">{part.objectPalette.map((item, index) => <div key={item.id} className="space-y-3 rounded-xl border bg-white p-3"><EditorField label={`Tên vật ${index + 1}${index === 2 ? ' · nhiễu' : ''}`} value={item.label} onChange={label => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, label, objectType: label.trim() || entry.objectType } : entry) })} /><ListeningAssetPicker assets={assets} aiCapability={{ enabled: false, reason: 'Icon Draw phải do giáo viên upload và xác nhận.' }} onUpload={onUpload} allowedMimeTypes={['image/png']} label={`Icon PNG ${index + 1}`} kind="image" value={item.tokenAssetId} onChange={tokenAssetId => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, tokenAssetId } : entry) })} /></div>)}</div>
+      <div><h4 className="text-sm font-black text-sky-950">Vật để kéo thả</h4><p className="text-[11px] font-semibold text-sky-800">Danh sách icon linh hoạt; lựa chọn bổ sung không bắt buộc.</p></div>
+      <div className="grid gap-3 lg:grid-cols-2">{part.objectPalette.map((item, index) => <div key={item.id} className="space-y-3 rounded-xl border bg-white p-3"><EditorField label={`Tên vật ${index + 1}`} value={item.label} onChange={label => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, label, objectType: label.trim() || entry.objectType } : entry) })} /><ListeningAssetPicker assets={assets} aiCapability={{ enabled: false, reason: 'Icon Draw phải do giáo viên upload và xác nhận.' }} onUpload={onUpload} allowedMimeTypes={['image/png']} label={`Icon PNG ${index + 1}`} kind="image" value={item.tokenAssetId} onChange={tokenAssetId => commit({ ...part, objectPalette: part.objectPalette.map(entry => entry.id === item.id ? { ...entry, tokenAssetId } : entry) })} /></div>)}</div>
     </section>
 
     <section className="space-y-4">
@@ -137,16 +125,11 @@ export default function MoverPart5Editor(props: MoverPartEditorProps<ListeningPa
   };
   const migrate = () => {
     if (part.displayMode !== 'scene-colour-draw') return;
-    const upgraded = upgradeScenePart5(part);
-    if (!upgraded) {
-      window.alert('Draft cũ đang dùng hơn 2 icon đáp án. Hãy giữ schema v1 hoặc giảm số icon đúng trước khi chuyển sang palette 3 icon.');
-      return;
-    }
-    onChange(upgraded);
+    onChange(upgradeScenePart5(part));
   };
   return <div className="space-y-5">
     <MoverPartBaseEditor {...props} />
     <SmartImportPanel token={token} part={part} assets={assets} capability={smartImportCapability} onCandidateChange={onImportCandidateChange} onAnalyzed={importAnalysis} onUpload={onUpload} analyzeLabel="Phân tích ảnh và nhập Part 5" analyzedNotice="Đã nhập nội dung, màu và gợi ý vị trí Draw vào bài soạn. Hãy tải icon và xác nhận vùng Colour/Draw trực tiếp trong bảng." />
-    {part.displayMode === 'scene-colour-draw' && part.interactionSchemaVersion === 1 ? <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-bold text-amber-900">Part 5 này đang dùng scene schema v1. Dữ liệu vẫn chơi/chấm bình thường; chuyển sang v2 để dùng workflow 6 màu + 3 icon và geometry do giáo viên xác nhận.</p><button type="button" onClick={migrate} className="rounded-xl bg-amber-700 px-4 py-2 text-xs font-black text-white">Chuyển Part 5 sang Colour + Draw v2</button></div> : part.displayMode === 'scene-colour-draw' ? <Part5SceneEditor part={part} props={props} /> : <LegacyPart5Editor part={part} props={props} />}
+    {part.displayMode === 'scene-colour-draw' && part.interactionSchemaVersion < 3 ? <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-bold text-amber-900">Part 5 này đang dùng scene schema v{part.interactionSchemaVersion}. Dữ liệu cũ vẫn chơi và chấm bình thường; chuyển sang v3 để dùng số màu và số vật linh hoạt, không bắt buộc lựa chọn nhiễu.</p><button type="button" onClick={migrate} className="rounded-xl bg-amber-700 px-4 py-2 text-xs font-black text-white">Chuyển Part 5 sang schema linh hoạt v3</button></div> : part.displayMode === 'scene-colour-draw' ? <Part5SceneEditor part={part} props={props} /> : <LegacyPart5Editor part={part} props={props} />}
   </div>;
 }

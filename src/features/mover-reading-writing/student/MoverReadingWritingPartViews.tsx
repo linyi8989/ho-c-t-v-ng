@@ -9,6 +9,7 @@ import type {
   MoverReadingWritingPart5,
   MoverReadingWritingPart6,
 } from '../types';
+import { isMoverReadingWritingPart6ImageChoice } from '../types';
 
 interface AnswerProps {
   answers: MoverReadingWritingAnswers;
@@ -78,15 +79,27 @@ function InlineTextQuestion({ number, questionId, prompt, value, onChange, maxWo
   );
 }
 
-function ChoiceQuestion({ number, question, value, onChange }: { number: number; question: MoverReadingWritingChoiceQuestion; value: string; onChange: (value: string) => void }) {
+function ChoiceQuestion({
+  number,
+  question,
+  value,
+  onChange,
+  layout = 'vertical',
+}: {
+  number: number;
+  question: MoverReadingWritingChoiceQuestion;
+  value: string;
+  onChange: (value: string) => void;
+  layout?: 'vertical' | 'horizontal';
+}) {
   return (
     <fieldset className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <legend className="px-1 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{number}.</b>{question.prompt}</legend>
-      <div className="mt-3 grid gap-2">
+      <div className={`mt-3 grid gap-2 ${layout === 'horizontal' ? 'grid-cols-3' : ''}`} data-choice-layout={layout}>
         {question.options.map((option, index) => (
-          <label key={option.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm font-semibold ${value === option.id ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-            <input type="radio" name={`rw-${question.id}`} checked={value === option.id} onChange={() => onChange(option.id)} />
-            <span><b>{String.fromCharCode(65 + index)}.</b> {option.text}</span>
+          <label key={option.id} className={`flex h-full min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 text-sm font-semibold ${value === option.id ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+            <input className="mt-0.5 shrink-0" type="radio" name={`rw-${question.id}`} checked={value === option.id} onChange={() => onChange(option.id)} />
+            <span className="min-w-0 break-words"><b>{String.fromCharCode(65 + index)}.</b> {option.text}</span>
           </label>
         ))}
       </div>
@@ -126,6 +139,26 @@ export function ReadingPart5View({ part, answers, onAnswers }: { part: MoverRead
 }
 
 export function ReadingPart6View({ part, answers, onAnswers }: { part: MoverReadingWritingPart6 } & AnswerProps) {
+  if (isMoverReadingWritingPart6ImageChoice(part)) {
+    return (
+      <Layout imageUrl={part.studentImageUrl} imageAlt="Ảnh bài đọc Part 6">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
+          Chọn một đáp án A, B hoặc C tương ứng với từng số câu trên ảnh.
+        </div>
+        {part.questions.map(question => (
+          <div key={question.id} className="contents">
+            <ChoiceQuestion
+              number={question.questionNumber}
+              question={question}
+              value={answers.part6[question.id] || ''}
+              layout="horizontal"
+              onChange={value => onAnswers(current => ({ ...current, part6: { ...current.part6, [question.id]: value } }))}
+            />
+          </div>
+        ))}
+      </Layout>
+    );
+  }
   const byId = new Map(part.gaps.map(gap => [gap.id, gap]));
   const passageTemplate = part.passageTemplate.replace(/\[\[\s*example\s*\]\]/gi, part.example?.answer || '');
   return (

@@ -1,8 +1,10 @@
 export const MOVER_READING_WRITING_PAPER_ID = 'reading-writing' as const;
 export const MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION = 1 as const;
-export const MOVER_READING_WRITING_SCHEMA_VERSION = 2 as const;
+export const MOVER_READING_WRITING_INLINE_SCHEMA_VERSION = 2 as const;
+export const MOVER_READING_WRITING_SCHEMA_VERSION = 3 as const;
 export type MoverReadingWritingSchemaVersion =
   | typeof MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION
+  | typeof MOVER_READING_WRITING_INLINE_SCHEMA_VERSION
   | typeof MOVER_READING_WRITING_SCHEMA_VERSION;
 export const MOVER_READING_WRITING_PART_COUNTS = [6, 6, 6, 7, 10, 5] as const;
 export const MOVER_READING_WRITING_TOTAL_QUESTIONS = 40 as const;
@@ -103,8 +105,9 @@ export interface MoverReadingWritingPart5 extends MoverReadingWritingPartBase {
   scenes: [MoverReadingWritingPart5Scene, MoverReadingWritingPart5Scene, MoverReadingWritingPart5Scene];
 }
 
-export interface MoverReadingWritingPart6 extends MoverReadingWritingPartBase {
+export interface MoverReadingWritingPart6Text extends MoverReadingWritingPartBase {
   part: 6;
+  displayMode?: 'passage-text';
   passageSourceAssetId?: string;
   passageSourceUrl?: string;
   illustrationAssetId: string;
@@ -115,6 +118,32 @@ export interface MoverReadingWritingPart6 extends MoverReadingWritingPartBase {
   passageTemplate: string;
   example?: MoverReadingWritingExample;
   gaps: MoverReadingWritingGap[];
+}
+
+export interface MoverReadingWritingPart6ChoiceQuestion extends MoverReadingWritingChoiceQuestion {
+  questionNumber: 1 | 2 | 3 | 4 | 5;
+}
+
+export interface MoverReadingWritingPart6ImageChoice extends MoverReadingWritingPartBase {
+  part: 6;
+  displayMode: 'image-multiple-choice';
+  /** The only Part 6 image returned to students. */
+  studentImageAssetId: string;
+  studentImageUrl?: string;
+  /** Authoring/OCR source only; removed from every student payload. */
+  optionsSourceAssetId: string;
+  optionsSourceUrl?: string;
+  questions: MoverReadingWritingPart6ChoiceQuestion[];
+}
+
+export type MoverReadingWritingPart6 =
+  | MoverReadingWritingPart6Text
+  | MoverReadingWritingPart6ImageChoice;
+
+export function isMoverReadingWritingPart6ImageChoice(
+  part: MoverReadingWritingPart6,
+): part is MoverReadingWritingPart6ImageChoice {
+  return part.displayMode === 'image-multiple-choice';
 }
 
 export type MoverReadingWritingPart =
@@ -145,6 +174,18 @@ export interface MoverReadingWritingContent {
     MoverReadingWritingPart6,
   ];
 }
+
+export type MoverReadingWritingContentV3 = Omit<MoverReadingWritingContent, 'schemaVersion' | 'parts'> & {
+  schemaVersion: typeof MOVER_READING_WRITING_SCHEMA_VERSION;
+  parts: [
+    MoverReadingWritingPart1,
+    MoverReadingWritingPart2,
+    MoverReadingWritingPart3,
+    MoverReadingWritingPart4,
+    MoverReadingWritingPart5,
+    MoverReadingWritingPart6ImageChoice,
+  ];
+};
 
 export interface MoverReadingWritingSetSummary {
   id: string;
@@ -267,6 +308,14 @@ export type MoverReadingWritingVisualReviewPart =
         passage: string;
         items: MoverReadingWritingVisualReviewBaseItem[];
       }>;
+    }
+  | {
+      part: 6;
+      mode: 'image-options';
+      title: string;
+      instruction: string;
+      imageUrl?: string;
+      items: MoverReadingWritingVisualReviewChoiceItem[];
     }
   | {
       part: 6;

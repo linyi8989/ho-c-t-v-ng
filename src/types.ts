@@ -82,7 +82,7 @@ export interface Assignment {
   id: string;
   shareToken?: string;
   assignmentSlug?: string;
-  resourceType?: 'vocabulary' | 'listening' | 'mover_reading_writing';
+  resourceType?: 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam';
   resourceId?: string;
   resourceTitle?: string;
   classId: string;
@@ -93,6 +93,9 @@ export interface Assignment {
   listeningSetTitle?: string;
   moverReadingWritingSetId?: string;
   moverReadingWritingSetTitle?: string;
+  examSetId?: string;
+  examModuleId?: 'starter' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts';
+  examPaperId?: 'listening' | 'reading-writing' | 'reading' | 'writing' | 'reading-use-of-english' | 'academic-reading' | 'academic-writing';
   gameId: string;
   dueDate: string;
   createdAt: string;

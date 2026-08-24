@@ -1,6 +1,6 @@
 import type {
   MoverReadingWritingChoiceQuestion,
-  MoverReadingWritingContent,
+  MoverReadingWritingContentV3,
   MoverReadingWritingTextQuestion,
 } from './types';
 import { MOVER_READING_WRITING_SCHEMA_VERSION } from './types';
@@ -31,20 +31,21 @@ const choiceQuestion = (prefix: string): MoverReadingWritingChoiceQuestion => {
   return { id: newId(`${prefix}-question`), prompt: '', options, correctOptionId: options[0].id };
 };
 
-export function createDefaultMoverReadingWritingContent(): MoverReadingWritingContent {
+export function createDefaultMoverReadingWritingContent(): MoverReadingWritingContentV3 {
   const part4Gaps = Array.from({ length: 6 }, (_, index) => ({
     id: newId(`rw-p4-gap-${index + 1}`),
     acceptedAnswers: [''],
   }));
-  const part6Gaps = Array.from({ length: 5 }, (_, index) => ({
-    id: newId(`rw-p6-gap-${index + 1}`),
-    acceptedAnswers: [''],
+  const part6Questions = Array.from({ length: 5 }, (_, index) => ({
+    ...choiceQuestion(`rw-p6-q${index + 1}`),
+    questionNumber: (index + 1) as 1 | 2 | 3 | 4 | 5,
+    correctOptionId: '',
   }));
   return {
     moduleId: 'mover',
     paperId: 'reading-writing',
     schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
-    title: 'Mover Reading & Writing',
+    title: 'Movers Reading & Writing',
     description: '',
     level: 'Movers',
     showReviewAfterSubmit: true,
@@ -97,14 +98,12 @@ export function createDefaultMoverReadingWritingContent(): MoverReadingWritingCo
       },
       {
         part: 6,
+        displayMode: 'image-multiple-choice',
         title: 'Part 6',
-        instruction: 'Read the text. Choose the right words and write them on the lines.',
-        passageSourceAssetId: '',
-        illustrationAssetId: '',
-        optionsAssetId: '',
-        passageTitle: '',
-        passageTemplate: part6Gaps.map((gap, index) => `(${index + 1}) {{${gap.id}}}`).join(' '),
-        gaps: part6Gaps,
+        instruction: 'Read the text. Choose the correct answer for each numbered question.',
+        studentImageAssetId: '',
+        optionsSourceAssetId: '',
+        questions: part6Questions,
       },
     ],
   };

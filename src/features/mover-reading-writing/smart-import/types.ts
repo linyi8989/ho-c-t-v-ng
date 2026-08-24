@@ -66,9 +66,8 @@ export function getMoverReadingWritingSmartImportRoleDefinitions(
     { role: 'answer_key', label: 'Ảnh đáp án', required: true, source: 'transient', help: 'Nguồn đáp án chính thức cho đủ mười câu.' },
   ];
   return [
-    { role: 'passage', label: 'Ảnh nguồn bài đọc', required: true, source: 'asset', help: 'Nguồn OCR và nguồn để crop ảnh bài đọc hiển thị cho học sinh.' },
-    { role: 'options', label: 'Ảnh bảng lựa chọn', required: true, source: 'asset', help: 'Dùng trực tiếp làm ngân hàng từ để học sinh nhìn và tự viết vào chỗ trống.' },
-    { role: 'answer_key', label: 'Ảnh đáp án', required: true, source: 'transient', help: 'Đọc nguyên văn từ đúng theo số câu; không quy đổi sang A/B/C.' },
+    { role: 'options', label: 'Ảnh bảng lựa chọn', required: true, source: 'asset', help: 'Nguồn OCR ba lựa chọn A/B/C cho từng câu; ảnh này chỉ dùng khi soạn đề.' },
+    { role: 'answer_key', label: 'Ảnh đáp án chính thức', required: true, source: 'transient', help: 'Nguồn duy nhất để ánh xạ correctOption theo số câu; AI không được tự giải bài.' },
   ];
 }
 
@@ -109,6 +108,12 @@ export interface MoverReadingWritingImportChoiceQuestion {
   prompt: string;
   promptSpeaker?: string;
   answerSpeaker?: string;
+  options: [string, string, string];
+  correctOption?: 'A' | 'B' | 'C';
+}
+
+export interface MoverReadingWritingImportPart6Question {
+  questionNumber: number;
   options: [string, string, string];
   correctOption?: 'A' | 'B' | 'C';
 }
@@ -157,12 +162,7 @@ export type MoverReadingWritingSmartImportData =
     }
   | {
       part: 6;
-      title?: string;
-      instruction?: string;
-      passageTitle: string;
-      passageTemplate: string;
-      example?: MoverReadingWritingImportExample;
-      gaps: MoverReadingWritingImportTextGap[];
+      questions: MoverReadingWritingImportPart6Question[];
     };
 
 export interface MoverReadingWritingSmartImportCandidate {

@@ -48,6 +48,8 @@ function StatusBadges({ item }: { item: LearningHistoryItem }) {
 function LessonInfo({ item }: { item: LearningHistoryItem }) {
   const Icon = item.sourceType === 'grammar'
     ? FileText
+    : item.sourceType === 'exam'
+      ? BookOpenText
     : item.sourceType === 'listening'
       ? Headphones
       : item.sourceType === 'reading_writing'
@@ -55,6 +57,8 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
         : Gamepad2;
   const sourceLabel = item.sourceType === 'grammar'
     ? 'Ngữ pháp'
+    : item.sourceType === 'exam'
+      ? 'Cambridge & IELTS'
     : item.sourceType === 'listening'
       ? 'Nghe 5 Part'
       : item.sourceType === 'reading_writing'

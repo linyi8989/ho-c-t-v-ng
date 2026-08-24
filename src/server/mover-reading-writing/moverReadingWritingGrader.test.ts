@@ -35,11 +35,11 @@ function fixture() {
       question.acceptedAnswers = ['at the weekend'];
     });
   });
-  content.parts[5].illustrationAssetId = 'image-p6';
-  content.parts[5].optionsAssetId = 'image-p6-options';
-  content.parts[5].passageTitle = 'Dolphins';
-  content.parts[5].gaps.forEach((gap, index) => {
-    gap.acceptedAnswers = [`word${index + 1}`];
+  content.parts[5].studentImageAssetId = 'image-p6';
+  content.parts[5].optionsSourceAssetId = 'image-p6-options';
+  content.parts[5].questions.forEach((question, index) => {
+    question.options.forEach((option, optionIndex) => { option.text = `Choice ${index + 1}.${optionIndex + 1}`; });
+    question.correctOptionId = question.options[1].id;
   });
   return content;
 }
@@ -60,7 +60,7 @@ test('grades all forty questions on the server and enforces Part 5 one-to-three 
   content.parts[3].gaps.forEach(gap => { answers.part4.gaps[gap.id] = gap.acceptedAnswers[0]; });
   answers.part4.titleOptionId = content.parts[3].titleQuestion.correctOptionId;
   content.parts[4].scenes.forEach(scene => scene.questions.forEach(question => { answers.part5[question.id] = question.acceptedAnswers[0]; }));
-  content.parts[5].gaps.forEach(gap => { answers.part6[gap.id] = gap.acceptedAnswers[0]; });
+  content.parts[5].questions.forEach(question => { answers.part6[question.id] = question.correctOptionId; });
   const perfect = gradeMoverReadingWritingAttempt(content, answers);
   assert.equal(perfect.totalCount, 40);
   assert.equal(perfect.correctCount, 40);
@@ -74,11 +74,10 @@ test('grades all forty questions on the server and enforces Part 5 one-to-three 
 
   firstPart5.acceptedAnswers = ['valid'];
   answers.part5[firstPart5.id] = 'valid';
-  const firstPart6 = content.parts[5].gaps[0];
-  firstPart6.acceptedAnswers = ['two words'];
-  answers.part6[firstPart6.id] = 'two words';
-  const oneWordOnly = gradeMoverReadingWritingAttempt(content, answers);
-  assert.equal(oneWordOnly.correctCount, 39);
+  const firstPart6 = content.parts[5].questions[0];
+  answers.part6[firstPart6.id] = firstPart6.options[0].id;
+  const wrongChoice = gradeMoverReadingWritingAttempt(content, answers);
+  assert.equal(wrongChoice.correctCount, 39);
 });
 
 test('normalizes Unicode/apostrophes and strips every answer key from student content', () => {
@@ -90,6 +89,8 @@ test('normalizes Unicode/apostrophes and strips every answer key from student co
   assert.equal(serialized.includes('correctOptionId'), false);
   assert.equal('correctOptionId' in playable.parts[2].questions[0], false);
   assert.equal('correctOptionId' in playable.parts[3].titleQuestion, false);
-  assert.equal('acceptedAnswers' in playable.parts[5].gaps[0], false);
-  assert.equal('passageSourceAssetId' in playable.parts[5], false);
+  assert.equal('correctOptionId' in playable.parts[5].questions[0], false);
+  assert.equal('optionsSourceAssetId' in playable.parts[5], false);
+  assert.equal('optionsSourceUrl' in playable.parts[5], false);
+  assert.equal(playable.parts[5].studentImageAssetId, 'image-p6');
 });

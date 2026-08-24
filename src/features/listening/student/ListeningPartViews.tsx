@@ -465,7 +465,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
   const [selectedPaletteItem, setSelectedPaletteItem] = useState('');
   const [keyboardAnchor, setKeyboardAnchor] = useState({ x: 0.5, y: 0.5 });
   const colours = new Map(part.colours.map(colour => [colour.id, colour]));
-  const visibleColours = part.interactionSchemaVersion === 2
+  const visibleColours = part.interactionSchemaVersion >= 2
     ? (part.colourPaletteIds || []).flatMap(id => {
         const colour = colours.get(id);
         return colour ? [colour] : [];
@@ -480,7 +480,9 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
   const usedPaletteItemIds = new Set(structuredAnswers.flatMap(({ answer }) => (
     answer.type === 'place_object' ? [answer.paletteItemId] : []
   )));
-  const availableColours = visibleColours.filter(colour => !usedColourIds.has(colour.id));
+  const availableColours = part.interactionSchemaVersion === 3
+    ? visibleColours
+    : visibleColours.filter(colour => !usedColourIds.has(colour.id));
   const availablePaletteItems = part.objectPalette.filter(item => !usedPaletteItemIds.has(item.id));
   const clearAnswer = (answerKey: string) => {
     const next = { ...answers.part5 };
@@ -492,7 +494,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
     const next = Object.fromEntries(Object.entries(answers.part5).filter(([, answer]) => !(
       answer && typeof answer === 'object'
       && answer.type === 'colour_object'
-      && (answer.objectId === objectId || answer.colourId === colourId)
+      && (answer.objectId === objectId || (part.interactionSchemaVersion < 3 && answer.colourId === colourId))
     )));
     next[objectId] = { type: 'colour_object', objectId, colourId };
     onAnswers({ ...answers, part5: next });
@@ -646,7 +648,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
         })}
         </div>
       </div>
-      <p className="shrink-0 text-center text-xs font-bold text-slate-500">Kéo màu vào vật thể hoặc kéo hình vào vị trí cần đặt. Đáp án đã dùng sẽ rời khỏi khay; nhấn vào đáp án trên ảnh để lấy lại.</p>
+      <p className="shrink-0 text-center text-xs font-bold text-slate-500">Kéo màu vào vật thể hoặc kéo hình vào vị trí cần đặt. Hình đã dùng sẽ rời khỏi khay; màu có thể dùng lại khi bài yêu cầu. Nhấn vào đáp án trên ảnh để gỡ.</p>
     </div>
   );
 }

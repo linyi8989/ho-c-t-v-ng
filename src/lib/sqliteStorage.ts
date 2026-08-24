@@ -26,6 +26,8 @@ const LEARNING_HISTORY_SCHEMA_MIGRATION_ID = 'learning-history-schema-v1';
 const GUEST_CAPABILITY_STORAGE_MIGRATION_ID = 'guest-capability-physical-v1';
 const LISTENING_SCHEMA_MIGRATION_ID = 'listening-five-part-schema-v1';
 const MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = 'mover-reading-writing-schema-v1';
+const EXAM_PLATFORM_SCHEMA_MIGRATION_ID = 'exam-platform-schema-v1';
+const ACTIVITY_READ_INDEX_MIGRATION_ID = 'activity-read-indexes-v1';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -97,6 +99,16 @@ const collectionTableMap: Record<string, string> = {
   moverreadingattempts: 'mover_reading_attempts',
   mover_reading_attempt_details: 'mover_reading_attempt_details',
   moverreadingattemptdetails: 'mover_reading_attempt_details',
+  exam_sets: 'exam_sets',
+  examsets: 'exam_sets',
+  exam_set_versions: 'exam_set_versions',
+  examsetversions: 'exam_set_versions',
+  exam_asset_usages: 'exam_asset_usages',
+  examassetusages: 'exam_asset_usages',
+  exam_attempts: 'exam_attempts',
+  examattempts: 'exam_attempts',
+  exam_attempt_details: 'exam_attempt_details',
+  examattemptdetails: 'exam_attempt_details',
   audit_logs: 'audit_logs',
   auditlogs: 'audit_logs',
   settings: 'settings',
@@ -301,6 +313,56 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     setId: 'set_id',
     versionNumber: 'version_number',
     status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  exam_sets: {
+    id: 'id',
+    ownerId: 'owner_id',
+    moduleId: 'module_id',
+    paperId: 'paper_id',
+    status: 'status',
+    visibility: 'visibility',
+    publishedVersionId: 'published_version_id',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  exam_set_versions: {
+    id: 'id',
+    setId: 'set_id',
+    moduleId: 'module_id',
+    paperId: 'paper_id',
+    versionNumber: 'version_number',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  exam_asset_usages: {
+    id: 'id',
+    assetId: 'asset_id',
+    setId: 'set_id',
+    versionId: 'version_id',
+    createdAt: 'created_at',
+  },
+  exam_attempts: {
+    id: 'id',
+    ownerKey: 'owner_key',
+    userId: 'user_id',
+    guestId: 'guest_id',
+    moduleId: 'module_id',
+    paperId: 'paper_id',
+    setId: 'set_id',
+    versionId: 'version_id',
+    assignmentId: 'assignment_id',
+    clientRunId: 'client_run_id',
+    status: 'status',
+    completedAt: 'completed_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  exam_attempt_details: {
+    id: 'id',
+    attemptId: 'attempt_id',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   },
@@ -1253,6 +1315,161 @@ function upsertMoverReadingWritingDocument(
   );
 }
 
+function upsertExamDocument(
+  table: 'exam_sets' | 'exam_set_versions' | 'exam_asset_usages' | 'exam_attempts' | 'exam_attempt_details',
+  id: string,
+  data: any,
+  dataJson: string,
+  createdAt: string,
+  updatedAt: string
+) {
+  if (table === 'exam_sets') {
+    run(
+      `INSERT INTO exam_sets (
+        id, module_id, paper_id, owner_id, title, status, visibility,
+        published_version_id, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        module_id = excluded.module_id,
+        paper_id = excluded.paper_id,
+        owner_id = excluded.owner_id,
+        title = excluded.title,
+        status = excluded.status,
+        visibility = excluded.visibility,
+        published_version_id = excluded.published_version_id,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'moduleId', 'module_id')),
+        optionalText(firstDefined(data, 'paperId', 'paper_id')),
+        optionalText(firstDefined(data, 'ownerId', 'owner_id', 'createdBy')),
+        optionalText(firstDefined(data, 'title')),
+        optionalText(firstDefined(data, 'status')) || 'draft',
+        optionalText(firstDefined(data, 'visibility')) || 'draft',
+        optionalText(firstDefined(data, 'publishedVersionId', 'published_version_id')),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+  if (table === 'exam_set_versions') {
+    run(
+      `INSERT INTO exam_set_versions (
+        id, set_id, module_id, paper_id, version_number, status,
+        created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        set_id = excluded.set_id,
+        module_id = excluded.module_id,
+        paper_id = excluded.paper_id,
+        version_number = excluded.version_number,
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        optionalText(firstDefined(data, 'moduleId', 'module_id')),
+        optionalText(firstDefined(data, 'paperId', 'paper_id')),
+        Math.max(1, nonNegativeInteger(firstDefined(data, 'versionNumber', 'version_number'), 1)),
+        optionalText(firstDefined(data, 'status')) || 'published',
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+  if (table === 'exam_asset_usages') {
+    run(
+      `INSERT INTO exam_asset_usages (
+        id, asset_id, set_id, version_id, entity_id, role, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        asset_id = excluded.asset_id,
+        set_id = excluded.set_id,
+        version_id = excluded.version_id,
+        entity_id = excluded.entity_id,
+        role = excluded.role,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'assetId', 'asset_id')),
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        optionalText(firstDefined(data, 'versionId', 'version_id')),
+        optionalText(firstDefined(data, 'entityId', 'entity_id')),
+        optionalText(firstDefined(data, 'role')),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+  if (table === 'exam_attempts') {
+    run(
+      `INSERT INTO exam_attempts (
+        id, owner_key, user_id, guest_id, module_id, paper_id, set_id, version_id,
+        assignment_id, client_run_id, run_secret_hash, status, student_name, class_id,
+        score, correct_count, incorrect_count, unanswered_count, pending_manual_count,
+        started_at, completed_at, duration_seconds, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        score = excluded.score,
+        correct_count = excluded.correct_count,
+        incorrect_count = excluded.incorrect_count,
+        unanswered_count = excluded.unanswered_count,
+        pending_manual_count = excluded.pending_manual_count,
+        completed_at = excluded.completed_at,
+        duration_seconds = excluded.duration_seconds,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'ownerKey', 'owner_key')),
+        optionalText(firstDefined(data, 'userId', 'user_id')),
+        optionalText(firstDefined(data, 'guestId', 'guest_id')),
+        optionalText(firstDefined(data, 'moduleId', 'module_id')),
+        optionalText(firstDefined(data, 'paperId', 'paper_id')),
+        optionalText(firstDefined(data, 'setId', 'set_id')),
+        optionalText(firstDefined(data, 'versionId', 'version_id')),
+        optionalText(firstDefined(data, 'assignmentId', 'assignment_id')),
+        optionalText(firstDefined(data, 'clientRunId', 'client_run_id')),
+        optionalText(firstDefined(data, 'runSecretHash', 'run_secret_hash')),
+        optionalText(firstDefined(data, 'status')) || 'completed',
+        optionalText(firstDefined(data, 'studentName', 'student_name')),
+        optionalText(firstDefined(data, 'classId', 'class_id')),
+        Math.max(0, Math.min(100, finiteNumber(firstDefined(data, 'score'), 0))),
+        nonNegativeInteger(firstDefined(data, 'correctCount', 'correct_count'), 0),
+        nonNegativeInteger(firstDefined(data, 'incorrectCount', 'incorrect_count'), 0),
+        nonNegativeInteger(firstDefined(data, 'unansweredCount', 'unanswered_count'), 0),
+        nonNegativeInteger(firstDefined(data, 'pendingManualCount', 'pending_manual_count'), 0),
+        optionalText(firstDefined(data, 'startedAt', 'started_at')) || createdAt,
+        optionalText(firstDefined(data, 'completedAt', 'completed_at')) || updatedAt,
+        nonNegativeInteger(firstDefined(data, 'durationSeconds', 'duration_seconds'), 0),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+  run(
+    `INSERT INTO exam_attempt_details (id, attempt_id, created_at, updated_at, data_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      attempt_id = excluded.attempt_id,
+      updated_at = excluded.updated_at,
+      data_json = excluded.data_json`,
+    [id, optionalText(firstDefined(data, 'attemptId', 'attempt_id')) || id, createdAt, updatedAt, dataJson]
+  );
+}
+
 function upsertDoc(collectionName: string, id: string, inputData: any) {
   const table = tableForCollection(collectionName);
   const data = { ...inputData, id };
@@ -1284,6 +1501,17 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     || table === 'listening_attempt_details'
   ) {
     upsertListeningDocument(table, id, data, dataJson, createdAt, updatedAt);
+    return;
+  }
+
+  if (
+    table === 'exam_sets'
+    || table === 'exam_set_versions'
+    || table === 'exam_asset_usages'
+    || table === 'exam_attempts'
+    || table === 'exam_attempt_details'
+  ) {
+    upsertExamDocument(table, id, data, dataJson, createdAt, updatedAt);
     return;
   }
 
@@ -2601,6 +2829,159 @@ function migrateMoverReadingWritingSchema() {
   sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
 }
 
+function migrateExamPlatformSchema() {
+  if (hasMigration(EXAM_PLATFORM_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = EXAM_PLATFORM_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS exam_sets (
+      id TEXT PRIMARY KEY,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft', 'published', 'archived')),
+      visibility TEXT NOT NULL DEFAULT 'draft'
+        CHECK(visibility IN ('draft', 'public', 'assignment')),
+      published_version_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_set_versions (
+      id TEXT PRIMARY KEY,
+      set_id TEXT NOT NULL,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL CHECK(version_number >= 1),
+      status TEXT NOT NULL DEFAULT 'published'
+        CHECK(status IN ('published', 'superseded')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_asset_usages (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(asset_id) REFERENCES listening_assets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES exam_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_attempts (
+      id TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      user_id TEXT,
+      guest_id TEXT,
+      module_id TEXT NOT NULL,
+      paper_id TEXT NOT NULL,
+      set_id TEXT NOT NULL,
+      version_id TEXT NOT NULL,
+      assignment_id TEXT,
+      client_run_id TEXT NOT NULL,
+      run_secret_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('completed', 'pending_review')),
+      student_name TEXT,
+      class_id TEXT,
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 100),
+      correct_count INTEGER NOT NULL CHECK(correct_count >= 0),
+      incorrect_count INTEGER NOT NULL CHECK(incorrect_count >= 0),
+      unanswered_count INTEGER NOT NULL CHECK(unanswered_count >= 0),
+      pending_manual_count INTEGER NOT NULL DEFAULT 0 CHECK(pending_manual_count >= 0),
+      started_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK(duration_seconds >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(set_id) REFERENCES exam_sets(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+      FOREIGN KEY(version_id) REFERENCES exam_set_versions(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_attempt_details (
+      id TEXT PRIMARY KEY,
+      attempt_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(attempt_id) REFERENCES exam_attempts(id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_versions_set_number
+      ON exam_set_versions(set_id, version_number);
+    CREATE INDEX IF NOT EXISTS idx_exam_sets_module_paper_status
+      ON exam_sets(module_id, paper_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_sets_owner_status
+      ON exam_sets(owner_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_asset_usages_asset
+      ON exam_asset_usages(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_asset_usages_set
+      ON exam_asset_usages(set_id, version_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_attempts_client_run
+      ON exam_attempts(owner_key, module_id, paper_id, set_id, client_run_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_owner_completed
+      ON exam_attempts(owner_key, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_set_completed
+      ON exam_attempts(set_id, completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_completed_at
+      ON exam_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_exam_attempts_assignment
+      ON exam_attempts(assignment_id, completed_at DESC)
+      WHERE assignment_id IS NOT NULL;
+  `);
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [EXAM_PLATFORM_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = EXAM_PLATFORM_SCHEMA_MIGRATION_ID;
+}
+
+function migrateActivityReadIndexes() {
+  if (hasMigration(ACTIVITY_READ_INDEX_MIGRATION_ID)) {
+    sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
+    return;
+  }
+
+  // Recent activity and leaderboard reads filter/order by completed_at without
+  // also constraining status/owner/set. Standalone indexes match that real
+  // query shape; the older composite indexes remain useful for scoped reads.
+  getDb().run(`
+    CREATE INDEX IF NOT EXISTS idx_game_results_completed_at
+      ON game_results(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_grammar_attempts_completed_at
+      ON grammar_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_listening_attempts_completed_at
+      ON listening_attempts(completed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mover_reading_attempts_completed_at
+      ON mover_reading_attempts(completed_at DESC);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [ACTIVITY_READ_INDEX_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
+}
+
 function getJsonImportCandidates() {
   return [
     process.env.LOCAL_DB_PATH,
@@ -2700,6 +3081,8 @@ export async function initializeSQLiteStorage() {
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
         migrateMoverReadingWritingSchema();
+        migrateExamPlatformSchema();
+        migrateActivityReadIndexes();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, 'immediate');
       configureSQLiteConnection(sqliteConfig);
@@ -3083,6 +3466,11 @@ export async function getSQLiteDiagnostics() {
       mover_reading_asset_usages: await tableCount('mover_reading_asset_usages'),
       mover_reading_attempts: await tableCount('mover_reading_attempts'),
       mover_reading_attempt_details: await tableCount('mover_reading_attempt_details'),
+      exam_sets: await tableCount('exam_sets'),
+      exam_set_versions: await tableCount('exam_set_versions'),
+      exam_asset_usages: await tableCount('exam_asset_usages'),
+      exam_attempts: await tableCount('exam_attempts'),
+      exam_attempt_details: await tableCount('exam_attempt_details'),
       learning_history_backfill_state: await tableCount('learning_history_backfill_state'),
     },
     lastMigration: lastMigration || sqliteLastMigration,

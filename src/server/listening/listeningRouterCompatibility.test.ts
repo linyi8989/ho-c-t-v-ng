@@ -492,5 +492,6 @@ test('authenticated results join listening detail only inside the staff review b
   assert.match(resultsRoute, /isStaffResultReview/);
   assert.match(resultsRoute, /resolveListeningActivityDetailForStaff/);
   assert.match(resultsRoute, /listeningAttemptToActivity\(data, detail\)/);
-  assert.match(resultsRoute, /if \(!isStaffResultReview\) return listeningAttemptToActivity\(data\)/);
+  assert.match(resultsRoute, /if \(summaryView \|\| !isStaffResultReview\)/);
+  assert.match(resultsRoute, /summaryView \? toActivitySummary\(activity, "listening", data\.id\) : activity/);
 });

@@ -1,3 +1,6 @@
+import {
+  isMoverReadingWritingPart6ImageChoice,
+} from '../types';
 import type {
   MoverReadingWritingChoiceQuestion,
   MoverReadingWritingDialogueQuestion,
@@ -199,27 +202,26 @@ export function mergeMoverReadingWritingSmartImport(
 
   const current = part as MoverReadingWritingPart6;
   const imported = data as Extract<MoverReadingWritingSmartImportData, { part: 6 }>;
-  const passageTemplate = imported.passageTemplate.replace(/\[\[(\d+)\]\]/g, (_match, rawNumber) => {
-    const gap = current.gaps[Number(rawNumber) - 1];
-    return gap ? `{{${gap.id}}}` : _match;
-  });
+  if (!isMoverReadingWritingPart6ImageChoice(current)) {
+    throw new Error('Part 6 text-gap cũ cần được chuyển sang trắc nghiệm ảnh trước khi dùng Smart Import mới.');
+  }
   return {
     ...current,
-    title: nonEmpty(imported.title, current.title),
-    instruction: nonEmpty(imported.instruction, current.instruction),
-    passageTitle: nonEmpty(imported.passageTitle, current.passageTitle),
-    passageTemplate: nonEmpty(passageTemplate, current.passageTemplate),
-    example: imported.example
-      ? {
-          prompt: nonEmpty(imported.example.prompt, current.example?.prompt || ''),
-          answer: nonEmpty(imported.example.answer, current.example?.answer || ''),
-        }
-      : current.example,
-    gaps: current.gaps.map((gap, index) => ({
-      ...gap,
-      acceptedAnswers: imported.gaps[index]?.acceptedAnswers.length
-        ? imported.gaps[index].acceptedAnswers
-        : gap.acceptedAnswers,
-    })),
+    questions: current.questions.map((question, index) => {
+      const next = imported.questions[index];
+      if (!next) return question;
+      const options = question.options.map((option, optionIndex) => ({
+        ...option,
+        text: nonEmpty(next.options[optionIndex], option.text),
+      })) as typeof question.options;
+      const correctIndex = next.correctOption ? next.correctOption.charCodeAt(0) - 65 : -1;
+      return {
+        ...question,
+        options,
+        correctOptionId: correctIndex >= 0 && correctIndex < options.length
+          ? options[correctIndex].id
+          : question.correctOptionId,
+      };
+    }),
   };
 }

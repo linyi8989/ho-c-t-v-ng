@@ -29,8 +29,8 @@ test('external Smart Import rejects technical IDs, unknown fields and unsafe mar
   assert.throws(() => parseMoverReadingWritingExternalImport(4, JSON.stringify(part4)), /marker/);
 
   const part6 = JSON.parse(moverReadingWritingExternalTemplate(6));
-  part6.passageTemplate = `[[Example]] ${part6.passageTemplate}`;
-  assert.throws(() => parseMoverReadingWritingExternalImport(6, JSON.stringify(part6)), /marker/);
+  part6.questions[0].options.pop();
+  assert.throws(() => parseMoverReadingWritingExternalImport(6, JSON.stringify(part6)), /ba lựa chọn/);
 
   const part5WrongMarker = JSON.parse(moverReadingWritingExternalTemplate(5));
   part5WrongMarker.scenes[0].questions[0].promptTemplate = 'Wrong marker [[10]]';
@@ -53,39 +53,41 @@ test('merge changes only the selected Part and preserves application IDs', () =>
   assert.equal(JSON.stringify(content.parts.slice(1)), beforeSiblings);
 });
 
-test('Part 4/6 public markers map to existing private gap IDs', () => {
+test('Part 4 public markers map to existing private gap IDs', () => {
   const content = createDefaultMoverReadingWritingContent();
-  for (const partNumber of [4, 6] as const) {
-    const payload = JSON.parse(moverReadingWritingExternalTemplate(partNumber));
-    const { data } = parseMoverReadingWritingExternalImport(partNumber, JSON.stringify(payload));
-    const index = partNumber - 1;
-    const merged = mergeMoverReadingWritingSmartImport(content.parts[index], data) as any;
-    const gaps = partNumber === 4 ? merged.gaps : merged.gaps;
-    gaps.forEach((gap: any) => assert.ok(merged[partNumber === 4 ? 'storyTemplate' : 'passageTemplate'].includes(`{{${gap.id}}}`)));
-    assert.equal(merged[partNumber === 4 ? 'storyTemplate' : 'passageTemplate'].includes('[['), false);
-  }
+  const payload = JSON.parse(moverReadingWritingExternalTemplate(4));
+  const { data } = parseMoverReadingWritingExternalImport(4, JSON.stringify(payload));
+  const merged = mergeMoverReadingWritingSmartImport(content.parts[3], data) as typeof content.parts[3];
+  merged.gaps.forEach(gap => assert.ok(merged.storyTemplate.includes(`{{${gap.id}}}`)));
+  assert.equal(merged.storyTemplate.includes('[['), false);
 });
 
-test('Part 6 keeps answer-key words as text answers without asking AI to infer letters', () => {
+test('Part 6 extracts three choices and maps correctOption only from the official answer key', () => {
   const payload = JSON.parse(moverReadingWritingExternalTemplate(6));
-  const rows = ['and', 'than', 'sometimes', 'with', 'in'];
-  payload.gaps.forEach((gap: any, index: number) => {
-    gap.acceptedAnswers = [rows[index]];
+  payload.questions.forEach((question: any, index: number) => {
+    question.options = [`A${index + 1}`, `B${index + 1}`, `C${index + 1}`];
+    question.correctOption = index % 2 ? 'C' : 'B';
   });
 
   const parsed = parseMoverReadingWritingExternalImport(6, JSON.stringify(payload));
   assert.equal(parsed.data.part, 6);
-  assert.deepEqual(parsed.data.gaps.map(gap => gap.acceptedAnswers[0]), rows);
-  assert.doesNotMatch(parsed.warnings.join('\n'), /chưa đọc được đáp án/);
+  assert.deepEqual(parsed.data.questions[0].options, ['A1', 'B1', 'C1']);
+  assert.deepEqual(parsed.data.questions.map(question => question.correctOption), ['B', 'C', 'B', 'C', 'B']);
+  assert.doesNotMatch(parsed.warnings.join('\n'), /A\/B\/C rõ ràng/);
 });
 
 test('Part 6 warns and preserves the current key when the official answer is unreadable', () => {
   const payload = JSON.parse(moverReadingWritingExternalTemplate(6));
-  payload.gaps[0].acceptedAnswers = [];
+  payload.questions[0].correctOption = 'unknown';
   const parsed = parseMoverReadingWritingExternalImport(6, JSON.stringify(payload));
   assert.equal(parsed.data.part, 6);
-  assert.deepEqual(parsed.data.gaps[0].acceptedAnswers, []);
-  assert.match(parsed.warnings.join('\n'), /chưa đọc được đáp án/);
+  assert.equal(parsed.data.questions[0].correctOption, undefined);
+  assert.match(parsed.warnings.join('\n'), /A\/B\/C rõ ràng/);
+
+  const content = createDefaultMoverReadingWritingContent();
+  content.parts[5].questions[0].correctOptionId = content.parts[5].questions[0].options[2].id;
+  const merged = mergeMoverReadingWritingSmartImport(content.parts[5], parsed.data) as typeof content.parts[5];
+  assert.equal(merged.questions[0].correctOptionId, content.parts[5].questions[0].options[2].id);
 });
 
 test('Part 5/6 reuse persisted student images while answer keys remain transient', () => {
@@ -94,8 +96,9 @@ test('Part 5/6 reuse persisted student images while answer keys remain transient
   assert.equal(part5.find(role => role.role === 'answer_key')?.source, 'transient');
 
   const part6 = getMoverReadingWritingSmartImportRoleDefinitions(6);
-  assert.equal(part6.find(role => role.role === 'passage')?.source, 'asset');
+  assert.equal(part6.find(role => role.role === 'passage'), undefined);
   assert.equal(part6.find(role => role.role === 'options')?.source, 'asset');
   assert.equal(part6.find(role => role.role === 'options')?.required, true);
   assert.equal(part6.find(role => role.role === 'answer_key')?.source, 'transient');
+  assert.equal(part6.find(role => role.role === 'answer_key')?.required, true);
 });

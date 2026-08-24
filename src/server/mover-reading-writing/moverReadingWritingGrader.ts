@@ -4,10 +4,13 @@ import type {
   MoverReadingWritingGradeResult,
   MoverReadingWritingQuestionResult,
 } from '../../features/mover-reading-writing/types.js';
-import { MOVER_READING_WRITING_TOTAL_QUESTIONS } from '../../features/mover-reading-writing/types.js';
+import {
+  MOVER_READING_WRITING_TOTAL_QUESTIONS,
+  isMoverReadingWritingPart6ImageChoice,
+} from '../../features/mover-reading-writing/types.js';
 import { normalizeMoverReadingWritingContent } from '../../features/mover-reading-writing/compatibility.js';
 
-export const MOVER_READING_WRITING_GRADING_VERSION = 'mover-reading-writing-v2';
+export const MOVER_READING_WRITING_GRADING_VERSION = 'mover-reading-writing-v3';
 
 export function normalizeMoverReadingWritingText(value: unknown) {
   return String(value ?? '')
@@ -85,19 +88,34 @@ export function gradeMoverReadingWritingAttempt(
     push(5, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || '', wordCount >= 1 && wordCount <= 3 && accepted);
   }));
 
-  content.parts[5].gaps.forEach((gap, index) => {
-    const actual = String(answers.part6?.[gap.id] || '');
-    const normalized = normalizeMoverReadingWritingText(actual);
-    push(
-      6,
-      gap.id,
-      `Chỗ trống ${index + 1}`,
-      actual,
-      gap.acceptedAnswers[0] || '',
-      Boolean(normalized) && normalized.split(' ').length === 1
-        && gap.acceptedAnswers.some(answer => normalizeMoverReadingWritingText(answer) === normalized),
-    );
-  });
+  const part6 = content.parts[5];
+  if (isMoverReadingWritingPart6ImageChoice(part6)) {
+    part6.questions.forEach(question => {
+      const actualId = String(answers.part6?.[question.id] || '');
+      push(
+        6,
+        question.id,
+        `Câu ${question.questionNumber}`,
+        displayOption(question.options, actualId),
+        displayOption(question.options, question.correctOptionId),
+        actualId === question.correctOptionId,
+      );
+    });
+  } else {
+    part6.gaps.forEach((gap, index) => {
+      const actual = String(answers.part6?.[gap.id] || '');
+      const normalized = normalizeMoverReadingWritingText(actual);
+      push(
+        6,
+        gap.id,
+        `Chỗ trống ${index + 1}`,
+        actual,
+        gap.acceptedAnswers[0] || '',
+        Boolean(normalized) && normalized.split(' ').length === 1
+          && gap.acceptedAnswers.some(answer => normalizeMoverReadingWritingText(answer) === normalized),
+      );
+    });
+  }
 
   if (questions.length !== MOVER_READING_WRITING_TOTAL_QUESTIONS) {
     throw new Error(`Published Mover Reading & Writing version must contain exactly ${MOVER_READING_WRITING_TOTAL_QUESTIONS} questions; received ${questions.length}.`);

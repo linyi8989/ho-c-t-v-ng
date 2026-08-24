@@ -277,7 +277,7 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
       autosaveBlocked.current = false;
       setAutosaveStatus('saved');
       setValidationErrors(saved.validationErrors || []);
-      setMessage({ text: 'Đã lưu bản nháp Mover Reading & Writing.' });
+      setMessage({ text: 'Đã lưu bản nháp Movers Reading & Writing.' });
       await load();
       return saved;
     } catch (error: any) {
@@ -386,7 +386,7 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
   const preview = (
     <div className="space-y-5">
       <div className="rounded-3xl bg-gradient-to-br from-indigo-600 to-blue-700 p-7 text-white">
-        <p className="text-xs font-black uppercase tracking-[.2em] text-blue-100">Mover · Reading & Writing</p>
+        <p className="text-xs font-black uppercase tracking-[.2em] text-blue-100">Movers · Reading & Writing</p>
         <h3 className="mt-2 text-3xl font-black">{draft.content.title}</h3>
         <p className="mt-2 text-sm text-blue-50">{draft.content.description}</p>
         <p className="mt-4 text-sm font-black">6 Part · 40 câu · {draft.content.timeLimitMinutes ? `${draft.content.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}</p>
@@ -408,8 +408,8 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
       <div id="mover-reading-writing-admin">
         <ListeningEditorShell
           rootId="mover-reading-writing-wizard"
-          eyebrow="Mover Reading & Writing wizard"
-          stepAriaLabel="Các bước soạn Mover Reading & Writing"
+          eyebrow="Movers Reading & Writing wizard"
+          stepAriaLabel="Các bước soạn Movers Reading & Writing"
           title={draft.content.title || 'Bộ đề mới'}
           steps={steps}
           step={step}
@@ -442,7 +442,7 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
     <div className="space-y-6" id="mover-reading-writing-admin">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Mover paper</p>
+          <p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Movers paper</p>
           <h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900"><BookOpenText className="text-indigo-600" /> Reading & Writing</h2>
           <p className="mt-1 text-sm font-semibold text-slate-500">Soạn và quản lý bộ đề 6 Part, 40 câu.</p>
         </div>

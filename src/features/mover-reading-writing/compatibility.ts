@@ -5,6 +5,7 @@ import type {
   MoverReadingWritingTextQuestion,
 } from './types';
 import {
+  MOVER_READING_WRITING_INLINE_SCHEMA_VERSION,
   MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION,
   MOVER_READING_WRITING_SCHEMA_VERSION,
 } from './types';
@@ -16,6 +17,7 @@ export function isSupportedMoverReadingWritingSchemaVersion(
   value: unknown,
 ): value is MoverReadingWritingSchemaVersion {
   return value === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION
+    || value === MOVER_READING_WRITING_INLINE_SCHEMA_VERSION
     || value === MOVER_READING_WRITING_SCHEMA_VERSION;
 }
 
@@ -86,7 +88,7 @@ export function normalizeMoverReadingWritingContent(
     throw new Error('Reading & Writing cần đúng 6 Part.');
   }
 
-  content.schemaVersion = MOVER_READING_WRITING_SCHEMA_VERSION;
+  const sourceSchemaVersion = content.schemaVersion;
   content.parts[0].questions = Array.isArray(content.parts[0]?.questions)
     ? content.parts[0].questions.map(normalizeTextQuestion)
     : [];
@@ -98,9 +100,24 @@ export function normalizeMoverReadingWritingContent(
           : [],
       }))
     : [];
-  content.parts[5].gaps = Array.isArray(content.parts[5]?.gaps)
-    ? content.parts[5].gaps.map(normalizePart6Gap)
-    : [];
+  if (content.parts[5]?.displayMode === 'image-multiple-choice') {
+    content.schemaVersion = MOVER_READING_WRITING_SCHEMA_VERSION;
+    content.parts[5].questions = Array.isArray(content.parts[5].questions)
+      ? content.parts[5].questions.map((question: any, index: number) => ({
+          ...question,
+          questionNumber: index + 1,
+          options: Array.isArray(question?.options) ? question.options.slice(0, 3) : [],
+        }))
+      : [];
+  } else {
+    content.schemaVersion = sourceSchemaVersion === MOVER_READING_WRITING_LEGACY_SCHEMA_VERSION
+      ? MOVER_READING_WRITING_INLINE_SCHEMA_VERSION
+      : sourceSchemaVersion;
+    content.parts[5].displayMode = 'passage-text';
+    content.parts[5].gaps = Array.isArray(content.parts[5]?.gaps)
+      ? content.parts[5].gaps.map(normalizePart6Gap)
+      : [];
+  }
 
   return content as MoverReadingWritingContent;
 }

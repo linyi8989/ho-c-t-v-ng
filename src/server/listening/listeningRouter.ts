@@ -565,7 +565,8 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       if (!isSuperAdmin(req.user) && asset.ownerId !== req.user!.id) throw apiError(403, 'Bạn không có quyền lưu trữ media này.');
       const usage = await db.collection('listening_asset_usages').where('assetId', '==', asset.id).get();
       const readingUsage = await db.collection('mover_reading_asset_usages').where('assetId', '==', asset.id).get();
-      if (!usage.empty || !readingUsage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
+      const examUsage = await db.collection('exam_asset_usages').where('assetId', '==', asset.id).get();
+      if (!usage.empty || !readingUsage.empty || !examUsage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
       await document.ref.update({ status: 'archived', updatedAt: nowIso() });
       res.json({ success: true });
     } catch (error) {
@@ -706,7 +707,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       if (recentUsage.length >= 20) throw apiError(429, 'Đã đạt giới hạn 20 lượt Smart Import trong 10 phút.');
       recentUsage.push(Date.now());
       smartImportUsage.set(usageKey, recentUsage);
-      if (req.body?.moduleId !== 'mover') throw apiError(400, 'Smart Import hiện chỉ hỗ trợ Mover.');
+      if (req.body?.moduleId !== 'mover') throw apiError(400, 'Smart Import hiện chỉ hỗ trợ Movers.');
       const part = Number(req.body?.part);
       if (![1, 2, 3, 4, 5].includes(part)) throw apiError(400, 'Part không hợp lệ.');
       const currentPart = req.body?.currentPart as ListeningSetContent['parts'][number];
@@ -826,7 +827,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         req.user.name,
         req.user.email,
         'ANALYZE_LISTENING_PART',
-        `Smart Import Mover Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
+        `Smart Import Movers Part ${part}; candidate ${candidate.id}; ${sources.length} ảnh role-based; requested ${preferredProvider}; provider ${candidate.provider}.`
       );
       await Promise.allSettled(transientRemovers.map(remove => remove()));
       transientRemovers.length = 0;

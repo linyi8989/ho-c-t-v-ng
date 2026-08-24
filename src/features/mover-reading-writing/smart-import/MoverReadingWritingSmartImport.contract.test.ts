@@ -20,6 +20,12 @@ test('all six Reading & Writing editors expose the dedicated two-mode Smart Impo
   ]) assert.ok(panelSource.includes(contract), `Smart Import panel is missing: ${contract}`);
 });
 
+test('Part 6 keeps the AI-only options image inside Smart Import without a duplicate editor picker', () => {
+  assert.equal(editorSource.includes('Ảnh bảng 3 lựa chọn · chỉ dùng để AI nhận diện'), false);
+  assert.ok(editorSource.includes('assetSourceByRole={{ options: part.optionsSourceAssetId }}'));
+  assert.ok(editorSource.includes("if (role === 'options') onChange({ ...part, optionsSourceAssetId: assetId });"));
+});
+
 test('direct import persists through revision-aware draft storage and never publishes', () => {
   for (const contract of [
     'mergeMoverReadingWritingSmartImport',
