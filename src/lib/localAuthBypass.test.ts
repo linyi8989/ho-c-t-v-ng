@@ -36,6 +36,9 @@ test('server bypass is impossible in production or from a non-loopback client', 
 
 test('local launcher supplies harmless Firebase placeholders when deployment config is absent', () => {
   const launcher = readFileSync(new URL('../../scripts/start-local-test.mjs', import.meta.url), 'utf8');
+  assert.match(launcher, /createRequire\(import\.meta\.url\)/);
+  assert.match(launcher, /require\.resolve\('tsx\/cli'\)/);
+  assert.doesNotMatch(launcher, /path\.join\(projectRoot, 'node_modules'/);
   assert.match(launcher, /VITE_FIREBASE_API_KEY: process\.env\.VITE_FIREBASE_API_KEY \|\| 'local-test-api-key'/);
   assert.match(launcher, /VITE_FIREBASE_PROJECT_ID: process\.env\.VITE_FIREBASE_PROJECT_ID \|\| 'local-test'/);
 });

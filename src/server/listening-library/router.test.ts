@@ -46,7 +46,7 @@ test('listening library API exposes safe metadata for every active exam module',
   assert.equal(starterResponse.status, 200);
   const starter = await starterResponse.json() as any;
   assert.equal(starter.available, true);
-  assert.equal(starter.gradingVersion, 'exam-platform-objective-v1');
+  assert.equal(starter.gradingVersion, 'exam-platform-objective-v2');
 
   const unknownResponse = await fetch(`${baseUrl}/modules/unknown`);
   assert.equal(unknownResponse.status, 404);

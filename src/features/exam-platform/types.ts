@@ -1,6 +1,7 @@
 import type { ExamModuleId, ExamPaperId } from '../listening-library/types';
 
-export const EXAM_CONTENT_SCHEMA_VERSION = 1;
+export const EXAM_CONTENT_SCHEMA_VERSION = 2;
+export const EXAM_LEGACY_CONTENT_SCHEMA_VERSION = 1;
 
 export type ExamQuestionType =
   | 'single-choice'
@@ -10,6 +11,7 @@ export type ExamQuestionType =
   | 'true-false-not-given'
   | 'yes-no-not-given'
   | 'matching'
+  | 'scene-draw'
   | 'long-writing';
 
 export interface ExamOption {
@@ -18,6 +20,131 @@ export interface ExamOption {
   text: string;
   imageAssetId?: string;
   imageUrl?: string;
+}
+
+export interface ExamInteractionRegion {
+  shape: 'rect' | 'ellipse' | 'polygon';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  points?: Array<{ x: number; y: number }>;
+}
+
+export type ExamInteractionFamily = 'choice' | 'matching' | 'text-entry' | 'scene' | 'writing';
+
+export interface ExamInteractionDescriptor {
+  family: ExamInteractionFamily;
+  subtype: string;
+  variant: string;
+  schemaVersion: number;
+  importReadiness?: 'content-ready' | 'needs-assets' | 'needs-geometry' | 'ready-to-publish';
+  warnings?: string[];
+}
+
+export interface StarterImageMatchingItem {
+  id: string;
+  label: string;
+  region: ExamInteractionRegion;
+  geometryConfirmedByTeacher?: boolean;
+  questionId?: string;
+}
+
+/** Released compatibility shape. New authoring normalizes this to v2. */
+export interface StarterImageMatchingLayoutV1 {
+  kind: 'starter-image-matching-v1';
+  leftItems: StarterImageMatchingItem[];
+  rightItems: StarterImageMatchingItem[];
+  exampleMapping?: { leftItemId: string; rightItemId: string };
+}
+
+export interface StarterImageMatchingNode {
+  id: string;
+  label: string;
+  hitRegion: ExamInteractionRegion;
+  anchor: { x: number; y: number };
+  geometryConfirmedByTeacher?: boolean;
+}
+
+export interface StarterImageMatchingLayoutV2 {
+  kind: 'starter-image-matching-v2';
+  sourceNodes: StarterImageMatchingNode[];
+  targetNodes: StarterImageMatchingNode[];
+  exampleConnection?: { sourceNodeId: string; targetNodeId: string };
+  maxConnections: number;
+}
+
+export type StarterImageMatchingLayout = StarterImageMatchingLayoutV1 | StarterImageMatchingLayoutV2;
+
+export interface ExamMatchingConnection {
+  sourceNodeId: string;
+  targetNodeId: string;
+}
+
+export interface ExamScenePlacement {
+  actionId: string;
+  object: string;
+  x: number;
+  y: number;
+}
+
+export interface StarterSceneColourTarget {
+  id: string;
+  questionId: string;
+  label: string;
+  region: ExamInteractionRegion;
+  geometryConfirmedByTeacher?: boolean;
+}
+
+export interface StarterSceneColourLayout {
+  kind: 'starter-scene-colour-v1';
+  targets: StarterSceneColourTarget[];
+  /** Public Part-level palette. The sanitizer derives this from answer colours plus one distractor. */
+  studentPalette?: string[];
+}
+
+export interface ExamSceneDrawTarget {
+  id: string;
+  questionId: string;
+  label: string;
+  object: string;
+  /** Public draggable token selected from the teacher-owned media library. */
+  tokenAssetId?: string;
+  tokenUrl?: string;
+  /** Private grading region; removed from playable student content. */
+  targetRegion: ExamInteractionRegion;
+  geometryConfirmedByTeacher?: boolean;
+}
+
+export interface ExamSceneDrawLayout {
+  kind: 'scene-draw-v1';
+  targets: ExamSceneDrawTarget[];
+}
+
+export interface ExamImageTextEntryTarget {
+  id: string;
+  questionId: string;
+  label: string;
+  region: ExamInteractionRegion;
+  geometryConfirmedByTeacher?: boolean;
+}
+
+export interface ExamImageTextEntryLayout {
+  kind: 'image-text-entry-v1';
+  targets: ExamImageTextEntryTarget[];
+}
+
+export type ExamInteractionLayout = StarterImageMatchingLayout | StarterSceneColourLayout | ExamSceneDrawLayout | ExamImageTextEntryLayout;
+
+export interface ExamGeometryHint {
+  id: string;
+  role: 'source-node' | 'target-node' | 'answer-region' | 'colour-mask' | 'draw-region' | 'option-crop' | string;
+  label: string;
+  questionId?: string;
+  region: ExamInteractionRegion;
+  anchor?: { x: number; y: number };
+  confidence?: number;
+  status: 'suggested' | 'confirmed' | 'rejected';
 }
 
 export interface ExamQuestion {
@@ -33,12 +160,31 @@ export interface ExamQuestion {
   correctOptionIds: string[];
   /** Private grading data; removed from every playable payload. */
   acceptedAnswers: string[];
+  /** Private matching source; removed from every playable payload. */
+  interactionSourceNodeId?: string;
   points: number;
   maxSelections?: number;
   maxWords?: number;
   minWords?: number;
   rubric?: string;
   modelAnswer?: string;
+}
+
+/** Display-only worked example. It is public lesson content and is never scored. */
+export interface ExamDisplayExample {
+  prompt: string;
+  answer: string;
+  imageAssetId?: string;
+  imageUrl?: string;
+}
+
+/** A public picture/passage group that references canonical questions in the Part. */
+export interface ExamReadingScene {
+  id: string;
+  imageAssetId?: string;
+  imageUrl?: string;
+  passage: string;
+  questionIds: string[];
 }
 
 export interface ExamPartContent {
@@ -51,11 +197,40 @@ export interface ExamPartContent {
   imageUrl?: string;
   audioAssetId?: string;
   audioUrl?: string;
+  /** Teacher-owned transcript. Removed from playable content and released only in an allowed post-submit review. */
+  audioTranscript?: string;
+  interaction?: ExamInteractionDescriptor;
+  interactionLayout?: ExamInteractionLayout;
+  examples?: ExamDisplayExample[];
+  readingScenes?: ExamReadingScene[];
+  /** Schema v2: a Part may contain several independently rendered interactions. */
+  blocks?: ExamPartBlock[];
   questions: ExamQuestion[];
+}
+
+export interface ExamPartBlock {
+  id: string;
+  block: number;
+  title: string;
+  instruction: string;
+  passage?: string;
+  imageAssetId?: string;
+  imageUrl?: string;
+  audioAssetId?: string;
+  audioUrl?: string;
+  interaction: ExamInteractionDescriptor;
+  interactionLayout?: ExamInteractionLayout;
+  examples?: ExamDisplayExample[];
+  readingScenes?: ExamReadingScene[];
+  geometryHints?: ExamGeometryHint[];
+  /** Application-owned references into the parent Part's canonical questions array. */
+  questionIds: string[];
 }
 
 export interface ExamPaperContent {
   schemaVersion: number;
+  /** `dynamic` means the JSON owns the number of Parts, blocks and questions. */
+  structureMode?: 'definition' | 'dynamic';
   moduleId: Exclude<ExamModuleId, 'mover'>;
   paperId: ExamPaperId;
   title: string;
@@ -97,7 +272,8 @@ export interface ExamPlayableSet extends Omit<ExamSetSummary, 'shareToken' | 'dr
   content: ExamPaperContent;
 }
 
-export type ExamAnswerValue = string | string[];
+export type ExamQuestionAnswerValue = string | string[];
+export type ExamAnswerValue = ExamQuestionAnswerValue | ExamMatchingConnection[] | ExamScenePlacement;
 export type ExamAnswers = Record<string, ExamAnswerValue>;
 
 export interface ExamQuestionResult {
@@ -134,6 +310,15 @@ export interface ExamCompletedAttempt {
 export interface ExamAttemptReview {
   attempt: ExamCompletedAttempt;
   questions: ExamQuestionResult[];
+  transcripts?: Array<{ part: number; text: string }>;
+  sceneDrawTargets?: Array<{
+    part: number;
+    questionId: string;
+    object: string;
+    label: string;
+    tokenUrl?: string;
+    targetRegion: ExamInteractionRegion;
+  }>;
 }
 
 export interface ExamPartDefinition {

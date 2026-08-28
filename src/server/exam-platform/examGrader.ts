@@ -1,11 +1,20 @@
 import type {
   ExamAnswers,
+  ExamInteractionRegion,
   ExamPaperContent,
   ExamQuestionResult,
+  ExamScenePlacement,
 } from '../../features/exam-platform/types.js';
+import {
+  readExamMatchingConnections,
+  starterMatchingModel,
+  starterMatchingResponseKey,
+  starterMatchingSourceNodeId,
+} from '../../features/exam-platform/starterMatching.js';
 import { displayCorrectAnswer, normalizeExamText } from './examValidation.js';
+import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 
-export const EXAM_GRADING_VERSION = 'exam-platform-objective-v1';
+export const EXAM_GRADING_VERSION = 'exam-platform-objective-v2';
 
 function answerEmpty(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
@@ -28,6 +37,41 @@ function displayUserAnswer(question: ExamPaperContent['parts'][number]['question
   return answer ? byId.get(answer) || '' : '';
 }
 
+function scenePlacement(value: unknown): ExamScenePlacement | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const placement = value as Partial<ExamScenePlacement>;
+  return typeof placement.actionId === 'string'
+    && typeof placement.object === 'string'
+    && Number.isFinite(placement.x)
+    && Number.isFinite(placement.y)
+    ? placement as ExamScenePlacement
+    : undefined;
+}
+
+function pointInRegion(point: { x: number; y: number }, region: ExamInteractionRegion) {
+  if (region.shape === 'ellipse') {
+    const rx = region.width / 2;
+    const ry = region.height / 2;
+    if (!rx || !ry) return false;
+    const dx = (point.x - region.x - rx) / rx;
+    const dy = (point.y - region.y - ry) / ry;
+    return dx * dx + dy * dy <= 1;
+  }
+  if (region.shape === 'polygon' && region.points?.length) {
+    let inside = false;
+    for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
+      const currentPoint = region.points[index];
+      const previousPoint = region.points[previous];
+      const crosses = (currentPoint.y > point.y) !== (previousPoint.y > point.y)
+        && point.x < (previousPoint.x - currentPoint.x) * (point.y - currentPoint.y) / ((previousPoint.y - currentPoint.y) || Number.EPSILON) + currentPoint.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+  return point.x >= region.x && point.x <= region.x + region.width
+    && point.y >= region.y && point.y <= region.y + region.height;
+}
+
 export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers) {
   const questions: ExamQuestionResult[] = [];
   let objectiveAwarded = 0;
@@ -37,8 +81,111 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
   let unansweredCount = 0;
   let pendingManualCount = 0;
 
-  content.parts.forEach(part => part.questions.forEach(question => {
-    const answer = answers[question.id];
+  content.parts.forEach(part => {
+    examPartUnits(part).forEach(unit => {
+    if (unit.interactionLayout?.kind === 'scene-draw-v1') {
+      unit.interactionLayout.targets.forEach(target => {
+        const question = unit.questions.find(item => item.id === target.questionId);
+        if (!question) return;
+        const answer = scenePlacement(answers[question.id]);
+        const unanswered = !answer;
+        const correct = Boolean(answer
+          && answer.actionId === target.id
+          && normalizeExamText(answer.object) === normalizeExamText(target.object)
+          && pointInRegion(answer, target.targetRegion));
+        objectiveMaximum += question.points;
+        if (unanswered) unansweredCount += 1;
+        else if (correct) correctCount += 1;
+        else incorrectCount += 1;
+        if (correct) objectiveAwarded += question.points;
+        questions.push({
+          questionId: question.id,
+          part: part.part,
+          number: question.number,
+          type: question.type,
+          prompt: question.prompt,
+          userAnswer: answer ? `${answer.object} @ ${Math.round(answer.x * 100)}%, ${Math.round(answer.y * 100)}%` : '',
+          correctAnswer: `Vẽ ${target.object} · ${target.label}`,
+          correct,
+          unanswered,
+          pointsAwarded: correct ? question.points : 0,
+          maxPoints: question.points,
+          pendingManualReview: false,
+        });
+      });
+      return;
+    }
+    const rawMatchingLayout = unit.interactionLayout;
+    if (rawMatchingLayout && (rawMatchingLayout.kind === 'starter-image-matching-v1' || rawMatchingLayout.kind === 'starter-image-matching-v2')) {
+      const layout = starterMatchingModel(rawMatchingLayout);
+      const connectionAnswers = readExamMatchingConnections(answers[starterMatchingResponseKey(unit.id)]);
+      const submitted = connectionAnswers.length || rawMatchingLayout.kind === 'starter-image-matching-v2'
+        ? connectionAnswers
+        : unit.questions.flatMap(question => {
+          const sourceNodeId = starterMatchingSourceNodeId(unit, question.id);
+          const rawAnswer = answers[question.id];
+          const targetNodeId = typeof rawAnswer === 'string'
+            ? rawAnswer
+            : Array.isArray(rawAnswer) && typeof rawAnswer[0] === 'string'
+              ? rawAnswer[0]
+              : '';
+          return sourceNodeId && targetNodeId ? [{ sourceNodeId, targetNodeId }] : [];
+        });
+      const sourceById = new Map(layout.sourceNodes.map(node => [node.id, node]));
+      const targetById = new Map(layout.targetNodes.map(node => [node.id, node]));
+      const expected = unit.questions.map(question => ({
+        question,
+        sourceNodeId: starterMatchingSourceNodeId(unit, question.id) || '',
+        targetNodeId: question.correctOptionIds[0] || '',
+      }));
+      if (expected.every(row => sourceById.has(row.sourceNodeId) && targetById.has(row.targetNodeId))) {
+        const key = (sourceNodeId: string, targetNodeId: string) => `${sourceNodeId}\u0000${targetNodeId}`;
+        const expectedKeys = new Set(expected.map(row => key(row.sourceNodeId, row.targetNodeId)));
+        const submittedByKey = new Map(submitted.map(connection => [key(connection.sourceNodeId, connection.targetNodeId), connection]));
+        const remainingWrong = submitted.filter(connection => !expectedKeys.has(key(connection.sourceNodeId, connection.targetNodeId)));
+        expected.forEach(row => {
+          const exact = submittedByKey.get(key(row.sourceNodeId, row.targetNodeId));
+          let actual = exact;
+          if (!actual) {
+            const sameSourceIndex = remainingWrong.findIndex(connection => connection.sourceNodeId === row.sourceNodeId);
+            actual = remainingWrong.splice(sameSourceIndex >= 0 ? sameSourceIndex : 0, 1)[0];
+          }
+          const source = sourceById.get(row.sourceNodeId)!;
+          const target = targetById.get(row.targetNodeId)!;
+          const actualSource = actual ? sourceById.get(actual.sourceNodeId) : undefined;
+          const actualTarget = actual ? targetById.get(actual.targetNodeId) : undefined;
+          const unanswered = !actual;
+          const correct = Boolean(exact);
+          objectiveMaximum += row.question.points;
+          if (unanswered) unansweredCount += 1;
+          else if (correct) correctCount += 1;
+          else incorrectCount += 1;
+          if (correct) objectiveAwarded += row.question.points;
+          questions.push({
+            questionId: row.question.id,
+            part: part.part,
+            number: row.question.number,
+            type: row.question.type,
+            prompt: `${source.label} → ?`,
+            userAnswer: actualSource && actualTarget ? `${actualSource.label} → ${actualTarget.label}` : '',
+            correctAnswer: `${source.label} → ${target.label}`,
+            correct,
+            unanswered,
+            pointsAwarded: correct ? row.question.points : 0,
+            maxPoints: row.question.points,
+            pendingManualReview: false,
+          });
+        });
+        return;
+      }
+    }
+    unit.questions.forEach(question => {
+    const rawAnswer = answers[question.id];
+    const answer = typeof rawAnswer === 'string'
+      ? rawAnswer
+      : Array.isArray(rawAnswer) && rawAnswer.every(value => typeof value === 'string')
+        ? rawAnswer
+        : undefined;
     const unanswered = answerEmpty(answer);
     if (question.type === 'long-writing') {
       pendingManualCount += 1;
@@ -77,7 +224,9 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
       maxPoints: question.points,
       pendingManualReview: false,
     });
-  }));
+    });
+    });
+  });
 
   const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
   return {

@@ -7,6 +7,7 @@ import type {
   ExamPlayableSet,
 } from '../../features/exam-platform/types.js';
 import { getExamPaperDefinition } from '../../features/exam-platform/definitions.js';
+import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 import { isListeningModuleId, isListeningPaperId } from '../../features/listening-library/registry.js';
 import { applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt } from './examGrader.js';
 import {
@@ -176,10 +177,26 @@ function collectAssetFields(content: ExamPaperContent) {
     const value = text(assetId, 180);
     if (value) fields.push({ assetId: value, kind, entityId, role, apply });
   };
+  const addDrawTokens = (layout: ExamPaperContent['parts'][number]['interactionLayout']) => {
+    if (layout?.kind !== 'scene-draw-v1') return;
+    layout.targets.forEach(target => add(target.tokenAssetId, 'image', target.id, 'draw-token', url => { target.tokenUrl = url; }));
+  };
+  const addReadingMedia = (owner: Pick<ExamPaperContent['parts'][number], 'examples' | 'readingScenes'>) => {
+    (owner.examples || []).forEach((example, index) => add(example.imageAssetId, 'image', `example-${index + 1}`, 'example-image', url => { example.imageUrl = url; }));
+    (owner.readingScenes || []).forEach(scene => add(scene.imageAssetId, 'image', scene.id, 'reading-scene-image', url => { scene.imageUrl = url; }));
+  };
   add(content.coverAssetId, 'image', 'paper', 'cover', url => { content.coverUrl = url; });
   content.parts.forEach(part => {
     add(part.imageAssetId, 'image', part.id, 'part-image', url => { part.imageUrl = url; });
     add(part.audioAssetId, 'audio', part.id, 'part-audio', url => { part.audioUrl = url; });
+    addDrawTokens(part.interactionLayout);
+    addReadingMedia(part);
+    (part.blocks || []).forEach(block => {
+      add(block.imageAssetId, 'image', block.id, 'block-image', url => { block.imageUrl = url; });
+      add(block.audioAssetId, 'audio', block.id, 'block-audio', url => { block.audioUrl = url; });
+      addDrawTokens(block.interactionLayout);
+      addReadingMedia(block);
+    });
     part.questions.forEach(question => {
       add(question.imageAssetId, 'image', question.id, 'question-image', url => { question.imageUrl = url; });
       question.options.forEach(option => add(option.imageAssetId, 'image', option.id, 'option-image', url => { option.imageUrl = url; }));
@@ -193,10 +210,26 @@ async function resolveContentAssets(db: any, raw: ExamPaperContent, user: any) {
   const requireAssetIdForUrl = (assetId: unknown, url: unknown, label: string) => {
     if (text(url, 2_000) && !text(assetId, 180)) throw apiError(400, `${label} phải được chọn từ thư viện media.`);
   };
+  const requireReadingMediaIds = (owner: Pick<ExamPaperContent['parts'][number], 'examples' | 'readingScenes'>, label: string) => {
+    (owner.examples || []).forEach((example, index) => requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`));
+    (owner.readingScenes || []).forEach((scene, index) => requireAssetIdForUrl(scene.imageAssetId, scene.imageUrl, `${label}, reading scene ${index + 1}`));
+  };
+  const requireDrawTokenIds = (layout: ExamPaperContent['parts'][number]['interactionLayout'], label: string) => {
+    if (layout?.kind !== 'scene-draw-v1') return;
+    layout.targets.forEach((target, index) => requireAssetIdForUrl(target.tokenAssetId, target.tokenUrl, `${label}, ảnh Draw ${index + 1}`));
+  };
   requireAssetIdForUrl(content.coverAssetId, content.coverUrl, 'Ảnh bìa');
   content.parts.forEach(part => {
+    requireReadingMediaIds(part, `Part ${part.part}`);
     requireAssetIdForUrl(part.imageAssetId, part.imageUrl, `Ảnh Part ${part.part}`);
     requireAssetIdForUrl(part.audioAssetId, part.audioUrl, `Audio Part ${part.part}`);
+    requireDrawTokenIds(part.interactionLayout, `Part ${part.part}`);
+    (part.blocks || []).forEach(block => {
+      requireReadingMediaIds(block, `Part ${part.part}, block ${block.block}`);
+      requireAssetIdForUrl(block.imageAssetId, block.imageUrl, `Ảnh Part ${part.part}, dạng ${block.block}`);
+      requireAssetIdForUrl(block.audioAssetId, block.audioUrl, `Audio Part ${part.part}, dạng ${block.block}`);
+      requireDrawTokenIds(block.interactionLayout, `Part ${part.part}, dạng ${block.block}`);
+    });
     part.questions.forEach(question => {
       requireAssetIdForUrl(question.imageAssetId, question.imageUrl, `Ảnh câu ${question.number}`);
       question.options.forEach(option => requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `Ảnh lựa chọn ${option.label}`));
@@ -360,6 +393,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         const validationErrors = validateExamPaperContent(content);
         const next = {
           ...set,
+          schemaVersion: content.schemaVersion,
           title: content.title,
           description: content.description,
           level: content.level,
@@ -661,6 +695,22 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           rubric: question.rubric,
         }))),
         optionSnapshots: version.content.parts.flatMap((part: any) => part.questions.map((question: any) => ({ questionId: question.id, options: question.options }))),
+        transcripts: version.content.parts.flatMap((part: any) => {
+          const transcript = text(part.audioTranscript, 20_000);
+          return transcript ? [{ part: part.part, text: transcript }] : [];
+        }),
+        sceneDrawTargets: version.content.parts.flatMap((part: any) => examPartUnits(part).flatMap(unit => (
+          unit.interactionLayout?.kind === 'scene-draw-v1'
+            ? unit.interactionLayout.targets.map(target => ({
+                part: part.part,
+                questionId: target.questionId,
+                object: target.object,
+                label: target.label,
+                ...(target.tokenUrl ? { tokenUrl: target.tokenUrl } : {}),
+                targetRegion: target.targetRegion,
+              }))
+            : []
+        ))),
         reviewPolicy: { showReviewAfterSubmit: version.content.showReviewAfterSubmit === true, policyVersion: 1 },
         createdAt: completedAt,
         updatedAt: completedAt,
@@ -697,7 +747,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       if (!detailSnapshot.exists) throw apiError(404, 'Không tìm thấy chi tiết lượt làm bài.');
       const detail = detailSnapshot.data();
       if (!staff && (attempt.status !== 'completed' || detail?.reviewPolicy?.showReviewAfterSubmit !== true)) throw apiError(403, 'Giáo viên chưa cho phép xem đáp án sau khi nộp.');
-      res.json({ attempt: attemptSummary(attempt), questions: detail?.questions || [] });
+      res.json({ attempt: attemptSummary(attempt), questions: detail?.questions || [], transcripts: detail?.transcripts || [], sceneDrawTargets: detail?.sceneDrawTargets || [] });
     } catch (error) { sendError(res, error); }
   });
 

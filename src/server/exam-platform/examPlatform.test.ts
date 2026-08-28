@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EXAM_PAPER_DEFINITIONS, createDefaultExamContent, getModuleExamPaperDefinitions } from '../../features/exam-platform/definitions';
+import { promoteExamPartToBlocks } from '../../features/exam-platform/examStructure';
 import type { ExamPaperContent } from '../../features/exam-platform/types';
 import { applyManualExamGrades, gradeExamAttempt } from './examGrader';
 import {
@@ -14,12 +15,40 @@ function completeDraft(content: ExamPaperContent) {
   content.title = 'Verified test paper';
   content.parts.forEach(part => {
     if (content.paperId === 'listening') part.audioAssetId = `audio-${part.part}`;
-    part.questions.forEach(question => {
+    if (content.moduleId === 'starter' && content.paperId === 'reading-writing') {
+      if (part.part <= 4) part.imageAssetId = `image-${part.part}`;
+      if (part.part === 1 && part.examples?.[0]) part.examples[0].imageAssetId = 'image-example-1';
+      if (part.part === 5) part.readingScenes?.forEach((scene, index) => { scene.imageAssetId = `image-scene-${index + 1}`; });
+    }
+    if (part.interactionLayout?.kind === 'starter-image-matching-v1') {
+      part.imageAssetId = `image-${part.part}`;
+      part.interactionLayout.leftItems.forEach(item => { item.geometryConfirmedByTeacher = true; });
+      part.interactionLayout.rightItems.forEach(item => { item.geometryConfirmedByTeacher = true; });
+    }
+    if (part.interactionLayout?.kind === 'starter-image-matching-v2') {
+      part.imageAssetId = `image-${part.part}`;
+      part.interactionLayout.sourceNodes.forEach(node => { node.geometryConfirmedByTeacher = true; });
+      part.interactionLayout.targetNodes.forEach(node => { node.geometryConfirmedByTeacher = true; });
+    }
+    if (part.interaction?.variant === 'image-options') {
+      part.imageAssetId = `display-image-${part.part}`;
+      part.imageUrl = `/media/display-image-${part.part}.png`;
+      part.questions.forEach(question => question.options.forEach(option => { option.imageAssetId = `image-${part.part}-${option.id}`; }));
+    }
+    if (part.interactionLayout?.kind === 'starter-scene-colour-v1') {
+      part.imageAssetId = `image-${part.part}`;
+      part.interactionLayout.targets.forEach(target => { target.geometryConfirmedByTeacher = true; });
+    }
+    part.questions.forEach((question, questionIndex) => {
       question.prompt = `Question ${question.number}`;
       if (question.type === 'long-writing') {
         question.rubric = 'Completion, organisation, vocabulary and grammar.';
       } else if (question.options.length) {
-        question.correctOptionIds = [question.options[0].id];
+        const legacyMatching = part.interactionLayout?.kind === 'starter-image-matching-v1' ? part.interactionLayout : undefined;
+        const nodeMatching = part.interactionLayout?.kind === 'starter-image-matching-v2' ? part.interactionLayout : undefined;
+        const allowedMatching = legacyMatching?.rightItems.filter(item => item.id !== legacyMatching.exampleMapping?.rightItemId)
+          || nodeMatching?.targetNodes.filter(node => node.id !== nodeMatching.exampleConnection?.targetNodeId);
+        question.correctOptionIds = [allowedMatching?.[questionIndex]?.id || question.options[0].id];
       } else {
         question.acceptedAnswers = ['answer'];
       }
@@ -85,7 +114,9 @@ test('Smart Import rejects technical IDs and maps official labels onto applicati
 test('student content and submitted answers never expose or accept private grading fields', () => {
   const definition = EXAM_PAPER_DEFINITIONS.find(item => item.moduleId === 'ket' && item.paperId === 'reading-writing')!;
   const content = completeDraft(createDefaultExamContent(definition));
+  content.parts[0].audioTranscript = 'Teacher-only transcript';
   const safe = sanitizeExamContentForStudent(content);
+  assert.equal(safe.parts[0].audioTranscript, undefined);
   for (const question of safe.parts.flatMap(part => part.questions)) {
     assert.equal('correctOptionIds' in question, false);
     assert.equal('acceptedAnswers' in question, false);
@@ -96,6 +127,20 @@ test('student content and submitted answers never expose or accept private gradi
     ...Object.fromEntries(content.parts.flatMap(part => part.questions).map(item => [item.id, ''])),
     [question.id]: question.options[0].id,
   });
+});
+
+test('Starter Part 3 keeps the display image but strips the teacher-only crop source', () => {
+  const definition = EXAM_PAPER_DEFINITIONS.find(item => item.moduleId === 'starter' && item.paperId === 'listening')!;
+  const content = completeDraft(createDefaultExamContent(definition));
+  const part3 = promoteExamPartToBlocks(content.parts[2]);
+  part3.blocks![0].imageAssetId = 'part3-crop-source';
+  part3.blocks![0].imageUrl = '/media/part3-crop-source.png';
+  content.parts[2] = part3;
+  const safe = sanitizeExamContentForStudent(content);
+  assert.equal(safe.parts[2].imageAssetId, 'display-image-3');
+  assert.equal(safe.parts[2].imageUrl, '/media/display-image-3.png');
+  assert.equal(safe.parts[2].blocks![0].imageAssetId, undefined);
+  assert.equal(safe.parts[2].blocks![0].imageUrl, undefined);
 });
 
 test('backend grading supports weighted objective items and teacher-reviewed Writing', () => {

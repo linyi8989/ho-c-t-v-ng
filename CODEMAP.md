@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-22
+Last updated: 2026-08-27
 
 ## 1. Project Overview
 
@@ -3287,3 +3287,422 @@ Verification:
   passes 13/13. `npm run test:vocab-games` passes 8/8, `npm run lint` passes and
   the production build contains all three prompt labels in the AdminDashboard
   chunk. No schema, storage, API, grading or existing content migration changed.
+
+## 46. Starter Smart JSON Import and visual interaction authoring - 2026-08-25
+
+- Scope is additive and limited to module `starter` inside the existing generic
+  exam platform. Movers and the other generic modules retain their released
+  import, storage, player and grading paths. No database migration or automatic
+  content rewrite is introduced.
+- `src/features/exam-platform/starterImport.ts` is the bounded external JSON
+  boundary. Whole-paper input uses `exam-bundle-import-v1`; single-Part input
+  accepts the same bundle, a `section` wrapper, or the section object itself.
+  Sections keep the three-level interaction descriptor
+  `family/subtype/variant`. The importer rejects technical IDs, URLs, base64 and
+  file paths, creates/preserves application-owned IDs, and accepts private
+  answers only when marked `official-answer-key` or `teacher-supplied`.
+- Whole import applies each Part independently. A missing or invalid Part stays
+  byte-for-byte on its current working draft while valid siblings are imported;
+  each Part gets its own status, question count, warnings and errors. Import
+  never publishes.
+- Starter Listening enforces four Parts and five scored questions per Part.
+  Part 1 is image-to-image one-to-one matching with exactly seven items on each
+  side (five scored, one example and one distractor). Part 2 is one short text
+  input per question. Part 3 is single choice with exactly three image options.
+  Part 4 is scene colouring with one colour action and one teacher-confirmed
+  target mask per question.
+- `StarterAuthoring.tsx` keeps the initial Starter editor compact: metadata,
+  whole JSON, image paste/upload, MP3 upload and Part selection. Part tabs appear
+  only after import or explicit blank-draft creation. Each revealed Part also
+  supports independent JSON replacement. Changing a scene/source image clears
+  geometry or crop confirmations tied to the old pixels. Every Starter image
+  slot (cover, Part source, question, option and crop replacement) reuses the
+  Movers `FileDropPasteInput`, so teachers can choose, drag/drop or paste an
+  image from the clipboard without changing the shared media upload contract.
+- JSON owns logical content only. The application owns media IDs and normalized
+  geometry. Part 1 reuses `ListeningRegionEditor` for teacher-confirmed image
+  anchors; Part 3 reuses `VisualCropEditor` plus `cropListeningImage` to persist
+  each A/B/C crop as a derived image asset; Part 4 uses edge-snapped freehand
+  polygons for teacher-confirmed colour masks. Publish validation blocks missing
+  media, crops, examples, one-to-one mappings or geometry confirmations.
+- `StarterInteractions.tsx` supplies the released student interactions: Part 1
+  tap-to-connect lines with one-to-one answer movement and a non-scored example;
+  Part 4 colour palette plus clickable SVG masks. Part 2 and Part 3 continue
+  through the generic text/choice renderer. Backend grading remains on immutable
+  published content, and the existing student sanitizer removes every official
+  answer while preserving public interaction layout.
+- `npm run test:exam-platform` now includes Starter import and UI contracts and
+  passes 19/19. It covers whole/single import, independent Part failure, ID
+  ownership, one-to-one matching, stale crop invalidation, publish blockers and
+  answer sanitization. `npm run lint` passes; the wider Listening 133/133 and
+  Movers Reading & Writing 26/26 suites confirm compatibility. Production
+  client/server builds pass, and local route, module metadata and authenticated
+  Starter Admin API smoke checks return 200. The in-app browser had no connected
+  instance, so desktop/mobile screenshots and computed-style capture remain a
+  manual verification item.
+
+## 47. Starter Listening Part 1 true connections and Part 3 batch crop - 2026-08-26
+
+- This section supersedes the Part 1 region/player details in §46. New and
+  re-authored Starter Listening Part 1 content uses nested interaction schema
+  `starter-image-matching-v2`: seven semantic `sourceNodes`, seven
+  `targetNodes`, one locked printed example and at most five scored
+  source-to-target connections. The external Smart JSON contract accepts the
+  new `sourceNodes/targetNodes/exampleConnection/correctConnections` names and
+  still accepts the released `leftItems/rightItems/exampleMappings/mappings`
+  names; both normalize to the application-owned v2 model.
+- Part 1 authoring now uses fourteen small, teacher-confirmed hitboxes and
+  explicit anchor points over the source page instead of large labelled answer
+  rectangles. The student player renders those hitboxes fully transparent at
+  rest, supports tap-tap and drag connections between any non-example nodes,
+  enforces one source and one target per line, and leaves the printed example
+  untouched. Labels exist for teacher editing and accessibility but are not
+  drawn on top of the exam image.
+- Part 1 answers are stored as one bounded connection set under a Part-owned
+  response key. The student content sanitizer removes the private
+  question-to-source mapping and official targets; the answer sanitizer accepts
+  only public, non-example, one-to-one node pairs. Backend grading compares the
+  submitted set with the five private official pairs and emits human-readable
+  review labels. Grading version is `exam-platform-objective-v2`. Released v1
+  layouts remain playable, and their legacy per-question answers remain
+  gradeable through the compatibility adapter; no database rewrite is needed.
+- Starter Listening Part 3 reuses the Movers Listening Part 4 black-frame
+  detector. One teacher action detects and uploads all fifteen A/B/C crops for
+  five questions. When eighteen frames are found, the first A/B/C group is
+  treated as the printed example and skipped; fifteen-frame pages map directly.
+  Existing manual crop and per-option image replacement remain available as the
+  correction fallback. A source-image change aborts the batch before the draft
+  is overwritten.
+- `npm run lint`, `npm run test:exam-platform` (23/23) and
+  `npm run test:listening` (133/133) pass. Coverage includes v1/v2 imports,
+  connection sanitization/grading, released-answer compatibility, eighteen-
+  frame example skipping, the shared Movers detector and feature-scoped
+  transparent hitbox styling. The production build passes and loopback smoke
+  checks return 200 for the app, Starter Listening route and Starter module
+  metadata. No browser instance was connected for desktop/mobile capture. No
+  SQL migration or automatic published-content rewrite is introduced.
+
+## 48. Starter Listening Part 2 fixed text-entry experience - 2026-08-26
+
+- Starter Listening Part 2 is now a fixed five-question `short-answer` Part,
+  matching the released Movers Listening Part 2 interaction. Its definition no
+  longer offers the generic choice/matching type menu. The specialized teacher
+  editor shows only one optional Part illustration, required audio, one optional
+  unscored example, and five prompt/accepted-answer pairs. Per-question context,
+  image, type, points and choice controls are not rendered.
+- Prompts may place `____`, `{{answer}}` or `{{blank}}` where the single answer
+  field belongs; if no marker is present the field is appended. Accepted answer
+  variants remain separated by `|` in authoring and continue through the same
+  private backend answer list and normalized objective grader.
+- The student player follows the Movers two-column presentation: optional
+  illustration/example on the left and five numbered question cards with
+  inline answer fields on the right. On narrow screens the same content stacks
+  vertically. Generic modules and all released Movers editor/player code remain
+  unchanged.
+- No content schema, database, API or grading migration is required. Legacy
+  Starter Part 2 JSON still imports through `single-input`; stale per-question
+  context/images/options are not displayed and are removed when that question
+  is edited in the specialized form. `npm run test:exam-platform` passes 25/25,
+  including the fixed definition, simplified editor contract and Movers-style
+  player contract.
+
+## 49. Starter whole-JSON ChatGPT prompt copy - 2026-08-26
+
+- `starterImportPrompt.ts` is the single source for the Starter Listening
+  whole-bundle extraction prompt. It describes the fixed four-Part/20-question
+  paper and the exact three-layer `family/subtype/variant` descriptor for every
+  Part. The prompt emits the current draft title/description as optional context
+  and includes one complete `exam-bundle-import-v1` shape using Part 1 v2 node
+  labels, Part 2 single gaps, Part 3 A/B/C image choices and Part 4 colour
+  actions.
+- The prompt explicitly prohibits application-owned IDs, URLs, base64, file
+  paths, crop/anchor/hitbox/mask coordinates and Markdown wrappers. It tells the
+  external model to use `official-answer-key` only for directly verified keys,
+  to mark uncertain answers `unverified`, and to exclude every printed example
+  from the twenty scored questions.
+- `StarterWholeImportPanel` exposes `Sao chép prompt gửi ChatGPT` directly above
+  the whole-JSON textarea. It uses Clipboard API with the scoped legacy/manual
+  fallback, never edits the textarea, and reports a temporary copied state plus
+  the next step to attach source pages and the official answer key in ChatGPT
+  Web. No AI request is made by the application.
+- `npm run lint` and `npm run test:exam-platform` (26/26) pass, including prompt
+  schema and UI-copy contracts. No content schema, API, storage or grading
+  migration is introduced.
+
+## 50. Universal Exam JSON v2, dynamic Parts and multi-block authoring - 2026-08-26
+
+- This section supersedes the fixed-paper import/editor assumptions in sections
+  46 and 49. The released Starter `exam-bundle-import-v1` parser remains as a
+  compatibility adapter, but the primary authoring boundary is now
+  `exam-bundle-import-v2` for every generic exam module. It does not impose the
+  Cambridge Starter four-Part template.
+- `ExamPaperContent` schema v2 adds `structureMode: dynamic` and optional
+  `ExamPartContent.blocks[]`. The JSON owns the ordered number of Parts, blocks
+  inside each Part, and questions inside each block. Each block declares the
+  three-level `interaction.family/subtype/variant` descriptor and references
+  application-owned canonical questions by generated IDs. Schema-v1 published
+  content and definition-shaped drafts still validate, play and grade without
+  a database rewrite.
+- `universalImport.ts` is the untrusted external-data boundary. It accepts up to
+  20 Parts, 20 blocks per Part and 200 questions per block, rejects technical
+  IDs/media URLs/base64/file paths, generates all internal IDs after parsing,
+  and accepts official answers only when their source is
+  `official-answer-key` or `teacher-supplied`. Whole JSON is scoped to the
+  currently opened module and paper; a Part-only import changes only that Part.
+- Interaction geometry is no longer categorically banned. Optional
+  `geometryHints` may use normalized coordinates, or pixel coordinates together
+  with the exact source `imageSize`; pixel values are normalized at the import
+  boundary. Hints are stored as `suggested`, seed supported image matching,
+  scene and image text-entry layouts, remain publish blockers until the teacher
+  confirms the actual regions, and are completely removed from student
+  playable content.
+- `UniversalAuthoring.tsx` exposes the whole-JSON and per-Part input for all
+  generic modules. Its copy button builds one Universal JSON v2 prompt that
+  tells ChatGPT Web to infer the real Part/block/question counts and permits
+  bounded coordinate suggestions. The Starter v1 import remains callable from
+  the same surface when an old bundle is pasted.
+- Admin tabs are generated from `content.parts`, not the paper definition.
+  Dynamic Parts render one editor card per block with its declared interaction,
+  media and canonical questions. The existing Starter visual editors are reused
+  for matching, image options, single-input and scene interactions; the new
+  `image-text-entry-v1` overlay supports teacher-confirmed answer fields on an
+  image.
+- Student rendering, answer sanitization and backend grading iterate projected
+  block units through `examStructure.ts`. Matching connection response keys use
+  each block ID, so two different interactions inside the same Part are handled
+  independently. Official answers remain server-private. Block-level image and
+  audio references are included in the existing ownership, media-resolution and
+  immutable-version usage path.
+- Regression coverage includes a six-Part bundle, a Part containing two task
+  types, pixel-to-normalized geometry, teacher confirmation, student geometry
+  stripping, multi-block answer sanitization and grading, Universal prompt
+  contracts, per-Part promotion of untouched legacy content, and Starter v1
+  compatibility. `npm run lint`, `npm run test:exam-platform` (30/30),
+  `npm run test:listening` (133/133), the
+  production build and loopback HTTP smoke pass. The in-app Browser reported no
+  connected browser instance, so desktop/mobile visual and computed-style QA
+  remains a manual test item at `http://localhost:3000/exams/starter/listening`.
+
+## 51. Per-Part prompts, editable colour keys and scene draw actions - 2026-08-26
+
+- Every Universal per-Part JSON panel now has its own prompt-copy action. The
+  generated prompt keeps the complete `exam-bundle-import-v2` envelope but
+  requests exactly the selected `partNumber`; full envelopes containing only a
+  non-first Part are resolved by `partNumber`, not by array position.
+- The shared prompt explicitly distinguishes painting an existing object from
+  drawing/adding a new object. `scene / colour-object / paint` questions carry
+  an official colour from the ten-colour catalog, while verbs such as draw,
+  add and make produce a separate `scene / draw-object / draw` block with
+  `drawObject`, `targetDescription` and an optional suggested `draw-region`.
+  The prompt includes the concrete Cambridge-style example “Draw a flower on
+  the dog's head” so it cannot be rewritten as a colour instruction.
+- Scene-colour import normalizes every question onto one application-owned
+  catalog: red, blue, green, yellow, orange, purple, pink, brown, black and
+  white. The specialized teacher editor always shows all ten values, including
+  when AI omitted or misread the answer, and lets the teacher replace or clear
+  the official colour before publishing.
+- Scene draw is a separate typed interaction (`scene-draw-v1`), not a fake
+  colour option. The teacher reviews the object and location description and
+  confirms a private target region. The student selects the instruction and
+  clicks the scene to place the requested symbol. Answer sanitization accepts
+  only the public action/object and normalized point; backend grading checks
+  the point against the private region. `targetRegion`, geometry hints and
+  teacher-confirmation state are removed from playable student content.
+- Regression coverage verifies the focused Part 4 envelope, colour/draw prompt
+  rules, the ten-colour contract, colour and placement grading, out-of-region
+  rejection and private-region stripping. `npm run lint` and
+  `npm run test:exam-platform` (32/32), `npm run test:listening` (133/133) and
+  the production build pass. Loopback smoke returns HTTP 200 for
+  `http://localhost:3000/exams/starter/listening`; visual QA remains manual
+  because no in-app Browser session is connected.
+
+## 52. Starter Part 4 Draw tokens and schema-v2 draft revalidation - 2026-08-27
+
+- Starter Part 4 keeps Colour and Draw as separate schema-v2 blocks inside the
+  same Part. A Draw target now owns one teacher-selected PNG token in addition
+  to its object label and private target region. The editor reuses the Movers
+  Part 5 media picker: the teacher may select an active PNG from the library or
+  upload a new transparent token next to the Draw action. Publishing is blocked
+  until every Draw target has a token and confirmed region.
+- The student Draw player now follows the Movers Part 5 interaction instead of
+  drawing an emoji placeholder. Available PNG tokens appear in a dock, support
+  drag-and-drop or select-then-click placement, keyboard arrow positioning plus
+  Enter, disappear after use, and return when the placed token is removed.
+  Submitted answers remain the bounded action/object/normalized-anchor tuple;
+  backend grading still checks the private target region.
+- Exam media ownership/versioning now resolves and usage-tracks Draw tokens with
+  role `draw-token`. The playable sanitizer retains the resolved public token
+  URL but removes `targetRegion` and teacher confirmation. Reimport preserves a
+  teacher token only when the semantic Draw object is unchanged, preventing a
+  stale flower icon from being silently reused for a different object.
+- Saving or autosaving a draft now synchronizes the parent set's
+  `schemaVersion` with `draftContent.schemaVersion`. The reported local failure
+  came from a long-running pre-v2 backend: the stored draft was already numeric
+  schema 2, dynamic, and contained Colour plus Draw blocks, while its saved
+  validation list came from the old validator. Restarting from current source
+  and revalidating revision 3 removed both false errors (`schema unsupported`
+  and `Part 4 question 5 type unsupported`); the only remaining publish blocker
+  is the intentional missing Draw PNG.
+- The local launcher resolves `tsx/cli` through Node package resolution, so a
+  worktree can reuse the parent dependency installation. Regression coverage
+  includes focused Part 4 schema/type validation, schema synchronization,
+  Draw-token media resolution/usage, playable token URLs, private-region
+  stripping and the drag/drop UI contract. `npm run lint`,
+  `npm run test:local-auth` (3/3), `npm run test:exam-platform` (32/32),
+  `npm run test:listening` (133/133) and the production build pass. Fresh
+  localhost source and API smoke return HTTP 200.
+
+## 53. Fixed Starters Listening four-Part authoring and Movers view adapters - 2026-08-27
+
+- Starters Listening is now an explicit fixed-paper exception on top of the
+  Universal JSON v2 platform: the authoring screen reveals Part 1-4 immediately,
+  whole import must return exactly four ordered Parts, and each Part must contain
+  five canonical scored questions. Other generic modules retain the dynamic
+  Part/block pipeline described in section 50.
+- The whole-paper panel and every Part panel keep independent JSON inputs and
+  prompt-copy actions. `universalImportPrompt.ts` emits a Starters-specific
+  prompt for this paper: Part 1 keeps image-to-image line matching, Part 2 maps
+  to Movers Listening Part 2, Part 3 maps to Movers Listening Part 4, and Part 4
+  maps to Movers Listening Part 5 with separate Colour and Draw blocks. Geometry
+  may be suggested only through unconfirmed `geometryHints`; application IDs,
+  media URLs and teacher confirmation cannot be supplied by external JSON.
+- Part 1 retains its existing dedicated matching authoring and student
+  interaction. Part 2 uses the exported `ListeningPart2View` through a bounded
+  answer adapter. Released Part 2 blocks using the earlier `inline-gap` variant
+  are routed through the same adapter as new `single-input` blocks, so changing
+  the renderer does not require recreating or republishing an existing set.
+  Part 3 uses `ListeningPart4View` with the shared fifteen-frame crop workflow.
+  It has two explicit media roles: the Part-level illustration is shown to the
+  student, while the image-options block owns a separate teacher-only crop
+  source that produces the fifteen student-visible A/B/C assets. The crop source
+  is removed from playable payloads, crop completeness is shown explicitly, and
+  the manual crop canvas stays closed until the teacher chooses
+  `Crop lại / thay ảnh`.
+  Part 4 combines colour and draw units into the exported
+  `ListeningPart5View`, including teacher-selected draggable PNG tokens. The
+  released Movers components and data paths are not modified.
+- Part 4 authoring now presents Colour and Draw as one unified surface backed
+  by the existing two typed blocks. All five actions share the Part-level scene
+  and audio; teachers edit the ordered actions, required Draw PNG, Colour masks
+  and private Draw target regions without switching between separate block
+  cards. Each Colour row owns a `Chọn vùng để tô` action immediately after its
+  answer colour, and each Draw row owns a `Chọn vùng đặt vật` action. Only the
+  currently selected row opens the shared scene editor, so the authoring page
+  never renders separate Colour and Draw copies of the source image. Colour
+  uses a freehand edge-snapped mask; Draw uses a private rectangular grading
+  region whose centre-point rule matches Movers Listening Part 5. This is a UI
+  projection only, so existing schema-v2 drafts and grading contracts need no
+  migration.
+- The playable sanitizer derives one public, Part-level colour palette from the
+  unique official answer colours plus exactly one unused basic colour. It does
+  not expose which colour belongs to which target. The Starters adapter uses
+  stable semantic colour IDs in the Movers Part 5 view and maps a selection
+  back to each question's application-owned option ID for grading. The Draw
+  dock contains only the required targets, with no distractor object.
+- Starters Listening has a dedicated Movers-style run shell and result flow.
+  Detailed review shows Part tabs and visual evidence: matching lines on the
+  Part 1 scene, text responses for Part 2, selected/correct A/B/C images for
+  Part 3, and colour masks plus placed Draw tokens for Part 4. Private grading
+  regions and official answer keys remain server-only.
+- `npm run lint`, `npm run test:exam-platform` (35/35),
+  `npm run test:listening` (133/133), and the production build pass. The change
+  is isolated to the Starter Smart Import worktree and introduces no database
+  migration or automatic rewrite of published Movers content.
+
+## 54. Generic exam review safety, transcript release and responsive images - 2026-08-28
+
+- Starters Listening result controls now have feature-scoped, high-contrast
+  styles for the home, review, retry, Part-tab, previous/next and summary-back
+  actions. The same protection is applied to the shared generic player used by
+  Flyers, KET, PET, FCE and IELTS. The released Movers players and review CSS
+  are not changed.
+- Starters visual review follows the corresponding Movers presentation: Part 1
+  omits the printed example connection and uses thinner submitted/correct
+  strokes; Part 2 uses the two-column illustration/example plus answer-card
+  layout; Part 4 uses one scene with colour overlays, placed Draw tokens and a
+  dashed correct Draw target when the student's placement is missing or wrong.
+  The private Draw target is copied into the completed attempt detail and is
+  released only through the authorized review endpoint.
+- Every Listening Part in the generic admin now has a 20,000-character
+  `audioTranscript` editor and optional `.txt` loader under “Nội dung bài nghe /
+  hội thoại”. Universal and legacy imports preserve teacher-entered transcript
+  text. `sanitizeExamContentForStudent()` always removes it from playable
+  content; the submit transaction snapshots non-empty Part transcripts, and
+  the review endpoint returns them only after completion and only when the
+  existing answer-review policy permits access. Starters and the generic result
+  screen render the transcript inside a collapsed Part-labelled disclosure.
+- `ExamImageViewer.tsx` is the exam-platform-only responsive image boundary. It
+  constrains large paper/scene images to the available viewport while retaining
+  aspect ratio and normalized overlay coordinates, and supplies an accessible
+  modal with zoom, reset, fullscreen and Escape-to-close controls. It is used by
+  generic cover/Part/question images plus Starters matching, text-entry,
+  image-options, colour and Draw views. Movers source components remain
+  untouched; Starters adapters add their own zoom trigger around reused views.
+- `npm run lint` and `npm run test:exam-platform` (36/36) pass. The router test
+  verifies that a transcript is absent from the playable payload and present in
+  the permitted completed-attempt review.
+
+## 55. Fixed Starters Reading & Writing five-Part workflow - 2026-08-28
+
+- Starters Reading & Writing is a fixed Cambridge-paper projection on the
+  shared exam platform: five ordered Parts, five scored questions per Part and
+  25 questions in total. Its five Part tabs are visible as soon as a draft is
+  created. Both the whole-paper JSON panel and every Part keep an independent
+  prompt-copy/import panel; the Starters-specific prompt fixes the required
+  interaction variant for each Part while leaving all IDs and media under
+  application/teacher ownership.
+- `StarterReadingWritingAuthoring.tsx` is the dedicated teacher surface. Part 1
+  owns a separate example image above a two-column task image plus Yes/No
+  statements. Part 2 follows Movers Reading & Writing Part 2. Part 3 uses one
+  complete source page as the left student image and five one-word answer rows
+  on the right. Part 4 follows the Movers story-gap layout with a word-bank
+  image and exactly one `[[1]]` through `[[5]]` marker. Part 5 follows the
+  Movers scene-story layout with three teacher-owned images. Scene 1 owns two
+  printed examples and one scored question; scenes 2 and 3 own two scored
+  questions each, giving a fixed 1+2+2 distribution. All image pickers accept library selection, upload or
+  clipboard paste; a per-question generic type/media editor is not shown.
+- `ExamDisplayExample` and `ExamReadingScene` are public presentation records on
+  Parts/blocks. Universal import creates application-owned scene IDs and
+  canonical question references, preserves existing teacher media on a Part
+  reimport and flattens scene questions into the single canonical grading list.
+  Media resolution, ownership checks and immutable-version usage tracking now
+  include example and reading-scene images.
+- `StarterReadingWritingViews.tsx` renders the five student layouts using the
+  same two-column and inline-input patterns as the corresponding Movers Parts.
+  Part 1 places its printed example image above the task; Part 3 deliberately
+  uses the simple full-page-left/input-right option selected by the product
+  owner. Every source image goes through `ExamImageViewer`, so large scans fit
+  the viewport and retain zoom/fullscreen controls.
+- `StarterReadingWritingResult.tsx` provides the same result sequence as the
+  reviewed Movers flow: high-contrast summary actions, five Part tabs,
+  previous/next controls and layout-aware visual review. Yes/No selections,
+  one-word answers, story gaps and the three scene groups show the student's
+  response and the authorized correct answer. Official keys remain absent from
+  playable content and are released only by the existing post-submit review
+  endpoint.
+- Server validation blocks publishing unless every Part has its exact variant,
+  question count and required images; Part 5 must cover each canonical question
+  exactly once in a 1+2+2 split, with exactly two unscored examples displayed
+  inside scene 1. Regression coverage includes whole and
+  per-Part prompt contracts, import/media preservation, 25-question grading,
+  playable answer-key stripping, layout contracts and the API workflow.
+  `npm run lint` and `npm run test:exam-platform` (38/38) pass. Movers Reading &
+  Writing source components are reference-only and remain unchanged.
+
+## 56. Admin exam-directory quick module navigation - 2026-08-28
+
+- `ListeningLibraryAdmin.tsx` reuses the single visible-module registry to show
+  seven compact quick-access buttons in the directory header: Starters, Movers,
+  Flyers, KET, PET, FCE and IELTS. Each button opens the same module admin
+  router as its full directory card, so capability/status routing cannot drift.
+- The quick navigation collapses from seven columns to four and then two on
+  narrower screens, keeps visible keyboard focus and exposes an accessible
+  navigation label. It remains mounted above `ListeningModuleRouter` while a
+  module is open; the current module uses a selected high-contrast state, so
+  staff can switch directly between modules. The full module cards remain
+  unchanged on the directory overview.
+- The quick buttons use the stable `exam-module-quick-link` hook rather than
+  Tailwind colour utilities. A final `#listening-library-admin` contrast block
+  in `index.css` wins over the legacy high-specificity admin button selector
+  and defines default, hover, focus-visible and `aria-pressed=true` colours.
+  The navigation contract verifies cascade order and WCAG-AA colour pairs.

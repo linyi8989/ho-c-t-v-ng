@@ -7,6 +7,7 @@ import {
 } from '../../features/listening-library/registry.js';
 import { getListeningServerModule } from './registry.js';
 import { getModuleExamPaperDefinitions } from '../../features/exam-platform/definitions.js';
+import { EXAM_GRADING_VERSION } from '../exam-platform/examGrader.js';
 
 export function createListeningLibraryRouter() {
   const router = express.Router();
@@ -29,7 +30,7 @@ export function createListeningLibraryRouter() {
     return res.json({
       ...publicListeningModuleManifest(manifest),
       available: Boolean((serverModule || genericAvailable) && manifest.status === 'active'),
-      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? 'exam-platform-objective-v1' : undefined),
+      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? EXAM_GRADING_VERSION : undefined),
     });
   });
 

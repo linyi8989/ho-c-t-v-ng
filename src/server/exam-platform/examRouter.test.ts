@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import express from 'express';
 import { createDefaultExamContent, getExamPaperDefinition } from '../../features/exam-platform/definitions';
+import { importUniversalExamBundle } from '../../features/exam-platform/universalImport';
 import type { ExamAnswers, ExamPaperContent } from '../../features/exam-platform/types';
 import { getLearningHistory, getLearningHistoryDetail } from '../learning-history/learningHistoryService';
 import { createExamRouter } from './examRouter';
@@ -16,16 +17,23 @@ function completeContent(moduleId: 'starter' | 'pet', paperId: 'reading-writing'
   const content = createDefaultExamContent(definition);
   content.title = `${definition.level} integration fixture`;
   content.showReviewAfterSubmit = true;
-  content.parts.forEach(part => part.questions.forEach(question => {
-    question.prompt = `Question ${question.number}`;
-    if (question.type === 'long-writing') {
-      question.rubric = 'Teacher rubric';
-    } else if (question.options.length) {
-      question.correctOptionIds = [question.options[0].id];
-    } else {
-      question.acceptedAnswers = ['answer'];
+  content.parts.forEach(part => {
+    if (moduleId === 'starter' && paperId === 'reading-writing') {
+      if (part.part <= 4) { part.imageAssetId = 'exam-image-1'; part.imageUrl = '/listening-media/exam-image.png'; }
+      if (part.part === 1 && part.examples?.[0]) { part.examples[0].imageAssetId = 'exam-image-1'; part.examples[0].imageUrl = '/listening-media/exam-image.png'; }
+      if (part.part === 5) part.readingScenes?.forEach(scene => { scene.imageAssetId = 'exam-image-1'; scene.imageUrl = '/listening-media/exam-image.png'; });
     }
-  }));
+    part.questions.forEach(question => {
+      question.prompt = `Question ${question.number}`;
+      if (question.type === 'long-writing') {
+        question.rubric = 'Teacher rubric';
+      } else if (question.options.length) {
+        question.correctOptionIds = [question.options[0].id];
+      } else {
+        question.acceptedAnswers = ['answer'];
+      }
+    });
+  });
   return content;
 }
 
@@ -87,12 +95,14 @@ test('generic exam API preserves immutable publish, private grading and manual W
 
   const objectiveContent = completeContent('starter', 'reading-writing');
   objectiveContent.parts[0].imageAssetId = 'exam-image-1';
+  objectiveContent.parts[0].audioTranscript = 'Private transcript for Part 1.';
   const createResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/sets`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: objectiveContent }),
   });
   assert.equal(createResponse.status, 201);
   const created = await createResponse.json() as any;
   assert.equal(created.validationErrors.length, 0);
+  await db.collection('exam_sets').doc(created.id).update({ schemaVersion: 1 });
 
   const updateResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/sets/${created.id}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -100,6 +110,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
   });
   assert.equal(updateResponse.status, 200);
   const updated = await updateResponse.json() as any;
+  assert.equal(updated.schemaVersion, objectiveContent.schemaVersion, 'saving a v2 draft must synchronize the set schemaVersion');
 
   const staleResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/sets/${created.id}/draft/autosave`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -142,6 +153,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(JSON.stringify(playable).includes('correctOptionIds'), false);
   assert.equal(JSON.stringify(playable).includes('acceptedAnswers'), false);
   assert.equal(JSON.stringify(playable).includes('modelAnswer'), false);
+  assert.equal(JSON.stringify(playable).includes('Private transcript for Part 1.'), false, 'playable content must not expose transcripts before submission');
 
   const smartImportResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/smart-import/validate`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -192,7 +204,9 @@ test('generic exam API preserves immutable publish, private grading and manual W
     headers: { 'X-Exam-Run-Secret': 'objective-run-secret-123456' },
   });
   assert.equal(reviewResponse.status, 200);
-  assert.equal((await reviewResponse.json() as any).questions.length, 25);
+  const reviewPayload = await reviewResponse.json() as any;
+  assert.equal(reviewPayload.questions.length, 25);
+  assert.deepEqual(reviewPayload.transcripts, [{ part: 1, text: 'Private transcript for Part 1.' }]);
   const unauthorizedStaffReview = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/${attempt.id}/review`, {
     headers: { 'X-Test-Teacher': 'other' },
   });
@@ -257,6 +271,36 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(manualGrade.status, 200);
   assert.equal((await manualGrade.json() as any).score, 100);
   assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 2);
+
+  const drawCurrent = createDefaultExamContent(getExamPaperDefinition('flyer', 'reading-writing')!);
+  const drawContent = importUniversalExamBundle(drawCurrent, JSON.stringify({
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts: [{
+      partNumber: 1, title: 'Draw', instruction: 'Draw on the picture.', blocks: [{
+        blockNumber: 1, title: 'Draw a flower', instruction: 'Draw.', interaction: { family: 'scene', subtype: 'draw-object', variant: 'draw', schemaVersion: 2 },
+        questions: [{ prompt: "Draw a flower on the dog's head.", drawObject: 'flower', targetDescription: "on the dog's head", answerSource: 'official-answer-key', answerKey: {} }],
+      }],
+    }] }],
+  })).content;
+  const drawBlock = drawContent.parts[0].blocks![0];
+  drawBlock.imageAssetId = 'exam-image-1';
+  if (drawBlock.interactionLayout?.kind !== 'scene-draw-v1') assert.fail('Expected scene draw layout');
+  drawBlock.interactionLayout.targets[0].tokenAssetId = 'exam-image-1';
+  drawBlock.interactionLayout.targets[0].geometryConfirmedByTeacher = true;
+  const drawCreatedResponse = await fetch(`${baseUrl}/admin/modules/flyer/papers/reading-writing/sets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: drawContent }),
+  });
+  const drawCreated = await drawCreatedResponse.json() as any;
+  assert.equal(drawCreatedResponse.status, 201, JSON.stringify(drawCreated));
+  assert.deepEqual(drawCreated.validationErrors, []);
+  assert.equal((await fetch(`${baseUrl}/admin/modules/flyer/papers/reading-writing/sets/${drawCreated.id}/publish`, { method: 'POST' })).status, 200);
+  const drawPlayableResponse = await fetch(`${baseUrl}/modules/flyer/papers/reading-writing/sets/${drawCreated.id}`, { headers: { 'X-Test-Teacher': 'owner' } });
+  const drawPlayable = await drawPlayableResponse.json() as any;
+  assert.equal(drawPlayableResponse.status, 200, JSON.stringify(drawPlayable));
+  const safeDrawTarget = drawPlayable.content.parts[0].blocks[0].interactionLayout.targets[0];
+  assert.equal(safeDrawTarget.tokenUrl, '/listening-media/exam-image.png');
+  assert.equal(safeDrawTarget.targetRegion, undefined);
+  const drawUsages = await db.collection('exam_asset_usages').where('versionId', '==', drawPlayable.versionId).get();
+  assert.equal(drawUsages.docs.some((document: any) => document.data()?.role === 'draw-token'), true);
 
   const cloneResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/sets/${created.id}/clone`, { method: 'POST' });
   assert.equal(cloneResponse.status, 201);

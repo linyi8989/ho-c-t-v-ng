@@ -10,18 +10,37 @@ interface ListeningLibraryAdminProps {
 
 export default function ListeningLibraryAdmin({ token }: ListeningLibraryAdminProps) {
   const [selectedModuleId, setSelectedModuleId] = useState<ListeningModuleId | null>(null);
-  if (selectedModuleId) {
-    return <ListeningModuleRouter moduleId={selectedModuleId} token={token} onBack={() => setSelectedModuleId(null)} />;
-  }
+  const modules = getVisibleListeningModules();
   return (
     <div className="space-y-6 animate-fade-in" id="listening-library-admin">
-      <div>
-        <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
-        <h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900"><BookOpenText size={25} className="text-sky-600" aria-hidden="true" /> Kho đề luyện thi</h2>
-        <p className="mt-1 text-sm font-semibold text-slate-500">Chọn module trước khi quản lý danh sách bộ đề.</p>
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+        <div className="shrink-0">
+          <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
+          <h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900"><BookOpenText size={25} className="text-sky-600" aria-hidden="true" /> Kho đề luyện thi</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Chọn module trước khi quản lý danh sách bộ đề.</p>
+        </div>
+        <nav aria-label="Truy cập nhanh module kho đề" className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4 xl:max-w-5xl xl:grid-cols-7">
+          {modules.map(module => {
+            const selected = selectedModuleId === module.id;
+            return <button
+              key={module.id}
+              type="button"
+              data-exam-module-quick-link={module.id}
+              aria-pressed={selected}
+              onClick={() => setSelectedModuleId(module.id)}
+              title={`Mở kho đề ${module.displayName}`}
+              className="exam-module-quick-link group flex min-h-16 min-w-0 flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-sm transition focus-visible:outline-none"
+            >
+              <span className="exam-module-quick-link-label truncate text-sm font-black">{module.displayName}</span>
+              <span className="exam-module-quick-link-level mt-0.5 truncate text-[10px] font-black uppercase tracking-wide">{module.levelLabel}</span>
+            </button>;
+          })}
+        </nav>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {getVisibleListeningModules().map(module => {
+      {selectedModuleId
+        ? <ListeningModuleRouter moduleId={selectedModuleId} token={token} onBack={() => setSelectedModuleId(null)} />
+        : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {modules.map(module => {
           const active = module.status === 'active' && module.capabilities.admin;
           return (
             <button
@@ -42,7 +61,7 @@ export default function ListeningLibraryAdmin({ token }: ListeningLibraryAdminPr
             </button>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }

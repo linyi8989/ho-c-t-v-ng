@@ -1,6 +1,12 @@
 import type { ExamPaperDefinition, ExamPartDefinition, ExamPaperContent, ExamQuestion, ExamQuestionType } from './types';
 import { EXAM_CONTENT_SCHEMA_VERSION } from './types';
 import type { ExamModuleId, ExamPaperId } from '../listening-library/types';
+import {
+  STARTER_MATCHING_HITBOX_HEIGHT,
+  STARTER_MATCHING_HITBOX_WIDTH,
+  STARTER_MATCHING_MAX_CONNECTIONS,
+  starterMatchingAnchor,
+} from './starterMatching';
 
 const choiceTypes = ['single-choice', 'matching'] as const;
 const readingTypes = [
@@ -64,7 +70,7 @@ function paper(
 export const EXAM_PAPER_DEFINITIONS = [
   paper('starter', 'listening', 'Listening', 'Pre A1 Starters', 20, [
     part(5, 'Listen and draw lines', 'matching', choiceTypes, { requiresAudio: true }),
-    part(5, 'Listen and write a name or number', 'short-answer', listeningTypes, { requiresAudio: true }),
+    part(5, 'Listen and write a name or number', 'short-answer', ['short-answer'], { requiresAudio: true }),
     part(5, 'Listen and choose the picture', 'single-choice', listeningTypes, { requiresAudio: true }),
     part(5, 'Listen and colour', 'single-choice', listeningTypes, { requiresAudio: true }),
   ], { description: 'Pre A1 Starters Listening · 4 Part · 20 câu' }),
@@ -210,8 +216,9 @@ function createQuestion(partNumber: number, number: number, type: ExamQuestionTy
 
 export function createDefaultExamContent(definition: ExamPaperDefinition): ExamPaperContent {
   let number = 1;
-  return {
+  const content: ExamPaperContent = {
     schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
+    structureMode: 'definition',
     moduleId: definition.moduleId,
     paperId: definition.paperId,
     title: `${definition.level} · ${definition.displayName}`,
@@ -237,4 +244,162 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
       }),
     })),
   };
+  if (definition.moduleId === 'starter' && definition.paperId === 'listening') {
+    const part1 = content.parts[0];
+    const targetNodes = Array.from({ length: 7 }, (_, index) => ({
+      id: identifier('starter-p1-right'),
+      label: `Hình đích ${index + 1}`,
+      hitRegion: {
+        shape: 'rect' as const,
+        x: .04 + index * .14,
+        y: .86,
+        width: STARTER_MATCHING_HITBOX_WIDTH,
+        height: STARTER_MATCHING_HITBOX_HEIGHT,
+      },
+      anchor: { x: .04 + index * .14 + STARTER_MATCHING_HITBOX_WIDTH / 2, y: .86 + STARTER_MATCHING_HITBOX_HEIGHT / 2 },
+      geometryConfirmedByTeacher: false,
+    }));
+    part1.questions = part1.questions.map((question, index) => ({
+      ...question,
+      prompt: `Hình nguồn ${index + 1}`,
+      options: targetNodes.map(item => ({ id: item.id, label: item.label, text: item.label })),
+      correctOptionIds: [],
+    }));
+    part1.interaction = {
+      family: 'matching', subtype: 'image-image', variant: 'draw-line', schemaVersion: 2,
+      importReadiness: 'needs-assets',
+    };
+    const sourceNodes = Array.from({ length: 7 }, (_, index) => {
+      const hitRegion = {
+        shape: 'rect' as const,
+        x: .04 + index * .14,
+        y: .08,
+        width: STARTER_MATCHING_HITBOX_WIDTH,
+        height: STARTER_MATCHING_HITBOX_HEIGHT,
+      };
+      return {
+      id: identifier('starter-p1-left'),
+      label: `Hình nguồn ${index + 1}`,
+      hitRegion,
+      anchor: starterMatchingAnchor(hitRegion),
+      geometryConfirmedByTeacher: false,
+    };
+    });
+    part1.questions = part1.questions.map((question, index) => ({
+      ...question,
+      interactionSourceNodeId: sourceNodes[index].id,
+    }));
+    part1.interactionLayout = {
+      kind: 'starter-image-matching-v2',
+      sourceNodes,
+      targetNodes,
+      exampleConnection: { sourceNodeId: sourceNodes[5].id, targetNodeId: targetNodes[5].id },
+      maxConnections: STARTER_MATCHING_MAX_CONNECTIONS,
+    };
+    content.parts[1].interaction = {
+      family: 'text-entry', subtype: 'short-answer', variant: 'single-input', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    content.parts[2].interaction = {
+      family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    const part4 = content.parts[3];
+    const colours = ['green', 'blue', 'red', 'black'].map((text, index) => ({
+      id: identifier('starter-colour'), label: String.fromCharCode(65 + index), text,
+    }));
+    part4.questions = part4.questions.map((question, index) => ({
+      ...question,
+      type: 'single-choice',
+      prompt: `Đối tượng ${index + 1}`,
+      options: colours.map(option => ({ ...option })),
+      correctOptionIds: [],
+    }));
+    part4.interaction = {
+      family: 'scene', subtype: 'colour-object', variant: 'paint', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part4.interactionLayout = {
+      kind: 'starter-scene-colour-v1',
+      targets: part4.questions.map((question, index) => ({
+        id: identifier('starter-colour-target'),
+        questionId: question.id,
+        label: question.prompt,
+        region: { shape: 'rect' as const, x: .39, y: .08 + index * .16, width: .2, height: .1 },
+        geometryConfirmedByTeacher: false,
+      })),
+    };
+  }
+  if (definition.moduleId === 'starter' && definition.paperId === 'reading-writing') {
+    const yesNoOptions = () => [
+      { id: identifier('starter-rw-yes'), label: 'YES', text: 'Yes' },
+      { id: identifier('starter-rw-no'), label: 'NO', text: 'No' },
+    ];
+    [content.parts[0], content.parts[1]].forEach((yesNoPart, partIndex) => {
+      yesNoPart.interaction = {
+        family: 'choice',
+        subtype: 'single',
+        variant: 'yes-no',
+        schemaVersion: 1,
+        importReadiness: 'needs-assets',
+      };
+      yesNoPart.questions = yesNoPart.questions.map((question, index) => ({
+        ...question,
+        type: 'true-false',
+        prompt: `Câu ${index + 1}`,
+        options: yesNoOptions(),
+        correctOptionIds: [],
+      }));
+      yesNoPart.examples = partIndex === 0
+        ? [{ prompt: '', answer: 'Yes' }]
+        : [{ prompt: '', answer: 'Yes' }, { prompt: '', answer: 'No' }];
+    });
+
+    const part3 = content.parts[2];
+    part3.interaction = {
+      family: 'text-entry',
+      subtype: 'short-answer',
+      variant: 'image-spelling',
+      schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part3.questions = part3.questions.map((question, index) => ({
+      ...question,
+      prompt: `Từ ${index + 1}: ____`,
+      maxWords: 1,
+    }));
+
+    const part4 = content.parts[3];
+    part4.interaction = {
+      family: 'text-entry',
+      subtype: 'short-answer',
+      variant: 'story-gaps',
+      schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part4.passage = part4.questions.map((_question, index) => `[[${index + 1}]]`).join(' ');
+    part4.examples = [{ prompt: '', answer: '' }];
+    part4.questions = part4.questions.map(question => ({ ...question, maxWords: 1 }));
+
+    const part5 = content.parts[4];
+    part5.interaction = {
+      family: 'text-entry',
+      subtype: 'short-answer',
+      variant: 'scene-story',
+      schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part5.examples = [{ prompt: '', answer: '' }, { prompt: '', answer: '' }];
+    part5.questions = part5.questions.map((question, index) => ({
+      ...question,
+      prompt: `Câu ${index + 1}: ____`,
+      maxWords: 3,
+    }));
+    part5.readingScenes = [
+      { id: identifier('starter-rw-scene-1'), passage: '', questionIds: part5.questions.slice(0, 1).map(question => question.id) },
+      { id: identifier('starter-rw-scene-2'), passage: '', questionIds: part5.questions.slice(1, 3).map(question => question.id) },
+      { id: identifier('starter-rw-scene-3'), passage: '', questionIds: part5.questions.slice(3, 5).map(question => question.id) },
+    ];
+  }
+  return content;
 }

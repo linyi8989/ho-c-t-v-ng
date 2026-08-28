@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tsxCli = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+const require = createRequire(import.meta.url);
+const tsxCli = require.resolve('tsx/cli');
 const localDataDir = path.join(projectRoot, '.data');
 
 const child = spawn(process.execPath, [tsxCli, 'server.ts'], {
