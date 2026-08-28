@@ -4320,7 +4320,72 @@ function transformListeningPoint(point, sourceScene, targetScene) {
 }
 
 // src/features/exam-platform/types.ts
-var EXAM_CONTENT_SCHEMA_VERSION = 1;
+var EXAM_CONTENT_SCHEMA_VERSION = 2;
+var EXAM_LEGACY_CONTENT_SCHEMA_VERSION = 1;
+
+// src/features/exam-platform/starterMatching.ts
+var STARTER_MATCHING_HITBOX_WIDTH = 0.08;
+var STARTER_MATCHING_HITBOX_HEIGHT = 0.06;
+var STARTER_MATCHING_MAX_CONNECTIONS = 5;
+var clamp = (value, max = 1) => Math.max(0, Math.min(max, value));
+function starterMatchingResponseKey(partId) {
+  return `starter-matching:${partId}`;
+}
+function starterMatchingAnchor(region) {
+  return {
+    x: clamp(region.x + region.width / 2),
+    y: clamp(region.y + region.height / 2)
+  };
+}
+function starterMatchingHitRegionAround(anchor) {
+  return {
+    shape: "rect",
+    x: clamp(anchor.x - STARTER_MATCHING_HITBOX_WIDTH / 2, 1 - STARTER_MATCHING_HITBOX_WIDTH),
+    y: clamp(anchor.y - STARTER_MATCHING_HITBOX_HEIGHT / 2, 1 - STARTER_MATCHING_HITBOX_HEIGHT),
+    width: STARTER_MATCHING_HITBOX_WIDTH,
+    height: STARTER_MATCHING_HITBOX_HEIGHT
+  };
+}
+function legacyNode(item) {
+  const anchor = starterMatchingAnchor(item.region);
+  return {
+    id: item.id,
+    label: item.label,
+    hitRegion: starterMatchingHitRegionAround(anchor),
+    anchor,
+    geometryConfirmedByTeacher: item.geometryConfirmedByTeacher
+  };
+}
+function starterMatchingModel(layout) {
+  if (layout.kind === "starter-image-matching-v2") return layout;
+  return {
+    kind: "starter-image-matching-v2",
+    sourceNodes: layout.leftItems.map(legacyNode),
+    targetNodes: layout.rightItems.map(legacyNode),
+    ...layout.exampleMapping ? {
+      exampleConnection: {
+        sourceNodeId: layout.exampleMapping.leftItemId,
+        targetNodeId: layout.exampleMapping.rightItemId
+      }
+    } : {},
+    maxConnections: STARTER_MATCHING_MAX_CONNECTIONS
+  };
+}
+function starterMatchingSourceNodeId(part2, questionId) {
+  const question = part2.questions.find((item) => item.id === questionId);
+  if (question?.interactionSourceNodeId) return question.interactionSourceNodeId;
+  const layout = part2.interactionLayout;
+  if (layout?.kind !== "starter-image-matching-v1") return void 0;
+  return layout.leftItems.find((item) => item.questionId === questionId)?.id;
+}
+function isExamMatchingConnection(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value;
+  return typeof row.sourceNodeId === "string" && typeof row.targetNodeId === "string";
+}
+function readExamMatchingConnections(value) {
+  return Array.isArray(value) ? value.filter(isExamMatchingConnection) : [];
+}
 
 // src/features/exam-platform/definitions.ts
 var choiceTypes = ["single-choice", "matching"];
@@ -4367,7 +4432,7 @@ function paper(moduleId, paperId, displayName, level, timeLimitMinutes, parts, o
 var EXAM_PAPER_DEFINITIONS = [
   paper("starter", "listening", "Listening", "Pre A1 Starters", 20, [
     part(5, "Listen and draw lines", "matching", choiceTypes, { requiresAudio: true }),
-    part(5, "Listen and write a name or number", "short-answer", listeningTypes, { requiresAudio: true }),
+    part(5, "Listen and write a name or number", "short-answer", ["short-answer"], { requiresAudio: true }),
     part(5, "Listen and choose the picture", "single-choice", listeningTypes, { requiresAudio: true }),
     part(5, "Listen and colour", "single-choice", listeningTypes, { requiresAudio: true })
   ], { description: "Pre A1 Starters Listening \xB7 4 Part \xB7 20 c\xE2u" }),
@@ -7075,7 +7140,7 @@ var MOVER_COLOUR_CATALOG = [
 // src/server/listening-smart-import/service.ts
 var cleanText = (value, max = 1e3) => String(value ?? "").normalize("NFKC").trim().slice(0, max);
 var comparable = (value) => cleanText(value, 300).toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/\s+/g, " ");
-var clamp = (value, fallback = 0.5) => {
+var clamp2 = (value, fallback = 0.5) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
 };
@@ -7613,7 +7678,7 @@ function hasSafePart1QuestionLocation(entry, questionScene) {
   const point = part1QuestionActionPoint(entry);
   const subjectRegion = normalizedRegion(entry?.questionSubjectRegion);
   return Boolean(
-    questionScene && point && subjectRegion && subjectRegion.width <= 0.35 && subjectRegion.height <= 0.5 && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp(entry?.confidence, 0) >= 0.85 && pointInListeningRegion(point, questionScene) && pointNearListeningRegion(point, subjectRegion, 0.08)
+    questionScene && point && subjectRegion && subjectRegion.width <= 0.35 && subjectRegion.height <= 0.5 && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp2(entry?.confidence, 0) >= 0.85 && pointInListeningRegion(point, questionScene) && pointNearListeningRegion(point, subjectRegion, 0.08)
   );
 }
 function part1TransformedGeometryPoint(entry, expectedEntry, questionScene, positionScene) {
@@ -7664,10 +7729,10 @@ function verifiedPart1GeometryExample(raw, contentRaw, questionScene) {
   const expectedLabel = cleanText(contentRaw?.example?.label, 120);
   const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
   const endpoints = list(raw?.example?.lineEndpoints).map(normalizedPoint).filter(Boolean);
-  if (!label || !expectedLabel || comparable(label) !== comparable(expectedLabel) || !printedNames.some((name) => comparable(name) === comparable(label)) || !questionScene || endpoints.length !== 2 || clamp(raw?.example?.confidence, 0) < 0.8) return void 0;
+  if (!label || !expectedLabel || comparable(label) !== comparable(expectedLabel) || !printedNames.some((name) => comparable(name) === comparable(label)) || !questionScene || endpoints.length !== 2 || clamp2(raw?.example?.confidence, 0) < 0.8) return void 0;
   const inside = endpoints.filter((point) => pointInListeningRegion(point, questionScene));
   if (inside.length !== 1) return void 0;
-  return { label, targetPoint: inside[0], confidence: clamp(raw?.example?.confidence, 0.8) };
+  return { label, targetPoint: inside[0], confidence: clamp2(raw?.example?.confidence, 0.8) };
 }
 function verifiedPart1QuestionExample(raw, contentRaw) {
   const questionScene = normalizedRegion(contentRaw?.questionScene);
@@ -7675,8 +7740,8 @@ function verifiedPart1QuestionExample(raw, contentRaw) {
   const labelPoint = normalizedPoint(raw?.labelPoint);
   const targetPoint = normalizedPoint(raw?.targetPoint);
   const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
-  if (!questionScene || !label || !labelPoint || !targetPoint || !printedNames.some((name) => comparable(name) === comparable(label)) || clamp(raw?.confidence, 0) < 0.8 || pointInListeningRegion(labelPoint, questionScene) || !pointInListeningRegion(targetPoint, questionScene)) return void 0;
-  return { label, targetPoint, confidence: clamp(raw?.confidence, 0.8) };
+  if (!questionScene || !label || !labelPoint || !targetPoint || !printedNames.some((name) => comparable(name) === comparable(label)) || clamp2(raw?.confidence, 0) < 0.8 || pointInListeningRegion(labelPoint, questionScene) || !pointInListeningRegion(targetPoint, questionScene)) return void 0;
+  return { label, targetPoint, confidence: clamp2(raw?.confidence, 0.8) };
 }
 function validatePart1QuestionVerification(raw, contentRaw) {
   const issues = [];
@@ -7743,7 +7808,7 @@ function validatePart1SolGeometryResponse(raw, contentRaw) {
     if (!point || !questionScene || !pointInListeningRegion(point, questionScene)) {
       issues.push(`target ${number2} thi\u1EBFu questionTargetPoint h\u1EE3p l\u1EC7 tr\xEAn \u1EA3nh \u0111\u1EC1`);
     }
-    if (clamp(entry?.confidence, 0) < 0.7) {
+    if (clamp2(entry?.confidence, 0) < 0.7) {
       issues.push(`target ${number2} confidence th\u1EA5p; ph\u1EA3i chuy\u1EC3n target n\xE0y sang unresolved`);
     }
   });
@@ -7890,7 +7955,7 @@ function resolvePart1TargetPoint(entry, questionScene, positionScene, warnings, 
     return void 0;
   }
   const canUseIndependentQuestionLocation = Boolean(
-    requirePositionEvidence && directPoint && questionSubjectRegion && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp(entry?.questionLocationConfidence, 0) >= 0.85
+    requirePositionEvidence && directPoint && questionSubjectRegion && cleanText(entry?.visualDescription || entry?.visualLabel, 200) && clamp2(entry?.questionLocationConfidence, 0) >= 0.85
   );
   let positionEndpoint = normalizedPoint(entry?.positionKeyEndpoint);
   if (!positionEndpoint && entry?.coordinateRole === "position_key") {
@@ -8000,7 +8065,7 @@ function normalizePart1(raw, warnings) {
     if (!point) {
       continue;
     }
-    anchors.push({ targetNumber: number2, label: visualLabel, region: fixedRegionFromPoint(point), confidence: clamp(target?.confidence, 0.5) });
+    anchors.push({ targetNumber: number2, label: visualLabel, region: fixedRegionFromPoint(point), confidence: clamp2(target?.confidence, 0.5) });
   }
   if (anchors.length !== 5) warnings.push(`Part 1: ch\u1EC9 resolve \u0111\u01B0\u1EE3c ${anchors.length}/5 target endpoints.`);
   if (targetChoiceLabels.filter(Boolean).length !== 5) warnings.push("Part 1: answer key ch\u01B0a resolve \u0111\u1EE7 n\u0103m mapping; gi\u1EEF \u0111\xE1p \xE1n draft \u1EDF m\u1EE5c unresolved.");
@@ -8058,7 +8123,7 @@ function normalizePart3(raw, currentPart, warnings) {
     if (!label) return [];
     if (!extractedRegion && region) warnings.push(`Part 3 answer "${label}": gi\u1EEF region draft v\xEC AI kh\xF4ng tr\u1EA3 geometry h\u1EE3p l\u1EC7.`);
     if (!region) return [];
-    return [{ label, region, leftAnchorOffset: clamp(entry?.leftAnchorOffset ?? entry?.leftAnchor?.offset, 0.5), rightAnchorOffset: clamp(entry?.rightAnchorOffset ?? entry?.rightAnchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
+    return [{ label, region, leftAnchorOffset: clamp2(entry?.leftAnchorOffset ?? entry?.leftAnchor?.offset, 0.5), rightAnchorOffset: clamp2(entry?.rightAnchorOffset ?? entry?.rightAnchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
   });
   const answers = [...extractedAnswers];
   (current?.answers || []).forEach((answer) => {
@@ -8077,7 +8142,7 @@ function normalizePart3(raw, currentPart, warnings) {
     const region = extractedRegion || old?.region;
     if (!side || !row || row < 1 || row > 3 || !region) return [];
     if (!extractedRegion && old) warnings.push(`Part 3 picture ${side}-${row}: gi\u1EEF region draft v\xEC AI kh\xF4ng tr\u1EA3 geometry h\u1EE3p l\u1EC7.`);
-    return [{ label: cleanText(entry?.label || `${side}-${row}`, 160), side, row, region, anchorOffset: clamp(entry?.anchorOffset ?? entry?.anchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
+    return [{ label: cleanText(entry?.label || `${side}-${row}`, 160), side, row, region, anchorOffset: clamp2(entry?.anchorOffset ?? entry?.anchor?.offset, 0.5), source: extractedRegion ? "ai" : "mixed" }];
   });
   const pictures = [...extractedPictures];
   (current?.pictures || []).forEach((picture) => {
@@ -8227,7 +8292,7 @@ function normalizePart5(raw, currentPart, warnings) {
   const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
     const staffPrompt = cleanText(entry?.prompt || entry?.staffPrompt, 1e3);
     const actions = list(entry?.actions).slice(0, 10).flatMap((action) => {
-      const confidence = clamp(action?.confidence, 0.5);
+      const confidence = clamp2(action?.confidence, 0.5);
       if (action?.type === "colour_object") {
         const objectLabel = cleanText(action?.objectLabel, 160);
         const rawColour = cleanText(action?.correctColor || action?.color, 80);
@@ -8499,7 +8564,7 @@ Your previous response was not valid for the required JSON schema and extraction
         unresolvedTargetNumbers,
         geometryPassAttempted: true,
         ...useSolDirectGeometry ? { geometryMode: "direct-question-points" } : {},
-        example: contentExample && exampleTargetPoint ? { label: cleanText(contentExample?.label, 120), questionTargetPoint: exampleTargetPoint, confidence: clamp(contentExample?.confidence, 0.9) } : void 0,
+        example: contentExample && exampleTargetPoint ? { label: cleanText(contentExample?.label, 120), questionTargetPoint: exampleTargetPoint, confidence: clamp2(contentExample?.confidence, 0.9) } : void 0,
         warnings: [...list(contentRaw?.warnings), ...list(questionRaw?.warnings), ...list(geometryRaw?.warnings)]
       };
     } else if (input.part === 3) {
@@ -10201,6 +10266,851 @@ function getListeningServerModule(moduleId) {
   return serverModules.get(moduleId);
 }
 
+// src/features/exam-platform/examStructure.ts
+function examPartBlocks(part2) {
+  return Array.isArray(part2.blocks) ? part2.blocks : [];
+}
+function examBlockQuestions(part2, block) {
+  const questions = new Map(part2.questions.map((question) => [question.id, question]));
+  return block.questionIds.flatMap((questionId) => {
+    const question = questions.get(questionId);
+    return question ? [question] : [];
+  });
+}
+function examPartUnits(part2) {
+  const blocks = examPartBlocks(part2);
+  if (!blocks.length) return [part2];
+  return blocks.map((block) => ({
+    id: block.id,
+    part: part2.part,
+    title: block.title || part2.title,
+    instruction: block.instruction || part2.instruction,
+    passage: block.passage ?? part2.passage,
+    imageAssetId: block.imageAssetId ?? part2.imageAssetId,
+    imageUrl: block.imageUrl ?? part2.imageUrl,
+    audioAssetId: block.audioAssetId ?? part2.audioAssetId,
+    audioUrl: block.audioUrl ?? part2.audioUrl,
+    interaction: block.interaction,
+    interactionLayout: block.interactionLayout,
+    examples: block.examples,
+    readingScenes: block.readingScenes,
+    questions: examBlockQuestions(part2, block)
+  }));
+}
+
+// src/server/exam-platform/examValidation.ts
+var text2 = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
+var objectiveTypes = /* @__PURE__ */ new Set([
+  "single-choice",
+  "multiple-choice",
+  "short-answer",
+  "true-false",
+  "true-false-not-given",
+  "yes-no-not-given",
+  "matching"
+]);
+var choiceQuestionTypes = /* @__PURE__ */ new Set([
+  "single-choice",
+  "multiple-choice",
+  "true-false",
+  "true-false-not-given",
+  "yes-no-not-given",
+  "matching"
+]);
+var starterBasicColours = ["red", "blue", "green", "yellow", "orange", "purple", "pink", "brown", "black", "white"];
+function starterStudentColourPalette(part2) {
+  const correctColours = examPartUnits(part2).flatMap((unit) => unit.interactionLayout?.kind === "starter-scene-colour-v1" ? unit.questions.flatMap((question) => {
+    const correctId = question.correctOptionIds[0];
+    const option = question.options.find((item) => item.id === correctId);
+    const colour = text2(option?.text || option?.label, 40).toLocaleLowerCase("en");
+    return colour ? [colour] : [];
+  }) : []);
+  const uniqueCorrect = [...new Set(correctColours)];
+  const distractor = starterBasicColours.find((colour) => !uniqueCorrect.includes(colour));
+  return [...uniqueCorrect, ...distractor ? [distractor] : []];
+}
+var smartImportTechnicalFields = /* @__PURE__ */ new Set([
+  "id",
+  "imageAssetId",
+  "imageUrl",
+  "audioAssetId",
+  "audioUrl",
+  "correctOptionIds"
+]);
+var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+function validInteractionRegion(value) {
+  const region = record(value);
+  if (!["rect", "ellipse", "polygon"].includes(region.shape)) return false;
+  const values = [region.x, region.y, region.width, region.height].map(Number);
+  if (values.some((number2) => !Number.isFinite(number2))) return false;
+  const [x, y, width, height] = values;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1.00001 || y + height > 1.00001) return false;
+  if (region.shape === "polygon") {
+    return Array.isArray(region.points) && region.points.length >= 3 && region.points.every((point) => {
+      const row = record(point);
+      return Number.isFinite(Number(row.x)) && Number.isFinite(Number(row.y)) && Number(row.x) >= 0 && Number(row.x) <= 1 && Number(row.y) >= 0 && Number(row.y) <= 1;
+    });
+  }
+  return true;
+}
+function validMatchingAnchor(value, regionValue) {
+  const anchor = record(value);
+  const region = record(regionValue);
+  const x = Number(anchor.x);
+  const y = Number(anchor.y);
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1 && x >= Number(region.x) && x <= Number(region.x) + Number(region.width) && y >= Number(region.y) && y <= Number(region.y) + Number(region.height);
+}
+function findTechnicalSmartImportField(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTechnicalSmartImportField(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  for (const [key, child] of Object.entries(value)) {
+    if (smartImportTechnicalFields.has(key)) return key;
+    const found = findTechnicalSmartImportField(child);
+    if (found) return found;
+  }
+  return null;
+}
+function defaultSmartImportOptions(type) {
+  if (type === "true-false") return ["True", "False"];
+  if (type === "true-false-not-given") return ["True", "False", "Not Given"];
+  if (type === "yes-no-not-given") return ["Yes", "No", "Not Given"];
+  if (type === "single-choice" || type === "matching" || type === "multiple-choice") return ["A", "B", "C"];
+  return [];
+}
+function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
+  const errors = [];
+  const warnings = [];
+  const technicalField = findTechnicalSmartImportField(candidateValue);
+  if (technicalField) {
+    return {
+      part: currentPart,
+      errors: [`Smart Import kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a tr\u01B0\u1EDDng k\u1EF9 thu\u1EADt "${technicalField}".`],
+      warnings
+    };
+  }
+  const candidate = record(candidateValue);
+  const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : null;
+  if (!rawQuestions) errors.push("Smart Import ph\u1EA3i c\xF3 m\u1EA3ng questions.");
+  if (rawQuestions && !definition.questionCountFlexible && rawQuestions.length !== definition.questionCount) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.questionCount} c\xE2u.`);
+  }
+  if (rawQuestions && definition.questionCountFlexible && rawQuestions.length > 40) {
+    errors.push(`${definition.displayName} kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 40 c\xE2u.`);
+  }
+  if (errors.length || !rawQuestions) return { part: currentPart, errors, warnings };
+  const questions = rawQuestions.map((rawValue, questionIndex) => {
+    const raw = record(rawValue);
+    const currentQuestion = currentPart.questions[questionIndex];
+    const proposedType = text2(raw.type, 80);
+    const type = definition.allowedQuestionTypes.includes(proposedType) ? proposedType : currentQuestion?.type && definition.allowedQuestionTypes.includes(currentQuestion.type) ? currentQuestion.type : definition.defaultQuestionType;
+    if (proposedType && proposedType !== type) {
+      errors.push(`C\xE2u ${questionIndex + 1}: d\u1EA1ng c\xE2u "${proposedType}" kh\xF4ng ph\xF9 h\u1EE3p ${definition.displayName}.`);
+    }
+    const rawOptions = Array.isArray(raw.options) ? raw.options : [];
+    const optionValues = rawOptions.length ? rawOptions : choiceQuestionTypes.has(type) ? defaultSmartImportOptions(type) : [];
+    const options = optionValues.map((optionValue, optionIndex2) => {
+      const option = typeof optionValue === "string" ? { text: optionValue } : record(optionValue);
+      const currentOption = currentQuestion?.type === type ? currentQuestion.options[optionIndex2] : void 0;
+      return {
+        id: currentOption?.id || `option-${crypto.randomUUID()}`,
+        label: text2(option.label || String.fromCharCode(65 + optionIndex2), 8),
+        text: text2(option.text, 4e3)
+      };
+    });
+    if (choiceQuestionTypes.has(type) && options.length < 2) {
+      errors.push(`C\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
+    }
+    const refs = [
+      ...Array.isArray(raw.correctOptionLabels) ? raw.correctOptionLabels : [],
+      ...Array.isArray(raw.correctOptions) ? raw.correctOptions : []
+    ].map((value) => normalizeExamText(value)).filter(Boolean);
+    const indexes = Array.isArray(raw.correctOptionIndexes) ? raw.correctOptionIndexes.map((value) => Number(value) - 1).filter((value) => Number.isInteger(value) && value >= 0) : [];
+    const correctOptionIds = choiceQuestionTypes.has(type) ? options.filter((option, optionIndex2) => refs.includes(normalizeExamText(option.label)) || refs.includes(normalizeExamText(option.text)) || indexes.includes(optionIndex2)).map((option) => option.id) : [];
+    const acceptedAnswers = type === "short-answer" && Array.isArray(raw.acceptedAnswers) ? raw.acceptedAnswers.map((value) => text2(value, 4e3)).filter(Boolean).slice(0, 30) : [];
+    if (choiceQuestionTypes.has(type) && !correctOptionIds.length) {
+      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n \u0111\xFAng; gi\xE1o vi\xEAn ph\u1EA3i ch\u1ECDn trong editor.`);
+    }
+    if (choiceQuestionTypes.has(type) && type !== "multiple-choice" && correctOptionIds.length > 1) {
+      errors.push(`C\xE2u ${questionIndex + 1}: ch\u1EC9 \u0111\u01B0\u1EE3c c\xF3 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+    }
+    if (type === "short-answer" && !acceptedAnswers.length) {
+      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn; gi\xE1o vi\xEAn ph\u1EA3i nh\u1EADp trong editor.`);
+    }
+    const points = Number(raw.points);
+    return {
+      id: currentQuestion?.id || `question-${crypto.randomUUID()}`,
+      number: currentQuestion?.number || questionIndex + 1,
+      type,
+      prompt: text2(raw.prompt, 8e3),
+      ...text2(raw.context, 8e3) ? { context: text2(raw.context, 8e3) } : {},
+      ...currentQuestion?.imageAssetId ? { imageAssetId: currentQuestion.imageAssetId } : {},
+      ...currentQuestion?.imageUrl ? { imageUrl: currentQuestion.imageUrl } : {},
+      options,
+      correctOptionIds,
+      acceptedAnswers,
+      points: Number.isFinite(points) && points > 0 && points <= 100 ? points : currentQuestion?.points || definition.pointsPerQuestion || 1,
+      ...Number(raw.maxSelections) > 0 ? { maxSelections: Number(raw.maxSelections) } : {},
+      ...Number(raw.maxWords) > 0 ? { maxWords: Number(raw.maxWords) } : {},
+      ...Number(raw.minWords) > 0 ? { minWords: Number(raw.minWords) } : currentQuestion?.minWords ? { minWords: currentQuestion.minWords } : definition.minWords ? { minWords: definition.minWords } : {},
+      ...type === "long-writing" ? {
+        rubric: text2(raw.rubric, 8e3) || currentQuestion?.rubric || "Gi\xE1o vi\xEAn ch\u1EA5m theo rubric c\u1EE7a b\xE0i thi.",
+        ...text2(raw.modelAnswer, 2e4) ? { modelAnswer: text2(raw.modelAnswer, 2e4) } : {}
+      } : {}
+    };
+  });
+  return {
+    part: {
+      id: currentPart.id,
+      part: currentPart.part,
+      title: text2(candidate.title, 240) || currentPart.title,
+      instruction: text2(candidate.instruction, 4e3) || currentPart.instruction,
+      ...text2(candidate.passage, 2e4) ? { passage: text2(candidate.passage, 2e4) } : {},
+      ...currentPart.imageAssetId ? { imageAssetId: currentPart.imageAssetId } : {},
+      ...currentPart.imageUrl ? { imageUrl: currentPart.imageUrl } : {},
+      ...currentPart.audioAssetId ? { audioAssetId: currentPart.audioAssetId } : {},
+      ...currentPart.audioUrl ? { audioUrl: currentPart.audioUrl } : {},
+      questions
+    },
+    errors,
+    warnings
+  };
+}
+function normalizeExamText(value) {
+  return text2(value, 4e3).normalize("NFKC").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().toLocaleLowerCase("en");
+}
+function validateDynamicQuestion(question, label, allIds, errors) {
+  if (!question?.id || allIds.has(question.id)) errors.push(`${label}: ID c\xE2u h\u1ECFi b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+  else allIds.add(question.id);
+  if (!text2(question.prompt, 8e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
+  if (!Number.isFinite(question.points) || question.points <= 0 || question.points > 100) errors.push(`${label}: \u0111i\u1EC3m t\u1ED1i \u0111a kh\xF4ng h\u1EE3p l\u1EC7.`);
+  if (question.type === "long-writing") {
+    if (!text2(question.rubric, 8e3)) errors.push(`${label}: thi\u1EBFu rubric \u0111\u1EC3 gi\xE1o vi\xEAn ch\u1EA5m.`);
+    return;
+  }
+  if (!objectiveTypes.has(question.type)) return;
+  if (choiceQuestionTypes.has(question.type)) {
+    if (question.options.length < 2) errors.push(`${label}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
+    const optionIds = new Set(question.options.map((option) => option.id));
+    if (optionIds.size !== question.options.length || optionIds.has("")) errors.push(`${label}: ID l\u1EF1a ch\u1ECDn b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+    if (!question.correctOptionIds.length) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng.`);
+    if (question.correctOptionIds.some((id2) => !optionIds.has(id2))) errors.push(`${label}: \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng thu\u1ED9c danh s\xE1ch l\u1EF1a ch\u1ECDn.`);
+    if (question.type !== "multiple-choice" && question.correctOptionIds.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+  } else if (!question.acceptedAnswers.some((answer) => normalizeExamText(answer))) {
+    errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.`);
+  }
+}
+function validateDynamicUnit(unit, partIndex, blockIndex, allIds, errors) {
+  const label = `Part ${partIndex + 1}, d\u1EA1ng ${blockIndex + 1}`;
+  if (!unit.interaction || !text2(unit.interaction.family, 40) || !text2(unit.interaction.subtype, 80) || !text2(unit.interaction.variant, 80)) errors.push(`${label}: thi\u1EBFu m\xF4 t\u1EA3 interaction family/subtype/variant.`);
+  if (!unit.questions.length) errors.push(`${label}: ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u.`);
+  if (unit.interaction?.family === "matching" && unit.interaction.subtype === "image-image" && unit.interactionLayout?.kind !== "starter-image-matching-v2") errors.push(`${label}: matching image-image ph\u1EA3i c\xF3 layout node \u0111\u1EC3 gi\xE1o vi\xEAn x\xE1c nh\u1EADn.`);
+  if (unit.interactionLayout?.kind === "starter-image-matching-v2") {
+    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i ch\u1ECDn \u1EA3nh ngu\u1ED3n cho matching.`);
+    const sourceNodes = unit.interactionLayout.sourceNodes || [];
+    const targetNodes = unit.interactionLayout.targetNodes || [];
+    const nodes = [...sourceNodes, ...targetNodes];
+    const sourceIds = new Set(sourceNodes.map((node) => node.id));
+    const targetIds = new Set(targetNodes.map((node) => node.id));
+    if (sourceNodes.length < unit.questions.length || targetNodes.length < unit.questions.length) errors.push(`${label}: s\u1ED1 source/target node \xEDt h\u01A1n s\u1ED1 c\xE2u \u0111\u01B0\u1EE3c ch\u1EA5m.`);
+    if (new Set(nodes.map((node) => node.id)).size !== nodes.length || nodes.some((node) => !text2(node.id, 180) || !text2(node.label, 240))) errors.push(`${label}: node matching b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng ID.`);
+    const scoredSources = unit.questions.map((question) => question.interactionSourceNodeId).filter(Boolean);
+    const scoredTargets = unit.questions.flatMap((question) => question.correctOptionIds || []);
+    if (scoredSources.length !== unit.questions.length || new Set(scoredSources).size !== unit.questions.length || scoredSources.some((id2) => !sourceIds.has(id2))) errors.push(`${label}: source node ch\u01B0a \xE1nh x\u1EA1 m\u1ED9t-m\u1ED9t v\u1EDBi c\xE2u.`);
+    if (scoredTargets.length !== unit.questions.length || new Set(scoredTargets).size !== unit.questions.length || scoredTargets.some((id2) => !targetIds.has(id2))) errors.push(`${label}: target node/\u0111\xE1p \xE1n ch\u01B0a \xE1nh x\u1EA1 m\u1ED9t-m\u1ED9t.`);
+    if (unit.interactionLayout.maxConnections !== unit.questions.length) errors.push(`${label}: maxConnections ph\u1EA3i b\u1EB1ng s\u1ED1 c\xE2u.`);
+    if (nodes.some((node) => node.geometryConfirmedByTeacher !== true || !validInteractionRegion(node.hitRegion) || !validMatchingAnchor(node.anchor, node.hitRegion))) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\u1EA7y \u0111\u1EE7 hitbox/\u0111i\u1EC3m neo.`);
+  }
+  if (unit.interactionLayout?.kind === "starter-scene-colour-v1") {
+    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i ch\u1ECDn \u1EA3nh scene.`);
+    if (unit.interactionLayout.targets.length !== unit.questions.length || unit.interactionLayout.targets.some((target) => target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.region))) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\u1EE7 v\xF9ng t\xF4 m\xE0u.`);
+  }
+  if (unit.interactionLayout?.kind === "scene-draw-v1") {
+    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i ch\u1ECDn \u1EA3nh scene cho thao t\xE1c v\u1EBD.`);
+    const questionIds = new Set(unit.questions.map((question) => question.id));
+    const targets = unit.interactionLayout.targets;
+    if (targets.length !== unit.questions.length || new Set(targets.map((target) => target.questionId)).size !== unit.questions.length || targets.some((target) => !questionIds.has(target.questionId) || !text2(target.object, 120) || !text2(target.label, 500) || target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.targetRegion))) {
+      errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xFAng m\u1ED9t v\u1EADt v\xE0 v\xF9ng \u0111\xEDch cho m\u1ED7i y\xEAu c\u1EA7u v\u1EBD.`);
+    }
+    if (targets.some((target) => !text2(target.tokenAssetId, 180))) {
+      errors.push(`${label}: ph\u1EA3i t\u1EA3i \u1EA3nh PNG k\xE9o th\u1EA3 cho m\u1ED7i v\u1EADt Draw.`);
+    }
+  }
+  if (unit.interactionLayout?.kind === "image-text-entry-v1") {
+    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i ch\u1ECDn \u1EA3nh ch\u1EE9a v\xF9ng \u0111i\u1EC1n \u0111\xE1p \xE1n.`);
+    const questionIds = new Set(unit.questions.map((question) => question.id));
+    const targets = unit.interactionLayout.targets;
+    if (targets.length !== unit.questions.length || new Set(targets.map((target) => target.questionId)).size !== unit.questions.length || targets.some((target) => !questionIds.has(target.questionId) || target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.region))) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xFAng m\u1ED9t v\xF9ng \u0111i\u1EC1n cho m\u1ED7i c\xE2u.`);
+  }
+  if (unit.interaction?.variant === "image-options" && unit.questions.some((question) => question.options.some((option) => !text2(option.imageAssetId, 180)))) errors.push(`${label}: ph\u1EA3i g\u1EAFn/crop \u1EA3nh cho m\u1ECDi l\u1EF1a ch\u1ECDn.`);
+  unit.questions.forEach((question, questionIndex) => validateDynamicQuestion(question, `${label}, c\xE2u ${questionIndex + 1}`, allIds, errors));
+}
+function validateStarterReadingWritingPart(part2, partIndex, errors) {
+  const units = examPartUnits(part2);
+  const unit = units[0];
+  const partNumber = partIndex + 1;
+  const expectedVariants = ["yes-no", "yes-no", "image-spelling", "story-gaps", "scene-story"];
+  if (units.length !== 1) {
+    errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t d\u1EA1ng b\xE0i.`);
+    return;
+  }
+  if (!unit || unit.questions.length !== 5) {
+    errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i c\xF3 \u0111\xFAng 5 c\xE2u.`);
+    return;
+  }
+  if (unit.interaction?.variant !== expectedVariants[partIndex]) {
+    errors.push(`Starters Reading & Writing Part ${partNumber}: d\u1EA1ng b\xE0i kh\xF4ng \u0111\xFAng c\u1EA5u tr\xFAc \u0111\xE3 thi\u1EBFt k\u1EBF.`);
+  }
+  if (partNumber <= 2) {
+    if (!text2(unit.imageAssetId, 180)) errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i t\u1EA3i \u1EA3nh b\xE0i l\xE0m cho h\u1ECDc sinh.`);
+    if (unit.questions.some((question) => question.type !== "true-false" || question.options.length !== 2)) {
+      errors.push(`Starters Reading & Writing Part ${partNumber}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 \u0111\xFAng hai l\u1EF1a ch\u1ECDn Yes/No.`);
+    }
+    if (partNumber === 1 && !text2(unit.examples?.[0]?.imageAssetId, 180)) {
+      errors.push("Starters Reading & Writing Part 1: ph\u1EA3i t\u1EA3i \u1EA3nh example ri\xEAng \u1EDF ph\xEDa tr\xEAn.");
+    }
+    const expectedExamples = partNumber === 1 ? 1 : 2;
+    if ((unit.examples || []).length !== expectedExamples) {
+      errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i c\xF3 \u0111\xFAng ${expectedExamples} example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
+    }
+  }
+  if (partNumber === 3) {
+    if (!text2(unit.imageAssetId, 180)) errors.push("Starters Reading & Writing Part 3: ph\u1EA3i t\u1EA3i \u1EA3nh trang b\xE0i t\u1EADp hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.");
+    if (unit.questions.some((question) => question.type !== "short-answer")) errors.push("Starters Reading & Writing Part 3: c\u1EA3 5 c\xE2u ph\u1EA3i l\xE0 d\u1EA1ng \u0111i\u1EC1n t\u1EEB.");
+  }
+  if (partNumber === 4) {
+    if (!text2(unit.imageAssetId, 180)) errors.push("Starters Reading & Writing Part 4: ph\u1EA3i t\u1EA3i \u1EA3nh ng\xE2n h\xE0ng t\u1EEB/h\xECnh.");
+    const passage = unit.passage || "";
+    for (let number2 = 1; number2 <= 5; number2 += 1) {
+      const marker = `[[${number2}]]`;
+      if (passage.split(marker).length - 1 !== 1) errors.push(`Starters Reading & Writing Part 4: n\u1ED9i dung truy\u1EC7n ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t marker ${marker}.`);
+    }
+    if ((unit.examples || []).length !== 1) errors.push("Starters Reading & Writing Part 4: ph\u1EA3i c\xF3 \u0111\xFAng 1 example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.");
+  }
+  if (partNumber === 5) {
+    const scenes = unit.readingScenes || [];
+    const expectedCounts = [1, 2, 2];
+    if (scenes.length !== 3) errors.push("Starters Reading & Writing Part 5: ph\u1EA3i c\xF3 \u0111\xFAng 3 tranh/c\u1EA3nh.");
+    if ((unit.examples || []).length !== 2) errors.push("Starters Reading & Writing Part 5: c\u1EA3nh 1 ph\u1EA3i c\xF3 \u0111\xFAng 2 example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.");
+    scenes.forEach((scene, sceneIndex) => {
+      if (!text2(scene.imageAssetId, 180)) errors.push(`Starters Reading & Writing Part 5: ph\u1EA3i t\u1EA3i \u1EA3nh cho c\u1EA3nh ${sceneIndex + 1}.`);
+      const expectedCount = expectedCounts[sceneIndex];
+      if (expectedCount !== void 0 && scene.questionIds.length !== expectedCount) {
+        errors.push(`Starters Reading & Writing Part 5: c\u1EA3nh ${sceneIndex + 1} ph\u1EA3i c\xF3 \u0111\xFAng ${expectedCount} c\xE2u ch\u1EA5m \u0111i\u1EC3m.`);
+      }
+    });
+    const referencedIds = scenes.flatMap((scene) => scene.questionIds);
+    const questionIds = unit.questions.map((question) => question.id);
+    if (referencedIds.length !== 5 || new Set(referencedIds).size !== 5 || questionIds.some((id2) => !referencedIds.includes(id2))) {
+      errors.push("Starters Reading & Writing Part 5: ba c\u1EA3nh ph\u1EA3i ph\u1EE7 \u0111\xFAng 5 c\xE2u, m\u1ED7i c\xE2u m\u1ED9t l\u1EA7n.");
+    }
+  }
+}
+function validateExamPaperContent(content) {
+  const errors = [];
+  if (!content || typeof content !== "object") return ["N\u1ED9i dung \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7."];
+  if (![EXAM_LEGACY_CONTENT_SCHEMA_VERSION, EXAM_CONTENT_SCHEMA_VERSION].includes(content.schemaVersion)) errors.push("Schema \u0111\u1EC1 thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+  const definition = getExamPaperDefinition(content.moduleId, content.paperId);
+  if (!definition) return ["Module ho\u1EB7c lo\u1EA1i b\xE0i thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3."];
+  if (!text2(content.title, 240)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
+  const dynamic = content.schemaVersion === EXAM_CONTENT_SCHEMA_VERSION && content.structureMode === "dynamic";
+  if (!Array.isArray(content.parts) || content.parts.length < 1 || content.parts.length > 20) return [...errors, "\u0110\u1EC1 thi ph\u1EA3i c\xF3 t\u1EEB 1 \u0111\u1EBFn 20 Part/Section."];
+  if (content.moduleId === "starter" && content.paperId === "listening" && (content.parts.length !== 4 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length !== 5))) {
+    errors.push("Starters Listening ph\u1EA3i c\xF3 \u0111\xFAng 4 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part \u0111\xFAng 5 c\xE2u.");
+  }
+  if (content.moduleId === "starter" && content.paperId === "reading-writing" && (content.parts.length !== 5 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length !== 5))) {
+    errors.push("Starters Reading & Writing ph\u1EA3i c\xF3 \u0111\xFAng 5 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part \u0111\xFAng 5 c\xE2u.");
+  }
+  if (!dynamic && content.parts?.length !== definition.parts.length) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.parts.length} Part/Section.`);
+    return errors;
+  }
+  const allIds = /* @__PURE__ */ new Set();
+  let totalQuestions = 0;
+  content.parts.forEach((part2, partIndex) => {
+    const partDefinition = definition.parts[partIndex];
+    if (!part2 || part2.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} kh\xF4ng \u0111\xFAng th\u1EE9 t\u1EF1.`);
+    if (!text2(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+    if (content.moduleId === "starter" && content.paperId === "listening" && partIndex === 2 && !text2(part2?.imageAssetId, 180)) {
+      errors.push("Part 3: ph\u1EA3i t\u1EA3i \u1EA3nh hi\u1EC3n th\u1ECB chung cho h\u1ECDc sinh, t\xE1ch bi\u1EC7t v\u1EDBi \u1EA3nh ngu\u1ED3n crop \u0111\xE1p \xE1n.");
+    }
+    if (content.moduleId === "starter" && content.paperId === "reading-writing") {
+      validateStarterReadingWritingPart(part2, partIndex, errors);
+    }
+    if (dynamic) {
+      totalQuestions += part2?.questions?.length || 0;
+      const blocks = part2?.blocks || [];
+      if (!blocks.length) errors.push(`Part ${partIndex + 1}: schema \u0111\u1ED9ng ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t block.`);
+      const referencedIds = blocks.flatMap((block) => block.questionIds || []);
+      const canonicalIds = (part2?.questions || []).map((question) => question.id);
+      if (new Set(blocks.map((block) => block.id)).size !== blocks.length || blocks.some((block, index) => !block.id || block.block !== index + 1)) errors.push(`Part ${partIndex + 1}: block b\u1ECB thi\u1EBFu/tr\xF9ng ID ho\u1EB7c sai th\u1EE9 t\u1EF1.`);
+      if (referencedIds.length !== canonicalIds.length || new Set(referencedIds).size !== canonicalIds.length || canonicalIds.some((id2) => !referencedIds.includes(id2))) errors.push(`Part ${partIndex + 1}: questionIds c\u1EE7a blocks ph\u1EA3i ph\u1EE7 \u0111\xFAng m\u1ED7i c\xE2u m\u1ED9t l\u1EA7n.`);
+      if (content.paperId === "listening" && !text2(part2.audioAssetId, 180) && !blocks.some((block) => text2(block.audioAssetId, 180))) errors.push(`Part ${partIndex + 1}: ph\u1EA3i g\u1EAFn audio \u1EDF Part ho\u1EB7c \xEDt nh\u1EA5t m\u1ED9t d\u1EA1ng b\xE0i.`);
+      examPartUnits(part2).forEach((unit, blockIndex) => validateDynamicUnit(unit, partIndex, blockIndex, allIds, errors));
+      return;
+    }
+    if (partDefinition.requiresAudio && !text2(part2?.audioAssetId, 180)) {
+      errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn audio t\u1EEB th\u01B0 vi\u1EC7n media.`);
+    }
+    if (!partDefinition.questionCountFlexible && part2?.questions?.length !== partDefinition.questionCount) {
+      errors.push(`Part ${partIndex + 1}: ph\u1EA3i c\xF3 \u0111\xFAng ${partDefinition.questionCount} c\xE2u.`);
+    }
+    totalQuestions += part2?.questions?.length || 0;
+    if (content.moduleId === "starter" && content.paperId === "listening") {
+      if (part2?.interactionLayout?.kind === "starter-image-matching-v1") {
+        if (!text2(part2.imageAssetId, 180)) errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn \u1EA3nh scene \u0111\u1EC3 n\u1ED1i h\xECnh.`);
+        const leftItems = part2.interactionLayout.leftItems || [];
+        const rightItems = part2.interactionLayout.rightItems || [];
+        const items = [...leftItems, ...rightItems];
+        if (leftItems.length !== partDefinition.questionCount + 2 || rightItems.length !== partDefinition.questionCount + 2) errors.push(`Part ${partIndex + 1}: c\u1EA7n \u0111\xFAng 7 h\xECnh m\u1ED7i nh\xF3m cho 5 c\xE2u, example v\xE0 distractor.`);
+        const scoredQuestionIds = leftItems.map((item) => item.questionId).filter(Boolean);
+        if (scoredQuestionIds.length !== partDefinition.questionCount || new Set(scoredQuestionIds).size !== partDefinition.questionCount) errors.push(`Part ${partIndex + 1}: n\u0103m h\xECnh \u0111\u01B0\u1EE3c ch\u1EA5m ch\u01B0a \xE1nh x\u1EA1 \u0111\xFAng n\u0103m c\xE2u.`);
+        const example = part2.interactionLayout.exampleMapping;
+        if (!example || !leftItems.some((item) => item.id === example.leftItemId && !item.questionId) || !rightItems.some((item) => item.id === example.rightItemId)) errors.push(`Part ${partIndex + 1}: example matching kh\xF4ng h\u1EE3p l\u1EC7.`);
+        const officialRightIds = (part2.questions || []).flatMap((question) => question.correctOptionIds || []);
+        if (officialRightIds.length !== partDefinition.questionCount || new Set(officialRightIds).size !== partDefinition.questionCount || example && officialRightIds.includes(example.rightItemId)) {
+          errors.push(`Part ${partIndex + 1}: n\u0103m \u0111\xE1p \xE1n matching ph\u1EA3i l\xE0 \xE1nh x\u1EA1 m\u1ED9t-m\u1ED9t, kh\xF4ng d\xF9ng l\u1EA1i h\xECnh example.`);
+        }
+        if (items.some((item) => item.geometryConfirmedByTeacher !== true || !validInteractionRegion(item.region))) {
+          errors.push(`Part ${partIndex + 1}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\u1EA7y \u0111\u1EE7 v\xF9ng/\u0111i\u1EC3m neo matching tr\xEAn \u1EA3nh.`);
+        }
+      }
+      if (part2?.interactionLayout?.kind === "starter-image-matching-v2") {
+        if (!text2(part2.imageAssetId, 180)) errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn \u1EA3nh scene \u0111\u1EC3 n\u1ED1i h\xECnh.`);
+        const sourceNodes = part2.interactionLayout.sourceNodes || [];
+        const targetNodes = part2.interactionLayout.targetNodes || [];
+        const nodes = [...sourceNodes, ...targetNodes];
+        const sourceIds = new Set(sourceNodes.map((node) => node.id));
+        const targetIds = new Set(targetNodes.map((node) => node.id));
+        const sourceLabels = new Set(sourceNodes.map((node) => normalizeExamText(node.label)));
+        const targetLabels = new Set(targetNodes.map((node) => normalizeExamText(node.label)));
+        if (sourceNodes.length !== partDefinition.questionCount + 2 || targetNodes.length !== partDefinition.questionCount + 2) errors.push(`Part ${partIndex + 1}: c\u1EA7n \u0111\xFAng 7 node m\u1ED7i nh\xF3m cho 5 c\xE2u, example v\xE0 distractor.`);
+        if (sourceIds.size !== sourceNodes.length || targetIds.size !== targetNodes.length || new Set(nodes.map((node) => node.id)).size !== nodes.length || sourceLabels.size !== sourceNodes.length || targetLabels.size !== targetNodes.length || nodes.some((node) => !text2(node.id, 180) || !text2(node.label, 240))) errors.push(`Part ${partIndex + 1}: node matching b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng ID/label.`);
+        const scoredSourceIds = (part2.questions || []).map((question) => question.interactionSourceNodeId).filter(Boolean);
+        if (scoredSourceIds.length !== partDefinition.questionCount || new Set(scoredSourceIds).size !== partDefinition.questionCount || scoredSourceIds.some((id2) => !sourceIds.has(id2))) errors.push(`Part ${partIndex + 1}: n\u0103m node ngu\u1ED3n \u0111\u01B0\u1EE3c ch\u1EA5m ch\u01B0a \xE1nh x\u1EA1 \u0111\xFAng n\u0103m c\xE2u.`);
+        const example = part2.interactionLayout.exampleConnection;
+        if (!example || !sourceIds.has(example.sourceNodeId) || !targetIds.has(example.targetNodeId) || scoredSourceIds.includes(example.sourceNodeId)) errors.push(`Part ${partIndex + 1}: example matching kh\xF4ng h\u1EE3p l\u1EC7.`);
+        const officialTargetIds = (part2.questions || []).flatMap((question) => question.correctOptionIds || []);
+        if (officialTargetIds.length !== partDefinition.questionCount || new Set(officialTargetIds).size !== partDefinition.questionCount || officialTargetIds.some((id2) => !targetIds.has(id2)) || example && officialTargetIds.includes(example.targetNodeId)) {
+          errors.push(`Part ${partIndex + 1}: n\u0103m \u0111\xE1p \xE1n matching ph\u1EA3i l\xE0 \xE1nh x\u1EA1 m\u1ED9t-m\u1ED9t, kh\xF4ng d\xF9ng l\u1EA1i node example.`);
+        }
+        if (part2.interactionLayout.maxConnections !== partDefinition.questionCount) errors.push(`Part ${partIndex + 1}: s\u1ED1 \u0111\u01B0\u1EDDng n\u1ED1i t\u1ED1i \u0111a ph\u1EA3i l\xE0 ${partDefinition.questionCount}.`);
+        if (nodes.some((node) => node.geometryConfirmedByTeacher !== true || !validInteractionRegion(node.hitRegion) || !validMatchingAnchor(node.anchor, node.hitRegion))) {
+          errors.push(`Part ${partIndex + 1}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\u1EA7y \u0111\u1EE7 hitbox/\u0111i\u1EC3m neo matching tr\xEAn \u1EA3nh.`);
+        }
+      }
+      if (part2?.interaction?.variant === "image-options") {
+        if ((part2.questions || []).some((question) => question.options.length !== 3)) errors.push(`Part ${partIndex + 1}: m\u1ED7i c\xE2u ch\u1ECDn h\xECnh ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
+        const missingImages = (part2.questions || []).some((question) => question.options.some((option) => !text2(option.imageAssetId, 180)));
+        if (missingImages) errors.push(`Part ${partIndex + 1}: ph\u1EA3i g\u1EAFn ho\u1EB7c crop \u1EA3nh cho m\u1ECDi l\u1EF1a ch\u1ECDn A/B/C.`);
+      }
+      if (part2?.interactionLayout?.kind === "starter-scene-colour-v1") {
+        if (!text2(part2.imageAssetId, 180)) errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn \u1EA3nh scene \u0111\u1EC3 t\xF4 m\xE0u.`);
+        if (part2.interactionLayout.targets.length !== partDefinition.questionCount) errors.push(`Part ${partIndex + 1}: thi\u1EBFu \u0111\u1ED1i t\u01B0\u1EE3ng t\xF4 m\xE0u.`);
+        if (part2.interactionLayout.targets.some((target) => target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.region))) {
+          errors.push(`Part ${partIndex + 1}: gi\xE1o vi\xEAn ch\u01B0a khoanh v\xE0 x\xE1c nh\u1EADn \u0111\u1EA7y \u0111\u1EE7 mask t\xF4 m\xE0u.`);
+        }
+      }
+    }
+    (part2?.questions || []).forEach((question, questionIndex) => {
+      const label = `Part ${partIndex + 1}, c\xE2u ${questionIndex + 1}`;
+      if (!question?.id || allIds.has(question.id)) errors.push(`${label}: ID c\xE2u h\u1ECFi b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+      else allIds.add(question.id);
+      if (!partDefinition.allowedQuestionTypes.includes(question.type)) errors.push(`${label}: d\u1EA1ng c\xE2u h\u1ECFi kh\xF4ng ph\xF9 h\u1EE3p Part n\xE0y.`);
+      if (!text2(question.prompt, 8e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
+      if (!Number.isFinite(question.points) || question.points <= 0 || question.points > 100) errors.push(`${label}: \u0111i\u1EC3m t\u1ED1i \u0111a kh\xF4ng h\u1EE3p l\u1EC7.`);
+      if (question.type === "long-writing") {
+        if (!text2(question.rubric, 8e3)) errors.push(`${label}: thi\u1EBFu rubric \u0111\u1EC3 gi\xE1o vi\xEAn ch\u1EA5m.`);
+        return;
+      }
+      if (!objectiveTypes.has(question.type)) return;
+      if (["single-choice", "multiple-choice", "true-false", "true-false-not-given", "yes-no-not-given", "matching"].includes(question.type)) {
+        if (question.options.length < 2) errors.push(`${label}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
+        const optionIds = new Set(question.options.map((option) => option.id));
+        if (optionIds.size !== question.options.length || optionIds.has("")) errors.push(`${label}: ID l\u1EF1a ch\u1ECDn b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
+        if (!question.correctOptionIds.length) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng.`);
+        if (question.correctOptionIds.some((id2) => !optionIds.has(id2))) errors.push(`${label}: \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng thu\u1ED9c danh s\xE1ch l\u1EF1a ch\u1ECDn.`);
+        if (question.type !== "multiple-choice" && question.correctOptionIds.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+      } else if (!question.acceptedAnswers.some((answer) => normalizeExamText(answer))) {
+        errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.`);
+      }
+    });
+  });
+  if (!dynamic && definition.flexiblePartDistribution && totalQuestions !== definition.totalQuestionCount) {
+    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.totalQuestionCount} c\xE2u tr\xEAn to\xE0n b\xE0i.`);
+  }
+  return errors;
+}
+function sanitizeExamContentForStudent(content) {
+  return {
+    ...structuredClone(content),
+    parts: content.parts.map((part2) => {
+      const studentColourPalette = starterStudentColourPalette(part2);
+      const matchingQuestionIds = /* @__PURE__ */ new Set([
+        ...part2.interactionLayout?.kind === "starter-image-matching-v1" || part2.interactionLayout?.kind === "starter-image-matching-v2" ? part2.questions.map((question) => question.id) : [],
+        ...(part2.blocks || []).flatMap((block) => block.interactionLayout?.kind === "starter-image-matching-v1" || block.interactionLayout?.kind === "starter-image-matching-v2" ? block.questionIds : [])
+      ]);
+      const safePart = {
+        ...structuredClone(part2),
+        questions: part2.questions.map((question, questionIndex) => {
+          const safe = structuredClone(question);
+          delete safe.correctOptionIds;
+          delete safe.acceptedAnswers;
+          delete safe.modelAnswer;
+          delete safe.interactionSourceNodeId;
+          if (matchingQuestionIds.has(question.id)) safe.prompt = `\u0110\u01B0\u1EDDng n\u1ED1i ${questionIndex + 1}`;
+          if (question.type !== "long-writing") delete safe.rubric;
+          return safe;
+        })
+      };
+      delete safePart.audioTranscript;
+      if (safePart.interactionLayout?.kind === "starter-image-matching-v1") {
+        safePart.interactionLayout.leftItems = safePart.interactionLayout.leftItems.map((item) => {
+          const safeItem = { ...item };
+          delete safeItem.questionId;
+          return safeItem;
+        });
+      }
+      if (safePart.interactionLayout?.kind === "starter-scene-colour-v1") {
+        safePart.interactionLayout.studentPalette = studentColourPalette;
+      }
+      if (safePart.interactionLayout?.kind === "scene-draw-v1") {
+        safePart.interactionLayout.targets = safePart.interactionLayout.targets.map((target) => {
+          const safeTarget = { ...target };
+          delete safeTarget.targetRegion;
+          delete safeTarget.geometryConfirmedByTeacher;
+          return safeTarget;
+        });
+      }
+      if (Array.isArray(safePart.blocks)) {
+        safePart.blocks = safePart.blocks.map((block) => {
+          const safeBlock = { ...block };
+          delete safeBlock.geometryHints;
+          if (content.moduleId === "starter" && content.paperId === "listening" && part2.part === 3 && safeBlock.interaction?.variant === "image-options") {
+            delete safeBlock.imageAssetId;
+            delete safeBlock.imageUrl;
+          }
+          if (safeBlock.interactionLayout?.kind === "starter-image-matching-v1") {
+            safeBlock.interactionLayout = {
+              ...safeBlock.interactionLayout,
+              leftItems: safeBlock.interactionLayout.leftItems.map((item) => {
+                const safeItem = { ...item };
+                delete safeItem.questionId;
+                return safeItem;
+              })
+            };
+          }
+          if (safeBlock.interactionLayout?.kind === "starter-scene-colour-v1") {
+            safeBlock.interactionLayout = {
+              ...safeBlock.interactionLayout,
+              studentPalette: studentColourPalette
+            };
+          }
+          if (safeBlock.interactionLayout?.kind === "scene-draw-v1") {
+            safeBlock.interactionLayout = {
+              ...safeBlock.interactionLayout,
+              targets: safeBlock.interactionLayout.targets.map((target) => {
+                const safeTarget = { ...target };
+                delete safeTarget.targetRegion;
+                delete safeTarget.geometryConfirmedByTeacher;
+                return safeTarget;
+              })
+            };
+          }
+          return safeBlock;
+        });
+      }
+      return safePart;
+    })
+  };
+}
+function sanitizeExamAnswers(raw, content) {
+  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const v2MatchingQuestionIds = new Set(content.parts.flatMap((part2) => examPartUnits(part2).flatMap((unit) => unit.interactionLayout?.kind === "starter-image-matching-v2" ? unit.questions.map((question) => question.id) : [])));
+  const drawTargets = new Map(content.parts.flatMap((part2) => examPartUnits(part2).flatMap((unit) => unit.interactionLayout?.kind === "scene-draw-v1" ? unit.interactionLayout.targets.map((target) => [target.questionId, target]) : [])));
+  const allowed = new Map(content.parts.flatMap((part2) => part2.questions.map((question) => [question.id, question])));
+  const answers = {};
+  for (const [questionId, question] of allowed) {
+    if (v2MatchingQuestionIds.has(questionId) || drawTargets.has(questionId)) continue;
+    const value = input[questionId];
+    if (Array.isArray(value)) {
+      answers[questionId] = [...new Set(value.filter((item) => typeof item === "string" || typeof item === "number").map((item) => text2(item, 500)).filter(Boolean))].slice(0, 20);
+    } else {
+      answers[questionId] = text2(value, question.type === "long-writing" ? 2e4 : 4e3);
+    }
+  }
+  for (const part2 of content.parts) {
+    for (const unit of examPartUnits(part2)) {
+      const rawLayout = unit.interactionLayout;
+      if (!rawLayout || rawLayout.kind !== "starter-image-matching-v1" && rawLayout.kind !== "starter-image-matching-v2") continue;
+      const layout = starterMatchingModel(rawLayout);
+      const responseKey = starterMatchingResponseKey(unit.id);
+      const sourceIds = new Set(layout.sourceNodes.map((node) => node.id));
+      const targetIds = new Set(layout.targetNodes.map((node) => node.id));
+      const usedSources = /* @__PURE__ */ new Set();
+      const usedTargets = /* @__PURE__ */ new Set();
+      const connections = (Array.isArray(input[responseKey]) ? input[responseKey] : []).flatMap((value) => {
+        if (!isExamMatchingConnection(value)) return [];
+        const sourceNodeId = text2(value.sourceNodeId, 180);
+        const targetNodeId = text2(value.targetNodeId, 180);
+        if (!sourceIds.has(sourceNodeId) || !targetIds.has(targetNodeId) || sourceNodeId === layout.exampleConnection?.sourceNodeId || targetNodeId === layout.exampleConnection?.targetNodeId || usedSources.has(sourceNodeId) || usedTargets.has(targetNodeId)) return [];
+        usedSources.add(sourceNodeId);
+        usedTargets.add(targetNodeId);
+        return [{ sourceNodeId, targetNodeId }];
+      }).slice(0, layout.maxConnections);
+      answers[responseKey] = connections;
+    }
+  }
+  for (const [questionId, target] of drawTargets) {
+    const value = record(input[questionId]);
+    const actionId = text2(value.actionId, 180);
+    const object = text2(value.object, 120);
+    const x = Number(value.x);
+    const y = Number(value.y);
+    if (actionId !== target.id || normalizeExamText(object) !== normalizeExamText(target.object) || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) continue;
+    answers[questionId] = { actionId: target.id, object: target.object, x, y };
+  }
+  return answers;
+}
+function displayCorrectAnswer(question) {
+  if (question.correctOptionIds.length) {
+    const byId = new Map(question.options.map((option) => [option.id, option.text]));
+    return question.correctOptionIds.map((id2) => byId.get(id2) || "").filter(Boolean);
+  }
+  return question.acceptedAnswers;
+}
+
+// src/server/exam-platform/examGrader.ts
+var EXAM_GRADING_VERSION = "exam-platform-objective-v2";
+function answerEmpty(value) {
+  return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
+}
+function gradeObjective(question, answer) {
+  if (question.correctOptionIds.length) {
+    const actual2 = new Set((Array.isArray(answer) ? answer : [answer || ""]).filter(Boolean));
+    const expected = new Set(question.correctOptionIds);
+    return actual2.size === expected.size && [...expected].every((item) => actual2.has(item));
+  }
+  const actual = normalizeExamText(Array.isArray(answer) ? answer.join(" ") : answer);
+  return question.acceptedAnswers.some((value) => normalizeExamText(value) === actual);
+}
+function displayUserAnswer(question, answer) {
+  if (!question.options.length) return answer || "";
+  const byId = new Map(question.options.map((option) => [option.id, option.text || option.label]));
+  if (Array.isArray(answer)) return answer.map((value) => byId.get(value) || "").filter(Boolean);
+  return answer ? byId.get(answer) || "" : "";
+}
+function scenePlacement(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const placement = value;
+  return typeof placement.actionId === "string" && typeof placement.object === "string" && Number.isFinite(placement.x) && Number.isFinite(placement.y) ? placement : void 0;
+}
+function pointInRegion(point, region) {
+  if (region.shape === "ellipse") {
+    const rx = region.width / 2;
+    const ry = region.height / 2;
+    if (!rx || !ry) return false;
+    const dx = (point.x - region.x - rx) / rx;
+    const dy = (point.y - region.y - ry) / ry;
+    return dx * dx + dy * dy <= 1;
+  }
+  if (region.shape === "polygon" && region.points?.length) {
+    let inside = false;
+    for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
+      const currentPoint = region.points[index];
+      const previousPoint = region.points[previous];
+      const crosses = currentPoint.y > point.y !== previousPoint.y > point.y && point.x < (previousPoint.x - currentPoint.x) * (point.y - currentPoint.y) / (previousPoint.y - currentPoint.y || Number.EPSILON) + currentPoint.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+  return point.x >= region.x && point.x <= region.x + region.width && point.y >= region.y && point.y <= region.y + region.height;
+}
+function gradeExamAttempt(content, answers) {
+  const questions = [];
+  let objectiveAwarded = 0;
+  let objectiveMaximum = 0;
+  let correctCount = 0;
+  let incorrectCount = 0;
+  let unansweredCount = 0;
+  let pendingManualCount = 0;
+  content.parts.forEach((part2) => {
+    examPartUnits(part2).forEach((unit) => {
+      if (unit.interactionLayout?.kind === "scene-draw-v1") {
+        unit.interactionLayout.targets.forEach((target) => {
+          const question = unit.questions.find((item) => item.id === target.questionId);
+          if (!question) return;
+          const answer = scenePlacement(answers[question.id]);
+          const unanswered = !answer;
+          const correct = Boolean(answer && answer.actionId === target.id && normalizeExamText(answer.object) === normalizeExamText(target.object) && pointInRegion(answer, target.targetRegion));
+          objectiveMaximum += question.points;
+          if (unanswered) unansweredCount += 1;
+          else if (correct) correctCount += 1;
+          else incorrectCount += 1;
+          if (correct) objectiveAwarded += question.points;
+          questions.push({
+            questionId: question.id,
+            part: part2.part,
+            number: question.number,
+            type: question.type,
+            prompt: question.prompt,
+            userAnswer: answer ? `${answer.object} @ ${Math.round(answer.x * 100)}%, ${Math.round(answer.y * 100)}%` : "",
+            correctAnswer: `V\u1EBD ${target.object} \xB7 ${target.label}`,
+            correct,
+            unanswered,
+            pointsAwarded: correct ? question.points : 0,
+            maxPoints: question.points,
+            pendingManualReview: false
+          });
+        });
+        return;
+      }
+      const rawMatchingLayout = unit.interactionLayout;
+      if (rawMatchingLayout && (rawMatchingLayout.kind === "starter-image-matching-v1" || rawMatchingLayout.kind === "starter-image-matching-v2")) {
+        const layout = starterMatchingModel(rawMatchingLayout);
+        const connectionAnswers = readExamMatchingConnections(answers[starterMatchingResponseKey(unit.id)]);
+        const submitted = connectionAnswers.length || rawMatchingLayout.kind === "starter-image-matching-v2" ? connectionAnswers : unit.questions.flatMap((question) => {
+          const sourceNodeId = starterMatchingSourceNodeId(unit, question.id);
+          const rawAnswer = answers[question.id];
+          const targetNodeId = typeof rawAnswer === "string" ? rawAnswer : Array.isArray(rawAnswer) && typeof rawAnswer[0] === "string" ? rawAnswer[0] : "";
+          return sourceNodeId && targetNodeId ? [{ sourceNodeId, targetNodeId }] : [];
+        });
+        const sourceById = new Map(layout.sourceNodes.map((node) => [node.id, node]));
+        const targetById = new Map(layout.targetNodes.map((node) => [node.id, node]));
+        const expected = unit.questions.map((question) => ({
+          question,
+          sourceNodeId: starterMatchingSourceNodeId(unit, question.id) || "",
+          targetNodeId: question.correctOptionIds[0] || ""
+        }));
+        if (expected.every((row) => sourceById.has(row.sourceNodeId) && targetById.has(row.targetNodeId))) {
+          const key = (sourceNodeId, targetNodeId) => `${sourceNodeId}\0${targetNodeId}`;
+          const expectedKeys = new Set(expected.map((row) => key(row.sourceNodeId, row.targetNodeId)));
+          const submittedByKey = new Map(submitted.map((connection) => [key(connection.sourceNodeId, connection.targetNodeId), connection]));
+          const remainingWrong = submitted.filter((connection) => !expectedKeys.has(key(connection.sourceNodeId, connection.targetNodeId)));
+          expected.forEach((row) => {
+            const exact = submittedByKey.get(key(row.sourceNodeId, row.targetNodeId));
+            let actual = exact;
+            if (!actual) {
+              const sameSourceIndex = remainingWrong.findIndex((connection) => connection.sourceNodeId === row.sourceNodeId);
+              actual = remainingWrong.splice(sameSourceIndex >= 0 ? sameSourceIndex : 0, 1)[0];
+            }
+            const source = sourceById.get(row.sourceNodeId);
+            const target = targetById.get(row.targetNodeId);
+            const actualSource = actual ? sourceById.get(actual.sourceNodeId) : void 0;
+            const actualTarget = actual ? targetById.get(actual.targetNodeId) : void 0;
+            const unanswered = !actual;
+            const correct = Boolean(exact);
+            objectiveMaximum += row.question.points;
+            if (unanswered) unansweredCount += 1;
+            else if (correct) correctCount += 1;
+            else incorrectCount += 1;
+            if (correct) objectiveAwarded += row.question.points;
+            questions.push({
+              questionId: row.question.id,
+              part: part2.part,
+              number: row.question.number,
+              type: row.question.type,
+              prompt: `${source.label} \u2192 ?`,
+              userAnswer: actualSource && actualTarget ? `${actualSource.label} \u2192 ${actualTarget.label}` : "",
+              correctAnswer: `${source.label} \u2192 ${target.label}`,
+              correct,
+              unanswered,
+              pointsAwarded: correct ? row.question.points : 0,
+              maxPoints: row.question.points,
+              pendingManualReview: false
+            });
+          });
+          return;
+        }
+      }
+      unit.questions.forEach((question) => {
+        const rawAnswer = answers[question.id];
+        const answer = typeof rawAnswer === "string" ? rawAnswer : Array.isArray(rawAnswer) && rawAnswer.every((value) => typeof value === "string") ? rawAnswer : void 0;
+        const unanswered = answerEmpty(answer);
+        if (question.type === "long-writing") {
+          pendingManualCount += 1;
+          questions.push({
+            questionId: question.id,
+            part: part2.part,
+            number: question.number,
+            type: question.type,
+            prompt: question.prompt,
+            userAnswer: displayUserAnswer(question, answer),
+            correct: null,
+            unanswered,
+            pointsAwarded: 0,
+            maxPoints: question.points,
+            pendingManualReview: true
+          });
+          return;
+        }
+        objectiveMaximum += question.points;
+        const correct = !unanswered && gradeObjective(question, answer);
+        if (unanswered) unansweredCount += 1;
+        else if (correct) correctCount += 1;
+        else incorrectCount += 1;
+        if (correct) objectiveAwarded += question.points;
+        questions.push({
+          questionId: question.id,
+          part: part2.part,
+          number: question.number,
+          type: question.type,
+          prompt: question.prompt,
+          userAnswer: displayUserAnswer(question, answer),
+          correctAnswer: displayCorrectAnswer(question),
+          correct,
+          unanswered,
+          pointsAwarded: correct ? question.points : 0,
+          maxPoints: question.points,
+          pendingManualReview: false
+        });
+      });
+    });
+  });
+  const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
+  return {
+    gradingVersion: EXAM_GRADING_VERSION,
+    status: pendingManualCount ? "pending_review" : "completed",
+    score: pendingManualCount ? objectiveScore : objectiveScore,
+    objectiveScore,
+    objectiveAwarded,
+    objectiveMaximum,
+    correctCount,
+    incorrectCount,
+    unansweredCount,
+    totalCount: questions.length,
+    pendingManualCount,
+    questions
+  };
+}
+function applyManualExamGrades(grade, manualGrades) {
+  let manualAwarded = 0;
+  let manualMaximum = 0;
+  const questions = grade.questions.map((question) => {
+    if (!question.pendingManualReview) return question;
+    const awarded2 = Math.max(0, Math.min(question.maxPoints, Number(manualGrades[question.questionId] || 0)));
+    manualAwarded += awarded2;
+    manualMaximum += question.maxPoints;
+    return { ...question, pointsAwarded: awarded2, pendingManualReview: false };
+  });
+  const maximum = grade.objectiveMaximum + manualMaximum;
+  const awarded = grade.objectiveAwarded + manualAwarded;
+  return {
+    ...grade,
+    questions,
+    status: "completed",
+    score: maximum > 0 ? Math.round(awarded / maximum * 100) : 0,
+    pendingManualCount: 0,
+    manualAwarded,
+    manualMaximum
+  };
+}
+
 // src/server/listening-library/router.ts
 function createListeningLibraryRouter() {
   const router = import_express3.default.Router();
@@ -10220,7 +11130,7 @@ function createListeningLibraryRouter() {
     return res.json({
       ...publicListeningModuleManifest(manifest2),
       available: Boolean((serverModule || genericAvailable) && manifest2.status === "active"),
-      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? "exam-platform-objective-v1" : void 0)
+      gradingVersion: serverModule?.gradingVersion || (genericAvailable ? EXAM_GRADING_VERSION : void 0)
     });
   });
   return router;
@@ -10925,7 +11835,7 @@ function hasValidImageMagic(buffer, mimeType) {
   if (mimeType === "image/webp") return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
   return false;
 }
-var text2 = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+var text3 = (value, max = 500) => String(value ?? "").trim().slice(0, max);
 var nowIso3 = () => (/* @__PURE__ */ new Date()).toISOString();
 var identifier2 = (prefix) => `${prefix}-${import_crypto2.default.randomUUID()}`;
 var sha2562 = (value) => import_crypto2.default.createHash("sha256").update(value).digest("hex");
@@ -11012,7 +11922,7 @@ async function resolveLearningAccess2(db, set, req) {
   }
   if (req.user?.role === "super_admin" || canManageSet2(req.user, set)) return { assignment: null };
   if (set.visibility === "public") return { assignment: null };
-  const token = text2(
+  const token = text3(
     req.body?.shareToken || req.body?.accessToken || req.query?.shareToken || req.query?.accessToken || req.headers["x-mover-reading-share-token"],
     240
   );
@@ -11032,8 +11942,8 @@ async function resolveActor2(req, resolveGuestProfile2, classInfo = {}) {
       studentName: req.user.name || "H\u1ECDc sinh"
     };
   }
-  const guestId = text2(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
-  const studentName = text2(req.body?.studentName || req.query?.studentName, 120);
+  const guestId = text3(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const studentName = text3(req.body?.studentName || req.query?.studentName, 120);
   if (!guestId || !studentName) throw apiError2(401, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh tr\u01B0\u1EDBc khi l\xE0m b\xE0i.");
   const profile = await resolveGuestProfile2(guestId, studentName, true, classInfo);
   return {
@@ -11046,7 +11956,7 @@ async function resolveActor2(req, resolveGuestProfile2, classInfo = {}) {
 function collectAssetReferences2(content) {
   const references = [];
   const add = (id2, entityId, role) => {
-    const assetId = text2(id2, 160);
+    const assetId = text3(id2, 160);
     if (assetId) references.push({ id: assetId, entityId, role });
   };
   add(content.coverAssetId, "set", "cover");
@@ -11167,7 +12077,7 @@ function createMoverReadingWritingRouter(dependencies) {
       try {
         if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
         if (!transientSources) throw apiError2(503, "Th\u01B0 m\u1EE5c media t\u1EA1m cho Smart Import ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
-        const mimeType = text2(req.headers["content-type"]?.split(";")[0], 100).toLowerCase();
+        const mimeType = text3(req.headers["content-type"]?.split(";")[0], 100).toLowerCase();
         if (!SMART_IMPORT_IMAGE_MIME_TYPES.includes(mimeType)) {
           throw apiError2(415, "Smart Import ch\u1EC9 nh\u1EADn \u1EA3nh JPEG, PNG ho\u1EB7c WebP.");
         }
@@ -11205,12 +12115,12 @@ function createMoverReadingWritingRouter(dependencies) {
       if (currentPart.part === 6 && currentPart.displayMode !== "image-multiple-choice") {
         throw apiError2(409, "H\xE3y chuy\u1EC3n Part 6 text-gap c\u0169 sang c\u1EA5u tr\xFAc tr\u1EAFc nghi\u1EC7m \u1EA3nh tr\u01B0\u1EDBc khi ph\xE2n t\xEDch.");
       }
-      const basePartHash = text2(req.body?.basePartHash, 64).toLowerCase();
+      const basePartHash = text3(req.body?.basePartHash, 64).toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(basePartHash)) throw apiError2(400, "Thi\u1EBFu hash c\u1EE7a Part hi\u1EC7n t\u1EA1i.");
       if (sha2562(JSON.stringify(currentPart)) !== basePartHash) {
         throw apiError2(409, "Part \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi b\u1EAFt \u0111\u1EA7u ph\xE2n t\xEDch.", { code: "MOVER_READING_IMPORT_BASE_CHANGED" });
       }
-      const preferredProvider = text2(req.body?.preferredProvider, 60);
+      const preferredProvider = text3(req.body?.preferredProvider, 60);
       const selectedProvider = (smartImport.providers || []).find((provider) => provider.id === preferredProvider);
       if (!selectedProvider) throw apiError2(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
       if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
@@ -11224,9 +12134,9 @@ function createMoverReadingWritingRouter(dependencies) {
       const seenRoles = /* @__PURE__ */ new Set();
       const seenValues = /* @__PURE__ */ new Set();
       for (const raw of rawSources.slice(0, 4)) {
-        const role = text2(raw?.role, 40);
-        const assetId = text2(raw?.assetId, 160);
-        const transientToken = text2(raw?.transientToken, 2e3);
+        const role = text3(raw?.role, 40);
+        const assetId = text3(raw?.assetId, 160);
+        const transientToken = text3(raw?.transientToken, 2e3);
         const definition = definitionByRole.get(role);
         if (!definition || Boolean(assetId) === Boolean(transientToken)) throw apiError2(400, "M\u1ED7i vai tr\xF2 \u1EA3nh ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t ngu\u1ED3n h\u1EE3p l\u1EC7.");
         if (definition.source === "asset" && !assetId) throw apiError2(400, `${definition.label} ph\u1EA3i d\xF9ng \u1EA3nh \u0111\xE3 l\u01B0u trong th\u01B0 vi\u1EC7n.`);
@@ -11264,7 +12174,7 @@ function createMoverReadingWritingRouter(dependencies) {
         }
         if (!isSuperAdmin2(req.user) && asset.ownerId !== req.user.id) throw apiError2(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n d\xF9ng \u1EA3nh ngu\u1ED3n n\xE0y.");
         if (!mediaDir) throw apiError2(503, "Th\u01B0 m\u1EE5c media ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh.");
-        const storageKey = text2(asset.storageKey, 300);
+        const storageKey = text3(asset.storageKey, 300);
         if (!storageKey || import_path4.default.basename(storageKey) !== storageKey) throw apiError2(400, "\u0110\u01B0\u1EDDng d\u1EABn \u1EA3nh ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7.");
         const root = import_path4.default.resolve(mediaDir);
         const filePath = import_path4.default.resolve(mediaDir, storageKey);
@@ -11345,9 +12255,9 @@ function createMoverReadingWritingRouter(dependencies) {
         schemaVersion: content.schemaVersion,
         ownerId: req.user.id,
         createdBy: req.user.id,
-        title: text2(content.title, 160) || "Movers Reading & Writing",
-        description: text2(content.description, 2e3),
-        level: text2(content.level, 80) || "Movers",
+        title: text3(content.title, 160) || "Movers Reading & Writing",
+        description: text3(content.description, 2e3),
+        level: text3(content.level, 80) || "Movers",
         status: "draft",
         visibility: "draft",
         draftRevision: 1,
@@ -11401,9 +12311,9 @@ function createMoverReadingWritingRouter(dependencies) {
         const shareToken = visibility === "assignment" ? set.shareToken || import_crypto2.default.randomBytes(18).toString("base64url") : void 0;
         const next = {
           ...set,
-          title: text2(content.title, 160),
-          description: text2(content.description, 2e3),
-          level: text2(content.level, 80),
+          title: text3(content.title, 160),
+          description: text3(content.description, 2e3),
+          level: text3(content.level, 80),
           schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
@@ -11449,9 +12359,9 @@ function createMoverReadingWritingRouter(dependencies) {
         const updatedAt = nowIso3();
         const next = {
           ...set,
-          title: text2(content.title, 160),
-          description: text2(content.description, 2e3),
-          level: text2(content.level, 80),
+          title: text3(content.title, 160),
+          description: text3(content.description, 2e3),
+          level: text3(content.level, 80),
           schemaVersion: content.schemaVersion,
           visibility,
           draftRevision: currentRevision + 1,
@@ -11486,7 +12396,7 @@ function createMoverReadingWritingRouter(dependencies) {
       if (!sourceContent && source.publishedVersionId) sourceContent = (await getVersion2(db, source.publishedVersionId))?.content;
       if (!sourceContent) throw apiError2(409, "B\u1ED9 \u0111\u1EC1 ngu\u1ED3n kh\xF4ng c\xF3 n\u1ED9i dung t\u01B0\u01A1ng th\xEDch.");
       const suffix = " (B\u1EA3n sao)";
-      const cloneTitle = `${text2(source.title, 160 - suffix.length)}${suffix}`;
+      const cloneTitle = `${text3(source.title, 160 - suffix.length)}${suffix}`;
       const content = { ...normalizeMoverReadingWritingContent(sourceContent), title: cloneTitle };
       const now = nowIso3();
       const clone = {
@@ -11497,8 +12407,8 @@ function createMoverReadingWritingRouter(dependencies) {
         ownerId: req.user.id,
         createdBy: req.user.id,
         title: cloneTitle,
-        description: text2(content.description, 2e3),
-        level: text2(content.level, 80),
+        description: text3(content.description, 2e3),
+        level: text3(content.level, 80),
         status: "draft",
         visibility: "draft",
         draftRevision: 1,
@@ -11647,8 +12557,8 @@ function createMoverReadingWritingRouter(dependencies) {
         className: access.assignment?.className,
         verified: Boolean(access.assignment?.id)
       });
-      const clientRunId = text2(req.body?.clientRunId, 160);
-      const runSecret = text2(req.body?.runSecret, 300);
+      const clientRunId = text3(req.body?.clientRunId, 160);
+      const runSecret = text3(req.body?.runSecret, 300);
       if (!clientRunId || !runSecret) throw apiError2(400, "Thi\u1EBFu m\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i.");
       const version = await getVersion2(db, set.publishedVersionId);
       if (!version) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
@@ -11685,7 +12595,7 @@ function createMoverReadingWritingRouter(dependencies) {
     try {
       const ticket = decodeTicket2(req.body?.ticket, ticketSecret);
       if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
-      const runSecret = text2(req.body?.runSecret, 300);
+      const runSecret = text3(req.body?.runSecret, 300);
       if (!runSecret || !timingSafeEqual2(sha2562(runSecret), String(ticket.runSecretHash))) throw apiError2(401, "M\xE3 b\u1EA3o v\u1EC7 l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
       const actor = await resolveActor2(req, resolveGuestProfile2);
       if (actor.ownerKey !== ticket.ownerKey) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
@@ -11765,9 +12675,9 @@ function createMoverReadingWritingRouter(dependencies) {
       let ownerKey = "";
       if (req.user) ownerKey = `user:${req.user.id}`;
       else {
-        const guestId = text2(req.query?.guestId || req.headers["x-guest-id"], 120);
+        const guestId = text3(req.query?.guestId || req.headers["x-guest-id"], 120);
         ownerKey = guestId ? `guest:${guestId}` : "";
-        const runSecret = text2(req.headers["x-mover-reading-run-secret"], 300);
+        const runSecret = text3(req.headers["x-mover-reading-run-secret"], 300);
         if (!runSecret || !timingSafeEqual2(sha2562(runSecret), String(attempt.runSecretHash))) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
       }
       if (!ownerKey || ownerKey !== attempt.ownerKey) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
@@ -11810,359 +12720,6 @@ function createMoverReadingWritingRouter(dependencies) {
 // src/server/exam-platform/examRouter.ts
 var import_crypto3 = __toESM(require("crypto"), 1);
 var import_express5 = __toESM(require("express"), 1);
-
-// src/server/exam-platform/examValidation.ts
-var text3 = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
-var objectiveTypes = /* @__PURE__ */ new Set([
-  "single-choice",
-  "multiple-choice",
-  "short-answer",
-  "true-false",
-  "true-false-not-given",
-  "yes-no-not-given",
-  "matching"
-]);
-var choiceQuestionTypes = /* @__PURE__ */ new Set([
-  "single-choice",
-  "multiple-choice",
-  "true-false",
-  "true-false-not-given",
-  "yes-no-not-given",
-  "matching"
-]);
-var smartImportTechnicalFields = /* @__PURE__ */ new Set([
-  "id",
-  "imageAssetId",
-  "imageUrl",
-  "audioAssetId",
-  "audioUrl",
-  "correctOptionIds"
-]);
-var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
-function findTechnicalSmartImportField(value) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findTechnicalSmartImportField(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (!value || typeof value !== "object") return null;
-  for (const [key, child] of Object.entries(value)) {
-    if (smartImportTechnicalFields.has(key)) return key;
-    const found = findTechnicalSmartImportField(child);
-    if (found) return found;
-  }
-  return null;
-}
-function defaultSmartImportOptions(type) {
-  if (type === "true-false") return ["True", "False"];
-  if (type === "true-false-not-given") return ["True", "False", "Not Given"];
-  if (type === "yes-no-not-given") return ["Yes", "No", "Not Given"];
-  if (type === "single-choice" || type === "matching" || type === "multiple-choice") return ["A", "B", "C"];
-  return [];
-}
-function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
-  const errors = [];
-  const warnings = [];
-  const technicalField = findTechnicalSmartImportField(candidateValue);
-  if (technicalField) {
-    return {
-      part: currentPart,
-      errors: [`Smart Import kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a tr\u01B0\u1EDDng k\u1EF9 thu\u1EADt "${technicalField}".`],
-      warnings
-    };
-  }
-  const candidate = record(candidateValue);
-  const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : null;
-  if (!rawQuestions) errors.push("Smart Import ph\u1EA3i c\xF3 m\u1EA3ng questions.");
-  if (rawQuestions && !definition.questionCountFlexible && rawQuestions.length !== definition.questionCount) {
-    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.questionCount} c\xE2u.`);
-  }
-  if (rawQuestions && definition.questionCountFlexible && rawQuestions.length > 40) {
-    errors.push(`${definition.displayName} kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 40 c\xE2u.`);
-  }
-  if (errors.length || !rawQuestions) return { part: currentPart, errors, warnings };
-  const questions = rawQuestions.map((rawValue, questionIndex) => {
-    const raw = record(rawValue);
-    const currentQuestion = currentPart.questions[questionIndex];
-    const proposedType = text3(raw.type, 80);
-    const type = definition.allowedQuestionTypes.includes(proposedType) ? proposedType : currentQuestion?.type && definition.allowedQuestionTypes.includes(currentQuestion.type) ? currentQuestion.type : definition.defaultQuestionType;
-    if (proposedType && proposedType !== type) {
-      errors.push(`C\xE2u ${questionIndex + 1}: d\u1EA1ng c\xE2u "${proposedType}" kh\xF4ng ph\xF9 h\u1EE3p ${definition.displayName}.`);
-    }
-    const rawOptions = Array.isArray(raw.options) ? raw.options : [];
-    const optionValues = rawOptions.length ? rawOptions : choiceQuestionTypes.has(type) ? defaultSmartImportOptions(type) : [];
-    const options = optionValues.map((optionValue, optionIndex2) => {
-      const option = typeof optionValue === "string" ? { text: optionValue } : record(optionValue);
-      const currentOption = currentQuestion?.type === type ? currentQuestion.options[optionIndex2] : void 0;
-      return {
-        id: currentOption?.id || `option-${crypto.randomUUID()}`,
-        label: text3(option.label || String.fromCharCode(65 + optionIndex2), 8),
-        text: text3(option.text, 4e3)
-      };
-    });
-    if (choiceQuestionTypes.has(type) && options.length < 2) {
-      errors.push(`C\xE2u ${questionIndex + 1}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
-    }
-    const refs = [
-      ...Array.isArray(raw.correctOptionLabels) ? raw.correctOptionLabels : [],
-      ...Array.isArray(raw.correctOptions) ? raw.correctOptions : []
-    ].map((value) => normalizeExamText(value)).filter(Boolean);
-    const indexes = Array.isArray(raw.correctOptionIndexes) ? raw.correctOptionIndexes.map((value) => Number(value) - 1).filter((value) => Number.isInteger(value) && value >= 0) : [];
-    const correctOptionIds = choiceQuestionTypes.has(type) ? options.filter((option, optionIndex2) => refs.includes(normalizeExamText(option.label)) || refs.includes(normalizeExamText(option.text)) || indexes.includes(optionIndex2)).map((option) => option.id) : [];
-    const acceptedAnswers = type === "short-answer" && Array.isArray(raw.acceptedAnswers) ? raw.acceptedAnswers.map((value) => text3(value, 4e3)).filter(Boolean).slice(0, 30) : [];
-    if (choiceQuestionTypes.has(type) && !correctOptionIds.length) {
-      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n \u0111\xFAng; gi\xE1o vi\xEAn ph\u1EA3i ch\u1ECDn trong editor.`);
-    }
-    if (choiceQuestionTypes.has(type) && type !== "multiple-choice" && correctOptionIds.length > 1) {
-      errors.push(`C\xE2u ${questionIndex + 1}: ch\u1EC9 \u0111\u01B0\u1EE3c c\xF3 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
-    }
-    if (type === "short-answer" && !acceptedAnswers.length) {
-      warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn; gi\xE1o vi\xEAn ph\u1EA3i nh\u1EADp trong editor.`);
-    }
-    const points = Number(raw.points);
-    return {
-      id: currentQuestion?.id || `question-${crypto.randomUUID()}`,
-      number: currentQuestion?.number || questionIndex + 1,
-      type,
-      prompt: text3(raw.prompt, 8e3),
-      ...text3(raw.context, 8e3) ? { context: text3(raw.context, 8e3) } : {},
-      ...currentQuestion?.imageAssetId ? { imageAssetId: currentQuestion.imageAssetId } : {},
-      ...currentQuestion?.imageUrl ? { imageUrl: currentQuestion.imageUrl } : {},
-      options,
-      correctOptionIds,
-      acceptedAnswers,
-      points: Number.isFinite(points) && points > 0 && points <= 100 ? points : currentQuestion?.points || definition.pointsPerQuestion || 1,
-      ...Number(raw.maxSelections) > 0 ? { maxSelections: Number(raw.maxSelections) } : {},
-      ...Number(raw.maxWords) > 0 ? { maxWords: Number(raw.maxWords) } : {},
-      ...Number(raw.minWords) > 0 ? { minWords: Number(raw.minWords) } : currentQuestion?.minWords ? { minWords: currentQuestion.minWords } : definition.minWords ? { minWords: definition.minWords } : {},
-      ...type === "long-writing" ? {
-        rubric: text3(raw.rubric, 8e3) || currentQuestion?.rubric || "Gi\xE1o vi\xEAn ch\u1EA5m theo rubric c\u1EE7a b\xE0i thi.",
-        ...text3(raw.modelAnswer, 2e4) ? { modelAnswer: text3(raw.modelAnswer, 2e4) } : {}
-      } : {}
-    };
-  });
-  return {
-    part: {
-      id: currentPart.id,
-      part: currentPart.part,
-      title: text3(candidate.title, 240) || currentPart.title,
-      instruction: text3(candidate.instruction, 4e3) || currentPart.instruction,
-      ...text3(candidate.passage, 2e4) ? { passage: text3(candidate.passage, 2e4) } : {},
-      ...currentPart.imageAssetId ? { imageAssetId: currentPart.imageAssetId } : {},
-      ...currentPart.imageUrl ? { imageUrl: currentPart.imageUrl } : {},
-      ...currentPart.audioAssetId ? { audioAssetId: currentPart.audioAssetId } : {},
-      ...currentPart.audioUrl ? { audioUrl: currentPart.audioUrl } : {},
-      questions
-    },
-    errors,
-    warnings
-  };
-}
-function normalizeExamText(value) {
-  return text3(value, 4e3).normalize("NFKC").replace(/[’‘`´]/g, "'").replace(/\s+/g, " ").trim().toLocaleLowerCase("en");
-}
-function validateExamPaperContent(content) {
-  const errors = [];
-  if (!content || typeof content !== "object") return ["N\u1ED9i dung \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7."];
-  if (content.schemaVersion !== EXAM_CONTENT_SCHEMA_VERSION) errors.push("Schema \u0111\u1EC1 thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
-  const definition = getExamPaperDefinition(content.moduleId, content.paperId);
-  if (!definition) return ["Module ho\u1EB7c lo\u1EA1i b\xE0i thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3."];
-  if (!text3(content.title, 240)) errors.push("Thi\u1EBFu t\xEAn b\u1ED9 \u0111\u1EC1.");
-  if (content.parts?.length !== definition.parts.length) {
-    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.parts.length} Part/Section.`);
-    return errors;
-  }
-  const allIds = /* @__PURE__ */ new Set();
-  let totalQuestions = 0;
-  content.parts.forEach((part2, partIndex) => {
-    const partDefinition = definition.parts[partIndex];
-    if (!part2 || part2.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} kh\xF4ng \u0111\xFAng th\u1EE9 t\u1EF1.`);
-    if (!text3(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
-    if (partDefinition.requiresAudio && !text3(part2?.audioAssetId, 180)) {
-      errors.push(`Part ${partIndex + 1}: ph\u1EA3i ch\u1ECDn audio t\u1EEB th\u01B0 vi\u1EC7n media.`);
-    }
-    if (!partDefinition.questionCountFlexible && part2?.questions?.length !== partDefinition.questionCount) {
-      errors.push(`Part ${partIndex + 1}: ph\u1EA3i c\xF3 \u0111\xFAng ${partDefinition.questionCount} c\xE2u.`);
-    }
-    totalQuestions += part2?.questions?.length || 0;
-    (part2?.questions || []).forEach((question, questionIndex) => {
-      const label = `Part ${partIndex + 1}, c\xE2u ${questionIndex + 1}`;
-      if (!question?.id || allIds.has(question.id)) errors.push(`${label}: ID c\xE2u h\u1ECFi b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
-      else allIds.add(question.id);
-      if (!partDefinition.allowedQuestionTypes.includes(question.type)) errors.push(`${label}: d\u1EA1ng c\xE2u h\u1ECFi kh\xF4ng ph\xF9 h\u1EE3p Part n\xE0y.`);
-      if (!text3(question.prompt, 8e3)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung c\xE2u h\u1ECFi.`);
-      if (!Number.isFinite(question.points) || question.points <= 0 || question.points > 100) errors.push(`${label}: \u0111i\u1EC3m t\u1ED1i \u0111a kh\xF4ng h\u1EE3p l\u1EC7.`);
-      if (question.type === "long-writing") {
-        if (!text3(question.rubric, 8e3)) errors.push(`${label}: thi\u1EBFu rubric \u0111\u1EC3 gi\xE1o vi\xEAn ch\u1EA5m.`);
-        return;
-      }
-      if (!objectiveTypes.has(question.type)) return;
-      if (["single-choice", "multiple-choice", "true-false", "true-false-not-given", "yes-no-not-given", "matching"].includes(question.type)) {
-        if (question.options.length < 2) errors.push(`${label}: c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.`);
-        const optionIds = new Set(question.options.map((option) => option.id));
-        if (optionIds.size !== question.options.length || optionIds.has("")) errors.push(`${label}: ID l\u1EF1a ch\u1ECDn b\u1ECB thi\u1EBFu ho\u1EB7c tr\xF9ng.`);
-        if (!question.correctOptionIds.length) errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng.`);
-        if (question.correctOptionIds.some((id2) => !optionIds.has(id2))) errors.push(`${label}: \u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng thu\u1ED9c danh s\xE1ch l\u1EF1a ch\u1ECDn.`);
-        if (question.type !== "multiple-choice" && question.correctOptionIds.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
-      } else if (!question.acceptedAnswers.some((answer) => normalizeExamText(answer))) {
-        errors.push(`${label}: gi\xE1o vi\xEAn ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.`);
-      }
-    });
-  });
-  if (definition.flexiblePartDistribution && totalQuestions !== definition.totalQuestionCount) {
-    errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.totalQuestionCount} c\xE2u tr\xEAn to\xE0n b\xE0i.`);
-  }
-  return errors;
-}
-function sanitizeExamContentForStudent(content) {
-  return {
-    ...structuredClone(content),
-    parts: content.parts.map((part2) => ({
-      ...structuredClone(part2),
-      questions: part2.questions.map((question) => {
-        const safe = structuredClone(question);
-        delete safe.correctOptionIds;
-        delete safe.acceptedAnswers;
-        delete safe.modelAnswer;
-        if (question.type !== "long-writing") delete safe.rubric;
-        return safe;
-      })
-    }))
-  };
-}
-function sanitizeExamAnswers(raw, content) {
-  const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  const allowed = new Map(content.parts.flatMap((part2) => part2.questions.map((question) => [question.id, question])));
-  const answers = {};
-  for (const [questionId, question] of allowed) {
-    const value = input[questionId];
-    if (Array.isArray(value)) {
-      answers[questionId] = [...new Set(value.map((item) => text3(item, 500)).filter(Boolean))].slice(0, 20);
-    } else {
-      answers[questionId] = text3(value, question.type === "long-writing" ? 2e4 : 4e3);
-    }
-  }
-  return answers;
-}
-function displayCorrectAnswer(question) {
-  if (question.correctOptionIds.length) {
-    const byId = new Map(question.options.map((option) => [option.id, option.text]));
-    return question.correctOptionIds.map((id2) => byId.get(id2) || "").filter(Boolean);
-  }
-  return question.acceptedAnswers;
-}
-
-// src/server/exam-platform/examGrader.ts
-var EXAM_GRADING_VERSION = "exam-platform-objective-v1";
-function answerEmpty(value) {
-  return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
-}
-function gradeObjective(question, answer) {
-  if (question.correctOptionIds.length) {
-    const actual2 = new Set((Array.isArray(answer) ? answer : [answer || ""]).filter(Boolean));
-    const expected = new Set(question.correctOptionIds);
-    return actual2.size === expected.size && [...expected].every((item) => actual2.has(item));
-  }
-  const actual = normalizeExamText(Array.isArray(answer) ? answer.join(" ") : answer);
-  return question.acceptedAnswers.some((value) => normalizeExamText(value) === actual);
-}
-function displayUserAnswer(question, answer) {
-  if (!question.options.length) return answer || "";
-  const byId = new Map(question.options.map((option) => [option.id, option.text || option.label]));
-  if (Array.isArray(answer)) return answer.map((value) => byId.get(value) || "").filter(Boolean);
-  return answer ? byId.get(answer) || "" : "";
-}
-function gradeExamAttempt(content, answers) {
-  const questions = [];
-  let objectiveAwarded = 0;
-  let objectiveMaximum = 0;
-  let correctCount = 0;
-  let incorrectCount = 0;
-  let unansweredCount = 0;
-  let pendingManualCount = 0;
-  content.parts.forEach((part2) => part2.questions.forEach((question) => {
-    const answer = answers[question.id];
-    const unanswered = answerEmpty(answer);
-    if (question.type === "long-writing") {
-      pendingManualCount += 1;
-      questions.push({
-        questionId: question.id,
-        part: part2.part,
-        number: question.number,
-        type: question.type,
-        prompt: question.prompt,
-        userAnswer: displayUserAnswer(question, answer),
-        correct: null,
-        unanswered,
-        pointsAwarded: 0,
-        maxPoints: question.points,
-        pendingManualReview: true
-      });
-      return;
-    }
-    objectiveMaximum += question.points;
-    const correct = !unanswered && gradeObjective(question, answer);
-    if (unanswered) unansweredCount += 1;
-    else if (correct) correctCount += 1;
-    else incorrectCount += 1;
-    if (correct) objectiveAwarded += question.points;
-    questions.push({
-      questionId: question.id,
-      part: part2.part,
-      number: question.number,
-      type: question.type,
-      prompt: question.prompt,
-      userAnswer: displayUserAnswer(question, answer),
-      correctAnswer: displayCorrectAnswer(question),
-      correct,
-      unanswered,
-      pointsAwarded: correct ? question.points : 0,
-      maxPoints: question.points,
-      pendingManualReview: false
-    });
-  }));
-  const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
-  return {
-    gradingVersion: EXAM_GRADING_VERSION,
-    status: pendingManualCount ? "pending_review" : "completed",
-    score: pendingManualCount ? objectiveScore : objectiveScore,
-    objectiveScore,
-    objectiveAwarded,
-    objectiveMaximum,
-    correctCount,
-    incorrectCount,
-    unansweredCount,
-    totalCount: questions.length,
-    pendingManualCount,
-    questions
-  };
-}
-function applyManualExamGrades(grade, manualGrades) {
-  let manualAwarded = 0;
-  let manualMaximum = 0;
-  const questions = grade.questions.map((question) => {
-    if (!question.pendingManualReview) return question;
-    const awarded2 = Math.max(0, Math.min(question.maxPoints, Number(manualGrades[question.questionId] || 0)));
-    manualAwarded += awarded2;
-    manualMaximum += question.maxPoints;
-    return { ...question, pointsAwarded: awarded2, pendingManualReview: false };
-  });
-  const maximum = grade.objectiveMaximum + manualMaximum;
-  const awarded = grade.objectiveAwarded + manualAwarded;
-  return {
-    ...grade,
-    questions,
-    status: "completed",
-    score: maximum > 0 ? Math.round(awarded / maximum * 100) : 0,
-    pendingManualCount: 0,
-    manualAwarded,
-    manualMaximum
-  };
-}
-
-// src/server/exam-platform/examRouter.ts
 var text4 = (value, max = 500) => String(value ?? "").trim().slice(0, max);
 var nowIso4 = () => (/* @__PURE__ */ new Date()).toISOString();
 var id = (prefix) => `${prefix}-${import_crypto3.default.randomUUID()}`;
@@ -12286,6 +12843,20 @@ function collectAssetFields(content) {
     const value = text4(assetId, 180);
     if (value) fields.push({ assetId: value, kind, entityId, role, apply });
   };
+  const addDrawTokens = (layout) => {
+    if (layout?.kind !== "scene-draw-v1") return;
+    layout.targets.forEach((target) => add(target.tokenAssetId, "image", target.id, "draw-token", (url) => {
+      target.tokenUrl = url;
+    }));
+  };
+  const addReadingMedia = (owner) => {
+    (owner.examples || []).forEach((example, index) => add(example.imageAssetId, "image", `example-${index + 1}`, "example-image", (url) => {
+      example.imageUrl = url;
+    }));
+    (owner.readingScenes || []).forEach((scene) => add(scene.imageAssetId, "image", scene.id, "reading-scene-image", (url) => {
+      scene.imageUrl = url;
+    }));
+  };
   add(content.coverAssetId, "image", "paper", "cover", (url) => {
     content.coverUrl = url;
   });
@@ -12295,6 +12866,18 @@ function collectAssetFields(content) {
     });
     add(part2.audioAssetId, "audio", part2.id, "part-audio", (url) => {
       part2.audioUrl = url;
+    });
+    addDrawTokens(part2.interactionLayout);
+    addReadingMedia(part2);
+    (part2.blocks || []).forEach((block) => {
+      add(block.imageAssetId, "image", block.id, "block-image", (url) => {
+        block.imageUrl = url;
+      });
+      add(block.audioAssetId, "audio", block.id, "block-audio", (url) => {
+        block.audioUrl = url;
+      });
+      addDrawTokens(block.interactionLayout);
+      addReadingMedia(block);
     });
     part2.questions.forEach((question) => {
       add(question.imageAssetId, "image", question.id, "question-image", (url) => {
@@ -12312,10 +12895,26 @@ async function resolveContentAssets3(db, raw, user) {
   const requireAssetIdForUrl = (assetId, url, label) => {
     if (text4(url, 2e3) && !text4(assetId, 180)) throw apiError3(400, `${label} ph\u1EA3i \u0111\u01B0\u1EE3c ch\u1ECDn t\u1EEB th\u01B0 vi\u1EC7n media.`);
   };
+  const requireReadingMediaIds = (owner, label) => {
+    (owner.examples || []).forEach((example, index) => requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`));
+    (owner.readingScenes || []).forEach((scene, index) => requireAssetIdForUrl(scene.imageAssetId, scene.imageUrl, `${label}, reading scene ${index + 1}`));
+  };
+  const requireDrawTokenIds = (layout, label) => {
+    if (layout?.kind !== "scene-draw-v1") return;
+    layout.targets.forEach((target, index) => requireAssetIdForUrl(target.tokenAssetId, target.tokenUrl, `${label}, \u1EA3nh Draw ${index + 1}`));
+  };
   requireAssetIdForUrl(content.coverAssetId, content.coverUrl, "\u1EA2nh b\xECa");
   content.parts.forEach((part2) => {
+    requireReadingMediaIds(part2, `Part ${part2.part}`);
     requireAssetIdForUrl(part2.imageAssetId, part2.imageUrl, `\u1EA2nh Part ${part2.part}`);
     requireAssetIdForUrl(part2.audioAssetId, part2.audioUrl, `Audio Part ${part2.part}`);
+    requireDrawTokenIds(part2.interactionLayout, `Part ${part2.part}`);
+    (part2.blocks || []).forEach((block) => {
+      requireReadingMediaIds(block, `Part ${part2.part}, block ${block.block}`);
+      requireAssetIdForUrl(block.imageAssetId, block.imageUrl, `\u1EA2nh Part ${part2.part}, d\u1EA1ng ${block.block}`);
+      requireAssetIdForUrl(block.audioAssetId, block.audioUrl, `Audio Part ${part2.part}, d\u1EA1ng ${block.block}`);
+      requireDrawTokenIds(block.interactionLayout, `Part ${part2.part}, d\u1EA1ng ${block.block}`);
+    });
     part2.questions.forEach((question) => {
       requireAssetIdForUrl(question.imageAssetId, question.imageUrl, `\u1EA2nh c\xE2u ${question.number}`);
       question.options.forEach((option) => requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `\u1EA2nh l\u1EF1a ch\u1ECDn ${option.label}`));
@@ -12483,6 +13082,7 @@ function createExamRouter(dependencies) {
         const validationErrors = validateExamPaperContent(content);
         const next = {
           ...set,
+          schemaVersion: content.schemaVersion,
           title: content.title,
           description: content.description,
           level: content.level,
@@ -12789,6 +13389,18 @@ function createExamRouter(dependencies) {
           rubric: question.rubric
         }))),
         optionSnapshots: version.content.parts.flatMap((part2) => part2.questions.map((question) => ({ questionId: question.id, options: question.options }))),
+        transcripts: version.content.parts.flatMap((part2) => {
+          const transcript = text4(part2.audioTranscript, 2e4);
+          return transcript ? [{ part: part2.part, text: transcript }] : [];
+        }),
+        sceneDrawTargets: version.content.parts.flatMap((part2) => examPartUnits(part2).flatMap((unit) => unit.interactionLayout?.kind === "scene-draw-v1" ? unit.interactionLayout.targets.map((target) => ({
+          part: part2.part,
+          questionId: target.questionId,
+          object: target.object,
+          label: target.label,
+          ...target.tokenUrl ? { tokenUrl: target.tokenUrl } : {},
+          targetRegion: target.targetRegion
+        })) : [])),
         reviewPolicy: { showReviewAfterSubmit: version.content.showReviewAfterSubmit === true, policyVersion: 1 },
         createdAt: completedAt,
         updatedAt: completedAt
@@ -12826,7 +13438,7 @@ function createExamRouter(dependencies) {
       if (!detailSnapshot.exists) throw apiError3(404, "Kh\xF4ng t\xECm th\u1EA5y chi ti\u1EBFt l\u01B0\u1EE3t l\xE0m b\xE0i.");
       const detail = detailSnapshot.data();
       if (!staff && (attempt.status !== "completed" || detail?.reviewPolicy?.showReviewAfterSubmit !== true)) throw apiError3(403, "Gi\xE1o vi\xEAn ch\u01B0a cho ph\xE9p xem \u0111\xE1p \xE1n sau khi n\u1ED9p.");
-      res.json({ attempt: attemptSummary(attempt), questions: detail?.questions || [] });
+      res.json({ attempt: attemptSummary(attempt), questions: detail?.questions || [], transcripts: detail?.transcripts || [], sceneDrawTargets: detail?.sceneDrawTargets || [] });
     } catch (error) {
       sendError3(res, error);
     }
