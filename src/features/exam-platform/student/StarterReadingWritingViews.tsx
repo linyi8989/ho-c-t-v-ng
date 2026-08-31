@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
+import type { ExamImageProfile } from '../../exam-media/imageProfiles';
 import { examPartUnits } from '../examStructure';
 import type { ExamAnswerValue, ExamAnswers, ExamPartContent, ExamQuestion } from '../types';
 import ExamImageViewer from './ExamImageViewer';
@@ -36,14 +38,14 @@ function ExampleBlock({ examples }: { examples: ExamPartContent['examples'] }) {
   </div>;
 }
 
-function Image({ src, alt, maxHeight = 'min(70vh, 680px)' }: { src?: string; alt: string; maxHeight?: string }) {
+function Image({ src, alt, profile = 'split-page', maxHeight }: { src?: string; alt: string; profile?: ExamImageProfile; maxHeight?: string }) {
   return src
-    ? <ExamImageViewer src={src} alt={alt} maxHeight={maxHeight} className="border border-slate-200 bg-white" />
+    ? <ExamImageViewer src={src} alt={alt} profile={profile} maxHeight={maxHeight} className="border border-slate-200 bg-white" />
     : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
 }
 
 function TwoColumn({ media, children }: { media: ReactNode; children: ReactNode }) {
-  return <div className="grid gap-6 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]"><div className="lg:sticky lg:top-4 lg:self-start">{media}</div><div className="min-w-0 space-y-4">{children}</div></div>;
+  return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
 }
 
 function YesNoQuestion({ question, index, value, onChange }: { key?: string; question: ExamQuestion; index: number; value: ExamAnswerValue | undefined; onChange: (value: string) => void }) {
@@ -57,17 +59,17 @@ function YesNoQuestion({ question, index, value, onChange }: { key?: string; que
 function PartOne({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
   const example = unit.examples?.[0];
   return <div className="space-y-6">
-    {example?.imageUrl && <div className="mx-auto max-w-4xl"><Image src={example.imageUrl} alt="Ảnh example Part 1" maxHeight="min(34vh, 300px)" /></div>}
-    <TwoColumn media={<Image src={unit.imageUrl} alt="Ảnh bài làm Part 1" />}>{example && <ExampleBlock examples={[{ ...example, imageAssetId: undefined, imageUrl: undefined }]} />}{unit.questions.map((question, index) => <YesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>
+    {example?.imageUrl && <div className="mx-auto max-w-4xl"><Image src={example.imageUrl} alt="Ảnh example Part 1" profile="cover" maxHeight="min(34dvh, 300px)" /></div>}
+    <TwoColumn media={<Image src={unit.imageUrl} alt="Ảnh bài làm Part 1" profile="illustration" />}>{example && <ExampleBlock examples={[{ ...example, imageAssetId: undefined, imageUrl: undefined }]} />}{unit.questions.map((question, index) => <YesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>
   </div>;
 }
 
 function PartTwo({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<Image src={unit.imageUrl} alt="Tranh tình huống Part 2" />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <YesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
+  return <TwoColumn media={<Image src={unit.imageUrl} alt="Tranh tình huống Part 2" profile="illustration" />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <YesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
 }
 
 function PartThree({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<Image src={unit.imageUrl} alt="Trang bài tập Part 3" />}><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{unit.questions.map((question, index) => <div key={question.id} className="border-b border-slate-100 py-4 last:border-0"><p className="text-base font-semibold leading-10 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{renderPrompt(question, <TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} />)}</p></div>)}</div></TwoColumn>;
+  return <TwoColumn media={<Image src={unit.imageUrl} alt="Trang bài tập Part 3" profile="split-page" />}><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{unit.questions.map((question, index) => <div key={question.id} className="border-b border-slate-100 py-4 last:border-0"><p className="text-base font-semibold leading-10 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{renderPrompt(question, <TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} />)}</p></div>)}</div></TwoColumn>;
 }
 
 function renderStory(unit: ExamPartContent, answers: ExamAnswers, onAnswer: Props['onAnswer']) {
@@ -82,19 +84,19 @@ function renderStory(unit: ExamPartContent, answers: ExamAnswers, onAnswer: Prop
 }
 
 function PartFour({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<Image src={unit.imageUrl} alt="Ngân hàng từ Part 4" />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
+  return <TwoColumn media={<Image src={unit.imageUrl} alt="Ngân hàng từ Part 4" profile="word-bank" />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
 }
 
 function PartFive({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
   const questions = new Map(unit.questions.map(question => [question.id, question]));
   let number = 0;
-  return <div className="space-y-8">{(unit.readingScenes || []).map((scene, sceneIndex) => <section key={scene.id} className="grid gap-6 rounded-3xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]"><div><Image src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} maxHeight="min(62vh, 560px)" /></div><div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>{sceneIndex === 0 && <ExampleBlock examples={unit.examples} />}<div className="border-t border-slate-200 pt-3">{scene.questionIds.map(questionId => {
+  return <div className="space-y-8">{(unit.readingScenes || []).map((scene, sceneIndex) => <section key={scene.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4"><ExamSplitTaskLayout media={<Image src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} profile="story-scene" />}><div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>{sceneIndex === 0 && <ExampleBlock examples={unit.examples} />}<div className="border-t border-slate-200 pt-3">{scene.questionIds.map(questionId => {
     const question = questions.get(questionId);
     if (!question) return null;
     number += 1;
     const currentNumber = number;
     return <div key={question.id} className="py-2 text-base font-semibold leading-10 text-slate-800"><b className="mr-2 text-blue-700">{currentNumber}.</b>{renderPrompt(question, <TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} />)}</div>;
-  })}</div></div></section>)}</div>;
+  })}</div></div></ExamSplitTaskLayout></section>)}</div>;
 }
 
 export default function StarterReadingWritingPartView({ part, answers, onAnswer }: Props) {

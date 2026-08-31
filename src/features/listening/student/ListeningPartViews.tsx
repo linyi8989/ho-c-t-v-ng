@@ -184,7 +184,7 @@ export function ListeningPart2View({ part, answers, onAnswers }: PartProps<Liste
   return (
     <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
       <div className="space-y-4">
-        {part.illustrationUrl && <img src={part.illustrationUrl} alt="" className="mx-auto max-h-80 w-full rounded-2xl border-2 border-orange-300 object-contain" />}
+        {part.illustrationUrl && <img src={part.illustrationUrl} alt="" className="listening-part2-illustration mx-auto max-h-80 w-full rounded-2xl border-2 border-orange-300 object-contain" />}
         {part.exampleText && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700"><span className="text-sky-700">Example: </span>{part.exampleText}</div>}
       </div>
       <div>
@@ -423,7 +423,7 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
               const selected = part.example?.correctOptionId === option.id;
               return (
                 <label key={option.id} className={`rounded-2xl border-4 bg-white p-2 ${selected ? 'border-emerald-500' : 'border-sky-200'}`}>
-                  <img src={option.imageUrl} alt={option.alt} className="h-32 w-full object-contain" />
+                  <img src={option.imageUrl} alt={option.alt} className="listening-image-option h-32 w-full object-contain" />
                   <span className="mx-auto mt-1 flex w-8 items-center justify-center rounded-full bg-sky-500 py-1 text-xs font-black text-white">{String.fromCharCode(65 + optionIndex)}</span>
                   <input type="radio" checked={selected} readOnly className="mx-auto mt-2 block h-5 w-5 accent-emerald-600" />
                 </label>
@@ -440,7 +440,7 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
               const selected = answers.part4[question.id] === option.id;
               return (
                 <label key={option.id} className={`cursor-pointer rounded-2xl border-4 bg-white p-2 transition ${selected ? 'border-emerald-500 shadow-lg' : 'border-rose-300 hover:border-rose-400'}`}>
-                  <img src={option.imageUrl} alt={option.alt} className="h-32 w-full object-contain" />
+                  <img src={option.imageUrl} alt={option.alt} className="listening-image-option h-32 w-full object-contain" />
                   <span className="mx-auto mt-1 flex w-8 items-center justify-center rounded-full bg-rose-400 py-1 text-xs font-black text-white">{String.fromCharCode(65 + optionIndex)}</span>
                   <input
                     type="radio"
@@ -604,7 +604,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
           placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
         }}
       >
-        <img src={part.sceneUrl} alt="Part 5" className="block h-auto w-full" draggable={false} />
+        <img src={part.sceneUrl} alt="Part 5" className="listening-interactive-scene block h-auto w-full" draggable={false} />
         {selectedPaletteItem && <span aria-hidden="true" style={{ left: `${keyboardAnchor.x * 100}%`, top: `${keyboardAnchor.y * 100}%` }} className="pointer-events-none absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/80" />}
         {part.interactiveObjects.map((object, index) => {
           const selectedEntry = structuredAnswers.find(({ answer }) => answer.type === 'colour_object' && answer.objectId === object.id);
@@ -696,7 +696,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
         ))}
       </div>
       <div className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white">
-        <img src={part.sceneUrl} alt="Part 5" className="block h-auto w-full" draggable={false} />
+        <img src={part.sceneUrl} alt="Part 5" className="listening-interactive-scene block h-auto w-full" draggable={false} />
         {part.targets.map((target, index) => {
           const answer = legacyAnswers[target.id];
           const colour = colours.get(answer);

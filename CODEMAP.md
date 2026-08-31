@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 ## 1. Project Overview
 
@@ -3707,7 +3707,42 @@ Verification:
   and defines default, hover, focus-visible and `aria-pressed=true` colours.
   The navigation contract verifies cascade order and WCAG-AA colour pairs.
 
-## 57. Fixed Flyers Listening five-Part workflow - 2026-08-29
+## 57. Shared responsive exam-image presentation profiles - 2026-08-31
+
+- `src/features/exam-media/imageProfiles.ts` is the presentation-only registry
+  for cover, split-page, illustration, page-scan, story-scene, word-bank,
+  interactive-scene and option images. Pixel dimensions from an uploaded asset
+  never become layout dimensions: every profile supplies a responsive maximum
+  width and a `dvh`-aware maximum height. These values are not stored in drafts,
+  published versions or attempts, so no schema/data migration is required.
+- `ExamImageViewer.tsx` consumes those profiles while retaining its explicit
+  `maxWidth`/`maxHeight` escape hatches. `data-exam-image-stage` remains the
+  exact rendered image box, and matching/colour/Draw SVG or hitbox overlays are
+  children of that stage. This prevents normalized coordinates from drifting
+  because of an empty letterboxed slot. Zoom, fullscreen and Escape-to-close
+  behavior is unchanged; modal sizing now uses the dynamic viewport unit.
+- `ExamSplitTaskLayout.tsx` is the shared picture-left/task-right shell. Its
+  `47fr / 53fr` tracks divide the width remaining after the 24px gap, replacing
+  the previous `44% + 56% + gap` overflow pattern. It stacks on narrow screens
+  and keeps only the media column sticky on desktop.
+- The generic player resolves profiles from media role, paper and interaction
+  family. Flyers Reading & Writing Part 3 selects the split-page/two-column
+  presentation; generic question and choice images use illustration and option
+  profiles. Starters Reading & Writing student/review Parts and Movers Reading
+  & Writing student/review Parts select profiles by semantic role rather than
+  uploading resolution or per-Part CSS.
+- Starters Listening continues to reuse the released Movers Part 2/4/5 views,
+  but stable image hooks plus feature-scoped CSS make its A/B/C images compact
+  without changing the Movers Listening presentation. Matching and Colour/Draw
+  scenes use the large interactive profile, with their overlay geometry bound
+  to the same responsive stage. Student review images use the same profiles as
+  their corresponding task views.
+- Contract coverage locks the profile registry, dynamic viewport bounds,
+  overflow-safe split tracks, Flyers Part 3 resolver and Starters-only option
+  sizing. Verification requires TypeScript, exam-platform, Listening and Movers
+  Reading tests plus a production build and desktop/mobile visual smoke.
+
+## 58. Fixed Flyers Listening five-Part workflow - 2026-08-29
 
 - Flyers Listening is now a fixed five-Part, 25-question projection on the
   shared exam platform. Whole-paper and per-Part Universal JSON prompts lock
@@ -3766,7 +3801,7 @@ Verification:
   name-placement shape with the Movers Part 2 short-answer shape on edit.
   `npm run lint` and `npm run test:exam-platform` cover these contracts.
 
-## 58. Flyers Reading & Writing seven-Part, flexible-count workflow - 2026-08-29
+## 59. Flyers Reading & Writing seven-Part, flexible-count workflow - 2026-08-29
 
 - Flyers Reading & Writing keeps exactly seven ordered Part types, while the
   scored question count of every Part comes from the printed source or imported
@@ -3811,7 +3846,7 @@ Verification:
   dedicated author/player/review cloze layouts. Movers source components remain
   reference-only.
 
-## 59. KET Reading & Writing nine-Part workflow and AI Writing grade - 2026-08-29
+## 60. KET Reading & Writing nine-Part workflow and AI Writing grade - 2026-08-29
 
 - New KET Reading & Writing drafts use `templateVersion:
   ket-reading-writing-9-v1` and exactly nine ordered Part types. Parts 1-8 keep
@@ -3884,7 +3919,7 @@ Verification:
   looking it up in the previous render's asset array, so clipboard paste is
   accepted on the first click rather than the second.
 
-## 60. KET Listening five-Part, flexible-count workflow - 2026-08-30
+## 61. KET Listening five-Part, flexible-count workflow - 2026-08-30
 
 - New KET Listening drafts use `templateVersion: ket-listening-5-v1` and five
   ordered interaction types, while every Part keeps a teacher-controlled,
@@ -3921,7 +3956,7 @@ Verification:
   option-media preservation, source sanitization, special row grouping and the
   author/player/review contracts.
 
-## 61. Timed practice submission resilience - 2026-08-30
+## 62. Timed practice submission resilience - 2026-08-30
 
 - A configured deadline now ends the countdown and triggers one automatic
   submission, but it no longer invalidates the signed attempt. The attempt

@@ -3226,6 +3226,34 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+/* Exam image presentation profiles. Keep option-card sizing scoped to the
+   Starters adapters so the original Movers listening layout is unchanged. */
+#generic-exam-player img.exam-platform-option-image {
+  height: clamp(88px, 11dvh, 112px);
+  max-width: 112px;
+  margin-inline: auto;
+}
+
+#listening-exam-root [data-starter-interaction="text-entry"] img.listening-part2-illustration {
+  width: auto;
+  max-width: 100%;
+  max-height: min(52dvh, 500px, max(160px, calc(100dvh - 330px)));
+}
+
+#listening-exam-root [data-starter-interaction="image-options"] img.listening-image-option {
+  width: 100%;
+  height: clamp(88px, 11dvh, 112px);
+  max-width: 112px;
+  margin-inline: auto;
+}
+
+#listening-exam-root [data-starter-interaction="scene-colour-draw"] img.listening-interactive-scene {
+  width: auto;
+  max-width: 100%;
+  max-height: min(72dvh, 720px, max(220px, calc(100dvh - 330px)));
+  margin-inline: auto;
+}
+
 /* Starters Reading & Writing uses the Movers-style review navigation, but is
    deliberately scoped away from the reviewed Movers module. */
 #starter-reading-result-screen button.starter-reading-primary-action:not(:disabled),

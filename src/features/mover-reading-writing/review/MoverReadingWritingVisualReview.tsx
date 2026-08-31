@@ -6,6 +6,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
+import { getExamImageProfile, type ExamImageProfile } from '../../exam-media/imageProfiles';
 import type {
   MoverReadingWritingVisualReviewBaseItem,
   MoverReadingWritingVisualReviewChoiceItem,
@@ -84,9 +86,10 @@ function ExampleBlock({ examples }: { examples: MoverReadingWritingVisualReviewE
   );
 }
 
-function ReviewImage({ url, alt }: { url?: string; alt: string }) {
+function ReviewImage({ url, alt, profile = 'split-page' }: { url?: string; alt: string; profile?: ExamImageProfile }) {
+  const limits = getExamImageProfile(profile);
   return url
-    ? <img src={url} alt={alt} className="mx-auto max-h-[72vh] w-full rounded-2xl border border-slate-200 bg-white object-contain" />
+    ? <img src={url} alt={alt} data-exam-image-profile={profile} className="mx-auto h-auto w-auto max-w-full rounded-2xl border border-slate-200 bg-white object-contain" style={{ maxWidth: limits.maxWidth, maxHeight: limits.maxHeight }} />
     : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
 }
 
@@ -170,12 +173,7 @@ function renderReviewTemplate(template: string, items: MoverReadingWritingVisual
 }
 
 function TwoColumn({ media, children }: { media: ReactNode; children: ReactNode }) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]">
-      <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">{media}</div>
-      <div className="min-w-0 space-y-4">{children}</div>
-    </div>
-  );
+  return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
 }
 
 function ReviewPart({ part }: { part: MoverReadingWritingVisualReviewPart }) {
@@ -187,11 +185,11 @@ function ReviewPart({ part }: { part: MoverReadingWritingVisualReviewPart }) {
     </div>
   );
 
-  if (part.part === 1) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 1" />}><ExampleBlock examples={part.example ? [part.example] : []} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.items.map(item => <div key={item.questionNumber} className="contents"><InlineReviewQuestion item={item} /></div>)}</div></TwoColumn></section>;
-  if (part.part === 2) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 2" />}><ExampleBlock examples={part.examples} />{part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}</TwoColumn></section>;
-  if (part.part === 3) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 3" />}><ExampleBlock examples={part.example ? [part.example] : []} />{part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}</TwoColumn></section>;
+  if (part.part === 1) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 1" profile="word-bank" />}><ExampleBlock examples={part.example ? [part.example] : []} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.items.map(item => <div key={item.questionNumber} className="contents"><InlineReviewQuestion item={item} /></div>)}</div></TwoColumn></section>;
+  if (part.part === 2) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 2" profile="illustration" />}><ExampleBlock examples={part.examples} />{part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}</TwoColumn></section>;
+  if (part.part === 3) return <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 3" profile="illustration" />}><ExampleBlock examples={part.example ? [part.example] : []} />{part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}</TwoColumn></section>;
   if (part.part === 4) return (
-    <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 4" />}>
+    <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Kết quả Part 4" profile="word-bank" />}>
       <ExampleBlock examples={part.example ? [part.example] : []} />
       <div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderReviewTemplate(part.storyTemplate, part.gaps)}</div>
       <ChoiceAnswerCard item={part.titleItem} />
@@ -200,20 +198,17 @@ function ReviewPart({ part }: { part: MoverReadingWritingVisualReviewPart }) {
   if (part.part === 5) return (
     <section>{heading}<ExampleBlock examples={part.example ? [part.example] : []} />
       <div className="mt-5 space-y-7">{part.scenes.map((scene, sceneIndex) => (
-        <section key={sceneIndex} className="grid gap-5 rounded-3xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]">
-          <div className="space-y-3"><ReviewImage url={scene.imageUrl} alt={`Kết quả Part 5 tranh ${sceneIndex + 1}`} /></div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{scene.passage && <p className="mb-4 whitespace-pre-wrap border-b border-slate-200 pb-4 text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>}{scene.items.map(item => <div key={item.questionNumber} className="contents"><InlineReviewQuestion item={item} /></div>)}</div>
-        </section>
+        <section key={sceneIndex}><ExamSplitTaskLayout className="rounded-3xl border border-slate-200 bg-slate-50 p-4" media={<ReviewImage url={scene.imageUrl} alt={`Kết quả Part 5 tranh ${sceneIndex + 1}`} profile="story-scene" />}><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{scene.passage && <p className="mb-4 whitespace-pre-wrap border-b border-slate-200 pb-4 text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>}{scene.items.map(item => <div key={item.questionNumber} className="contents"><InlineReviewQuestion item={item} /></div>)}</div></ExamSplitTaskLayout></section>
       ))}</div>
     </section>
   );
   if (part.mode === 'image-options') return (
-    <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Ảnh bài đọc Part 6" />}>
+    <section>{heading}<TwoColumn media={<ReviewImage url={part.imageUrl} alt="Ảnh bài đọc Part 6" profile="page-scan" />}>
       {part.items.map(item => <div key={item.questionNumber} className="contents"><ChoiceAnswerCard item={item} /></div>)}
     </TwoColumn></section>
   );
   return (
-    <section>{heading}<TwoColumn media={<><ReviewImage url={part.illustrationUrl} alt="Ảnh bài đọc Part 6" /><ReviewImage url={part.optionsUrl} alt="Bảng lựa chọn Part 6" /></>}>
+    <section>{heading}<TwoColumn media={<><ReviewImage url={part.illustrationUrl} alt="Ảnh bài đọc Part 6" profile="page-scan" /><ReviewImage url={part.optionsUrl} alt="Bảng lựa chọn Part 6" profile="word-bank" /></>}>
       <h4 className="text-center text-2xl font-black text-slate-900">{part.passageTitle}</h4>
       <ExampleBlock examples={part.example ? [part.example] : []} />
       <div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderReviewTemplate(part.passageTemplate, part.items)}</div>

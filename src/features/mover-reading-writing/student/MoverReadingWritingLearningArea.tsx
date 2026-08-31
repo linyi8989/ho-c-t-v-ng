@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import { getExamImageProfile } from '../../exam-media/imageProfiles';
 import {
   GUEST_ID_STORAGE_KEY,
   STUDENT_NAME_STORAGE_KEY,
@@ -41,6 +42,8 @@ import {
   ReadingPart5View,
   ReadingPart6View,
 } from './MoverReadingWritingPartViews';
+
+const coverImageProfile = getExamImageProfile('cover');
 
 interface Props { setId: string; accessToken?: string; onBack: () => void }
 interface SavedRun {
@@ -273,7 +276,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
 
   if (!run) return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5" id="mover-reading-writing-player">
-      <section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <img src={playable.coverUrl} alt="" className="mx-auto mb-6 max-h-64 rounded-2xl object-contain" /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">Movers · Reading & Writing</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">6 Part</span><span className="rounded-full bg-indigo-50 px-3 py-2">40 câu</span><span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" onClick={() => void start()} className="mover-reading-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white">Bắt đầu</button></div></section>
+      <section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <img src={playable.coverUrl} alt="" data-exam-image-profile="cover" className="mx-auto mb-6 h-auto w-auto max-w-full rounded-2xl object-contain" style={{ maxWidth: coverImageProfile.maxWidth, maxHeight: coverImageProfile.maxHeight }} /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">Movers · Reading & Writing</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">6 Part</span><span className="rounded-full bg-indigo-50 px-3 py-2">40 câu</span><span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" onClick={() => void start()} className="mover-reading-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white">Bắt đầu</button></div></section>
     </main>
   );
 

@@ -32,7 +32,7 @@ function TextResults({ part, results, moverLayout = false }: { part: ExamPartCon
   })}</div>;
   if (!moverLayout) return cards;
   return <div className="grid gap-4 lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
-    <div className="space-y-3">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Ảnh minh họa Part 2" maxHeight="min(52vh, 420px)" className="border border-slate-200 bg-white" />}{part.passage && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold"><span className="text-sky-700">Example:</span> {part.passage}</p>}</div>
+    <div className="space-y-3">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Ảnh minh họa Part 2" profile="illustration" className="border border-slate-200 bg-white" />}{part.passage && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold"><span className="text-sky-700">Example:</span> {part.passage}</p>}</div>
     <div className="space-y-3"><h3 className="text-center text-xl font-black text-slate-900">{part.title || 'LISTEN AND WRITE.'}</h3>{cards}</div>
   </div>;
 }
@@ -60,7 +60,7 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
     ...expected.filter(row => !submittedKeys.has(`${row.sourceNodeId}\u0000${row.targetNodeId}`)).map((row, index) => ({ ...row, colour: '#16a34a', dashed: true, key: `correct-${index}` })),
   ];
   return <div className="space-y-4">
-    <ExamImageViewer src={unit.imageUrl} alt="Kết quả nối hình Part 1" className="border-2 border-slate-200 bg-white">
+    <ExamImageViewer src={unit.imageUrl} alt="Kết quả nối hình Part 1" profile="interactive-scene" className="border-2 border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" focusable="false" className="pointer-events-none absolute inset-0 h-full w-full">
         {lines.map(line => {
           const source = sourceById.get(line.sourceNodeId);
@@ -77,7 +77,7 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
 
 function ImageOptionResults({ part, results, showSource = true, displayImageUrl }: { part: ExamPartContent; results: ExamQuestionResult[]; showSource?: boolean; displayImageUrl?: string }) {
   const unit = examPartUnits(part)[0] || part;
-  return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" maxHeight="min(34vh, 320px)" className="border-2 border-orange-300 bg-white p-2" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" maxHeight="min(46vh, 360px)" className="border-2 border-orange-300 bg-white p-2" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
+  return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" profile="illustration" className="border-2 border-orange-300 bg-white p-2" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border-2 border-orange-300 bg-white p-2" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
     const result = results.find(item => item.questionId === question.id);
     const state = stateOf(result);
     const user = normalized(answerText(result?.userAnswer));
@@ -86,7 +86,7 @@ function ImageOptionResults({ part, results, showSource = true, displayImageUrl 
       const optionValues = [normalized(option.label), normalized(option.text)];
       const selected = optionValues.includes(user);
       const right = optionValues.includes(correct);
-      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl ? <img src={option.imageUrl} alt={option.text} className="h-24 w-full object-contain sm:h-32" /> : <div className="flex min-h-20 items-center justify-center px-2 text-center text-sm font-bold text-slate-900">{option.text}</div>}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
+      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl ? <img src={option.imageUrl} alt={option.text} className="listening-image-option mx-auto h-[clamp(88px,11dvh,112px)] w-full max-w-28 object-contain" /> : <div className="flex min-h-20 items-center justify-center px-2 text-center text-sm font-bold text-slate-900">{option.text}</div>}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
     })}</div></article>;
   })}</div></div>;
 }
@@ -129,7 +129,7 @@ function SceneResults({ part, results, answers, review }: { part: ExamPartConten
   const privateDrawTargets = review.sceneDrawTargets || [];
 
   return <div className="space-y-4">
-    {imageUrl ? <ExamImageViewer src={imageUrl} alt="Kết quả Part 4" className="border-2 border-orange-300 bg-white">
+    {imageUrl ? <ExamImageViewer src={imageUrl} alt="Kết quả Part 4" profile="interactive-scene" className="border-2 border-orange-300 bg-white">
       {colours.flatMap(({ unit, target }) => {
         const question = unit.questions.find(item => item.id === target.questionId);
         const result = results.find(item => item.questionId === target.questionId);
@@ -181,7 +181,7 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
   const ketListening = playable.content.moduleId === 'ket' && playable.content.paperId === 'listening' && playable.content.templateVersion === 'ket-listening-5-v1';
 
   return <div id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
-    <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
+    <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
       <header className="shrink-0 border-b border-slate-200 px-5 py-4 text-left sm:px-7"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-blue-600">Đáp án sau khi nộp</p><h1 className="mt-1 text-2xl font-black text-slate-900">Kết quả chi tiết</h1></div><div className="rounded-2xl bg-blue-50 px-5 py-2 text-center"><span className="text-3xl font-black text-blue-700">{review.attempt.score}</span><span className="font-black text-slate-400">/100</span></div></div></header>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 sm:p-6">
         <section className="space-y-3" data-listening-visual-review>

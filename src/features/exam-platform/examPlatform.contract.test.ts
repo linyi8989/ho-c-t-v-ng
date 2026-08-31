@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { EXAM_IMAGE_PROFILES } from '../exam-media/imageProfiles';
 import { normalizeStarterPart2PromptForMover } from './student/StarterInteractions';
+import { resolveExamImageProfile, resolveExamTaskLayout } from './student/examPresentation';
 
 const adminSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../../../server.ts', import.meta.url), 'utf8');
@@ -16,7 +18,7 @@ const universalPromptSource = readFileSync(new URL('./universalImportPrompt.ts',
 const starterPlayerSource = readFileSync(new URL('./student/StarterInteractions.tsx', import.meta.url), 'utf8');
 const genericPlayerSource = readFileSync(new URL('./student/GenericExamLearningArea.tsx', import.meta.url), 'utf8');
 const moverListeningPlayerSource = readFileSync(new URL('../listening/student/ListeningLearningArea.tsx', import.meta.url), 'utf8');
-const moverReadingPlayerSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
+const moverReadingLearningSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
 const starterResultSource = readFileSync(new URL('./student/StarterListeningResult.tsx', import.meta.url), 'utf8');
 const starterReadingAuthoringSource = readFileSync(new URL('./admin/StarterReadingWritingAuthoring.tsx', import.meta.url), 'utf8');
 const starterReadingPlayerSource = readFileSync(new URL('./student/StarterReadingWritingViews.tsx', import.meta.url), 'utf8');
@@ -36,6 +38,10 @@ const ketListeningMigrationSource = readFileSync(new URL('./ketListeningMigratio
 const ketListeningCropSource = readFileSync(new URL('./ketListeningCrops.ts', import.meta.url), 'utf8');
 const writingGradingProviderSource = readFileSync(new URL('../../server/exam-platform/writingGradingProvider.ts', import.meta.url), 'utf8');
 const imageViewerSource = readFileSync(new URL('./student/ExamImageViewer.tsx', import.meta.url), 'utf8');
+const imageProfileSource = readFileSync(new URL('../exam-media/imageProfiles.ts', import.meta.url), 'utf8');
+const splitLayoutSource = readFileSync(new URL('../exam-media/ExamSplitTaskLayout.tsx', import.meta.url), 'utf8');
+const moverReadingPlayerSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
+const listeningPartViewsSource = readFileSync(new URL('../listening/student/ListeningPartViews.tsx', import.meta.url), 'utf8');
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
@@ -83,7 +89,7 @@ test('timed practice attempts remain submittable and automatic timeout submissio
   assert.doesNotMatch(examRouterSource, /Thời gian làm bài đã kết thúc/);
   assert.match(examRouterSource, /const timedOut = Boolean\(ticket\.deadlineAt/);
   assert.match(examRouterSource, /timedOut,/);
-  for (const source of [genericPlayerSource, moverListeningPlayerSource, moverReadingPlayerSource]) {
+  for (const source of [genericPlayerSource, moverListeningPlayerSource, moverReadingLearningSource]) {
     assert.match(source, /automaticSubmitStarted/);
     assert.match(source, /remaining === 0 && !automaticSubmitStarted\.current/);
   }
@@ -126,6 +132,39 @@ test('new exam modules keep readable navigation, protected transcripts and respo
   }
   assert.match(genericPlayerSource, /ExamImageViewer/);
   assert.match(starterPlayerSource, /ExamImageViewer/);
+});
+
+test('student exam images use shared viewport-aware profiles and overflow-safe split layouts', () => {
+  assert.deepEqual(Object.keys(EXAM_IMAGE_PROFILES), [
+    'default',
+    'cover',
+    'split-page',
+    'illustration',
+    'page-scan',
+    'story-scene',
+    'word-bank',
+    'interactive-scene',
+    'option',
+  ]);
+  assert.equal(EXAM_IMAGE_PROFILES['split-page'].maxWidth, '540px');
+  assert.equal(EXAM_IMAGE_PROFILES.option.maxWidth, '112px');
+  assert.match(imageProfileSource, /100dvh/);
+  assert.match(imageViewerSource, /data-exam-image-profile/);
+  assert.match(imageViewerSource, /data-exam-image-stage/);
+  assert.match(imageViewerSource, /resolvedMaxWidth/);
+  assert.match(splitLayoutSource, /47fr/);
+  assert.match(splitLayoutSource, /53fr/);
+  assert.doesNotMatch(splitLayoutSource, /grid-cols-\[minmax\(0,44%\)|grid-cols-\[minmax\(0,56%\)/);
+  assert.match(starterReadingPlayerSource, /ExamSplitTaskLayout/);
+  assert.match(starterReadingResultSource, /ExamSplitTaskLayout/);
+  assert.match(moverReadingPlayerSource, /ExamSplitTaskLayout/);
+  assert.doesNotMatch(moverReadingPlayerSource, /grid-cols-\[minmax\(0,44%\)|grid-cols-\[minmax\(0,56%\)/);
+  assert.match(listeningPartViewsSource, /listening-image-option/);
+  assert.match(globalCssSource, /data-starter-interaction="image-options"/);
+  assert.equal(resolveExamTaskLayout({ moduleId: 'flyer', paperId: 'reading-writing', partNumber: 3 }), 'split-task');
+  assert.equal(resolveExamTaskLayout({ moduleId: 'starter', paperId: 'reading-writing', partNumber: 3 }), 'stack');
+  assert.equal(resolveExamImageProfile({ moduleId: 'flyer', paperId: 'reading-writing', partNumber: 3, mediaRole: 'part' }), 'split-page');
+  assert.equal(resolveExamImageProfile({ moduleId: 'starter', paperId: 'listening', partNumber: 1, mediaRole: 'part', interaction: { family: 'matching', subtype: 'image-to-image', variant: 'lines', schemaVersion: 1 } }), 'interactive-scene');
 });
 
 test('Universal JSON owns dynamic Parts/blocks while Starter keeps teacher-owned visual tools', () => {

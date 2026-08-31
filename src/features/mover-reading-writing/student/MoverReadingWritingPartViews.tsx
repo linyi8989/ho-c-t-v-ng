@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
+import { getExamImageProfile, type ExamImageProfile } from '../../exam-media/imageProfiles';
 import type {
   MoverReadingWritingAnswers,
   MoverReadingWritingChoiceQuestion,
@@ -16,15 +18,16 @@ interface AnswerProps {
   onAnswers: (update: (answers: MoverReadingWritingAnswers) => MoverReadingWritingAnswers) => void;
 }
 
-function Layout({ imageUrl, imageAlt, children }: { imageUrl?: string; imageAlt: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]">
-      <div className="lg:sticky lg:top-4 lg:self-start">
-        {imageUrl ? <img src={imageUrl} alt={imageAlt} className="mx-auto max-h-[72vh] w-full rounded-2xl border border-slate-200 bg-white object-contain" /> : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
+function ProfiledImage({ src, alt, profile }: { src: string; alt: string; profile: ExamImageProfile }) {
+  const limits = getExamImageProfile(profile);
+  return <img src={src} alt={alt} data-exam-image-profile={profile} className="mx-auto h-auto w-auto max-w-full rounded-2xl border border-slate-200 bg-white object-contain" style={{ maxWidth: limits.maxWidth, maxHeight: limits.maxHeight }} />;
+}
+
+function Layout({ imageUrl, imageAlt, profile = 'split-page', children }: { imageUrl?: string; imageAlt: string; profile?: ExamImageProfile; children: ReactNode }) {
+  const media = imageUrl
+    ? <ProfiledImage src={imageUrl} alt={imageAlt} profile={profile} />
+    : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
+  return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
 }
 
 const EXAMPLE_BLANK = /(\[\[\s*example\s*\]\]|\{\{[^}]+\}\}|_{3,}|(?:\.\s*){4,})/i;
@@ -118,30 +121,30 @@ function renderTemplate(template: string, renderGap: (id: string, index: number)
 }
 
 export function ReadingPart1View({ part, answers, onAnswers }: { part: MoverReadingWritingPart1 } & AnswerProps) {
-  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <div key={question.id} className="contents"><InlineTextQuestion number={index + 1} questionId={question.id} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} /></div>)}</div></Layout>;
+  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <div key={question.id} className="contents"><InlineTextQuestion number={index + 1} questionId={question.id} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} /></div>)}</div></Layout>;
 }
 
 export function ReadingPart2View({ part, answers, onAnswers }: { part: MoverReadingWritingPart2 } & AnswerProps) {
-  return <Layout imageUrl={part.sceneUrl} imageAlt="Tranh tình huống Part 2"><Examples items={part.examples} />{part.questions.map((question, index) => <fieldset key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><legend className="px-1 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{question.statement}</legend><div className="mt-3 grid grid-cols-2 gap-3">{(['yes', 'no'] as const).map(value => <label key={value} className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-black uppercase ${answers.part2[question.id] === value ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}><input className="sr-only" type="radio" name={`rw-p2-${question.id}`} checked={answers.part2[question.id] === value} onChange={() => onAnswers(current => ({ ...current, part2: { ...current.part2, [question.id]: value } }))} />{value}</label>)}</div></fieldset>)}</Layout>;
+  return <Layout imageUrl={part.sceneUrl} imageAlt="Tranh tình huống Part 2" profile="illustration"><Examples items={part.examples} />{part.questions.map((question, index) => <fieldset key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><legend className="px-1 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{question.statement}</legend><div className="mt-3 grid grid-cols-2 gap-3">{(['yes', 'no'] as const).map(value => <label key={value} className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-black uppercase ${answers.part2[question.id] === value ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}><input className="sr-only" type="radio" name={`rw-p2-${question.id}`} checked={answers.part2[question.id] === value} onChange={() => onAnswers(current => ({ ...current, part2: { ...current.part2, [question.id]: value } }))} />{value}</label>)}</div></fieldset>)}</Layout>;
 }
 
 export function ReadingPart3View({ part, answers, onAnswers }: { part: MoverReadingWritingPart3 } & AnswerProps) {
-  return <Layout imageUrl={part.sceneUrl} imageAlt="Hội thoại Part 3">{part.example && <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><p className="text-xs font-black uppercase text-indigo-700">Example</p><p className="mt-2 text-sm font-bold">{part.example.prompt}</p></div>}{part.questions.map((question, index) => <div key={question.id} className="contents"><ChoiceQuestion number={index + 1} question={question} value={answers.part3[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part3: { ...current.part3, [question.id]: value } }))} /></div>)}</Layout>;
+  return <Layout imageUrl={part.sceneUrl} imageAlt="Hội thoại Part 3" profile="illustration">{part.example && <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><p className="text-xs font-black uppercase text-indigo-700">Example</p><p className="mt-2 text-sm font-bold">{part.example.prompt}</p></div>}{part.questions.map((question, index) => <div key={question.id} className="contents"><ChoiceQuestion number={index + 1} question={question} value={answers.part3[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part3: { ...current.part3, [question.id]: value } }))} /></div>)}</Layout>;
 }
 
 export function ReadingPart4View({ part, answers, onAnswers }: { part: MoverReadingWritingPart4 } & AnswerProps) {
-  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 4"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderTemplate(part.storyTemplate, (id, index) => <InlineAnswerInput value={answers.part4.gaps[id] || ''} onChange={value => onAnswers(current => ({ ...current, part4: { ...current.part4, gaps: { ...current.part4.gaps, [id]: value } } }))} label={`Chỗ trống ${index + 1}`} />)}</div><ChoiceQuestion number={7} question={part.titleQuestion} value={answers.part4.titleOptionId} onChange={titleOptionId => onAnswers(current => ({ ...current, part4: { ...current.part4, titleOptionId } }))} /></Layout>;
+  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 4" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderTemplate(part.storyTemplate, (id, index) => <InlineAnswerInput value={answers.part4.gaps[id] || ''} onChange={value => onAnswers(current => ({ ...current, part4: { ...current.part4, gaps: { ...current.part4.gaps, [id]: value } } }))} label={`Chỗ trống ${index + 1}`} />)}</div><ChoiceQuestion number={7} question={part.titleQuestion} value={answers.part4.titleOptionId} onChange={titleOptionId => onAnswers(current => ({ ...current, part4: { ...current.part4, titleOptionId } }))} /></Layout>;
 }
 
 export function ReadingPart5View({ part, answers, onAnswers }: { part: MoverReadingWritingPart5 } & AnswerProps) {
   let questionNumber = 0;
-  return <div className="space-y-8">{part.scenes.map((scene, sceneIndex) => <section key={scene.id} className="grid gap-6 rounded-3xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]"><div>{scene.imageUrl ? <img src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} className="w-full rounded-2xl border border-slate-200 bg-white object-contain" /> : null}</div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p><div className="mt-4 border-t border-slate-200 pt-3">{scene.questions.map(question => { questionNumber += 1; const number = questionNumber; return <div key={question.id} className="contents"><InlineTextQuestion number={number} questionId={question.id} prompt={question.prompt} value={answers.part5[question.id] || ''} maxWords={3} onChange={value => onAnswers(current => ({ ...current, part5: { ...current.part5, [question.id]: value } }))} /></div>; })}</div></div></section>)}</div>;
+  return <div className="space-y-8">{part.scenes.map((scene, sceneIndex) => <section key={scene.id}><ExamSplitTaskLayout className="rounded-3xl border border-slate-200 bg-slate-50 p-4" media={scene.imageUrl ? <ProfiledImage src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} profile="story-scene" /> : null}><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p><div className="mt-4 border-t border-slate-200 pt-3">{scene.questions.map(question => { questionNumber += 1; const number = questionNumber; return <div key={question.id} className="contents"><InlineTextQuestion number={number} questionId={question.id} prompt={question.prompt} value={answers.part5[question.id] || ''} maxWords={3} onChange={value => onAnswers(current => ({ ...current, part5: { ...current.part5, [question.id]: value } }))} /></div>; })}</div></div></ExamSplitTaskLayout></section>)}</div>;
 }
 
 export function ReadingPart6View({ part, answers, onAnswers }: { part: MoverReadingWritingPart6 } & AnswerProps) {
   if (isMoverReadingWritingPart6ImageChoice(part)) {
     return (
-      <Layout imageUrl={part.studentImageUrl} imageAlt="Ảnh bài đọc Part 6">
+      <Layout imageUrl={part.studentImageUrl} imageAlt="Ảnh bài đọc Part 6" profile="page-scan">
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
           Chọn một đáp án A, B hoặc C tương ứng với từng số câu trên ảnh.
         </div>
@@ -162,17 +165,14 @@ export function ReadingPart6View({ part, answers, onAnswers }: { part: MoverRead
   const byId = new Map(part.gaps.map(gap => [gap.id, gap]));
   const passageTemplate = part.passageTemplate.replace(/\[\[\s*example\s*\]\]/gi, part.example?.answer || '');
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,44%)_minmax(0,56%)]">
-      <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-        {part.illustrationUrl ? <img src={part.illustrationUrl} alt="Ảnh bài đọc Part 6" className="mx-auto max-h-[54vh] w-full rounded-2xl border border-slate-200 bg-white object-contain" /> : null}
-        {part.optionsUrl ? <img src={part.optionsUrl} alt="Bảng lựa chọn Part 6" className="mx-auto max-h-[34vh] w-full rounded-2xl border border-slate-200 bg-white object-contain" /> : null}
-        {!part.illustrationUrl && !part.optionsUrl ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div> : null}
-      </div>
-      <div className="space-y-4">
+    <ExamSplitTaskLayout media={<>
+      {part.illustrationUrl ? <ProfiledImage src={part.illustrationUrl} alt="Ảnh bài đọc Part 6" profile="page-scan" /> : null}
+      {part.optionsUrl ? <ProfiledImage src={part.optionsUrl} alt="Bảng lựa chọn Part 6" profile="word-bank" /> : null}
+      {!part.illustrationUrl && !part.optionsUrl ? <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div> : null}
+    </>}>
         <h3 className="text-center text-2xl font-black text-slate-900">{part.passageTitle}</h3>
         <Example prompt={part.example?.prompt} answer={part.example?.answer} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderTemplate(passageTemplate, (id, index) => { const gap = byId.get(id); if (!gap) return <span className="text-rose-700">[Thiếu ô {index + 1}]</span>; return <InlineAnswerInput value={answers.part6[id] || ''} onChange={value => onAnswers(current => ({ ...current, part6: { ...current.part6, [id]: value } }))} label={`Chỗ trống ${index + 1}`} maxWords={1} width="w-32" />; })}</div>
-      </div>
-    </div>
+    </ExamSplitTaskLayout>
   );
 }

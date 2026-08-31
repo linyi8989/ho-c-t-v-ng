@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { ListeningPart2View, ListeningPart4View, ListeningPart5View } from '../../listening/student/ListeningPartViews';
 import type { ListeningAnswers, ListeningPart2, ListeningPart4, ListeningPart5SceneColourDraw } from '../../listening/types';
+import { getExamImageProfile } from '../../exam-media/imageProfiles';
 import type { ExamAnswerValue, ExamAnswers, ExamInteractionRegion, ExamMatchingConnection, ExamPartContent, ExamScenePlacement } from '../types';
 import { examPartUnits } from '../examStructure';
 import { starterColourValue } from '../starterImport';
@@ -10,6 +11,8 @@ import {
   starterMatchingResponseKey,
 } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
+
+const interactiveImageProfile = getExamImageProfile('interactive-scene');
 
 function RegionShape({ region, fill, stroke = 'rgba(37,99,235,.85)', onClick, label }: { key?: string; region: ExamInteractionRegion; fill: string; stroke?: string; onClick?: () => void; label?: string }) {
   const onKeyDown = (event: KeyboardEvent<SVGElement>) => {
@@ -129,7 +132,7 @@ export function StarterImageOptionsView({ part, answers, onAnswer }: { part: Exa
 export function StarterListeningPart3View({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const unit = examPartUnits(part).find(item => item.interaction?.variant === 'image-options') || examPartUnits(part)[0] || part;
   return <div className="space-y-5" data-starter-listening-part3>
-    {part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" maxHeight="min(46vh, 360px)" className="border-2 border-orange-300 bg-white p-2" /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Part 3 chưa có ảnh hiển thị chung.</p>}
+    {part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border-2 border-orange-300 bg-white p-2" /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Part 3 chưa có ảnh hiển thị chung.</p>}
     <StarterImageOptionsView part={unit} answers={answers} onAnswer={onAnswer} />
   </div>;
 }
@@ -292,7 +295,7 @@ function MatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answ
   const activeSource = sourceById.get(activeSourceId);
   return <div className="space-y-3" id="starter-interaction" data-starter-interaction="image-matching" onKeyDown={event => { if (event.key === 'Escape') { setActiveSourceId(''); setPreviewPoint(undefined); } }}>
     <p className="text-xs font-bold text-slate-600">Chạm một hình nguồn rồi chạm hình đích, hoặc giữ và kéo để nối. Chạm đường đã nối để xóa. Đường example in sẵn được khóa.</p>
-    <ExamImageViewer frameRef={boardRef} src={part.imageUrl} alt="Starters matching scene" className="isolate border border-slate-200 bg-white">
+    <ExamImageViewer frameRef={boardRef} src={part.imageUrl} alt="Starters matching scene" profile="interactive-scene" className="isolate border border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" focusable="false" className="starter-matching-lines pointer-events-none absolute inset-0 z-30 h-full w-full" aria-label="Các đường nối Starters Part 1">
         {connections.map(connection => {
           const source = sourceById.get(connection.sourceNodeId);
@@ -328,9 +331,7 @@ function SceneColourView({ part, answers, onAnswer }: { part: ExamPartContent; a
   return <div className="space-y-3" id="starter-interaction" data-starter-interaction="scene-colour">
     <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">{palette.map(option => <button key={option.id} type="button" aria-pressed={selectedColourId === option.id} data-starter-action="select-colour" onClick={() => setSelectedColourId(option.id)} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${selectedColourId === option.id ? 'border-indigo-600 ring-2 ring-indigo-200' : 'border-slate-200'}`}><span className="h-5 w-5 rounded-full border border-slate-300" aria-hidden="true" style={{ backgroundColor: starterColourValue(option.text) }} />{option.text}</button>)}</div>
     <p className="text-xs font-bold text-slate-600">Chọn màu, sau đó chạm vào đối tượng tương ứng trên tranh.</p>
-    <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <img src={part.imageUrl} alt="Starters colour scene" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: 'min(68vh, 720px)' }} />
-      <div className="absolute right-2 top-2 z-50"><ExamImageViewer src={part.imageUrl} alt="Starters colour scene" triggerOnly /></div>
+    <ExamImageViewer src={part.imageUrl} alt="Starters colour scene" profile="interactive-scene" className="border border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
         {layout.targets.map(target => {
           const raw = answers[target.questionId];
@@ -339,7 +340,7 @@ function SceneColourView({ part, answers, onAnswer }: { part: ExamPartContent; a
           return <RegionShape key={target.id} region={target.region} label={`Tô màu ${target.label}`} fill={option ? `${starterColourValue(option.text)}88` : 'transparent'} stroke={selectedColourId ? 'rgba(37,99,235,.75)' : 'rgba(100,116,139,.35)'} onClick={() => selectedColourId && onAnswer(target.questionId, selectedColourId)} />;
         })}
       </svg>
-    </div>
+    </ExamImageViewer>
     <div className="grid gap-2 sm:grid-cols-2">{layout.targets.map((target, index) => { const raw = answers[target.questionId]; const value = Array.isArray(raw) ? raw[0] : raw; const option = palette.find(item => item.id === value); return <div key={target.id} className="rounded-xl border border-slate-200 bg-white p-3 text-xs"><span className="font-black text-indigo-700">{index + 1}.</span> <span className="font-bold text-slate-700">{target.label}</span><span className="ml-2 font-black" style={{ color: option ? starterColourValue(option.text) : '#94a3b8' }}>{option?.text || 'Chưa tô'}</span></div>; })}</div>
   </div>;
 }
@@ -389,6 +390,8 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
     <p className="text-xs font-bold text-slate-600">Kéo hình vào đúng vị trí trên tranh, hoặc chọn hình rồi chạm vị trí cần đặt. Nhấn hình đã đặt để gỡ.</p>
     <div
       className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border-2 border-orange-300 bg-white"
+      data-exam-image-profile="interactive-scene"
+      style={{ maxWidth: interactiveImageProfile.maxWidth }}
       tabIndex={active ? 0 : undefined}
       aria-label={active ? `Ảnh bài tập; dùng phím mũi tên rồi Enter để đặt ${active.object}` : 'Ảnh bài tập Draw'}
       onKeyDown={event => {
@@ -418,7 +421,7 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
         placeAt(active, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
       }}
     >
-      <img src={part.imageUrl} alt="Scene để vẽ thêm vật" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: 'min(68vh, 720px)' }} draggable={false} />
+      <img src={part.imageUrl} alt="Scene để vẽ thêm vật" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: interactiveImageProfile.maxHeight }} draggable={false} />
       <div className="absolute right-2 top-2 z-50"><ExamImageViewer src={part.imageUrl} alt="Scene để vẽ thêm vật" triggerOnly /></div>
       {active && <span aria-hidden="true" style={{ left: `${keyboardAnchor.x * 100}%`, top: `${keyboardAnchor.y * 100}%` }} className="pointer-events-none absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/80" />}
       {layout.targets.map(target => {
@@ -434,7 +437,7 @@ export default function StarterInteractionView(props: { part: ExamPartContent; a
   if (props.part.interactionLayout?.kind === 'image-text-entry-v1') {
     const layout = props.part.interactionLayout;
     return <div className="space-y-3" data-exam-interaction="image-text-entry">
-      {props.part.imageUrl ? <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white"><img src={props.part.imageUrl} alt="" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: 'min(68vh, 720px)' }} /><div className="absolute right-2 top-2 z-50"><ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" triggerOnly /></div>{layout.targets.map((target, index) => {
+      {props.part.imageUrl ? <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white" data-exam-image-profile="interactive-scene" style={{ maxWidth: interactiveImageProfile.maxWidth }}><img src={props.part.imageUrl} alt="" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: interactiveImageProfile.maxHeight }} /><div className="absolute right-2 top-2 z-50"><ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" triggerOnly /></div>{layout.targets.map((target, index) => {
         const raw = props.answers[target.questionId];
         const value = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : '';
         return <label key={target.id} className="absolute" style={{ left: `${target.region.x * 100}%`, top: `${target.region.y * 100}%`, width: `${target.region.width * 100}%`, height: `${target.region.height * 100}%` }}><span className="sr-only">{target.label || `Câu ${index + 1}`}</span><input value={value} onChange={event => props.onAnswer(target.questionId, event.target.value)} className="h-full w-full rounded-md border-2 border-indigo-400 bg-white/95 px-2 text-center text-sm font-black text-slate-900 shadow-sm outline-none focus:border-indigo-600" /></label>;
