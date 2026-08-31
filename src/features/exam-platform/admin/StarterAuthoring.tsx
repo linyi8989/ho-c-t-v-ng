@@ -261,7 +261,7 @@ export function StarterQuickAssetPanel({
 
 const sameRegion = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
 
-function StarterTextEntryEditor({ part, onChange }: { part: ExamPartContent; onChange: (part: ExamPartContent) => void }) {
+export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartContent; onChange: (part: ExamPartContent) => void }) {
   const normalizeQuestion = (question: ExamPartContent['questions'][number], patch: Partial<ExamPartContent['questions'][number]> = {}) => {
     const merged = { ...question, ...patch };
     const {
@@ -576,8 +576,8 @@ export function StarterSpecialPartEditor({ token, part, assets, onAssets, onChan
               <input aria-label={`Vật cần vẽ câu ${index + 1}`} value={target.object} onChange={event => onChange({ ...part, interactionLayout: { ...layout, targets: layout.targets.map(item => item.id === target.id ? { ...item, object: event.target.value } : item) } })} className={fieldClass} placeholder="Ví dụ: flower" />
               <input aria-label={`Vị trí vẽ câu ${index + 1}`} value={target.label} onChange={event => onChange({ ...part, interactionLayout: { ...layout, targets: layout.targets.map(item => item.id === target.id ? { ...item, label: event.target.value } : item) } })} className={fieldClass} placeholder="Ví dụ: on the dog's head" />
             </div>
-            <ListeningAssetPicker compact assets={assets} aiCapability={{ enabled: false, reason: 'Ảnh Draw do giáo viên tải lên và xác nhận.' }} onUpload={(file) => uploadToken(file)} allowedMimeTypes={['image/png']} label={`Ảnh PNG kéo thả · ${target.object || `câu ${index + 1}`}`} kind="image" value={target.tokenAssetId} onChange={tokenAssetId => {
-              const selected = assets.find(asset => asset.id === tokenAssetId);
+            <ListeningAssetPicker compact assets={assets} aiCapability={{ enabled: false, reason: 'Ảnh Draw do giáo viên tải lên và xác nhận.' }} onUpload={(file) => uploadToken(file)} allowedMimeTypes={['image/png']} label={`Ảnh PNG kéo thả · ${target.object || `câu ${index + 1}`}`} kind="image" value={target.tokenAssetId} onChange={(tokenAssetId, uploadedAsset) => {
+              const selected = uploadedAsset || assets.find(asset => asset.id === tokenAssetId);
               onChange({ ...part, interactionLayout: { ...layout, targets: layout.targets.map(item => item.id === target.id ? { ...item, tokenAssetId: tokenAssetId || undefined, tokenUrl: selected?.url } : item) } });
             }} />
           </div>;
@@ -612,7 +612,7 @@ function starterColourCatalog(unit: ExamPartContent) {
 }
 
 /** One Starters Part 4 authoring surface backed by the existing Colour and Draw blocks. */
-export function StarterListeningPart4Editor({ token, part, assets, onAssets, onChange }: { token: string; part: ExamPartContent; assets: ListeningAsset[]; onAssets: (asset: ListeningAsset) => void; onChange: (part: ExamPartContent) => void }) {
+export function StarterListeningPart4Editor({ token, part, assets, onAssets, onChange, pasteDrawTokens = false }: { token: string; part: ExamPartContent; assets: ListeningAsset[]; onAssets: (asset: ListeningAsset) => void; onChange: (part: ExamPartContent) => void; pasteDrawTokens?: boolean }) {
   const [activeRegion, setActiveRegion] = useState<{ kind: 'colour' | 'draw'; targetId: string }>();
   const units = examPartUnits(part);
   const colourUnits = units.filter(unit => unit.interactionLayout?.kind === 'starter-scene-colour-v1');
@@ -695,11 +695,23 @@ export function StarterListeningPart4Editor({ token, part, assets, onAssets, onC
           }} className={fieldClass} placeholder="Ví dụ: on the dog's head" />
           <button type="button" onClick={() => setActiveRegion(isEditing ? undefined : { kind: 'draw', targetId: entry.target.id })} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${isEditing ? 'border-blue-600 bg-blue-600 text-white' : regionConfirmed ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>{isEditing ? 'Đóng vùng đặt vật' : regionConfirmed ? 'Chọn lại vùng đặt vật' : 'Chọn vùng đặt vật'}</button>
         </div>
-        <ListeningAssetPicker compact assets={assets} aiCapability={{ enabled: false, reason: 'Ảnh Draw do giáo viên tải lên và xác nhận.' }} onUpload={uploadToken} allowedMimeTypes={['image/png']} label={`Ảnh PNG cần kéo · ${entry.target.object || `câu ${index + 1}`}`} kind="image" value={entry.target.tokenAssetId} onChange={tokenAssetId => {
-          if (entry.unit.interactionLayout?.kind !== 'scene-draw-v1') return;
-          const selected = assets.find(asset => asset.id === tokenAssetId);
-          commit({ ...entry.unit, interactionLayout: { ...entry.unit.interactionLayout, targets: entry.unit.interactionLayout.targets.map(target => target.id === entry.target.id ? { ...target, tokenAssetId: tokenAssetId || undefined, tokenUrl: selected?.url } : target) } });
-        }} />
+        <div className={`grid items-end gap-2 ${pasteDrawTokens ? 'lg:grid-cols-[1fr_auto]' : ''}`}>
+          <ListeningAssetPicker compact assets={assets} aiCapability={{ enabled: false, reason: 'Ảnh Draw do giáo viên tải lên và xác nhận.' }} onUpload={uploadToken} allowedMimeTypes={['image/png']} label={`Ảnh PNG cần kéo · ${entry.target.object || `câu ${index + 1}`}`} kind="image" value={entry.target.tokenAssetId} onChange={(tokenAssetId, uploadedAsset) => {
+            if (entry.unit.interactionLayout?.kind !== 'scene-draw-v1') return;
+            const selected = uploadedAsset || assets.find(asset => asset.id === tokenAssetId);
+            commit({ ...entry.unit, interactionLayout: { ...entry.unit.interactionLayout, targets: entry.unit.interactionLayout.targets.map(target => target.id === entry.target.id ? { ...target, tokenAssetId: tokenAssetId || undefined, tokenUrl: selected?.url } : target) } });
+          }} />
+          {pasteDrawTokens && <FileDropPasteInput compact accept="image/png,.png" pasteImages uploadLabel="Tải/dán PNG" onFiles={async files => {
+            const file = files[0];
+            if (!file || (file.type !== 'image/png' && !/\.png$/i.test(file.name))) {
+              window.alert('Vật thể Draw phải là ảnh PNG.');
+              return;
+            }
+            if (entry.unit.interactionLayout?.kind !== 'scene-draw-v1') return;
+            const asset = await uploadToken(file);
+            commit({ ...entry.unit, interactionLayout: { ...entry.unit.interactionLayout, targets: entry.unit.interactionLayout.targets.map(target => target.id === entry.target.id ? { ...target, tokenAssetId: asset.id, tokenUrl: asset.url } : target) } });
+          }} />}
+        </div>
         {isEditing && <div className="space-y-2 rounded-2xl border border-sky-200 bg-sky-50/40 p-3" data-starter-draw-region-editor>
           <div className="flex items-start justify-between gap-3"><p className="text-[11px] font-semibold text-sky-800">Kéo một hình chữ nhật làm vùng đặt “{entry.target.object || 'vật thể'}”. Học sinh đặt tâm vật bên trong vùng này sẽ được tính đúng; vùng chấm không được gửi xuống player.</p><button type="button" onClick={() => setActiveRegion(undefined)} className="rounded-lg p-1 text-sky-700" aria-label="Đóng chọn vùng đặt vật"><X size={15} /></button></div>
           <ListeningRegionEditor imageUrl={part.imageUrl} rectangleOnly items={[{ id: entry.target.id, label: `${entry.target.object} · ${entry.target.label}`, region: entry.target.targetRegion }]} onChange={items => {
@@ -727,6 +739,7 @@ export function StarterImportReadiness({ part, requiresAudio }: { part: ExamPart
     && (!part.interactionLayout?.kind.startsWith('starter-image-matching-') || !!part.imageAssetId)
     && (part.interactionLayout?.kind !== 'starter-scene-colour-v1' || !!part.imageAssetId)
     && (part.interactionLayout?.kind !== 'scene-draw-v1' || (!!part.imageAssetId && part.interactionLayout.targets.every(target => !!target.tokenAssetId)))
+    && (part.interactionLayout?.kind !== 'flyer-name-placement-v1' || !!part.imageAssetId)
     && (part.interaction.variant !== 'image-options' || part.questions.every(question => question.options.every(option => !!option.imageAssetId)));
   const geometryReady = part.interactionLayout?.kind === 'starter-image-matching-v1'
     ? [...part.interactionLayout.leftItems, ...part.interactionLayout.rightItems].every(item => item.geometryConfirmedByTeacher)
@@ -735,6 +748,8 @@ export function StarterImportReadiness({ part, requiresAudio }: { part: ExamPart
     : part.interactionLayout?.kind === 'starter-scene-colour-v1'
       ? part.interactionLayout.targets.every(target => target.geometryConfirmedByTeacher)
     : part.interactionLayout?.kind === 'scene-draw-v1'
+      ? part.interactionLayout.targets.every(target => target.geometryConfirmedByTeacher)
+    : part.interactionLayout?.kind === 'flyer-name-placement-v1'
       ? part.interactionLayout.targets.every(target => target.geometryConfirmedByTeacher)
       : true;
   const ready = mediaReady && geometryReady;

@@ -69,7 +69,7 @@ export const normalizeStarterPart2PromptForMover = (prompt: string) => {
   return blankFound ? normalizedPrompt : `${prompt} {{answer}}`;
 };
 
-function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const moverPart: ListeningPart2 = {
     part: 2,
     title: part.title,
@@ -98,7 +98,7 @@ function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPartConte
 
 const moverAnswerShell = (): ListeningAnswers => ({ part1: {}, part2: {}, part3: {}, part4: {}, part5: {} });
 
-function StarterImageOptionsView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export function StarterImageOptionsView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const moverPart: ListeningPart4 = {
     part: 4,
     title: part.title,
@@ -108,6 +108,7 @@ function StarterImageOptionsView({ part, answers, onAnswer }: { part: ExamPartCo
     questions: part.questions.map(question => ({
       id: question.id,
       prompt: question.prompt,
+      displayNumber: question.displayNumber,
       correctOptionId: '',
       options: question.options.slice(0, 3).map(option => ({ id: option.id, imageAssetId: option.imageAssetId || '', imageUrl: option.imageUrl, alt: option.text || option.label })),
     })),

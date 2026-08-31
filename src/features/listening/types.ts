@@ -158,6 +158,8 @@ export interface ListeningPart4Option {
 export interface ListeningPart4Question {
   id: string;
   prompt: string;
+  /** Optional printed number when a shared-image row is rendered separately. */
+  displayNumber?: number;
   options: ListeningPart4Option[];
   correctOptionId: string;
 }

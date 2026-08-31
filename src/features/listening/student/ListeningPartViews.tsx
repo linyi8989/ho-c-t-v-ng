@@ -434,7 +434,7 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
       )}
       {part.questions.map((question, questionIndex) => (
         <fieldset key={question.id} className="rounded-2xl border-2 border-orange-200 bg-orange-50/30 p-4">
-          <legend className="px-2 text-sm font-black text-slate-900">{questionIndex + 1}. {question.prompt}</legend>
+          <legend className="px-2 text-sm font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</legend>
           <div className="mt-2 grid grid-cols-3 gap-3">
             {question.options.map((option, optionIndex) => {
               const selected = answers.part4[question.id] === option.id;

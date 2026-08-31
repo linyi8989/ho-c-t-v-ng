@@ -13,6 +13,10 @@ import type {
 } from './types';
 import { EXAM_CONTENT_SCHEMA_VERSION } from './types';
 import { STARTER_BASIC_COLOURS } from './starterImport';
+import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from './flyerListeningMigration';
+import { normalizeFixedFlyerReadingWritingContent } from './flyerReadingWritingMigration';
+import { normalizeFixedKetReadingWritingContent } from './ketReadingWritingMigration';
+import { isFixedKetListeningContent, normalizeFixedKetListeningContent } from './ketListeningMigration';
 
 const MAX_PARTS = 20;
 const MAX_BLOCKS_PER_PART = 20;
@@ -96,10 +100,13 @@ function parseOptions(rawQuestion: Row, currentQuestion?: ExamQuestion): ExamOpt
   const rawOptions = Array.isArray(rawQuestion.options) ? rawQuestion.options : [];
   return rawOptions.slice(0, 30).map((value: unknown, index: number) => {
     const option = typeof value === 'string' ? { text: value } : row(value);
+    const previous = currentQuestion?.options[index];
     return {
-      id: currentQuestion?.options[index]?.id || identifier('option'),
+      id: previous?.id || identifier('option'),
       label: cleanText(option.label || String.fromCharCode(65 + index), 12),
       text: cleanText(option.text ?? option.label, 4_000),
+      ...(previous?.imageAssetId ? { imageAssetId: previous.imageAssetId } : {}),
+      ...(previous?.imageUrl ? { imageUrl: previous.imageUrl } : {}),
     };
   });
 }
@@ -237,9 +244,14 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
     const acceptedAnswers = trusted ? acceptedSource.map((item: unknown) => cleanText(item, 4_000)).filter(Boolean).slice(0, 30) : [];
     if (!trusted && type !== 'long-writing') warnings.push(`Câu ${questionIndex + 1} của block ${blockIndex + 1}: đáp án chưa có nguồn chính thức, giáo viên cần xác nhận.`);
     const points = Number(rawQuestion.points);
+    const number = nextNumber();
+    const displayNumber = Number(rawQuestion.displayNumber ?? rawQuestion.questionNumber);
+    const answerLength = Number(rawQuestion.answerLength);
+    const writingGrading = row(rawQuestion.writingGrading);
     return {
       id: currentQuestion?.id || identifier('question'),
-      number: nextNumber(),
+      number,
+      ...(Number.isInteger(displayNumber) && displayNumber > 0 ? { displayNumber } : currentQuestion?.displayNumber ? { displayNumber: currentQuestion.displayNumber } : {}),
       type,
       prompt: cleanText(rawQuestion.prompt, 8_000),
       ...(cleanText(rawQuestion.context, 8_000) ? { context: cleanText(rawQuestion.context, 8_000) } : {}),
@@ -252,9 +264,21 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
       ...(Number(rawQuestion.maxSelections) > 0 ? { maxSelections: Number(rawQuestion.maxSelections) } : {}),
       ...(Number(rawQuestion.maxWords) > 0 ? { maxWords: Number(rawQuestion.maxWords) } : {}),
       ...(Number(rawQuestion.minWords) > 0 ? { minWords: Number(rawQuestion.minWords) } : {}),
+      ...(cleanText(rawQuestion.answerPrefix, 20) ? { answerPrefix: cleanText(rawQuestion.answerPrefix, 20) } : currentQuestion?.answerPrefix !== undefined ? { answerPrefix: currentQuestion.answerPrefix } : {}),
+      ...(Number.isInteger(answerLength) && answerLength > 0 ? { answerLength } : currentQuestion?.answerLength ? { answerLength: currentQuestion.answerLength } : {}),
+      ...(cleanText(rawQuestion.answerSuffix, 80) ? { answerSuffix: cleanText(rawQuestion.answerSuffix, 80) } : currentQuestion?.answerSuffix !== undefined ? { answerSuffix: currentQuestion.answerSuffix } : {}),
       ...(type === 'long-writing' ? {
         rubric: cleanText(rawQuestion.rubric, 8_000) || 'Giáo viên chấm theo rubric của đề.',
         ...(cleanText(rawQuestion.modelAnswer, 20_000) ? { modelAnswer: cleanText(rawQuestion.modelAnswer, 20_000) } : {}),
+        ...(writingGrading.enabled === true ? {
+          writingGrading: {
+            enabled: true,
+            providerId: cleanText(writingGrading.providerId, 120),
+            taskContext: cleanText(writingGrading.taskContext, 8_000),
+            gradingInstructions: cleanText(writingGrading.gradingInstructions, 8_000),
+            scoreScale: 10 as const,
+          },
+        } : currentQuestion?.writingGrading ? { writingGrading: currentQuestion.writingGrading } : {}),
       } : {}),
     } satisfies ExamQuestion;
   });
@@ -489,6 +513,126 @@ function extractPaper(parsed: Row, content: ExamPaperContent) {
   return { exam, paper: row(paper) };
 }
 
+function normalizeFlyerListeningPartShape(part: ExamPartContent, current: ExamPartContent | undefined): ExamPartContent {
+  if (part.part === 1) {
+    const unit = part.blocks?.[0];
+    const importedQuestions = part.questions.slice(0, 5);
+    const optionRows = importedQuestions.flatMap(question => question.options);
+    const labels = [...new Map(optionRows.map(option => [normalized(option.text || option.label), option])).values()].slice(0, 6);
+    const previousOptions = current?.questions[0]?.options || [];
+    const canonical = labels.map((option, index) => {
+      const previous = previousOptions.find(item => normalized(item.text || item.label) === normalized(option.text || option.label));
+      return { ...option, id: previous?.id || identifier(`flyer-p${part.part}-name`), label: String.fromCharCode(65 + index) };
+    });
+    const questions = importedQuestions.map(question => {
+      const selected = question.options.find(option => question.correctOptionIds.includes(option.id));
+      const correct = selected ? canonical.find(option => normalized(option.text || option.label) === normalized(selected.text || selected.label)) : undefined;
+      return { ...question, type: 'matching' as const, options: canonical.map(option => ({ ...option })), correctOptionIds: correct ? [correct.id] : [] };
+    });
+    const hints = unit?.geometryHints || [];
+    const previousLayout = current?.interactionLayout?.kind === 'flyer-name-placement-v1' ? current.interactionLayout : undefined;
+    const targets = questions.map((question, index) => {
+      const hint = hints.find(item => item.questionId === question.id && ['target-node', 'answer-region'].includes(item.role));
+      const previous = previousLayout?.targets[index];
+      const sourceRegion = hint?.region || previous?.region || fallbackRegion(index, questions.length, .12 + index * .14);
+      const region = {
+        shape: 'rect' as const,
+        x: Math.max(0, Math.min(1 - FLYER_NAME_REGION_WIDTH, sourceRegion.x)),
+        y: Math.max(0, Math.min(1 - FLYER_NAME_REGION_HEIGHT, sourceRegion.y)),
+        width: FLYER_NAME_REGION_WIDTH,
+        height: FLYER_NAME_REGION_HEIGHT,
+      };
+      return {
+        id: previous?.id || identifier(`flyer-p${part.part}-target`),
+        questionId: question.id,
+        label: `Vùng ${index + 1}`,
+        region,
+        geometryConfirmedByTeacher: Boolean(hint?.region) || Boolean(previous?.geometryConfirmedByTeacher),
+      };
+    });
+    const nextUnit = unit ? { ...unit, interaction: { family: 'matching' as const, subtype: 'name-scene', variant: 'drag-name-to-region', schemaVersion: 1, importReadiness: 'needs-geometry' as const }, interactionLayout: { kind: 'flyer-name-placement-v1' as const, targets }, questionIds: questions.map(question => question.id) } : undefined;
+    return {
+      ...part,
+      interaction: nextUnit?.interaction || { family: 'matching', subtype: 'name-scene', variant: 'drag-name-to-region', schemaVersion: 1, importReadiness: 'needs-geometry' },
+      interactionLayout: { kind: 'flyer-name-placement-v1', targets },
+      examples: unit?.examples || part.examples || current?.examples || [{ prompt: 'Example', answer: '' }],
+      questions,
+      ...(nextUnit ? { blocks: [nextUnit] } : {}),
+    };
+  }
+  if (part.part === 2) {
+    const unit = part.blocks?.[0];
+    const questions = part.questions.slice(0, 5).map(question => ({
+      ...question,
+      type: 'short-answer' as const,
+      options: [],
+      correctOptionIds: [],
+    }));
+    const interaction = { family: 'text-entry' as const, subtype: 'short-answer', variant: 'single-input', schemaVersion: 1, importReadiness: 'needs-assets' as const };
+    const nextUnit = unit ? {
+      ...unit,
+      interaction,
+      interactionLayout: undefined,
+      questionIds: questions.map(question => question.id),
+    } : undefined;
+    return {
+      ...part,
+      interaction,
+      interactionLayout: undefined,
+      questions,
+      ...(nextUnit ? { blocks: [nextUnit] } : {}),
+    };
+  }
+  if (part.part === 3) {
+    const questions = part.questions.slice(0, 5).map(question => ({ ...question, type: 'short-answer' as const, options: [], correctOptionIds: [], maxWords: 1 }));
+    const blocks = part.blocks?.map(block => ({ ...block, interaction: { family: 'text-entry' as const, subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1, importReadiness: 'needs-assets' as const }, questionIds: questions.map(question => question.id) }));
+    return { ...part, interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1, importReadiness: 'needs-assets' }, examples: part.blocks?.[0]?.examples || part.examples || current?.examples || [{ prompt: 'Example', answer: '' }], readingScenes: part.blocks?.[0]?.readingScenes || part.readingScenes || current?.readingScenes, questions, ...(blocks?.length ? { blocks } : {}) };
+  }
+  if (part.part === 4) {
+    return { ...part, interaction: { family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1, importReadiness: 'needs-assets' } };
+  }
+  return part;
+}
+
+function preserveFlyerListeningQuestionIds(part: ExamPartContent, current: ExamPartContent | undefined): ExamPartContent {
+  if (!current || part.questions.length !== current.questions.length) return part;
+  const idMap = new Map(part.questions.map((question, index) => [question.id, current.questions[index].id]));
+  const remapQuestion = (question: ExamQuestion, index: number): ExamQuestion => {
+    const previous = current.questions[index];
+    const selected = question.options.find(option => question.correctOptionIds.includes(option.id));
+    const options = question.options.map(option => {
+      const existing = previous.options.find(item => normalized(item.text || item.label) === normalized(option.text || option.label));
+      return { ...option, id: existing?.id || option.id };
+    });
+    const selectedOption = selected ? options.find(option => normalized(option.text || option.label) === normalized(selected.text || selected.label)) : undefined;
+    return { ...question, id: previous.id, options, correctOptionIds: selectedOption ? [selectedOption.id] : [] };
+  };
+  const remapLayout = (layout: ExamPartContent['interactionLayout']) => {
+    if (!layout) return layout;
+    if (layout.kind === 'flyer-name-placement-v1' || layout.kind === 'starter-scene-colour-v1' || layout.kind === 'scene-draw-v1' || layout.kind === 'image-text-entry-v1') {
+      return { ...layout, targets: layout.targets.map(target => ({ ...target, questionId: idMap.get(target.questionId) || target.questionId })) } as typeof layout;
+    }
+    return layout;
+  };
+  return {
+    ...part,
+    questions: part.questions.map(remapQuestion),
+    interactionLayout: remapLayout(part.interactionLayout),
+    readingScenes: part.readingScenes?.map(scene => ({ ...scene, questionIds: scene.questionIds.map(id => idMap.get(id) || id) })),
+    blocks: part.blocks?.map(block => ({
+      ...block,
+      questionIds: block.questionIds.map(id => idMap.get(id) || id),
+      interactionLayout: remapLayout(block.interactionLayout),
+      readingScenes: block.readingScenes?.map(scene => ({ ...scene, questionIds: scene.questionIds.map(id => idMap.get(id) || id) })),
+      geometryHints: block.geometryHints?.map(hint => ({ ...hint, ...(hint.questionId ? { questionId: idMap.get(hint.questionId) || hint.questionId } : {}) })),
+    })),
+  };
+}
+
+function normalizeFlyerListeningPart(part: ExamPartContent, current: ExamPartContent | undefined): ExamPartContent {
+  return preserveFlyerListeningQuestionIds(normalizeFlyerListeningPartShape(part, current), current);
+}
+
 export function importUniversalExamBundle(current: ExamPaperContent, source: string): UniversalImportResult {
   let parsed: unknown;
   try { parsed = JSON.parse(source); } catch { throw new Error('JSON tổng không hợp lệ.'); }
@@ -500,17 +644,37 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   if (rawParts.length > MAX_PARTS) throw new Error(`Một paper không được vượt quá ${MAX_PARTS} Part.`);
   let questionNumber = 0;
   const nextNumber = () => ++questionNumber;
+  const fixedFlyerListening = current.moduleId === 'flyer' && current.paperId === 'listening';
+  const fixedFlyerReadingWriting = current.moduleId === 'flyer' && current.paperId === 'reading-writing';
+  const fixedKetListening = isFixedKetListeningContent(current);
+  const fixedKetReadingWriting = current.moduleId === 'ket' && current.paperId === 'reading-writing' && current.templateVersion === 'ket-reading-writing-9-v1';
+  if (fixedFlyerListening && rawParts.length !== 5) throw new Error('Flyers Listening phải có đúng 5 Part.');
+  if (fixedFlyerReadingWriting && rawParts.length !== 7) throw new Error('Flyers Reading & Writing phải có đúng 7 Part.');
+  if (fixedKetReadingWriting && rawParts.length !== 9) throw new Error('KET Reading & Writing phải có đúng 9 Part.');
+  if (fixedKetListening && rawParts.length !== 5) throw new Error('KET Listening phải có đúng 5 Part.');
   const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber));
+  if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
+  const builtParts = fixedFlyerListening
+    ? built.map((item, index) => normalizeFlyerListeningPart(item.part, current.parts[index]))
+    : built.map(item => item.part);
+  const fixedContent = fixedFlyerReadingWriting
+    ? normalizeFixedFlyerReadingWritingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+    : fixedKetListening
+      ? normalizeFixedKetListeningContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+      : fixedKetReadingWriting
+        ? normalizeFixedKetReadingWritingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+        : undefined;
+  const parts = fixedContent?.parts || builtParts;
   return {
     content: {
       ...current,
       schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
-      structureMode: 'dynamic',
+      ...(fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
       title: cleanText(paper.title || exam.title, 240) || current.title,
       description: cleanText(paper.description || exam.description, 4_000) || current.description,
       level: cleanText(paper.level || exam.level, 240) || current.level,
       ...(Number(paper.timeLimitMinutes) > 0 ? { timeLimitMinutes: Number(paper.timeLimitMinutes) } : {}),
-      parts: built.map(item => item.part),
+      parts,
     },
     reports: built.map(item => item.report),
   };
@@ -531,7 +695,30 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
   }
   if (!partValue) throw new Error(`JSON không có Part ${partIndex + 1}.`);
   let questionNumber = currentContent.parts.slice(0, partIndex).reduce((sum, part) => sum + part.questions.length, 0);
-  return buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber);
+  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber);
+  if (currentContent.moduleId === 'flyer' && currentContent.paperId === 'listening') {
+    if (built.part.questions.length !== 5) throw new Error(`Flyers Listening Part ${partIndex + 1} phải có đúng 5 câu chấm điểm.`);
+    return { ...built, part: normalizeFlyerListeningPart(built.part, currentContent.parts[partIndex]) };
+  }
+  if (currentContent.moduleId === 'flyer' && currentContent.paperId === 'reading-writing') {
+    if (!built.part.questions.length) throw new Error(`Flyers Reading & Writing Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedFlyerReadingWritingContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (isFixedKetListeningContent(currentContent)) {
+    if (!built.part.questions.length) throw new Error(`KET Listening Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedKetListeningContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (currentContent.moduleId === 'ket' && currentContent.paperId === 'reading-writing' && currentContent.templateVersion === 'ket-reading-writing-9-v1') {
+    if (!built.part.questions.length) throw new Error(`KET Reading & Writing Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedKetReadingWritingContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  return built;
 }
 
 export function universalImportPaperId(value: unknown): ExamPaperId | '' {

@@ -88,6 +88,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   const [reviewLoading, setReviewLoading] = useState(false);
   const [error, setError] = useState('');
   const submitGuard = useRef(false);
+  const automaticSubmitStarted = useRef(false);
   const ownerKey = user?.id ? `user:${user.id}` : `guest:${guestId}`;
   const activeStorageKey = playable ? storageKey(ownerKey, playable.id, playable.versionId, accessToken) : '';
 
@@ -174,6 +175,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
         answers: createEmptyMoverReadingWritingAnswers(),
         currentPart: 0,
       };
+      automaticSubmitStarted.current = false;
       setRun(next);
       setAnswers(next.answers);
       setCurrentPart(0);
@@ -223,7 +225,10 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((new Date(run.deadlineAt!).getTime() - Date.now()) / 1000));
       setRemainingSeconds(remaining);
-      if (remaining === 0) void submit(true);
+      if (remaining === 0 && !automaticSubmitStarted.current) {
+        automaticSubmitStarted.current = true;
+        void submit(true);
+      }
     };
     tick();
     const timer = window.setInterval(tick, 1000);

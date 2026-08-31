@@ -3706,3 +3706,228 @@ Verification:
   in `index.css` wins over the legacy high-specificity admin button selector
   and defines default, hover, focus-visible and `aria-pressed=true` colours.
   The navigation contract verifies cascade order and WCAG-AA colour pairs.
+
+## 57. Fixed Flyers Listening five-Part workflow - 2026-08-29
+
+- Flyers Listening is now a fixed five-Part, 25-question projection on the
+  shared exam platform. Whole-paper and per-Part Universal JSON prompts lock
+  the reviewed interaction for each Part, preserve application-owned IDs and
+  teacher-owned media, and reject any import that does not contain exactly
+  five scored questions per requested Part. Other papers retain the dynamic
+  multi-Part/multi-block Universal JSON behavior.
+- Part 1 projects to the public Movers Listening Part 1 interaction: six
+  reusable name cards, five scored scene regions and one unscored printed
+  example. `flyer-name-placement-v1` stores only public hit regions and
+  question references; official name mappings stay in private question answer
+  keys. `FlyerListeningAuthoring.tsx` edits the shared names and keys and makes
+  every region a publish prerequisite. The prompt now returns exactly five
+  normalized rectangles numbered 1-5; import locks them to the Movers Part 1
+  target size (12% x 5.5%), and the
+  editor uses `FixedRegionEditor` so teachers only review or drag them. A valid
+  AI region or a teacher drag establishes the geometry without a separate
+  confirmation button. Part 2 projects to
+  Movers Listening Part 2: one shared optional illustration, one example area
+  and five short-answer prompts with a single inline word/number input.
+- Part 3 uses `two-image-letter-input`: the Part image is the A-H option board,
+  the first reading-scene image is the people/name board, and the five compact
+  A-H inputs form a narrow third column. The player and review use three fixed,
+  edge-to-edge frames with the original wide/wide/narrow ratio. Both images use
+  `ExamImageViewer.fillFrame`, so large images shrink and small images enlarge
+  with `object-fit: contain` while zoom/fullscreen remains available. Small
+  viewports use horizontal overflow instead of changing the task to a vertical
+  layout. The editor provides a separate upload/library/clipboard field for the
+  second image and exactly one public unscored example.
+- Part 4 reuses the Movers Part 4 image-option player and the existing batch
+  crop/manual-crop authoring adapter. A separate public reading-scene asset is
+  uploaded/pasted as the common student display image and is rendered in both
+  the task and detailed review. The full-page crop source is removed from
+  playable content; students receive the public display image plus only the
+  fifteen derived A/B/C images.
+  Part 5 reuses the Movers Part 5 Colour/Draw player and the unified scene
+  authoring surface, including teacher-confirmed colour masks, private Draw
+  grading regions and teacher-owned transparent Draw tokens. Flyers Part 5
+  enables both upload and clipboard paste for each required PNG Draw token.
+- `FlyerListeningViews.tsx` supplies the fixed student adapters, while the
+  established listening result shell now adds Flyers-specific visual review:
+  placed names on the scene for Part 1, the two-column Movers text-entry review
+  for Part 2, the two-image letter layout for Part 3, image choices for Part 4
+  and scene Colour/Draw review for Part 5. The same
+  high-contrast result/home/retry, Part tabs, previous/next controls, protected
+  transcript disclosures and responsive image rules used by Starters remain in
+  force. Movers source files are reference-only and were not modified.
+- Server validation enforces the five-Part structure, required audio/media,
+  the Part 1 six-name/five-region contract, Part 2 short answers, A-H letter
+  answers, fifteen Part 4 crops and the complete Part 5 Colour/Draw mapping.
+  Student sanitization removes every
+  official answer, transcript, private Draw target and the Part 4 crop source.
+  Regression coverage includes the fixed prompt, whole import normalization,
+  answer sanitization, 25-question grading and authoring/player/review source
+  contracts. Legacy Flyer drafts automatically replace the old Part 2
+  name-placement shape with the Movers Part 2 short-answer shape on edit.
+  `npm run lint` and `npm run test:exam-platform` cover these contracts.
+
+## 58. Flyers Reading & Writing seven-Part, flexible-count workflow - 2026-08-29
+
+- Flyers Reading & Writing keeps exactly seven ordered Part types, while the
+  scored question count of every Part comes from the printed source or imported
+  JSON. The common `10–7–5–6–7–10–5` distribution is only the default for a new
+  draft and a prompt example; neither whole-paper import, focused Part import nor
+  publication validation treats it as a schema limit. Printed examples are
+  stored separately and never count toward the scored total.
+- `flyerReadingWritingMigration.ts` preserves every non-empty imported question
+  list and normalizes only the seven interaction shapes: definitions, Yes/No,
+  two-image A-H conversation matching, story gaps plus a final title choice,
+  story sentence completion, A/B/C multiple-choice cloze and one-word open
+  cloze. `universalImportPrompt.ts` tells the model to read the actual count in
+  each Part heading and not pad or truncate content to match the sample JSON.
+- `FlyerReadingWritingAuthoring.tsx` exposes add/remove controls for the scored
+  rows in every Part. Part 2 keeps two unscored examples; Part 3 keeps one
+  example and the Flyers Listening wide/wide/narrow image layout; Part 4 creates
+  one marker per fill gap and reserves its last scored row for the A/B/C title;
+  Part 5 owns one complete printed-page image plus the scored sentence answers,
+  and Part 6 follows the Movers Part 6 image-choice authoring shape: one public
+  printed-page image and a compact numbered A/B/C answer row for each scored
+  item. Neither Part 5 nor Part 6 stores or regenerates a duplicate passage.
+  Part 7 owns an optional image, one example and exactly one word at every
+  marker. Image fields use the shared upload/library/clipboard picker.
+- `FlyerReadingWritingViews.tsx` and `FlyerReadingWritingResult.tsx` render the
+  same structures for taking and reviewing the paper. Part 3's narrow third
+  frame contains only `number + letter input` rows because the left image already
+  contains the conversation. Part 5 keeps the complete printed page on the left
+  and only scored answer inputs on the right. Part 6 keeps the printed page on
+  the left and renders each question number with all three A/B/C choices on the
+  same row on the right, matching the established Movers image-choice workflow.
+  Part 7 places its one-word controls/results at the passage markers, and Part 4
+  numbers its title dynamically. Images use `ExamImageViewer` size limits plus
+  zoom/fullscreen. Review keeps all seven persistent Part tabs and previous/next
+  controls.
+- Server validation requires seven ordered Parts, at least one scored question
+  in each, the correct interaction and exact unscored-example count, but no
+  fixed question distribution. It derives marker counts only for Parts 4 and 7,
+  requires the final Part 4 title choice, validates A-H in Part 3 and three A/B/C
+  choices in Part 6, and allows only Part 7's image to be omitted. Regression
+  coverage verifies flexible whole/per-Part import,
+  application-owned media/IDs, publication, sanitization, grading and the three
+  dedicated author/player/review cloze layouts. Movers source components remain
+  reference-only.
+
+## 59. KET Reading & Writing nine-Part workflow and AI Writing grade - 2026-08-29
+
+- New KET Reading & Writing drafts use `templateVersion:
+  ket-reading-writing-9-v1` and exactly nine ordered Part types. Parts 1-8 keep
+  flexible scored-row counts; the initial `5-5-10-7-8-5-10-5` counts are only
+  draft defaults. Part 3 always has two independent flexible blocks (A/B/C
+  cloze plus the Flyers-style two-image letter task). Part 9 owns one long
+  writing question worth exactly 10 integer points, with teacher-configurable
+  minimum and maximum word counts.
+- `ketReadingWritingMigration.ts` is the schema adapter. It normalizes only an
+  explicitly versioned nine-Part KET paper. Existing released seven-Part KET
+  content remains compatible and is never silently rewritten; its editor
+  offers an explicit, confirmed conversion to a fresh nine-Part draft while
+  preserving paper metadata and review settings.
+- `KetReadingWritingAuthoring.tsx` provides dedicated editors for all nine
+  formats. Images are teacher-owned only in Parts 1, 3A/3B, 4 and 5. Parts 2
+  and 6-9 import their visible source/instruction/example text through JSON;
+  Part 6 stores one
+  visible initial letter plus the total answer length, Part 7 stores only
+  printed numbers and answers (no generated `Gap n` labels), Part 8 has
+  add/remove form rows, and Part 9 owns the public task, private task context,
+  provider choice, rubric, grading instructions and a read-only prompt preview.
+  The editor reads the backend provider-capability endpoint, labels configured
+  models as ready, disables unavailable alternatives and warns when the model
+  saved in an older draft currently has no server key.
+  Whole-paper and focused-Part Universal JSON imports use the same normalized
+  shape; `universalImportPrompt.ts` explicitly forbids padding or truncating the
+  flexible Parts.
+- `KetReadingWritingViews.tsx` projects those authoring shapes into the student
+  paper: fixed adjacent wide/wide/narrow frames for Parts 1 and 3B; separate
+  navigable pages for 3A and 3B; image-above layouts for 3A, 4 and 5; source
+  text above exact character cells in Part 6; source text above two columns of
+  number-only rows in Part 7; source text above form rows in Part 8; and task
+  text above a lined word-page editor in Part 9. `KetReadingWritingResult.tsx`
+  supplies a high-contrast summary and
+  nine persistent review tabs, reusing the same visual structures and showing
+  the final Writing score, sentence count, grammar issues, vocabulary issues
+  and concise feedback.
+- KET Part 2 is text-only, keeps one unscored text example, and renders every
+  real prompt above one A/B/C row. Parts 4 and 5 omit the example panel and put
+  their teacher image above the answer area. In Part 6, `answerLength` remains
+  the full word length, while
+  `acceptedAnswers` and the submitted response contain only the characters the
+  student types after the fixed initial letter (`p` + `assport`). Part 8 has a
+  single optional `answerPrefix` inside the answer region and no suffix field;
+  grading compares only the continuation typed by the student.
+- KET Part 3A keeps its source image above the work area, omits the separate
+  example panel and renders each real question above its A/B/C row in
+  authoring, taking and review. Part 3B preserves the printed question number returned as
+  `questionNumber` (for example 16-20) in `displayNumber`; the shared narrow
+  letter column uses that printed number instead of re-numbering rows 1-N.
+- Part 9 grading is server-only. `writingGradingProvider.ts` supports the
+  explicitly selected Stali or DevQuota adapter, wraps the essay as untrusted
+  text, sends no student identity, validates a strict JSON result, accepts only
+  an integer score from 0 to 10, and retries malformed output once on the same
+  provider without silent fallback. `examRouter.ts` persists the attempt before
+  calling the provider and records queued/processing/completed/failed states.
+  A failed call never becomes an automatic zero: staff can retry the selected
+  provider or apply the existing manual-grade fallback. The resulting 0-10
+  Writing score is weighted like ten objective points in the overall /100.
+- `examValidation.ts` requires images only for KET Parts 1, 3, 4 and 5; requires
+  visible source text for Parts 6-9; and enforces choices, the Part 2 example,
+  Part 3 block mapping, spelling lengths, Part 9 limits/provider configuration and the single
+  10-point Writing task. Student sanitization removes answer keys and private
+  grading configuration. Contract, import, grader, router integration and
+  provider tests cover the complete authoring-to-history path; all KET CSS is
+  scoped under dedicated authoring/player/result/review roots.
+- `ListeningAssetPicker` now passes the freshly uploaded asset through its
+  selection callback. Flyers Listening Draw tokens, Flyers Reading & Writing
+  images and KET Reading & Writing images consume that fresh value instead of
+  looking it up in the previous render's asset array, so clipboard paste is
+  accepted on the first click rather than the second.
+
+## 60. KET Listening five-Part, flexible-count workflow - 2026-08-30
+
+- New KET Listening drafts use `templateVersion: ket-listening-5-v1` and five
+  ordered interaction types, while every Part keeps a teacher-controlled,
+  flexible scored-row count. `ketListeningMigration.ts` normalizes only that
+  explicit version. Existing released generic KET Listening content remains
+  unchanged until the teacher confirms the conversion shown by the admin.
+- Part 1 reuses the Movers Listening three-picture choice player. Its private
+  source page is analyzed by `ketListeningCrops.ts`, which groups detected
+  frames by visual row and accepts only rows containing exactly three A/B/C
+  frames. This prevents the single combined frame printed for question 3 from
+  shifting later crops. Only printed questions 1, 2, 4 and 5 are batch-cropped;
+  question 3 exposes one direct upload/library/clipboard picker for its single
+  combined image, rendered above three A/B/C answer buttons. Extra
+  teacher-added rows still expose three option-image pickers. A standard paper
+  therefore publishes 12 derived crops plus one shared question-3 image. The
+  private page source is removed from playable student content.
+- Part 2 reuses the Flyers fixed adjacent wide/wide/narrow two-image letter
+  layout. Part 3 is text-only, stores the generated task instruction in
+  `passage`, and renders it above the example and each dialogue prompt with
+  three A/B/C replies. Parts 4 and 5 store the complete printed instruction and
+  example in `passage`, followed by compact numbered form fields with an
+  optional prefix and suffix around the same answer input (`98 [answer] Road`).
+  `KetListeningViews.tsx` uses
+  the established high-contrast listening shell and `StarterListeningResult`
+  now reviews all five KET shapes with the same summary, tabs, navigation and
+  protected transcript disclosure as the other young-learner listening papers.
+- Whole-paper and focused-Part Universal JSON prompts/imports require five
+  ordered Parts, preserve actual flexible counts, keep examples unscored and
+  preserve already attached teacher media when content is re-imported. Server
+  validation requires audio for every Part, exact A/B/C images, both Part 2
+  images, A-H letter answers, the Part 3 text dialogue contract and visible
+  passage/form content for Parts 4-5. Answer keys and transcripts remain
+  private. Regression tests cover prompt/import normalization, flexible counts,
+  option-media preservation, source sanitization, special row grouping and the
+  author/player/review contracts.
+
+## 61. Timed practice submission resilience - 2026-08-30
+
+- A configured deadline now ends the countdown and triggers one automatic
+  submission, but it no longer invalidates the signed attempt. The attempt
+  ticket keeps its independent security expiry, so a temporary network error
+  can be retried with the same run ID instead of trapping the learner on the
+  paper. Generic Starters/Flyers/KET attempts record `timedOut` when submitted
+  at or after the deadline; Movers players use the same one-shot auto-submit
+  guard. Empty and partially completed answer snapshots remain valid graded
+  submissions, with unanswered items counted normally.

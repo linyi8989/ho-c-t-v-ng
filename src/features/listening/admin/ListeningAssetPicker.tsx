@@ -9,10 +9,11 @@ interface ListeningAssetPickerProps {
   value?: string;
   assets: ListeningAsset[];
   aiCapability?: { enabled: boolean; reason?: string };
-  onChange: (assetId: string) => void;
+  onChange: (assetId: string, uploadedAsset?: ListeningAsset) => void;
   onUpload: (file: File, kind: ListeningAssetKind) => Promise<ListeningAsset>;
   allowedMimeTypes?: string[];
   compact?: boolean;
+  pasteImages?: boolean;
 }
 
 export function ListeningAssetPicker({
@@ -25,6 +26,7 @@ export function ListeningAssetPicker({
   onUpload,
   allowedMimeTypes,
   compact = false,
+  pasteImages = false,
 }: ListeningAssetPickerProps) {
   const [uploading, setUploading] = useState(false);
   const selected = assets.find(asset => asset.id === value);
@@ -42,7 +44,9 @@ export function ListeningAssetPicker({
     setUploading(true);
     try {
       const asset = await onUpload(file, kind);
-      onChange(asset.id);
+      // Pass the freshly uploaded asset through the same click. Consumers must
+      // not have to look it up in the previous render's stale assets array.
+      onChange(asset.id, asset);
     } finally {
       setUploading(false);
     }
@@ -67,7 +71,7 @@ export function ListeningAssetPicker({
           compact
           accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
           disabled={uploading}
-          pasteImages={false}
+          pasteImages={kind === 'image' && pasteImages}
           uploadLabel={kind === 'image' ? 'Tải ảnh' : 'Tải audio'}
           onFiles={handleUpload}
         />

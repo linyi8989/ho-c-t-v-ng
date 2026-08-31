@@ -201,6 +201,7 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
         pointsAwarded: 0,
         maxPoints: question.points,
         pendingManualReview: true,
+        ...(question.writingGrading?.enabled ? { aiGradingStatus: 'queued' as const } : {}),
       });
       return;
     }
@@ -269,4 +270,49 @@ export function applyManualExamGrades(
     manualAwarded,
     manualMaximum,
   };
+}
+
+export interface AiWritingGrade {
+  score: number;
+  sentenceCount: number;
+  grammarErrors: string[];
+  vocabularyErrors: string[];
+  feedback: string;
+}
+
+function finalizeWritingGrade(grade: ReturnType<typeof gradeExamAttempt>, questions: ExamQuestionResult[]) {
+  const writing = questions.filter(question => question.type === 'long-writing');
+  const pendingManualCount = writing.filter(question => question.pendingManualReview).length;
+  const writingAwarded = writing.reduce((sum, question) => sum + Number(question.pointsAwarded || 0), 0);
+  const writingMaximum = writing.reduce((sum, question) => sum + Number(question.maxPoints || 0), 0);
+  const maximum = grade.objectiveMaximum + writingMaximum;
+  const awarded = grade.objectiveAwarded + writingAwarded;
+  return {
+    ...grade,
+    questions,
+    status: pendingManualCount ? 'pending_review' as const : 'completed' as const,
+    score: maximum > 0 ? Math.round(awarded / maximum * 100) : 0,
+    pendingManualCount,
+    manualAwarded: writingAwarded,
+    manualMaximum: writingMaximum,
+  };
+}
+
+export function applyAiWritingGrade(grade: ReturnType<typeof gradeExamAttempt>, questionId: string, ai: AiWritingGrade) {
+  const score = Math.max(0, Math.min(10, Math.round(ai.score)));
+  return finalizeWritingGrade(grade, grade.questions.map(question => question.questionId === questionId ? {
+    ...question,
+    pointsAwarded: Math.min(question.maxPoints, score),
+    pendingManualReview: false,
+    aiGradingStatus: 'completed' as const,
+    writingScore: score,
+    sentenceCount: Math.max(0, Math.round(ai.sentenceCount)),
+    grammarErrors: ai.grammarErrors.slice(0, 20),
+    vocabularyErrors: ai.vocabularyErrors.slice(0, 20),
+    aiFeedback: ai.feedback,
+  } : question));
+}
+
+export function markAiWritingFailed(grade: ReturnType<typeof gradeExamAttempt>, questionId: string) {
+  return { ...grade, questions: grade.questions.map(question => question.questionId === questionId ? { ...question, aiGradingStatus: 'failed' as const } : question) };
 }

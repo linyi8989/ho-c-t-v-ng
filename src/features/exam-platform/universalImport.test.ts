@@ -5,13 +5,137 @@ import { examPartUnits, promoteExamPartToBlocks } from './examStructure';
 import { starterMatchingResponseKey } from './starterMatching';
 import { importUniversalExamBundle, importUniversalExamPart } from './universalImport';
 import { buildUniversalExamImportPrompt, buildUniversalExamPartImportPrompt } from './universalImportPrompt';
+import { groupKetListeningPart1OptionCrops } from './ketListeningCrops';
+import type { ExamAnswers } from './types';
 import { gradeExamAttempt } from '../../server/exam-platform/examGrader';
 import { sanitizeExamAnswers, sanitizeExamContentForStudent, validateExamPaperContent } from '../../server/exam-platform/examValidation';
 
 const interaction = (family: string, subtype: string, variant: string) => ({ family, subtype, variant, schemaVersion: 1 });
 
-test('Universal JSON v2 owns a flexible six-Part structure and supports several blocks in one Part outside fixed Starters papers', () => {
-  const definition = getExamPaperDefinition('flyer', 'reading-writing')!;
+test('KET Listening prompt, flexible JSON and private Part 1 crop source follow the five-Part contract', () => {
+  const current = createDefaultExamContent(getExamPaperDefinition('ket', 'listening')!);
+  current.parts.forEach(part => { part.audioAssetId = `audio-${part.part}`; });
+  current.parts[0].imageAssetId = 'ket-p1-private-source';
+  current.parts[0].imageUrl = '/media/ket-p1-private-source.png';
+  current.parts[0].questions[2].imageAssetId = 'ket-p1-q3-shared';
+  current.parts[0].questions[2].imageUrl = '/media/ket-p1-q3-shared.png';
+  current.parts[0].questions.forEach((question, questionIndex) => question.options.forEach((option, optionIndex) => {
+    option.imageAssetId = `ket-p1-q${questionIndex + 1}-${optionIndex + 1}`;
+    option.imageUrl = `/media/ket-p1-q${questionIndex + 1}-${optionIndex + 1}.png`;
+  }));
+  current.parts[1].imageAssetId = 'ket-p2-left';
+  current.parts[1].readingScenes![0].imageAssetId = 'ket-p2-middle';
+
+  const threeChoices = (count: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `Question ${index + 1}`,
+    options: ['A', 'B', 'C'].map(label => ({ label, text: `Option ${label}` })),
+    answerSource: 'official-answer-key',
+    answerKey: { correctOptionLabels: ['B'] },
+  }));
+  const shortRows = (count: number, letters = false) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `Field ${index + 1}`,
+    type: 'short-answer',
+    maxWords: letters ? 1 : 5,
+    answerSource: 'official-answer-key',
+    answerKey: { acceptedAnswers: [letters ? String.fromCharCode(65 + index % 8) : `answer ${index + 1}`] },
+  }));
+  const parts = [
+    { partNumber: 1, title: 'Pictures', instruction: 'Listen and choose.', blocks: [{ blockNumber: 1, title: 'Pictures', interaction: interaction('choice', 'single', 'image-options'), content: { examples: [{ prompt: 'Example', answer: 'A' }], questions: threeChoices(4) } }] },
+    { partNumber: 2, title: 'Letters', instruction: 'Write a letter.', blocks: [{ blockNumber: 1, title: 'Letters', interaction: interaction('text-entry', 'letter-matching', 'two-image-letter-input'), content: { examples: [{ prompt: 'Example person', answer: 'H' }], questions: shortRows(6, true) } }] },
+    { partNumber: 3, title: 'Dialogues', instruction: 'Choose the reply.', blocks: [{ blockNumber: 1, title: 'Dialogues', interaction: interaction('choice', 'dialogue', 'dialogue-choice'), content: { passage: 'Listen to each conversation and choose the best answer.', examples: [{ prompt: 'How are you?', answer: 'C' }], questions: threeChoices(3) } }] },
+    { partNumber: 4, title: 'Notes', instruction: 'Complete the notes.', blocks: [{ blockNumber: 1, title: 'Notes', interaction: interaction('text-entry', 'form-completion', 'image-form-fields'), content: { passage: 'Part 4 instructions and printed example.', questions: shortRows(4) } }] },
+    { partNumber: 5, title: 'Notes', instruction: 'Complete the notes.', blocks: [{ blockNumber: 1, title: 'Notes', interaction: interaction('text-entry', 'form-completion', 'image-form-fields'), content: { passage: 'Part 5 instructions and printed example.', questions: shortRows(7).map((question, index) => index === 0 ? { ...question, questionNumber: 21, prompt: 'New address', answerPrefix: '98', answerSuffix: 'Road', answerKey: { acceptedAnswers: ['Warnock'] } } : question) } }] },
+  ];
+  const source = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: 'KET Listening' }, papers: [{ paperId: 'listening', parts }] });
+  const imported = importUniversalExamBundle(current, source).content;
+  assert.equal(imported.templateVersion, 'ket-listening-5-v1');
+  assert.deepEqual(imported.parts.map(part => part.questions.length), [4, 6, 3, 4, 7]);
+  assert.equal(imported.parts[0].questions[2].imageAssetId, 'ket-p1-q3-shared');
+  assert.equal(imported.parts[0].questions[2].options[1].imageAssetId, undefined);
+  assert.equal(imported.parts[1].imageAssetId, 'ket-p2-left');
+  assert.equal(imported.parts[1].readingScenes?.[0].imageAssetId, 'ket-p2-middle');
+  assert.equal(imported.parts[4].questions[0].answerPrefix, '98');
+  assert.equal(imported.parts[4].questions[0].answerSuffix, 'Road');
+  assert.deepEqual(imported.parts[4].questions[0].acceptedAnswers, ['Warnock']);
+  assert.deepEqual(validateExamPaperContent(imported), []);
+  const safe = sanitizeExamContentForStudent(imported);
+  assert.equal(safe.parts[0].imageAssetId, undefined);
+  assert.equal(safe.parts[0].imageUrl, undefined);
+  assert.equal(safe.parts[0].questions[2].imageAssetId, 'ket-p1-q3-shared');
+  assert.equal(safe.parts[0].questions[2].options[1].imageAssetId, undefined);
+
+  const prompt = buildUniversalExamImportPrompt(current);
+  assert.match(prompt, /KET\) Listening/);
+  assert.match(prompt, /1, 2, 4, 5/);
+  assert.match(prompt, /Câu in số 3/);
+  assert.match(prompt, /answerSuffix/);
+  assert.match(prompt, /98 ___ Road/);
+  assert.match(prompt, /số câu KHÔNG bị khóa/);
+});
+
+test('KET Listening Part 1 crop grouping ignores the single combined frame for printed question 3', () => {
+  const row = (y: number) => [0.08, 0.38, 0.68].map((x, index) => ({ crop: { x, y, width: .2, height: .08 }, score: .99 - index * .01 }));
+  const detected = [
+    ...row(.04), // printed example
+    ...row(.20), // question 1
+    ...row(.36), // question 2
+    { crop: { x: .18, y: .52, width: .64, height: .08 }, score: .995 }, // combined question 3
+    ...row(.68), // question 4
+    ...row(.84), // question 5
+  ];
+  const grouped = groupKetListeningPart1OptionCrops(detected);
+  assert.equal(grouped.detectedPrintedExample, true);
+  assert.equal(grouped.questionGroups.length, 4);
+  assert.deepEqual(grouped.questionGroups.map(group => group.map(crop => crop.y)), [
+    [.2, .2, .2],
+    [.36, .36, .36],
+    [.68, .68, .68],
+    [.84, .84, .84],
+  ]);
+});
+
+test('KET text-only Parts preserve imported source text and the Part 2 example', () => {
+  const current = createDefaultExamContent(getExamPaperDefinition('ket', 'reading-writing')!);
+  const part2 = importUniversalExamPart(current, 1, JSON.stringify({
+    partNumber: 2,
+    title: 'Choose A, B or C',
+    instruction: 'Choose the correct answer.',
+    blocks: [{
+      blockNumber: 1,
+      title: 'Text questions',
+      interaction: interaction('choice', 'cloze', 'multiple-choice-cloze'),
+      content: {
+        examples: [{ prompt: 'Nina ____ early.', answer: 'B' }],
+        questions: [{ questionNumber: 6, prompt: 'Nina felt ____.', options: [{ label: 'A', text: 'sad' }, { label: 'B', text: 'happy' }, { label: 'C', text: 'tired' }], answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['B'] } }],
+      },
+    }],
+  })).part;
+  assert.deepEqual(part2.examples, [{ prompt: 'Nina ____ early.', answer: 'B' }]);
+  assert.equal(part2.imageAssetId, undefined);
+
+  const part6 = importUniversalExamPart(current, 5, JSON.stringify({
+    partNumber: 6,
+    title: 'Complete the spelling',
+    instruction: 'Write the remaining letters.',
+    blocks: [{
+      blockNumber: 1,
+      title: 'Spelling',
+      interaction: interaction('text-entry', 'spelling', 'initial-letter-spelling'),
+      content: {
+        passage: 'Read the descriptions. Example: camera.',
+        questions: [{ questionNumber: 36, prompt: 'You need this to travel abroad.', answerPrefix: 'p', answerLength: 8, type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: ['assport'] } }],
+      },
+    }],
+  })).part;
+  assert.equal(part6.passage, 'Read the descriptions. Example: camera.');
+  assert.deepEqual(part6.questions[0].acceptedAnswers, ['assport']);
+  assert.equal(part6.imageAssetId, undefined);
+});
+
+test('Universal JSON v2 owns a flexible six-Part structure and supports several blocks outside fixed Cambridge young-learner papers', () => {
+  const definition = getExamPaperDefinition('pet', 'reading')!;
   const current = createDefaultExamContent(definition);
   const parts = Array.from({ length: 6 }, (_, index) => ({
     partNumber: index + 1,
@@ -41,9 +165,9 @@ test('Universal JSON v2 owns a flexible six-Part structure and supports several 
       questions: [{ prompt: `Answer ${index + 1}`, answerSource: 'official-answer-key', answerKey: { acceptedAnswers: [`ok-${index + 1}`] } }],
     }],
   }));
-  const source = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', title: 'Flexible paper', parts }] });
+  const source = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet' }, papers: [{ paperId: 'reading', title: 'Flexible paper', parts }] });
   const result = importUniversalExamBundle(current, source);
-  assert.equal(result.content.schemaVersion, 2);
+  assert.equal(result.content.schemaVersion, 3);
   assert.equal(result.content.structureMode, 'dynamic');
   assert.equal(result.content.parts.length, 6);
   assert.equal(result.content.parts[0].blocks?.length, 2);
@@ -68,9 +192,9 @@ test('Universal JSON v2 owns a flexible six-Part structure and supports several 
 });
 
 test('a matching block and a text block in the same Part are both sanitized and graded', () => {
-  const current = createDefaultExamContent(getExamPaperDefinition('flyer', 'reading-writing')!);
+  const current = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
   const source = JSON.stringify({
-    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts: [{
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet' }, papers: [{ paperId: 'reading', parts: [{
       partNumber: 1, title: 'Mixed', instruction: 'Complete both tasks.', blocks: [
         {
           blockNumber: 1, title: 'Connect', instruction: 'Draw a line.', interaction: interaction('matching', 'image-image', 'draw-line'), answerSource: 'official-answer-key',
@@ -110,14 +234,157 @@ test('a matching block and a text block in the same Part are both sanitized and 
   assert.equal(grade.correctCount, 2);
 });
 
-test('the copied prompt describes dynamic Parts, blocks and optional geometry instead of a fixed Starter template', () => {
+test('the Flyers Listening prompt locks five reviewed Movers-style Parts and teacher-owned geometry', () => {
   const content = createDefaultExamContent(getExamPaperDefinition('flyer', 'listening')!);
   const prompt = buildUniversalExamImportPrompt(content);
   assert.match(prompt, /exam-bundle-import-v2/);
-  assert.match(prompt, /không áp đặt số Part/);
-  assert.match(prompt, /blocks\[\]/);
+  assert.match(prompt, /Trả đúng 5 Part/);
+  assert.match(prompt, /Part 1 dùng đúng giao diện Movers Listening Part 1/);
+  assert.match(prompt, /Part 2 dùng đúng giao diện Movers Listening Part 2/);
+  assert.match(prompt, /đúng năm target-node đánh số Vùng 1\.\.5/);
+  assert.match(prompt, /width 0\.12, height 0\.055/);
+  assert.match(prompt, /hai ảnh giáo viên tải riêng/);
+  assert.match(prompt, /Part 5 giống Movers Listening Part 5/);
   assert.match(prompt, /geometryHints/);
-  assert.doesNotMatch(prompt, /4 Part.*20/i);
+  assert.doesNotMatch(prompt, /không áp đặt số Part/);
+});
+
+test('Flyers Listening whole JSON normalizes the fixed five-Part player contract and private answers', () => {
+  const current = createDefaultExamContent(getExamPaperDefinition('flyer', 'listening')!);
+  const names = ['Alex', 'Ben', 'Katy', 'Mary', 'Robert', 'Sally'];
+  const namePart = (partNumber: number) => ({
+    partNumber, title: `Part ${partNumber}`, instruction: 'Listen and put the names.', blocks: [{
+      blockNumber: 1, title: 'Names', interaction: interaction('matching', 'name-scene', 'drag-name-to-region'),
+      content: { examples: [{ prompt: 'Example', answer: 'Sally' }], questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Person ${index + 1}`, options: names.map((name, optionIndex) => ({ label: String.fromCharCode(65 + optionIndex), text: name })), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: [String.fromCharCode(65 + index)] } })) },
+      geometryHints: { coordinateSpace: 'normalized', regions: Array.from({ length: 5 }, (_, index) => ({ role: 'target-node', ref: `Person ${index + 1}`, questionNumber: index + 1, shape: 'rect', x: .1, y: .1 + index * .15, width: .2, height: .08 })) },
+    }],
+  });
+  const imageQuestions = Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Picture question ${index + 1}`, options: ['A', 'B', 'C'].map(label => ({ label, text: `picture ${label}` })), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['B'] } }));
+  const textQuestions = Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Detail ${index + 1}: ____`, type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: [`answer ${index + 1}`] } }));
+  const colourQuestions = Array.from({ length: 4 }, (_, index) => ({ questionNumber: index + 1, prompt: `Colour object ${index + 1}`, answerSource: 'official-answer-key', answerKey: { colour: ['red', 'blue', 'green', 'yellow'][index] } }));
+  const payload = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer', title: 'Flyers test' }, papers: [{ paperId: 'listening', parts: [
+    namePart(1),
+    { partNumber: 2, title: 'Listen and write', instruction: 'Write a word or number.', blocks: [{ blockNumber: 1, title: 'Listen and write', interaction: interaction('text-entry', 'short-answer', 'single-input'), content: { passage: 'Example: name — Ann', questions: textQuestions } }] },
+    { partNumber: 3, title: 'Letters', instruction: 'Write a letter.', blocks: [{ blockNumber: 1, title: 'Letters', interaction: interaction('text-entry', 'letter-matching', 'two-image-letter-input'), content: { examples: [{ prompt: 'Bill', answer: 'D' }], questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Person ${index + 1}`, type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: [String.fromCharCode(65 + index)] } })) } }] },
+    { partNumber: 4, title: 'Pictures', instruction: 'Tick the box.', blocks: [{ blockNumber: 1, title: 'Pictures', interaction: interaction('choice', 'single', 'image-options'), content: { questions: imageQuestions } }] },
+    { partNumber: 5, title: 'Colour and draw', instruction: 'Colour and draw.', blocks: [{ blockNumber: 1, title: 'Colour', interaction: interaction('scene', 'colour-object', 'paint'), content: { questions: colourQuestions } }, { blockNumber: 2, title: 'Draw', interaction: interaction('scene', 'draw-object', 'draw'), content: { questions: [{ questionNumber: 5, prompt: 'Draw a star on the bag.', type: 'scene-draw', drawObject: 'star', targetDescription: 'on the bag', answerSource: 'official-answer-key', answerKey: {} }] } }] },
+  ] }] });
+  const imported = importUniversalExamBundle(current, payload).content;
+  assert.equal(imported.structureMode, 'definition');
+  assert.deepEqual(imported.parts.map(part => part.questions.length), [5, 5, 5, 5, 5]);
+  assert.equal(examPartUnits(imported.parts[0])[0].interactionLayout?.kind, 'flyer-name-placement-v1');
+  const part1Layout = examPartUnits(imported.parts[0])[0].interactionLayout;
+  assert.ok(part1Layout?.kind === 'flyer-name-placement-v1');
+  assert.deepEqual(part1Layout.targets.map(target => [target.region.shape, target.region.width, target.region.height, target.geometryConfirmedByTeacher]), Array.from({ length: 5 }, () => ['rect', .12, .055, true]));
+  assert.equal(imported.parts[0].questions[0].options.length, 6);
+  assert.equal(imported.parts[0].questions[4].correctOptionIds[0], imported.parts[0].questions[4].options[4].id);
+  assert.equal(examPartUnits(imported.parts[1])[0].interaction?.variant, 'single-input');
+  assert.equal(imported.parts[1].questions[0].type, 'short-answer');
+  assert.equal(imported.parts[1].questions[0].options.length, 0);
+  assert.equal(imported.parts[1].questions[0].acceptedAnswers[0], 'answer 1');
+  assert.equal(imported.parts[2].examples?.length, 1);
+  assert.deepEqual(imported.parts[2].questions.map(question => question.acceptedAnswers[0]), ['A', 'B', 'C', 'D', 'E']);
+  assert.deepEqual(imported.parts[4].questions.map(question => question.id), current.parts[4].questions.map(question => question.id));
+  assert.equal(examPartUnits(imported.parts[4])[1].interactionLayout?.kind, 'scene-draw-v1');
+  const safe = sanitizeExamContentForStudent(imported);
+  assert.equal(JSON.stringify(safe).includes('correctOptionIds'), false);
+  assert.equal(JSON.stringify(safe).includes('acceptedAnswers'), false);
+  const answers: ExamAnswers = Object.fromEntries(imported.parts.flatMap(part => part.questions.map(question => [question.id, question.correctOptionIds[0] || question.acceptedAnswers[0]])));
+  const drawUnit = examPartUnits(imported.parts[4]).find(unit => unit.interactionLayout?.kind === 'scene-draw-v1')!;
+  const drawTarget = drawUnit.interactionLayout?.kind === 'scene-draw-v1' ? drawUnit.interactionLayout.targets[0] : undefined;
+  if (drawTarget) answers[drawTarget.questionId] = { actionId: drawTarget.id, object: drawTarget.object, x: drawTarget.targetRegion.x + drawTarget.targetRegion.width / 2, y: drawTarget.targetRegion.y + drawTarget.targetRegion.height / 2 };
+  assert.equal(gradeExamAttempt(imported, sanitizeExamAnswers(answers, imported)).correctCount, 25);
+});
+
+test('Flyers Reading & Writing keeps seven Part while preserving the scored count printed in each source', () => {
+  const current = createDefaultExamContent(getExamPaperDefinition('flyer', 'reading-writing')!);
+  const prompt = buildUniversalExamImportPrompt(current);
+  assert.match(prompt, /số câu KHÔNG được cố định/);
+  assert.match(prompt, /10–7–5–6–7–10–5/);
+  assert.match(prompt, /Example không tính là câu chấm điểm/);
+  assert.match(prompt, /Part 7.*ảnh hiển thị có thể có hoặc không/i);
+  assert.match(prompt, /Part 5: không trả content\.passage/);
+  assert.match(prompt, /Part 6: không trả content\.passage hay marker/);
+
+  const shortQuestions = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `${prefix} ${index + 1}: ____`,
+    type: 'short-answer',
+    answerSource: 'official-answer-key',
+    answerKey: { acceptedAnswers: [`answer-${index + 1}`] },
+  }));
+  const definitionPart = (partNumber: number, count: number) => ({
+    partNumber,
+    title: `Part ${partNumber}`,
+    instruction: 'Write the answer.',
+    blocks: [{
+      blockNumber: 1,
+      title: 'Definitions',
+      interaction: interaction('text-entry', 'short-answer', 'inline-definitions'),
+      content: { examples: [{ prompt: 'Printed example', answer: 'example' }], questions: shortQuestions(count, 'Definition') },
+    }],
+  });
+  const yesNoQuestions = (count: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `Statement ${index + 1}`,
+    type: 'true-false',
+    options: [{ label: 'YES', text: 'Yes' }, { label: 'NO', text: 'No' }],
+    answerSource: 'official-answer-key',
+    answerKey: { correctOptionLabels: [index % 2 ? 'NO' : 'YES'] },
+  }));
+  const letters = Array.from({ length: 5 }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `Row ${index + 1}`,
+    type: 'short-answer',
+    answerSource: 'official-answer-key',
+    answerKey: { acceptedAnswers: [String.fromCharCode(65 + index)] },
+  }));
+  const choices = (count: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: index + 1,
+    prompt: `Choice ${index + 1}`,
+    type: 'single-choice',
+    options: ['A', 'B', 'C'].map(label => ({ label, text: `Option ${label}` })),
+    answerSource: 'official-answer-key',
+    answerKey: { correctOptionLabels: ['B'] },
+  }));
+  const part4Questions = [
+    ...shortQuestions(5, 'Gap'),
+    { ...choices(1)[0], questionNumber: 6, prompt: 'Choose the best title.' },
+  ];
+  const yesNoPart = (count: number) => ({ partNumber: 2, title: 'Part 2', instruction: 'Write yes or no.', blocks: [{ blockNumber: 1, title: 'Yes or no', interaction: interaction('choice', 'single', 'yes-no'), content: { examples: [{ prompt: 'Example yes', answer: 'Yes' }, { prompt: 'Example no', answer: 'No' }], questions: yesNoQuestions(count) } }] });
+  const parts = [
+    definitionPart(1, 10),
+    yesNoPart(7),
+    { partNumber: 3, title: 'Part 3', instruction: 'Write a letter.', blocks: [{ blockNumber: 1, title: 'Letters', interaction: interaction('text-entry', 'letter-matching', 'two-image-letter-input'), content: { examples: [{ prompt: 'Printed example', answer: 'H' }], questions: letters } }] },
+    { partNumber: 4, title: 'Part 4', instruction: 'Complete the text.', blocks: [{ blockNumber: 1, title: 'Story', interaction: interaction('text-entry', 'short-answer-and-title', 'story-gaps-title'), content: { examples: [{ prompt: 'Printed example', answer: 'example' }], passage: Array.from({ length: 5 }, (_, index) => `Text [[${index + 1}]].`).join(' '), questions: part4Questions } }] },
+    { partNumber: 5, title: 'Part 5', instruction: 'Complete the sentences.', blocks: [{ blockNumber: 1, title: 'Story completion', interaction: interaction('text-entry', 'story-sentence-completion', 'story-sentence-completion'), content: { examples: [{ prompt: 'Example one', answer: 'one' }, { prompt: 'Example two', answer: 'two' }], questions: shortQuestions(7, 'Sentence').map(question => ({ ...question, maxWords: 4 })) } }] },
+    { partNumber: 6, title: 'Part 6', instruction: 'Choose A, B or C.', blocks: [{ blockNumber: 1, title: 'Multiple-choice cloze', interaction: interaction('choice', 'cloze', 'multiple-choice-cloze'), content: { examples: [{ prompt: 'Printed example', answer: 'took' }], questions: choices(10) } }] },
+    { partNumber: 7, title: 'Part 7', instruction: 'Write one word.', blocks: [{ blockNumber: 1, title: 'Open cloze', interaction: interaction('text-entry', 'open-cloze', 'open-cloze'), content: { examples: [{ prompt: 'Printed example', answer: 'his' }], passage: Array.from({ length: 5 }, (_, index) => `Text [[${index + 1}]].`).join(' '), questions: shortQuestions(5, 'Gap').map(question => ({ ...question, maxWords: 1 })) } }] },
+  ];
+  const imported = importUniversalExamBundle(current, JSON.stringify({
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts }],
+  })).content;
+  assert.equal(imported.structureMode, 'definition');
+  assert.deepEqual(imported.parts.map(part => part.questions.length), [10, 7, 5, 6, 7, 10, 5]);
+  assert.deepEqual(imported.parts.map(part => part.interaction?.variant), ['inline-definitions', 'yes-no', 'two-image-letter-input', 'story-gaps-title', 'story-sentence-completion', 'multiple-choice-cloze', 'open-cloze']);
+  assert.equal(imported.parts[1].examples?.length, 2);
+  assert.equal(imported.parts[2].examples?.length, 1);
+  assert.deepEqual(imported.parts[2].questions.map(question => question.acceptedAnswers[0]), ['A', 'B', 'C', 'D', 'E']);
+  assert.equal(imported.parts[3].questions[5].type, 'single-choice');
+  assert.equal(imported.parts[4].examples?.length, 2);
+  assert.equal(imported.parts[5].questions[0].options.length, 3);
+  assert.equal(imported.parts[4].passage, undefined);
+  assert.equal(imported.parts[5].passage, undefined);
+  assert.equal(imported.parts[6].imageAssetId, undefined);
+
+  const unchangedFirstPart = JSON.stringify(imported.parts[0]);
+  const partPrompt = buildUniversalExamPartImportPrompt(imported, 1);
+  assert.match(partPrompt, /CHỈ trả Part 2/);
+  const replacement = importUniversalExamPart(imported, 1, JSON.stringify({
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts: [yesNoPart(3)] }],
+  }));
+  assert.equal(replacement.part.questions.length, 3);
+  assert.equal(JSON.stringify(imported.parts[0]), unchangedFirstPart);
 });
 
 test('the Part prompt keeps the full v2 envelope and teaches AI to split colour from draw', () => {
@@ -150,9 +417,9 @@ test('the Part prompt keeps the full v2 envelope and teaches AI to split colour 
 });
 
 test('scene colour gets an editable 10-colour catalog while draw stays a private-region placement action', () => {
-  const current = createDefaultExamContent(getExamPaperDefinition('flyer', 'reading-writing')!);
+  const current = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
   const source = JSON.stringify({
-    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts: [{
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet' }, papers: [{ paperId: 'reading', parts: [{
       partNumber: 1, title: 'Colour and draw', instruction: 'Listen, colour and draw.', blocks: [
         {
           blockNumber: 1, title: 'Colour', instruction: 'Colour the objects.', interaction: interaction('scene', 'colour-object', 'paint'),

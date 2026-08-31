@@ -26,7 +26,9 @@ function TextResults({ part, results, moverLayout = false }: { part: ExamPartCon
   const cards = <div className={moverLayout ? 'space-y-3' : 'grid gap-3 sm:grid-cols-2'}>{part.questions.map((question, index) => {
     const result = results.find(item => item.questionId === question.id);
     const state = stateOf(result);
-    return <article key={question.id} className={`rounded-2xl border-2 p-4 ${stateClasses(state)}`}><div className="flex items-start gap-3"><StateIcon state={state} /><div><p className="font-black text-slate-900">{index + 1}. {question.prompt}</p><p className="mt-2 text-sm"><b>Bạn trả lời:</b> {answerText(result?.userAnswer) || 'Bỏ trống'}</p>{state !== 'correct' && <p className="mt-1 text-sm font-black text-emerald-800">Đáp án đúng: {answerText(result?.correctAnswer)}</p>}</div></div></article>;
+    const userAnswer = answerText(result?.userAnswer);
+    const correctAnswer = answerText(result?.correctAnswer);
+    return <article key={question.id} className={`rounded-2xl border-2 p-4 ${stateClasses(state)}`}><div className="flex items-start gap-3"><StateIcon state={state} /><div><p className="font-black text-slate-900">{question.displayNumber || index + 1}. {question.prompt}</p><p className="mt-2 text-sm"><b>Bạn trả lời:</b> {userAnswer ? <>{question.answerPrefix && <span>{question.answerPrefix} </span>}<b>{userAnswer}</b>{question.answerSuffix && <span> {question.answerSuffix}</span>}</> : 'Bỏ trống'}</p>{state !== 'correct' && <p className="mt-1 text-sm font-black text-emerald-800">Đáp án đúng: {question.answerPrefix && <span>{question.answerPrefix} </span>}<b>{correctAnswer}</b>{question.answerSuffix && <span> {question.answerSuffix}</span>}</p>}</div></div></article>;
   })}</div>;
   if (!moverLayout) return cards;
   return <div className="grid gap-4 lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
@@ -73,20 +75,50 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
   </div>;
 }
 
-function ImageOptionResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+function ImageOptionResults({ part, results, showSource = true, displayImageUrl }: { part: ExamPartContent; results: ExamQuestionResult[]; showSource?: boolean; displayImageUrl?: string }) {
   const unit = examPartUnits(part)[0] || part;
-  return <div className="space-y-4">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" maxHeight="min(46vh, 360px)" className="border-2 border-orange-300 bg-white p-2" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
+  return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" maxHeight="min(34vh, 320px)" className="border-2 border-orange-300 bg-white p-2" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" maxHeight="min(46vh, 360px)" className="border-2 border-orange-300 bg-white p-2" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
     const result = results.find(item => item.questionId === question.id);
     const state = stateOf(result);
     const user = normalized(answerText(result?.userAnswer));
     const correct = normalized(answerText(result?.correctAnswer));
-    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div><div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
+    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div>{question.imageUrl && <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || questionIndex + 1}`} maxHeight="min(38vh, 340px)" className="mb-3 border-2 border-amber-300 bg-white p-2" />}<div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
       const optionValues = [normalized(option.label), normalized(option.text)];
       const selected = optionValues.includes(user);
       const right = optionValues.includes(correct);
-      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl && <img src={option.imageUrl} alt={option.text} className="h-24 w-full object-contain sm:h-32" />}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
+      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl ? <img src={option.imageUrl} alt={option.text} className="h-24 w-full object-contain sm:h-32" /> : <div className="flex min-h-20 items-center justify-center px-2 text-center text-sm font-bold text-slate-900">{option.text}</div>}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
     })}</div></article>;
   })}</div></div>;
+}
+
+function KetFormResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+  const unit = examPartUnits(part)[0] || part;
+  return <div className="space-y-4">{unit.passage && <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4"><p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Instructions and example</p><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-900">{unit.passage}</p></section>}<TextResults part={unit} results={results} /></div>;
+}
+
+function FlyerNameResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+  const unit = examPartUnits(part)[0] || part;
+  const layout = unit.interactionLayout?.kind === 'flyer-name-placement-v1' ? unit.interactionLayout : undefined;
+  if (!layout || !part.imageUrl) return <TextResults part={unit} results={results} />;
+  return <div className="space-y-4"><ExamImageViewer src={part.imageUrl} alt={`Kết quả Flyers Part ${part.part}`} className="border-2 border-orange-300 bg-white">{layout.targets.map((target, index) => {
+    const result = results.find(item => item.questionId === target.questionId);
+    const state = stateOf(result);
+    return <div key={target.id} style={regionPositionStyle(target.region)} className="pointer-events-none absolute z-20 flex items-center justify-center"><span className={`rounded-xl border-2 bg-white px-2 py-1 text-[10px] font-black shadow ${stateClasses(state)}`}>{answerText(result?.userAnswer) || '—'} {state === 'correct' ? '✓' : state === 'incorrect' ? `· đúng: ${answerText(result?.correctAnswer)}` : ''}</span><span className="sr-only">Vùng {index + 1}</span></div>;
+  })}</ExamImageViewer><TextResults part={unit} results={results} /></div>;
+}
+
+function FlyerLetterResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+  const unit = examPartUnits(part)[0] || part;
+  const middle = unit.readingScenes?.[0]?.imageUrl || part.readingScenes?.[0]?.imageUrl;
+  return <div className="overflow-x-auto rounded-2xl bg-slate-50 p-2"><div data-flyer-part3-review-fixed-frames className="grid h-[clamp(360px,56vh,580px)] min-w-[880px] grid-cols-[minmax(280px,1fr)_minmax(280px,1fr)_220px] overflow-hidden rounded-2xl border-2 border-slate-300 bg-white divide-x-2 divide-slate-300">
+    <div className="min-w-0 overflow-hidden p-2">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Các lựa chọn A-H" fillFrame className="rounded-xl bg-white" />}</div>
+    <div className="min-w-0 overflow-hidden p-2">{middle && <ExamImageViewer src={middle} alt="Danh sách người" fillFrame className="rounded-xl bg-white" />}</div>
+    <div className="min-w-0 space-y-2 overflow-y-auto p-3">{unit.questions.map((question, index) => {
+      const result = results.find(item => item.questionId === question.id);
+      const state = stateOf(result);
+      return <article key={question.id} className={`rounded-xl border-2 p-3 text-sm ${stateClasses(state)}`}><p className="font-black">{index + 1}. {question.prompt}</p><p className="mt-1">Bạn trả lời: <b>{answerText(result?.userAnswer) || 'Bỏ trống'}</b></p>{state !== 'correct' && <p className="mt-1 font-black text-emerald-800">Đúng: {answerText(result?.correctAnswer)}</p>}</article>;
+    })}</div>
+  </div></div>;
 }
 
 function SceneResults({ part, results, answers, review }: { part: ExamPartContent; results: ExamQuestionResult[]; answers: ExamAnswers; review: ExamAttemptReview }) {
@@ -146,6 +178,7 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
     unanswered: results.filter(item => item.unanswered).length,
   }), [results]);
   const transcript = review.transcripts?.find(item => item.part === part.part)?.text;
+  const ketListening = playable.content.moduleId === 'ket' && playable.content.paperId === 'listening' && playable.content.templateVersion === 'ket-listening-5-v1';
 
   return <div id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
     <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
@@ -155,7 +188,25 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
           <div className="sticky top-0 z-40 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-2" role="tablist" aria-label="Chọn Part để xem kết quả">{playable.content.parts.map(item => <button key={item.part} type="button" role="tab" aria-selected={item.part === activePart} data-active={item.part === activePart ? 'true' : 'false'} onClick={() => setActivePart(item.part)} className="listening-review-part-tab h-10 min-w-14 rounded-full px-4 text-sm font-black">Part {item.part}</button>)}</div><p className="text-xs font-black text-slate-600"><span className="text-emerald-700">{summary.correct} đúng</span> · <span className="text-rose-700">{summary.incorrect} sai</span> · <span className="text-amber-700">{summary.unanswered} bỏ trống</span></p></div></div>
           <div className="relative px-12 sm:px-16">
             <button type="button" disabled={partIndex === 0} onClick={() => setActivePart(playable.content.parts[partIndex - 1]?.part || activePart)} className="listening-review-part-nav absolute left-0 top-1/2 z-50 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full" aria-label="Part trước"><ChevronLeft size={30} /></button>
-            {part.part === 1 ? <MatchingResults part={part} results={results} answers={answers} /> : part.part === 2 ? <TextResults part={part} results={results} moverLayout /> : part.part === 3 ? <ImageOptionResults part={part} results={results} /> : part.part === 4 ? <SceneResults part={part} results={results} answers={answers} review={review} /> : <TextResults part={part} results={results} />}
+            {ketListening
+              ? part.part === 1
+                ? <ImageOptionResults part={part} results={results} showSource={false} />
+                : part.part === 2
+                  ? <FlyerLetterResults part={part} results={results} />
+                  : part.part === 3
+                    ? <ImageOptionResults part={part} results={results} showSource={false} />
+                    : <KetFormResults part={part} results={results} />
+              : playable.content.moduleId === 'flyer'
+              ? part.part === 1
+                ? <FlyerNameResults part={part} results={results} />
+                : part.part === 2
+                  ? <TextResults part={examPartUnits(part)[0] || part} results={results} moverLayout />
+                  : part.part === 3
+                    ? <FlyerLetterResults part={part} results={results} />
+                    : part.part === 4
+                      ? <ImageOptionResults part={part} results={results} showSource={false} displayImageUrl={(examPartUnits(part).find(item => item.interaction?.variant === 'image-options') || examPartUnits(part)[0] || part).readingScenes?.[0]?.imageUrl || part.readingScenes?.[0]?.imageUrl} />
+                      : <SceneResults part={part} results={results} answers={answers} review={review} />
+              : part.part === 1 ? <MatchingResults part={part} results={results} answers={answers} /> : part.part === 2 ? <TextResults part={part} results={results} moverLayout /> : part.part === 3 ? <ImageOptionResults part={part} results={results} /> : part.part === 4 ? <SceneResults part={part} results={results} answers={answers} review={review} /> : <TextResults part={part} results={results} />}
             <button type="button" disabled={partIndex === playable.content.parts.length - 1} onClick={() => setActivePart(playable.content.parts[partIndex + 1]?.part || activePart)} className="listening-review-part-nav absolute right-0 top-1/2 z-50 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full" aria-label="Part sau"><ChevronRight size={30} /></button>
           </div>
           {transcript && <details className="rounded-2xl border border-sky-200 bg-white p-4 text-left"><summary className="cursor-pointer text-sm font-black text-sky-900">Nội dung bài nghe · Part {part.part}</summary><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{transcript}</p></details>}

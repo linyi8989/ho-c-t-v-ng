@@ -7,6 +7,10 @@ import {
   STARTER_MATCHING_MAX_CONNECTIONS,
   starterMatchingAnchor,
 } from './starterMatching';
+import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from './flyerListeningMigration';
+import { normalizeFixedFlyerReadingWritingContent } from './flyerReadingWritingMigration';
+import { normalizeFixedKetReadingWritingContent } from './ketReadingWritingMigration';
+import { KET_LISTENING_TEMPLATE_VERSION, normalizeFixedKetListeningContent } from './ketListeningMigration';
 
 const choiceTypes = ['single-choice', 'matching'] as const;
 const readingTypes = [
@@ -84,37 +88,39 @@ export const EXAM_PAPER_DEFINITIONS = [
 
   paper('flyer', 'listening', 'Listening', 'A2 Flyers', 25, [
     part(5, 'Listen and draw lines', 'matching', choiceTypes, { requiresAudio: true }),
-    part(5, 'Listen and complete the notes', 'short-answer', listeningTypes, { requiresAudio: true }),
+    part(5, 'Listen and write', 'short-answer', ['short-answer'], { requiresAudio: true }),
     part(5, 'Listen and match', 'matching', listeningTypes, { requiresAudio: true }),
     part(5, 'Listen and choose the picture', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(5, 'Listen, colour and write', 'short-answer', listeningTypes, { requiresAudio: true }),
+    part(5, 'Listen, colour and draw', 'single-choice', [...listeningTypes, 'scene-draw'], { requiresAudio: true }),
   ], { description: 'A2 Flyers Listening · 5 Part · 25 câu' }),
   paper('flyer', 'reading-writing', 'Reading & Writing', 'A2 Flyers', 40, [
-    part(10, 'Match words and definitions', 'matching', readingTypes),
-    part(5, 'Complete the conversation', 'matching', readingTypes),
-    part(6, 'Complete the text and choose a title', 'short-answer', readingTypes),
-    part(10, 'Choose words to complete the text', 'single-choice', readingTypes),
-    part(7, 'Complete sentences about the story', 'short-answer', readingTypes),
-    part(5, 'Write one word in each gap', 'short-answer', readingTypes),
-    part(1, 'Write a story from three pictures', 'long-writing', ['long-writing'], { longWriting: true, minWords: 20, pointsPerQuestion: 5, instruction: 'Viết một câu chuyện dựa trên ba tranh.' }),
-  ], { description: 'A2 Flyers Reading & Writing · 7 Part · 44 câu' }),
+    part(10, 'Match words and definitions', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(7, 'Look and read. Write yes or no', 'true-false', ['true-false'], { questionCountFlexible: true }),
+    part(5, 'Complete the conversation with letters A-H', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(6, 'Complete the story and choose a title', 'short-answer', ['short-answer', 'single-choice'], { questionCountFlexible: true }),
+    part(7, 'Complete sentences about the story', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(10, 'Choose A, B or C for each gap', 'single-choice', ['single-choice'], { questionCountFlexible: true }),
+    part(5, 'Write one word in each gap', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+  ], { description: 'A2 Flyers Reading & Writing · 7 Part · số câu theo đề gốc' }),
 
   paper('ket', 'reading-writing', 'Reading & Writing', 'A2 Key', 60, [
-    part(6, 'Short texts: multiple choice', 'single-choice', readingTypes),
-    part(7, 'Multiple matching', 'matching', readingTypes),
-    part(5, 'Long text: multiple choice', 'single-choice', readingTypes),
-    part(6, 'Multiple-choice cloze', 'single-choice', readingTypes),
-    part(6, 'Open cloze', 'short-answer', readingTypes),
-    part(1, 'Guided email or note', 'long-writing', ['long-writing'], { longWriting: true, minWords: 25, pointsPerQuestion: 15 }),
-    part(1, 'Picture story', 'long-writing', ['long-writing'], { longWriting: true, minWords: 35, pointsPerQuestion: 15 }),
-  ], { description: 'A2 Key Reading & Writing · 7 Part · 32 câu' }),
+    part(5, 'Two-image letter matching', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(5, 'Choose A, B or C', 'single-choice', ['single-choice'], { questionCountFlexible: true }),
+    part(10, 'Two exercise groups', 'single-choice', ['single-choice', 'short-answer'], { questionCountFlexible: true }),
+    part(7, 'Question and three choices', 'single-choice', ['single-choice'], { questionCountFlexible: true }),
+    part(8, 'Choose A, B or C', 'single-choice', ['single-choice'], { questionCountFlexible: true }),
+    part(5, 'Complete the spelling', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(10, 'Complete the numbered gaps', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(5, 'Complete the notes', 'short-answer', ['short-answer'], { questionCountFlexible: true }),
+    part(1, 'Guided writing', 'long-writing', ['long-writing'], { longWriting: true, minWords: 25, pointsPerQuestion: 10 }),
+  ], { description: 'A2 Key Reading & Writing · 9 Part · số câu linh hoạt + Writing 10 điểm' }),
   paper('ket', 'listening', 'Listening', 'A2 Key', 30, [
-    part(5, 'Visual multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(5, 'Gap fill', 'short-answer', listeningTypes, { requiresAudio: true }),
-    part(5, 'Dialogue multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(5, 'Short recordings multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(5, 'Matching', 'matching', listeningTypes, { requiresAudio: true }),
-  ], { description: 'A2 Key Listening · 5 Part · 25 câu' }),
+    part(5, 'Listen and choose the picture', 'single-choice', ['single-choice'], { requiresAudio: true, questionCountFlexible: true }),
+    part(5, 'Listen and write a letter', 'short-answer', ['short-answer'], { requiresAudio: true, questionCountFlexible: true }),
+    part(5, 'Listen and choose A, B or C', 'single-choice', ['single-choice'], { requiresAudio: true, questionCountFlexible: true }),
+    part(5, 'Listen and complete the notes', 'short-answer', ['short-answer'], { requiresAudio: true, questionCountFlexible: true }),
+    part(5, 'Listen and complete the notes', 'short-answer', ['short-answer'], { requiresAudio: true, questionCountFlexible: true }),
+  ], { description: 'A2 Key Listening · 5 Part · số câu linh hoạt theo đề gốc' }),
 
   paper('pet', 'reading', 'Reading', 'B1 Preliminary', 45, [
     part(5, 'Short texts: multiple choice', 'single-choice', readingTypes),
@@ -330,6 +336,100 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
       })),
     };
   }
+  if (definition.moduleId === 'flyer' && definition.paperId === 'listening') {
+    [content.parts[0]].forEach((namePart, partIndex) => {
+      const choices = Array.from({ length: 6 }, (_, index) => ({
+        id: identifier(`flyer-p${partIndex + 1}-name`),
+        label: String.fromCharCode(65 + index),
+        text: `Name ${index + 1}`,
+      }));
+      namePart.questions = namePart.questions.map((question, index) => ({
+        ...question,
+        type: 'matching',
+        prompt: `Person ${index + 1}`,
+        options: choices.map(option => ({ ...option })),
+        correctOptionIds: [],
+      }));
+      namePart.examples = [{ prompt: 'Example', answer: '' }];
+      namePart.interaction = {
+        family: 'matching', subtype: 'name-scene', variant: 'drag-name-to-region', schemaVersion: 1,
+        importReadiness: 'needs-assets',
+      };
+      namePart.interactionLayout = {
+        kind: 'flyer-name-placement-v1',
+        targets: namePart.questions.map((question, index) => ({
+          id: identifier(`flyer-p${partIndex + 1}-target`),
+          questionId: question.id,
+          label: question.prompt,
+          region: { shape: 'rect' as const, x: .08 + (index % 2) * .62, y: .12 + Math.floor(index / 2) * .27, width: FLYER_NAME_REGION_WIDTH, height: FLYER_NAME_REGION_HEIGHT },
+          geometryConfirmedByTeacher: false,
+        })),
+      };
+    });
+
+    const part2 = content.parts[1];
+    part2.interaction = {
+      family: 'text-entry', subtype: 'short-answer', variant: 'single-input', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part2.questions = part2.questions.map((question, index) => ({
+      ...question,
+      type: 'short-answer',
+      prompt: `Question ${index + 1}: ____`,
+      options: [],
+      correctOptionIds: [],
+      acceptedAnswers: [],
+    }));
+
+    const part3 = content.parts[2];
+    part3.interaction = {
+      family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part3.examples = [{ prompt: 'Example', answer: '' }];
+    part3.questions = part3.questions.map((question, index) => ({
+      ...question,
+      type: 'short-answer',
+      prompt: `Person ${index + 1}`,
+      options: [],
+      correctOptionIds: [],
+      acceptedAnswers: [],
+      maxWords: 1,
+    }));
+    part3.readingScenes = [{ id: identifier('flyer-p3-people'), passage: '', questionIds: part3.questions.map(question => question.id) }];
+
+    const part4 = content.parts[3];
+    part4.interaction = {
+      family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+
+    const part5 = content.parts[4];
+    const colours = ['green', 'blue', 'red', 'black'].map((text, index) => ({
+      id: identifier('flyer-colour'), label: String.fromCharCode(65 + index), text,
+    }));
+    part5.questions = part5.questions.map((question, index) => ({
+      ...question,
+      type: 'single-choice',
+      prompt: `Đối tượng ${index + 1}`,
+      options: colours.map(option => ({ ...option })),
+      correctOptionIds: [],
+    }));
+    part5.interaction = {
+      family: 'scene', subtype: 'colour-object', variant: 'paint', schemaVersion: 1,
+      importReadiness: 'needs-assets',
+    };
+    part5.interactionLayout = {
+      kind: 'starter-scene-colour-v1',
+      targets: part5.questions.map((question, index) => ({
+        id: identifier('flyer-colour-target'),
+        questionId: question.id,
+        label: question.prompt,
+        region: { shape: 'rect' as const, x: .39, y: .08 + index * .16, width: .2, height: .1 },
+        geometryConfirmedByTeacher: false,
+      })),
+    };
+  }
   if (definition.moduleId === 'starter' && definition.paperId === 'reading-writing') {
     const yesNoOptions = () => [
       { id: identifier('starter-rw-yes'), label: 'YES', text: 'Yes' },
@@ -401,5 +501,8 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
       { id: identifier('starter-rw-scene-3'), passage: '', questionIds: part5.questions.slice(3, 5).map(question => question.id) },
     ];
   }
-  return content;
+  if (definition.moduleId === 'ket' && definition.paperId === 'listening') {
+    content.templateVersion = KET_LISTENING_TEMPLATE_VERSION;
+  }
+  return normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(content)));
 }

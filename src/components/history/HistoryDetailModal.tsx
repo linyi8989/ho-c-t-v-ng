@@ -174,6 +174,10 @@ function DetailEntry({
     'feedback',
     'aiFeedback'
   ]);
+  const writingScore = firstValue(data, ['writingScore', 'pointsAwarded']);
+  const sentenceCount = firstValue(data, ['sentenceCount']);
+  const grammarErrors = firstValue(data, ['grammarErrors']);
+  const vocabularyErrors = firstValue(data, ['vocabularyErrors']);
 
   return (
     <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -266,6 +270,16 @@ function DetailEntry({
                 <dd className="mt-1 break-words text-slate-700">{readableValue(evaluation)}</dd>
               </div>
             )}
+          </div>
+        )}
+        {(data.type === 'long-writing' || data.aiGradingStatus === 'completed') && (
+          <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {writingScore !== undefined && <div><dt className="text-xs font-bold text-violet-700">Điểm Writing</dt><dd className="mt-1 font-black text-violet-950">{readableValue(writingScore)}/{readableValue(data.maxPoints ?? 10)}</dd></div>}
+              {sentenceCount !== undefined && <div><dt className="text-xs font-bold text-violet-700">Số câu</dt><dd className="mt-1 font-black text-violet-950">{readableValue(sentenceCount)}</dd></div>}
+            </div>
+            {Array.isArray(grammarErrors) && grammarErrors.length > 0 && <div className="mt-3"><dt className="text-xs font-bold text-rose-700">Lỗi ngữ pháp</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-800">{grammarErrors.map(item => `• ${readableValue(item)}`).join('\n')}</dd></div>}
+            {Array.isArray(vocabularyErrors) && vocabularyErrors.length > 0 && <div className="mt-3"><dt className="text-xs font-bold text-amber-800">Lỗi từ vựng</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-800">{vocabularyErrors.map(item => `• ${readableValue(item)}`).join('\n')}</dd></div>}
           </div>
         )}
         {responseTime !== undefined && (

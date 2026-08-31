@@ -12,7 +12,7 @@ import type { ExamAnswers, ExamPaperContent } from '../../features/exam-platform
 import { getLearningHistory, getLearningHistoryDetail } from '../learning-history/learningHistoryService';
 import { createExamRouter } from './examRouter';
 
-function completeContent(moduleId: 'starter' | 'pet', paperId: 'reading-writing' | 'writing') {
+function completeContent(moduleId: 'starter' | 'pet' | 'ket', paperId: 'reading-writing' | 'writing') {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
   const content = createDefaultExamContent(definition);
   content.title = `${definition.level} integration fixture`;
@@ -23,6 +23,26 @@ function completeContent(moduleId: 'starter' | 'pet', paperId: 'reading-writing'
       if (part.part === 1 && part.examples?.[0]) { part.examples[0].imageAssetId = 'exam-image-1'; part.examples[0].imageUrl = '/listening-media/exam-image.png'; }
       if (part.part === 5) part.readingScenes?.forEach(scene => { scene.imageAssetId = 'exam-image-1'; scene.imageUrl = '/listening-media/exam-image.png'; });
     }
+    if (moduleId === 'ket' && paperId === 'reading-writing') {
+      if ([1, 4, 5].includes(part.part)) {
+        part.imageAssetId = 'exam-image-1';
+        part.imageUrl = '/listening-media/exam-image.png';
+      }
+      if (part.part === 2) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
+      if ([6, 7, 8].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
+      if (part.part === 9) part.passage = 'Printed writing task and all required hints.';
+      if (part.part === 1 && part.readingScenes?.[0]) {
+        part.readingScenes[0].imageAssetId = 'exam-image-1';
+        part.readingScenes[0].imageUrl = '/listening-media/exam-image.png';
+      }
+      if (part.part === 3 && part.blocks?.length === 2) {
+        part.blocks.forEach(block => { block.imageAssetId = 'exam-image-1'; block.imageUrl = '/listening-media/exam-image.png'; });
+        if (part.blocks[1].readingScenes?.[0]) {
+          part.blocks[1].readingScenes[0].imageAssetId = 'exam-image-1';
+          part.blocks[1].readingScenes[0].imageUrl = '/listening-media/exam-image.png';
+        }
+      }
+    }
     part.questions.forEach(question => {
       question.prompt = `Question ${question.number}`;
       if (question.type === 'long-writing') {
@@ -30,7 +50,13 @@ function completeContent(moduleId: 'starter' | 'pet', paperId: 'reading-writing'
       } else if (question.options.length) {
         question.correctOptionIds = [question.options[0].id];
       } else {
-        question.acceptedAnswers = ['answer'];
+        const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
+        question.acceptedAnswers = moduleId === 'ket' && (part.part === 1 || ketLetterIds.has(question.id)) ? ['A'] : ['answer'];
+        if (moduleId === 'ket' && part.part === 6) {
+          question.answerPrefix = 'a';
+          question.answerLength = 6;
+          question.acceptedAnswers = ['nswer'];
+        }
       }
     });
   });
@@ -82,6 +108,14 @@ test('generic exam API preserves immutable publish, private grading and manual W
     requireStaff: pass,
     ticketSecret: 'generic-exam-router-test-secret',
     resolveGuestProfile: async (guestId, studentName) => ({ id: String(guestId), displayName: String(studentName), status: 'active' }),
+    writingGrading: {
+      providers: [{ id: 'stali:gpt-5.6-sol', label: 'Stali test', enabled: true }],
+      grade: async request => {
+        assert.equal(request.providerId, 'stali:gpt-5.6-sol');
+        assert.match(request.taskContext, /writing task|task/i);
+        return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['verb form'], vocabularyErrors: [], feedback: 'The task is complete. Three sentences are used. One verb form needs correction. Vocabulary is appropriate.' };
+      },
+    },
   }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -185,11 +219,20 @@ test('generic exam API preserves immutable publish, private grading and manual W
     runSecret: 'objective-run-secret-123456',
     answers: correctAnswers(objectiveContent),
   };
-  const submitResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submission),
-  });
+  assert.ok(prepared.deadlineAt, 'timed practice fixture must have a deadline');
+  const realDateNow = Date.now;
+  Date.now = () => new Date(prepared.deadlineAt).getTime() + 3 * 60_000;
+  let submitResponse: Response;
+  try {
+    submitResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submission),
+    });
+  } finally {
+    Date.now = realDateNow;
+  }
   const attempt = await submitResponse.json() as any;
   assert.equal(submitResponse.status, 201, JSON.stringify(attempt));
+  assert.equal(attempt.timedOut, true, 'an expired deadline must be recorded without blocking submission');
   assert.equal(attempt.score, 100);
   assert.equal(attempt.correctCount, 25);
   assert.equal(JSON.stringify(attempt).includes('correctAnswer'), false);
@@ -272,9 +315,41 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal((await manualGrade.json() as any).score, 100);
   assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 2);
 
-  const drawCurrent = createDefaultExamContent(getExamPaperDefinition('flyer', 'reading-writing')!);
+  const ketContent = completeContent('ket', 'reading-writing');
+  const ketCreatedResponse = await fetch(`${baseUrl}/admin/modules/ket/papers/reading-writing/sets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ketContent }),
+  });
+  const ketCreated = await ketCreatedResponse.json() as any;
+  assert.equal(ketCreatedResponse.status, 201, JSON.stringify(ketCreated));
+  assert.deepEqual(ketCreated.validationErrors, []);
+  const ketUpdated = await fetch(`${baseUrl}/admin/modules/ket/papers/reading-writing/sets/${ketCreated.id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: ketContent, visibility: 'public', baseRevision: ketCreated.draftRevision }),
+  });
+  assert.equal(ketUpdated.status, 200);
+  assert.equal((await fetch(`${baseUrl}/admin/modules/ket/papers/reading-writing/sets/${ketCreated.id}/publish`, { method: 'POST' })).status, 200);
+  const ketPrepare = await fetch(`${baseUrl}/modules/ket/papers/reading-writing/sets/${ketCreated.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, clientRunId: 'ket-writing-client-run', runSecret: 'ket-writing-run-secret-12345678' }),
+  });
+  const ketTicket = await ketPrepare.json() as any;
+  const ketSubmit = await fetch(`${baseUrl}/modules/ket/papers/reading-writing/sets/${ketCreated.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, ticket: ketTicket.ticket, runSecret: 'ket-writing-run-secret-12345678', answers: correctAnswers(ketContent) }),
+  });
+  const ketAttempt = await ketSubmit.json() as any;
+  assert.equal(ketSubmit.status, 201, JSON.stringify(ketAttempt));
+  assert.equal(ketAttempt.status, 'completed');
+  assert.equal(ketAttempt.aiGradingStatus, 'completed');
+  assert.equal(ketAttempt.score, 97);
+  const ketReviewResponse = await fetch(`${baseUrl}/modules/ket/papers/reading-writing/sets/${ketCreated.id}/attempts/${ketAttempt.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } });
+  const ketReview = await ketReviewResponse.json() as any;
+  assert.equal(ketReviewResponse.status, 200);
+  const ketWriting = ketReview.questions.find((question: any) => question.part === 9);
+  assert.equal(ketWriting.writingScore, 8);
+  assert.deepEqual(ketWriting.grammarErrors, ['verb form']);
+  assert.match(ketWriting.aiFeedback, /task is complete/i);
+
+  const drawCurrent = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
   const drawContent = importUniversalExamBundle(drawCurrent, JSON.stringify({
-    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'flyer' }, papers: [{ paperId: 'reading-writing', parts: [{
+    format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet' }, papers: [{ paperId: 'reading', parts: [{
       partNumber: 1, title: 'Draw', instruction: 'Draw on the picture.', blocks: [{
         blockNumber: 1, title: 'Draw a flower', instruction: 'Draw.', interaction: { family: 'scene', subtype: 'draw-object', variant: 'draw', schemaVersion: 2 },
         questions: [{ prompt: "Draw a flower on the dog's head.", drawObject: 'flower', targetDescription: "on the dog's head", answerSource: 'official-answer-key', answerKey: {} }],
@@ -286,14 +361,14 @@ test('generic exam API preserves immutable publish, private grading and manual W
   if (drawBlock.interactionLayout?.kind !== 'scene-draw-v1') assert.fail('Expected scene draw layout');
   drawBlock.interactionLayout.targets[0].tokenAssetId = 'exam-image-1';
   drawBlock.interactionLayout.targets[0].geometryConfirmedByTeacher = true;
-  const drawCreatedResponse = await fetch(`${baseUrl}/admin/modules/flyer/papers/reading-writing/sets`, {
+  const drawCreatedResponse = await fetch(`${baseUrl}/admin/modules/pet/papers/reading/sets`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: drawContent }),
   });
   const drawCreated = await drawCreatedResponse.json() as any;
   assert.equal(drawCreatedResponse.status, 201, JSON.stringify(drawCreated));
   assert.deepEqual(drawCreated.validationErrors, []);
-  assert.equal((await fetch(`${baseUrl}/admin/modules/flyer/papers/reading-writing/sets/${drawCreated.id}/publish`, { method: 'POST' })).status, 200);
-  const drawPlayableResponse = await fetch(`${baseUrl}/modules/flyer/papers/reading-writing/sets/${drawCreated.id}`, { headers: { 'X-Test-Teacher': 'owner' } });
+  assert.equal((await fetch(`${baseUrl}/admin/modules/pet/papers/reading/sets/${drawCreated.id}/publish`, { method: 'POST' })).status, 200);
+  const drawPlayableResponse = await fetch(`${baseUrl}/modules/pet/papers/reading/sets/${drawCreated.id}`, { headers: { 'X-Test-Teacher': 'owner' } });
   const drawPlayable = await drawPlayableResponse.json() as any;
   assert.equal(drawPlayableResponse.status, 200, JSON.stringify(drawPlayable));
   const safeDrawTarget = drawPlayable.content.parts[0].blocks[0].interactionLayout.targets[0];
@@ -301,6 +376,19 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(safeDrawTarget.targetRegion, undefined);
   const drawUsages = await db.collection('exam_asset_usages').where('versionId', '==', drawPlayable.versionId).get();
   assert.equal(drawUsages.docs.some((document: any) => document.data()?.role === 'draw-token'), true);
+
+  const incompletePrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, shareToken: 'exam-assignment-token', clientRunId: 'incomplete-client-run', runSecret: 'incomplete-run-secret-123456' }),
+  });
+  const incompletePrepared = await incompletePrepareResponse.json() as any;
+  const incompleteSubmitResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: incompletePrepared.ticket, runSecret: 'incomplete-run-secret-123456', answers: {} }),
+  });
+  const incompleteAttempt = await incompleteSubmitResponse.json() as any;
+  assert.equal(incompleteSubmitResponse.status, 201, JSON.stringify(incompleteAttempt));
+  assert.equal(incompleteAttempt.unansweredCount, 25, 'students may submit an unfinished paper');
 
   const cloneResponse = await fetch(`${baseUrl}/admin/modules/starter/papers/reading-writing/sets/${created.id}/clone`, { method: 'POST' });
   assert.equal(cloneResponse.status, 201);

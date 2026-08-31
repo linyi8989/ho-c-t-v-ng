@@ -6,10 +6,25 @@ import type {
   ExamQuestion,
   ExamQuestionType,
 } from '../../features/exam-platform/types.js';
-import { EXAM_CONTENT_SCHEMA_VERSION } from '../../features/exam-platform/types.js';
-import { EXAM_LEGACY_CONTENT_SCHEMA_VERSION } from '../../features/exam-platform/types.js';
+import { EXAM_CONTENT_SCHEMA_VERSION, EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS } from '../../features/exam-platform/types.js';
 import { getExamPaperDefinition } from '../../features/exam-platform/definitions.js';
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
+import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH, normalizeFixedFlyerListeningContent } from '../../features/exam-platform/flyerListeningMigration.js';
+import {
+  FLYER_READING_WRITING_VARIANTS,
+  normalizeFixedFlyerReadingWritingContent,
+} from '../../features/exam-platform/flyerReadingWritingMigration.js';
+import {
+  isFixedKetReadingWritingContent,
+  KET_READING_WRITING_VARIANTS,
+  normalizeFixedKetReadingWritingContent,
+} from '../../features/exam-platform/ketReadingWritingMigration.js';
+import {
+  isFixedKetListeningContent,
+  KET_LISTENING_MANUAL_DISPLAY_NUMBER,
+  KET_LISTENING_VARIANTS,
+  normalizeFixedKetListeningContent,
+} from '../../features/exam-platform/ketListeningMigration.js';
 import {
   isExamMatchingConnection,
   starterMatchingModel,
@@ -416,20 +431,214 @@ function validateStarterReadingWritingPart(part: ExamPartContent, partIndex: num
   }
 }
 
+function validateFlyerReadingWritingPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const unit = examPartUnits(part)[0];
+  const partNumber = partIndex + 1;
+  if (examPartUnits(part).length !== 1 || !unit) {
+    errors.push(`Flyers Reading & Writing Part ${partNumber}: phải có đúng một dạng bài.`);
+    return;
+  }
+  if (unit.questions.length < 1) errors.push(`Flyers Reading & Writing Part ${partNumber}: phải có ít nhất một câu chấm điểm theo đề gốc.`);
+  if (unit.interaction?.variant !== FLYER_READING_WRITING_VARIANTS[partIndex]) errors.push(`Flyers Reading & Writing Part ${partNumber}: dạng bài không đúng cấu trúc đã thiết kế.`);
+
+  const requireMarkers = (count: number) => {
+    const passage = unit.passage || '';
+    for (let number = 1; number <= count; number += 1) {
+      const marker = `[[${number}]]`;
+      if (passage.split(marker).length - 1 !== 1) errors.push(`Flyers Reading & Writing Part ${partNumber}: bài đọc phải có đúng một marker ${marker}.`);
+    }
+    const markerNumbers = [...passage.matchAll(/\[\[(\d+)\]\]/g)].map(match => Number(match[1]));
+    if (markerNumbers.some(number => number < 1 || number > count)) errors.push(`Flyers Reading & Writing Part ${partNumber}: bài đọc có marker không ánh xạ tới câu chấm điểm.`);
+  };
+
+  if (partNumber === 1) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 1: phải tải ảnh ngân hàng từ/hình hiển thị.');
+    if ((unit.examples || []).length !== 1) errors.push('Flyers Reading & Writing Part 1: phải có đúng một example không chấm điểm.');
+    if (unit.questions.some(question => question.type !== 'short-answer')) errors.push('Flyers Reading & Writing Part 1: tất cả câu phải là dạng điền từ.');
+  }
+  if (partNumber === 2) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 2: phải tải ảnh tình huống hiển thị bên trái.');
+    if ((unit.examples || []).length !== 2) errors.push('Flyers Reading & Writing Part 2: phải có đúng hai example không chấm điểm.');
+    if (unit.questions.some(question => question.type !== 'true-false' || question.options.length !== 2)) errors.push('Flyers Reading & Writing Part 2: mỗi câu phải có đúng hai lựa chọn Yes/No.');
+  }
+  if (partNumber === 3) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 3: phải tải ảnh lựa chọn A-H bên trái.');
+    if (!text(unit.readingScenes?.[0]?.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 3: phải tải ảnh danh sách ở giữa.');
+    if ((unit.examples || []).length !== 1) errors.push('Flyers Reading & Writing Part 3: phải có đúng một example không chấm điểm.');
+    if (unit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push('Flyers Reading & Writing Part 3: mỗi đáp án phải là đúng một chữ A-H.');
+  }
+  if (partNumber === 4) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 4: phải tải ảnh ngân hàng từ/hình.');
+    if ((unit.examples || []).length !== 1) errors.push('Flyers Reading & Writing Part 4: phải có đúng một example không chấm điểm.');
+    if (unit.questions.length < 2) errors.push('Flyers Reading & Writing Part 4: phải có ít nhất một ô điền và một câu chọn tiêu đề.');
+    const gapCount = Math.max(0, unit.questions.length - 1);
+    requireMarkers(gapCount);
+    if (unit.questions.slice(0, gapCount).some(question => question.type !== 'short-answer')) errors.push('Flyers Reading & Writing Part 4: các câu trước câu cuối phải là ô điền từ.');
+    const titleQuestion = unit.questions.at(-1);
+    if (!titleQuestion || titleQuestion.type !== 'single-choice' || titleQuestion.options.length !== 3) errors.push('Flyers Reading & Writing Part 4: câu cuối phải chọn đúng một trong ba tiêu đề A/B/C.');
+  }
+  if (partNumber === 5) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 5: phải tải ảnh truyện hiển thị cho học sinh.');
+    if ((unit.examples || []).length !== 2) errors.push('Flyers Reading & Writing Part 5: phải có đúng hai example không chấm điểm.');
+    if (unit.questions.some(question => question.type !== 'short-answer' || (question.maxWords || 4) > 4)) errors.push('Flyers Reading & Writing Part 5: mỗi câu phải là dạng hoàn thành câu với tối đa bốn từ.');
+  }
+  if (partNumber === 6) {
+    if (!text(unit.imageAssetId, 180)) errors.push('Flyers Reading & Writing Part 6: phải tải ảnh minh họa hiển thị cho học sinh.');
+    if ((unit.examples || []).length !== 1) errors.push('Flyers Reading & Writing Part 6: phải có đúng một example không chấm điểm.');
+    if (unit.questions.some(question => question.type !== 'single-choice' || question.options.length !== 3)) errors.push('Flyers Reading & Writing Part 6: mỗi ô phải có đúng ba lựa chọn từ A/B/C.');
+  }
+  if (partNumber === 7) {
+    if (!text(unit.passage)) errors.push('Flyers Reading & Writing Part 7: thiếu nội dung bài đọc.');
+    if ((unit.examples || []).length !== 1) errors.push('Flyers Reading & Writing Part 7: phải có đúng một example không chấm điểm.');
+    requireMarkers(unit.questions.length);
+    if (unit.questions.some(question => question.type !== 'short-answer' || question.maxWords !== 1)) errors.push('Flyers Reading & Writing Part 7: mỗi câu phải là ô điền đúng một từ.');
+  }
+}
+
+function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const partNumber = partIndex + 1;
+  const units = examPartUnits(part);
+  const label = `KET Reading & Writing Part ${partNumber}`;
+  if (!part.questions.length) errors.push(`${label}: phải có ít nhất một câu chấm điểm.`);
+  if (part.interaction?.variant !== KET_READING_WRITING_VARIANTS[partIndex]) errors.push(`${label}: dạng bài không đúng cấu trúc KET 9 Part đã thiết kế.`);
+
+  const requireImage = (unit: ExamPartContent, role: string) => {
+    if (!text(unit.imageAssetId, 180)) errors.push(`${label}: phải chọn ${role}.`);
+  };
+  const requireThreeChoices = (questions: ExamQuestion[]) => {
+    if (questions.some(question => question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) {
+      errors.push(`${label}: mỗi câu phải có đúng ba lựa chọn A/B/C và một đáp án đúng.`);
+    }
+  };
+
+  if (partNumber === 1) {
+    if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài hai ảnh và cột chữ cái.`);
+    requireImage(part, 'ảnh lựa chọn bên trái');
+    if (!text(part.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: phải chọn ảnh đề/danh sách ở giữa.`);
+    if (part.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: mỗi đáp án phải là đúng một chữ A–H.`);
+  }
+  if (partNumber === 2) {
+    if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài chọn A/B/C.`);
+    requireThreeChoices(part.questions);
+    if ((part.examples || []).length !== 1 || (part.examples || []).some(example => !text(example.prompt, 8_000) || !text(example.answer, 500))) errors.push(`${label}: phải có đúng một example dạng chữ, không chấm điểm.`);
+    if (part.questions.some(question => !text(question.prompt, 8_000))) errors.push(`${label}: mỗi câu phải có nội dung câu hỏi hiển thị phía trên ba đáp án A/B/C.`);
+  }
+  if (partNumber === 5) {
+    if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài chọn A/B/C.`);
+    requireImage(part, 'ảnh đề hiển thị phía trên');
+    requireThreeChoices(part.questions);
+  }
+  if (partNumber === 3) {
+    if (part.blocks?.length !== 2 || units.length !== 2) {
+      errors.push(`${label}: phải có đúng hai phần 3A và 3B.`);
+      return;
+    }
+    const [choiceUnit, letterUnit] = units;
+    const referenced = part.blocks.flatMap(block => block.questionIds);
+    if (referenced.length !== part.questions.length || new Set(referenced).size !== part.questions.length || part.questions.some(question => !referenced.includes(question.id))) errors.push(`${label}: hai phần phải phủ đúng mỗi câu một lần.`);
+    if (!choiceUnit.questions.length || choiceUnit.interaction?.variant !== 'multiple-choice-cloze') errors.push(`${label}A: phải dùng dạng ảnh và hàng đáp án A/B/C.`);
+    if (!letterUnit.questions.length || letterUnit.interaction?.variant !== 'two-image-letter-input') errors.push(`${label}B: phải dùng dạng hai ảnh và cột nhập chữ cái.`);
+    requireImage(choiceUnit, 'ảnh đề Part 3A');
+    requireThreeChoices(choiceUnit.questions);
+    if (choiceUnit.questions.some(question => !text(question.prompt, 8_000))) errors.push(`${label}A: mỗi câu phải có nội dung câu hỏi hiển thị phía trên ba đáp án A/B/C.`);
+    requireImage(letterUnit, 'ảnh lựa chọn Part 3B');
+    if (!text(letterUnit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}B: phải chọn ảnh đề/danh sách ở giữa.`);
+    if (letterUnit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}B: mỗi đáp án phải là đúng một chữ A–H.`);
+  }
+  if (partNumber === 4) {
+    requireImage(part, 'ảnh đề hiển thị phía trên');
+    requireThreeChoices(part.questions);
+    if (part.questions.some(question => !text(question.prompt, 8_000))) errors.push(`${label}: mỗi hàng phải có nội dung câu hỏi sau số thứ tự.`);
+  }
+  if (partNumber === 6) {
+    if (!text(part.passage, 20_000)) errors.push(`${label}: thiếu nội dung hướng dẫn và example dạng chữ hiển thị phía trên.`);
+    part.questions.forEach((question, index) => {
+      const prefix = Array.from(text(question.answerPrefix, 20));
+      const length = Number(question.answerLength);
+      if (question.type !== 'short-answer' || prefix.length !== 1 || !Number.isInteger(length) || length <= 1 || length > 40) errors.push(`${label}, câu ${index + 1}: cần đúng một chữ cái đầu và độ dài đáp án từ 2 đến 40 ký tự.`);
+      if (question.acceptedAnswers.some(answer => Array.from(answer).length !== length - prefix.length)) errors.push(`${label}, câu ${index + 1}: đáp án chỉ chứa phần học sinh phải nhập và phải có đúng ${Math.max(1, length - prefix.length)} ký tự, không gồm chữ cái đầu đã cho.`);
+    });
+  }
+  if (partNumber === 7) {
+    if (!text(part.passage, 40_000)) errors.push(`${label}: thiếu nội dung bài đọc, hướng dẫn và example dạng chữ.`);
+    if (part.questions.some(question => question.type !== 'short-answer' || question.maxWords !== 1 || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên ảnh và ô điền đúng một từ.`);
+  }
+  if (partNumber === 8) {
+    if (!text(part.passage, 20_000)) errors.push(`${label}: thiếu nội dung nguồn, hướng dẫn và example dạng chữ.`);
+    if (part.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số, nhãn biểu mẫu và đáp án điền.`);
+    if (part.questions.some(question => text(question.answerSuffix, 80))) errors.push(`${label}: chỉ dùng một vùng nhập với ký tự có sẵn ở đầu; không dùng ký tự phía sau.`);
+  }
+  if (partNumber === 9) {
+    if (!text(part.passage, 20_000)) errors.push(`${label}: thiếu nội dung câu hỏi và gợi ý dạng chữ.`);
+    const question = part.questions[0];
+    if (part.questions.length !== 1 || question?.type !== 'long-writing') errors.push(`${label}: phải có đúng một bài viết.`);
+    if (question) {
+      if (question.points !== 10) errors.push(`${label}: bài viết phải có đúng 10 điểm.`);
+      if (!Number.isInteger(question.minWords) || !Number.isInteger(question.maxWords) || Number(question.minWords) < 1 || Number(question.maxWords) < Number(question.minWords)) errors.push(`${label}: giáo viên phải cấu hình giới hạn từ tối thiểu và tối đa hợp lệ.`);
+      const config = question.writingGrading;
+      if (!config?.enabled || !['stali:gpt-5.6-sol', 'devquota:gpt-5.6-sol'].includes(config.providerId) || config.scoreScale !== 10 || !text(config.taskContext, 8_000) || !text(config.gradingInstructions, 8_000)) errors.push(`${label}: thiếu cấu hình chấm AI hợp lệ, ngữ cảnh đề hoặc hướng dẫn chấm.`);
+    }
+  }
+}
+
+function validateKetListeningPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const number = partIndex + 1;
+  const label = `KET Listening Part ${number}`;
+  const unit = examPartUnits(part)[0] || part;
+  if (!part.questions.length) errors.push(`${label}: phải có ít nhất một câu chấm điểm.`);
+  if (examPartUnits(part).length !== 1 || unit.interaction?.variant !== KET_LISTENING_VARIANTS[partIndex]) errors.push(`${label}: dạng bài không đúng cấu trúc KET Listening 5 Part.`);
+  if (number === 1) {
+    if ((unit.examples || []).length !== 1) errors.push(`${label}: phải có đúng một example không chấm điểm.`);
+    if (unit.questions.some(question => question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có đúng ba lựa chọn A/B/C và một đáp án đúng.`);
+    const sharedQuestion = unit.questions.find(question => Number(question.displayNumber) === KET_LISTENING_MANUAL_DISPLAY_NUMBER);
+    if (sharedQuestion && !text(sharedQuestion.imageAssetId, 180)) errors.push(`${label}: câu in số 3 phải có đúng một ảnh chung do giáo viên tải/dán riêng.`);
+    if (unit.questions.some(question => Number(question.displayNumber) !== KET_LISTENING_MANUAL_DISPLAY_NUMBER && question.options.some(option => !text(option.imageAssetId, 180)))) errors.push(`${label}: các câu ngoài câu 3 phải có đủ ba ảnh A/B/C; đề chuẩn cần 12 ảnh crop cho câu 1, 2, 4 và 5.`);
+  }
+  if (number === 2) {
+    if (!text(unit.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh lựa chọn A–H bên trái.`);
+    if (!text(unit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh đề/danh sách ở giữa.`);
+    if ((unit.examples || []).length !== 1) errors.push(`${label}: phải có đúng một example không chấm điểm.`);
+    if (unit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.length < 1 || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: mỗi đáp án phải là đúng một chữ A–H.`);
+  }
+  if (number === 3) {
+    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu đề bài/hướng dẫn dạng text được tạo từ JSON.`);
+    if ((unit.examples || []).length !== 1 || (unit.examples || []).some(example => !text(example.prompt, 2_000) || !text(example.answer, 1_000))) errors.push(`${label}: phải có đúng một example dạng text, không chấm điểm.`);
+    if (unit.questions.some(question => !text(question.prompt, 8_000) || question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có nội dung thoại, đúng ba lựa chọn A/B/C và một đáp án đúng.`);
+  }
+  if (number === 4 || number === 5) {
+    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu nội dung hướng dẫn và example dạng text hiển thị phía trên.`);
+    if (unit.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên đề, nhãn và ô nhập đáp án.`);
+    if (unit.questions.some(question => String(question.answerPrefix || '').length > 20 || String(question.answerSuffix || '').length > 80)) errors.push(`${label}: chữ/ký hiệu trước hoặc sau ô nhập vượt quá giới hạn cho phép.`);
+  }
+}
+
 export function validateExamPaperContent(content: ExamPaperContent) {
+  content = normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))));
   const errors: string[] = [];
   if (!content || typeof content !== 'object') return ['Nội dung đề không hợp lệ.'];
-  if (![EXAM_LEGACY_CONTENT_SCHEMA_VERSION, EXAM_CONTENT_SCHEMA_VERSION].includes(content.schemaVersion)) errors.push('Schema đề thi không được hỗ trợ.');
+  if (!(EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS as readonly number[]).includes(content.schemaVersion)) errors.push('Schema đề thi không được hỗ trợ.');
   const definition = getExamPaperDefinition(content.moduleId, content.paperId);
   if (!definition) return ['Module hoặc loại bài thi không được hỗ trợ.'];
   if (!text(content.title, 240)) errors.push('Thiếu tên bộ đề.');
-  const dynamic = content.schemaVersion === EXAM_CONTENT_SCHEMA_VERSION && content.structureMode === 'dynamic';
+  const dynamic = content.schemaVersion >= 2 && content.structureMode === 'dynamic';
   if (!Array.isArray(content.parts) || content.parts.length < 1 || content.parts.length > 20) return [...errors, 'Đề thi phải có từ 1 đến 20 Part/Section.'];
   if (content.moduleId === 'starter' && content.paperId === 'listening' && (content.parts.length !== 4 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== 5))) {
     errors.push('Starters Listening phải có đúng 4 Part theo thứ tự và mỗi Part đúng 5 câu.');
   }
   if (content.moduleId === 'starter' && content.paperId === 'reading-writing' && (content.parts.length !== 5 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== 5))) {
     errors.push('Starters Reading & Writing phải có đúng 5 Part theo thứ tự và mỗi Part đúng 5 câu.');
+  }
+  if (content.moduleId === 'flyer' && content.paperId === 'listening' && (content.parts.length !== 5 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== 5))) {
+    errors.push('Flyers Listening phải có đúng 5 Part theo thứ tự và mỗi Part đúng 5 câu.');
+  }
+  if (content.moduleId === 'flyer' && content.paperId === 'reading-writing' && (content.parts.length !== 7 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
+    errors.push('Flyers Reading & Writing phải có đúng 7 Part theo thứ tự; mỗi Part lấy số câu chấm điểm từ đề gốc và phải có ít nhất một câu.');
+  }
+  if (isFixedKetReadingWritingContent(content) && (content.parts.length !== 9 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
+    errors.push('KET Reading & Writing mới phải có đúng 9 Part theo thứ tự và mỗi Part có ít nhất một câu; riêng Part 9 có đúng một bài viết 10 điểm.');
+  }
+  if (isFixedKetListeningContent(content) && (content.parts.length !== 5 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
+    errors.push('KET Listening mới phải có đúng 5 Part theo thứ tự và mỗi Part có ít nhất một câu chấm điểm.');
   }
   if (!dynamic && content.parts?.length !== definition.parts.length) {
     errors.push(`${definition.displayName} phải có đúng ${definition.parts.length} Part/Section.`);
@@ -447,6 +656,58 @@ export function validateExamPaperContent(content: ExamPaperContent) {
     }
     if (content.moduleId === 'starter' && content.paperId === 'reading-writing') {
       validateStarterReadingWritingPart(part, partIndex, errors);
+    }
+    if (content.moduleId === 'flyer' && content.paperId === 'reading-writing') {
+      validateFlyerReadingWritingPart(part, partIndex, errors);
+    }
+    if (isFixedKetReadingWritingContent(content)) {
+      validateKetReadingWritingPart(part, partIndex, errors);
+    }
+    if (isFixedKetListeningContent(content)) {
+      validateKetListeningPart(part, partIndex, errors);
+    }
+    if (content.moduleId === 'flyer' && content.paperId === 'listening') {
+      const units = examPartUnits(part);
+      if (partIndex === 0) {
+        const unit = units[0] || part;
+        const layout = unit.interactionLayout?.kind === 'flyer-name-placement-v1' ? unit.interactionLayout : undefined;
+        if (!text(part.imageAssetId, 180)) errors.push('Flyers Listening Part 1: phải tải ảnh scene.');
+        if (!layout || layout.targets.length !== 5 || layout.targets.some(target => target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.region) || target.region.shape !== 'rect' || Math.abs(target.region.width - FLYER_NAME_REGION_WIDTH) > .001 || Math.abs(target.region.height - FLYER_NAME_REGION_HEIGHT) > .001)) errors.push('Flyers Listening Part 1: cần đúng năm vùng chữ nhật cố định 1–5 từ JSON hoặc đã được giáo viên di chuyển vào vị trí đúng.');
+        if (!layout || new Set(layout.targets.map(target => target.questionId)).size !== 5 || layout.targets.some(target => !unit.questions.some(question => question.id === target.questionId))) errors.push('Flyers Listening Part 1: năm vùng chưa ánh xạ đúng năm câu.');
+        const optionSignatures = unit.questions.map(question => question.options.map(option => option.id).join('|'));
+        if (unit.questions.length !== 5 || unit.questions.some(question => question.options.length !== 6) || new Set(optionSignatures).size !== 1) errors.push('Flyers Listening Part 1: cần đúng sáu thẻ tên dùng chung cho năm câu.');
+        const officialNames = unit.questions.flatMap(question => question.correctOptionIds || []);
+        if (officialNames.length !== 5 || new Set(officialNames).size !== 5) errors.push('Flyers Listening Part 1: năm đáp án tên phải là ánh xạ một-một và chừa đúng một tên nhiễu.');
+        if ((unit.examples || part.examples || []).length !== 1) errors.push('Flyers Listening Part 1: phải có đúng một example không chấm điểm.');
+      }
+      if (partIndex === 1) {
+        const unit = units[0] || part;
+        if (units.length !== 1 || unit.interaction?.family !== 'text-entry' || unit.interaction.variant !== 'single-input') errors.push('Flyers Listening Part 2: phải dùng đúng một dạng Movers Listening Part 2 (short-answer/single-input).');
+        if (unit.questions.some(question => question.type !== 'short-answer' || question.options.length > 0 || question.correctOptionIds.length > 0)) errors.push('Flyers Listening Part 2: năm câu chỉ được là điền từ/số, không có lựa chọn.');
+      }
+      if (partIndex === 2) {
+        const unit = units[0] || part;
+        const middleImage = unit.readingScenes?.[0]?.imageAssetId || part.readingScenes?.[0]?.imageAssetId;
+        if (!text(part.imageAssetId, 180)) errors.push('Flyers Listening Part 3: phải tải ảnh lựa chọn A-H bên trái.');
+        if (!text(middleImage, 180)) errors.push('Flyers Listening Part 3: phải tải ảnh người/tên ở giữa.');
+        if ((unit.examples || part.examples || []).length !== 1) errors.push('Flyers Listening Part 3: phải có đúng một example không chấm điểm.');
+        if (unit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push('Flyers Listening Part 3: mỗi đáp án phải là đúng một chữ A-H.');
+      }
+      if (partIndex === 3) {
+        const unit = units.find(item => item.interaction?.variant === 'image-options') || units[0] || part;
+        const displayImage = unit.readingScenes?.[0]?.imageAssetId || part.readingScenes?.[0]?.imageAssetId;
+        if (!text(displayImage, 180)) errors.push('Flyers Listening Part 4: phải tải ảnh hiển thị chung cho học sinh, tách biệt với ảnh nguồn crop đáp án.');
+        if (unit.questions.some(question => question.options.length !== 3 || question.options.some(option => !text(option.imageAssetId, 180)))) errors.push('Flyers Listening Part 4: mỗi câu cần đúng ba ảnh lựa chọn A/B/C.');
+      }
+      if (partIndex === 4) {
+        const colourUnits = units.filter(unit => unit.interactionLayout?.kind === 'starter-scene-colour-v1');
+        const drawUnits = units.filter(unit => unit.interactionLayout?.kind === 'scene-draw-v1');
+        const represented = [...colourUnits.flatMap(unit => unit.interactionLayout?.kind === 'starter-scene-colour-v1' ? unit.interactionLayout.targets.map(target => target.questionId) : []), ...drawUnits.flatMap(unit => unit.interactionLayout?.kind === 'scene-draw-v1' ? unit.interactionLayout.targets.map(target => target.questionId) : [])];
+        if (!text(part.imageAssetId, 180)) errors.push('Flyers Listening Part 5: phải tải ảnh scene Colour + Draw.');
+        if (represented.length !== 5 || new Set(represented).size !== 5) errors.push('Flyers Listening Part 5: năm câu phải được ánh xạ đúng một lần vào Colour hoặc Draw.');
+        if (colourUnits.some(unit => unit.interactionLayout?.kind === 'starter-scene-colour-v1' && unit.interactionLayout.targets.some(target => target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.region)))) errors.push('Flyers Listening Part 5: giáo viên chưa xác nhận đủ vùng tô màu.');
+        if (drawUnits.some(unit => unit.interactionLayout?.kind === 'scene-draw-v1' && unit.interactionLayout.targets.some(target => target.geometryConfirmedByTeacher !== true || !validInteractionRegion(target.targetRegion) || !text(target.tokenAssetId, 180)))) errors.push('Flyers Listening Part 5: mỗi câu Draw cần ảnh PNG và vùng đặt đã xác nhận.');
+      }
     }
     if (dynamic) {
       totalQuestions += part?.questions?.length || 0;
@@ -530,7 +791,7 @@ export function validateExamPaperContent(content: ExamPaperContent) {
       if (!question?.id || allIds.has(question.id)) errors.push(`${label}: ID câu hỏi bị thiếu hoặc trùng.`);
       else allIds.add(question.id);
       if (!partDefinition.allowedQuestionTypes.includes(question.type)) errors.push(`${label}: dạng câu hỏi không phù hợp Part này.`);
-      if (!text(question.prompt, 8_000)) errors.push(`${label}: thiếu nội dung câu hỏi.`);
+      if (!text(question.prompt, 8_000) && !(isFixedKetReadingWritingContent(content) && part.part === 7)) errors.push(`${label}: thiếu nội dung câu hỏi.`);
       if (!Number.isFinite(question.points) || question.points <= 0 || question.points > 100) errors.push(`${label}: điểm tối đa không hợp lệ.`);
       if (question.type === 'long-writing') {
         if (!text(question.rubric, 8_000)) errors.push(`${label}: thiếu rubric để giáo viên chấm.`);
@@ -572,6 +833,7 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         delete safe.correctOptionIds;
         delete safe.acceptedAnswers;
         delete safe.modelAnswer;
+        delete safe.writingGrading;
         delete safe.interactionSourceNodeId;
         if (matchingQuestionIds.has(question.id)) safe.prompt = `Đường nối ${questionIndex + 1}`;
         if (question.type !== 'long-writing') delete safe.rubric;
@@ -581,6 +843,20 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
       // The transcript is review-only content. Never expose it in the playable
       // payload, even when the paper allows answers to be reviewed later.
       delete safePart.audioTranscript;
+      if (content.moduleId === 'flyer' && content.paperId === 'listening' && part.part === 4) {
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
+      if (isFixedKetListeningContent(content) && part.part === 1) {
+        // Part 1's page image is authoring-only crop material. Students receive
+        // only the derived A/B/C option assets, including the three manual
+        // assets for printed question 3.
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
+      if (content.moduleId === 'flyer' && content.paperId === 'reading-writing' && part.part === 6) {
+        delete safePart.readingScenes;
+      }
       if (safePart.interactionLayout?.kind === 'starter-image-matching-v1') {
         safePart.interactionLayout.leftItems = safePart.interactionLayout.leftItems.map((item: Record<string, unknown>) => {
           const safeItem = { ...item };
@@ -604,6 +880,10 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
           const safeBlock = { ...block };
           delete safeBlock.geometryHints;
           if (content.moduleId === 'starter' && content.paperId === 'listening' && part.part === 3 && safeBlock.interaction?.variant === 'image-options') {
+            delete safeBlock.imageAssetId;
+            delete safeBlock.imageUrl;
+          }
+          if (content.moduleId === 'flyer' && content.paperId === 'listening' && part.part === 4 && safeBlock.interaction?.variant === 'image-options') {
             delete safeBlock.imageAssetId;
             delete safeBlock.imageUrl;
           }

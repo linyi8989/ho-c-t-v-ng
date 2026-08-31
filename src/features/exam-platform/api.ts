@@ -75,6 +75,16 @@ export const examPlatformApi = {
       method: 'POST', headers: headers(token), body: JSON.stringify({ grades }),
     });
   },
+  retryWritingGrade(token: string, moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, attemptId: string) {
+    return requestJson<ExamCompletedAttempt>(`${adminBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/${encodeURIComponent(attemptId)}/retry-writing-grade`, {
+      method: 'POST', headers: headers(token, false),
+    });
+  },
+  writingGradingProviders(token: string) {
+    return requestJson<{ providers: Array<{ id: string; label: string; enabled: boolean }> }>('/api/exam-platform/admin/writing-grading/providers', {
+      headers: headers(token, false),
+    });
+  },
   validateSmartImport(token: string, moduleId: ExamModuleId, paperId: ExamPaperId, partIndex: number, part: unknown, currentPart: unknown) {
     return requestJson<any>(`${adminBase(moduleId, paperId)}/smart-import/validate`, {
       method: 'POST', headers: headers(token), body: JSON.stringify({ partIndex, part, currentPart }),

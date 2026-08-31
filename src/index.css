@@ -3306,6 +3306,95 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+/* Flyers Reading & Writing reuses the Starters action class names. Keep the
+   same contrast contract scoped to the Flyers result and review screens. */
+#flyer-reading-result-screen button.starter-reading-primary-action:not(:disabled),
+#flyer-reading-result-screen button.starter-reading-retry-action:not(:disabled) {
+  background: #2563eb !important;
+  border: 2px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#flyer-reading-result-screen button.starter-reading-retry-action:not(:disabled) {
+  background: #047857 !important;
+  border-color: #065f46 !important;
+}
+
+#flyer-reading-result-screen button.starter-reading-review-action:not(:disabled),
+#flyer-reading-review-screen button.starter-reading-secondary-action:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #2563eb !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#flyer-reading-result-screen button.starter-reading-review-action:disabled {
+  background: #eff6ff !important;
+  border: 2px solid #93c5fd !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+#flyer-reading-review-screen button.starter-reading-review-part-tab[data-active="false"]:not(:disabled) {
+  background: #dbeafe !important;
+  border: 2px solid #2563eb !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#flyer-reading-review-screen button.starter-reading-review-part-tab[data-active="true"]:not(:disabled) {
+  background: #1e40af !important;
+  border: 3px solid #93c5fd !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#flyer-reading-review-screen button.starter-reading-review-part-nav:not(:disabled) {
+  background: #dbeafe !important;
+  border: 2px solid #2563eb !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 7px 18px rgba(30, 64, 175, .24) !important;
+}
+
+#flyer-reading-review-screen button.starter-reading-review-part-nav:disabled {
+  background: #e2e8f0 !important;
+  border: 2px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#flyer-reading-result-screen button[class*="starter-reading-"] *,
+#flyer-reading-review-screen button[class*="starter-reading-"] * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
 /* Admin exam-directory quick module contrast contract.
    Keep this feature-scoped block after legacy global/admin button overrides. */
 #listening-library-admin nav button.exam-module-quick-link:not(:disabled) {
@@ -3344,4 +3433,126 @@ textarea::placeholder {
 #listening-library-admin nav button.exam-module-quick-link > * {
   color: currentColor !important;
   opacity: 1 !important;
+}
+
+/* Flyers Listening Part 3 keeps the compact A-H answer column readable even
+   under the legacy global dark input override. Scope it away from Movers. */
+#listening-exam-root [data-flyer-interaction="two-image-letter-input"] input[type="text"] {
+  background: #ffffff !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: inset 0 -2px 0 rgba(37, 99, 235, .12) !important;
+}
+
+#listening-exam-root [data-flyer-interaction="two-image-letter-input"] input[type="text"]:focus-visible {
+  border-color: #1d4ed8 !important;
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 2px !important;
+}
+
+/* KET Reading & Writing v1 is isolated from legacy exam/admin overrides. */
+#ket-reading-writing-authoring input:not([type="radio"]):not([type="checkbox"]),
+#ket-reading-writing-authoring textarea,
+#ket-reading-writing-authoring select,
+#ket-reading-writing-player input:not([type="radio"]):not([type="checkbox"]),
+#ket-reading-writing-player textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#ket-reading-writing-player [data-ket-writing-page] textarea {
+  background-color: #ffffff !important;
+  background-image: linear-gradient(transparent 31px, #dbeafe 32px) !important;
+  background-size: 100% 32px !important;
+}
+
+#ket-reading-writing-result-screen button:not(:disabled),
+#ket-reading-writing-review-screen button:not(:disabled),
+#ket-reading-writing-authoring button:not(:disabled) {
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#ket-reading-writing-result-screen button *,
+#ket-reading-writing-review-screen button *,
+#ket-reading-writing-authoring button * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#ket-reading-writing-result-screen button:focus-visible,
+#ket-reading-writing-review-screen button:focus-visible,
+#ket-reading-writing-authoring button:focus-visible,
+#ket-reading-writing-player input:focus-visible,
+#ket-reading-writing-player textarea:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+/* Versioned KET Listening keeps authoring inputs and student form fields clear
+   of the legacy translucent listening controls. */
+#ket-listening-authoring input:not([type="radio"]):not([type="checkbox"]),
+#ket-listening-authoring textarea,
+#ket-listening-authoring select,
+#ket-listening-player input:not([type="radio"]):not([type="checkbox"]) {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#ket-listening-authoring button:not(:disabled) {
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#ket-listening-authoring button *,
+#ket-listening-player label * {
+  color: currentColor;
+  opacity: 1 !important;
+}
+
+#ket-listening-authoring button:focus-visible,
+#ket-listening-player input:focus-visible,
+#ket-listening-player label:focus-within {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+@media (max-width: 1023px) {
+  #ket-reading-writing-player [data-ket-two-column] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  #ket-reading-writing-player [data-ket-two-column] > :first-child {
+    position: static !important;
+  }
+}
+
+@media (max-width: 639px) {
+  #ket-reading-writing-player [data-ket-choice-answer-rows] fieldset > div {
+    grid-template-columns: minmax(0, 1fr) repeat(3, minmax(58px, 1fr)) !important;
+  }
+
+  #ket-reading-writing-player [data-ket-choice-answer-rows] fieldset > div > p {
+    grid-column: 1 / -1;
+  }
 }

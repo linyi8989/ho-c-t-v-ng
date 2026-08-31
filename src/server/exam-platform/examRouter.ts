@@ -9,13 +9,17 @@ import type {
 import { getExamPaperDefinition } from '../../features/exam-platform/definitions.js';
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 import { isListeningModuleId, isListeningPaperId } from '../../features/listening-library/registry.js';
-import { applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt } from './examGrader.js';
+import { applyAiWritingGrade, applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt, markAiWritingFailed } from './examGrader.js';
+import type { WritingGradeInput, WritingGradeOutput } from './writingGradingProvider.js';
 import {
   sanitizeExamAnswers,
   sanitizeExamContentForStudent,
   normalizeExamSmartImportPart,
   validateExamPaperContent,
 } from './examValidation.js';
+import { normalizeFixedFlyerListeningContent } from '../../features/exam-platform/flyerListeningMigration.js';
+import { normalizeFixedFlyerReadingWritingContent } from '../../features/exam-platform/flyerReadingWritingMigration.js';
+import { normalizeFixedKetReadingWritingContent } from '../../features/exam-platform/ketReadingWritingMigration.js';
 
 type Middleware = express.RequestHandler;
 
@@ -32,6 +36,10 @@ export interface ExamRouterDependencies {
     classInfo?: { classId?: unknown; className?: unknown; verified?: boolean },
   ) => Promise<any>;
   logAudit?: (userId: string, name: string, email: string, action: string, details: string) => Promise<void>;
+  writingGrading?: {
+    providers: Array<{ id: string; label: string; enabled: boolean }>;
+    grade: (input: WritingGradeInput) => Promise<WritingGradeOutput>;
+  };
 }
 
 const text = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
@@ -43,6 +51,10 @@ const safeEqual = (left: string, right: string) => {
   const b = Buffer.from(right);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
+
+const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedKetReadingWritingContent(
+  normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)),
+);
 
 function apiError(status: number, message: string, details?: unknown) {
   const error: any = new Error(message);
@@ -268,7 +280,7 @@ function attemptSummary(attempt: any): ExamCompletedAttempt {
 }
 
 export function createExamRouter(dependencies: ExamRouterDependencies) {
-  const { db, authenticateUser, authenticateOptionalUser, requireStaff, ticketSecret, resolveGuestProfile, logAudit } = dependencies;
+  const { db, authenticateUser, authenticateOptionalUser, requireStaff, ticketSecret, resolveGuestProfile, logAudit, writingGrading } = dependencies;
   const router = express.Router();
   const draftLocks = new Map<string, Promise<void>>();
 
@@ -282,6 +294,55 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
     try { return await operation(); } finally {
       release();
       if (draftLocks.get(setId) === queued) draftLocks.delete(setId);
+    }
+  };
+
+  const runAiWritingGrade = async (attempt: any, detail: any, version: any) => {
+    const pending = (detail.grade?.questions || []).find((question: any) => question.pendingManualReview && question.aiGradingStatus);
+    if (!pending) return attempt;
+    const canonical = version.content.parts.flatMap((part: any) => part.questions).find((question: any) => question.id === pending.questionId);
+    const config = canonical?.writingGrading;
+    if (!canonical || !config?.enabled) return attempt;
+    const essay = typeof detail.answers?.[canonical.id] === 'string' ? detail.answers[canonical.id] : '';
+    const processingAt = nowIso();
+    const processingAttempt = { ...attempt, aiGradingStatus: 'processing', aiGradingMessage: 'Đang chấm Writing.', updatedAt: processingAt };
+    const processingQuestions = detail.grade.questions.map((question: any) => question.questionId === canonical.id ? { ...question, aiGradingStatus: 'processing' } : question);
+    const processingGrade = { ...detail.grade, questions: processingQuestions };
+    const processingDetail = { ...detail, grade: processingGrade, questions: processingQuestions, updatedAt: processingAt };
+    const processingBatch = db.batch();
+    processingBatch.set(db.collection('exam_attempts').doc(attempt.id), processingAttempt);
+    processingBatch.set(db.collection('exam_attempt_details').doc(attempt.id), processingDetail);
+    await processingBatch.commit();
+    try {
+      const output = essay.trim() ? await writingGrading?.grade({
+        providerId: config.providerId,
+        taskContext: config.taskContext,
+        gradingInstructions: config.gradingInstructions,
+        prompt: canonical.prompt,
+        essay,
+        minWords: Number(canonical.minWords || 1),
+        maxWords: Number(canonical.maxWords || 50),
+      }) : { providerId: config.providerId, score: 0, sentenceCount: 0, grammarErrors: [], vocabularyErrors: [], feedback: 'Bài viết để trống nên chưa đáp ứng yêu cầu. Học sinh cần viết nội dung theo đề bài. Điểm Writing là 0/10. Giáo viên có thể chấm tay nếu cần.' };
+      if (!output) throw new Error('Nhà cung cấp chấm Writing chưa được cấu hình.');
+      const finalized = applyAiWritingGrade(processingGrade, canonical.id, output);
+      const timestamp = nowIso();
+      const nextAttempt = { ...processingAttempt, status: finalized.status, score: finalized.score, pendingManualCount: finalized.pendingManualCount, aiGradingStatus: 'completed', aiGradingMessage: 'Đã chấm Writing.', updatedAt: timestamp };
+      const nextDetail = { ...processingDetail, grade: finalized, questions: finalized.questions, finalAwarded: finalized.objectiveAwarded + finalized.manualAwarded, finalMaximum: finalized.objectiveMaximum + finalized.manualMaximum, updatedAt: timestamp };
+      const batch = db.batch();
+      batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
+      batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
+      await batch.commit();
+      return nextAttempt;
+    } catch {
+      const failed = markAiWritingFailed(processingGrade, canonical.id);
+      const timestamp = nowIso();
+      const nextAttempt = { ...processingAttempt, status: 'pending_review', aiGradingStatus: 'failed', aiGradingMessage: 'Chấm tự động chưa hoàn tất. Giáo viên có thể thử lại hoặc chấm tay.', updatedAt: timestamp };
+      const nextDetail = { ...processingDetail, grade: failed, questions: failed.questions, updatedAt: timestamp };
+      const batch = db.batch();
+      batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
+      batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
+      await batch.commit();
+      return nextAttempt;
     }
   };
 
@@ -331,7 +392,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       if (!req.user) throw apiError(401, 'Vui lòng đăng nhập.');
       const { moduleId, paperId, definition } = routeIdentity(req);
       if (req.body?.content?.moduleId !== moduleId || req.body?.content?.paperId !== paperId) throw apiError(400, 'Nội dung không khớp module/paper trên URL.');
-      const content = await resolveContentAssets(db, req.body.content as ExamPaperContent, req.user);
+      const content = normalizeFixedExamContent(await resolveContentAssets(db, req.body.content as ExamPaperContent, req.user));
       const timestamp = nowIso();
       const setId = id('examset');
       const set = {
@@ -387,7 +448,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         }
         const raw = req.body?.content as ExamPaperContent;
         if (raw?.moduleId !== moduleId || raw?.paperId !== paperId) throw apiError(400, 'Nội dung không khớp module/paper trên URL.');
-        const content = await resolveContentAssets(db, raw, req.user);
+        const content = normalizeFixedExamContent(await resolveContentAssets(db, raw, req.user));
         const revision = Number(set.draftRevision || 0) + 1;
         const updatedAt = nowIso();
         const validationErrors = validateExamPaperContent(content);
@@ -422,7 +483,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         const set = await getSet(db, req.params.setId);
         assertRouteSet(set, moduleId, paperId);
         if (!canManage(req.user, set)) throw apiError(404, 'Không tìm thấy bộ đề.');
-        const resolvedContent = await resolveContentAssets(db, set.draftContent, req.user);
+        const resolvedContent = normalizeFixedExamContent(await resolveContentAssets(db, set.draftContent, req.user));
         const errors = validateExamPaperContent(resolvedContent);
         if (errors.length) throw apiError(400, 'Bộ đề chưa đủ điều kiện xuất bản.', errors);
         const versionsSnapshot = await db.collection('exam_set_versions').where('setId', '==', set.id).get();
@@ -533,6 +594,10 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
     } catch (error) { sendError(res, error); }
   });
 
+  router.get('/admin/writing-grading/providers', authenticateUser, requireStaff, (_req, res) => {
+    res.json({ providers: writingGrading?.providers || [] });
+  });
+
   router.post('/admin/modules/:moduleId/papers/:paperId/sets/:setId/attempts/:attemptId/manual-grade', authenticateUser, requireStaff, async (req, res) => {
     try {
       const { moduleId, paperId } = routeIdentity(req);
@@ -553,18 +618,37 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         return !Object.prototype.hasOwnProperty.call(grades, question.questionId)
           || !Number.isFinite(value)
           || value < 0
-          || value > Number(question.maxPoints || 0);
+          || value > Number(question.maxPoints || 0)
+          || (moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9 && !Number.isInteger(value));
       });
       if (invalidGrade) throw apiError(400, `Điểm Writing cho câu ${invalidGrade.number} bị thiếu hoặc ngoài phạm vi cho phép.`);
       const finalized = applyManualExamGrades(detail.grade, grades);
       const timestamp = nowIso();
-      const nextAttempt = { ...attempt, status: 'completed', score: finalized.score, pendingManualCount: 0, reviewedBy: req.user?.id, reviewedAt: timestamp, updatedAt: timestamp };
+      const nextAttempt = { ...attempt, status: 'completed', score: finalized.score, pendingManualCount: 0, aiGradingStatus: attempt.aiGradingStatus === 'failed' ? 'failed' : attempt.aiGradingStatus, aiGradingMessage: 'Giáo viên đã chấm Writing.', reviewedBy: req.user?.id, reviewedAt: timestamp, updatedAt: timestamp };
       const nextDetail = { ...detail, grade: finalized, questions: finalized.questions, finalAwarded: finalized.objectiveAwarded + finalized.manualAwarded, finalMaximum: finalized.objectiveMaximum + finalized.manualMaximum, updatedAt: timestamp };
       const batch = db.batch();
       batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
       batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
       await batch.commit();
       res.json(attemptSummary(nextAttempt));
+    } catch (error) { sendError(res, error); }
+  });
+
+  router.post('/admin/modules/:moduleId/papers/:paperId/sets/:setId/attempts/:attemptId/retry-writing-grade', authenticateUser, requireStaff, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const set = await getSet(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      if (!canManage(req.user, set)) throw apiError(404, 'Không tìm thấy bộ đề.');
+      const attemptSnapshot = await db.collection('exam_attempts').doc(req.params.attemptId).get();
+      if (!attemptSnapshot.exists) throw apiError(404, 'Không tìm thấy lượt làm bài.');
+      const attempt: any = { id: attemptSnapshot.id, ...attemptSnapshot.data() };
+      if (attempt.setId !== set.id || attempt.status !== 'pending_review') throw apiError(409, 'Lượt làm bài không ở trạng thái chờ chấm.');
+      const detailSnapshot = await db.collection('exam_attempt_details').doc(attempt.id).get();
+      const version = await getVersion(db, attempt.versionId);
+      if (!detailSnapshot.exists || !version || version.setId !== set.id) throw apiError(404, 'Không tìm thấy dữ liệu chấm Writing.');
+      const next = await runAiWritingGrade(attempt, { id: detailSnapshot.id, ...detailSnapshot.data() }, version);
+      res.json(attemptSummary(next));
     } catch (error) { sendError(res, error); }
   });
 
@@ -627,9 +711,6 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       const actor = await resolveActor(req, resolveGuestProfile, { classId: ticket.classId, className: ticket.className, verified: Boolean(ticket.assignmentId) });
       const runSecret = text(req.body?.runSecret, 300);
       if (actor.ownerKey !== ticket.ownerKey || sha256(runSecret) !== ticket.runSecretHash) throw apiError(401, 'Không có quyền nộp lượt làm bài này.');
-      if (ticket.deadlineAt && Date.now() > new Date(ticket.deadlineAt).getTime() + 120_000) {
-        throw apiError(410, 'Thời gian làm bài đã kết thúc.');
-      }
       const attemptId = `examattempt-${sha256(`${actor.ownerKey}:${moduleId}:${paperId}:${set.id}:${ticket.clientRunId}`).slice(0, 40)}`;
       const existingSnapshot = await db.collection('exam_attempts').doc(attemptId).get();
       if (existingSnapshot.exists) {
@@ -643,6 +724,10 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       const grade = gradeExamAttempt(version.content, answers);
       const completedAt = nowIso();
       const durationSeconds = Math.max(0, Math.floor((new Date(completedAt).getTime() - new Date(ticket.startedAt).getTime()) / 1000));
+      // The deadline ends editing, but must never make the signed attempt
+      // impossible to submit. The ticket has its own expiry and remains the
+      // authority for retrying the same idempotent learning run.
+      const timedOut = Boolean(ticket.deadlineAt && Date.now() >= new Date(ticket.deadlineAt).getTime());
       const attempt = {
         id: attemptId,
         moduleId,
@@ -670,9 +755,11 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         unansweredCount: grade.unansweredCount,
         totalCount: grade.totalCount,
         pendingManualCount: grade.pendingManualCount,
+        ...(grade.questions.some(question => question.aiGradingStatus) ? { aiGradingStatus: 'queued', aiGradingMessage: 'Đã xếp hàng chấm Writing.' } : {}),
         startedAt: ticket.startedAt,
         completedAt,
         durationSeconds,
+        timedOut,
         createdAt: completedAt,
         updatedAt: completedAt,
       };
@@ -719,7 +806,10 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       batch.set(db.collection('exam_attempts').doc(attemptId), attempt);
       batch.set(db.collection('exam_attempt_details').doc(attemptId), detail);
       await batch.commit();
-      res.status(201).json(attemptSummary(attempt));
+      const completedAttempt = grade.questions.some(question => question.aiGradingStatus)
+        ? await runAiWritingGrade(attempt, detail, version)
+        : attempt;
+      res.status(201).json(attemptSummary(completedAttempt));
     } catch (error) { sendError(res, error); }
   });
 

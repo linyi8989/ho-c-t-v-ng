@@ -35,6 +35,7 @@ import { createListeningLibraryRouter } from "./src/server/listening-library/rou
 import { createMoverLegacyRouter } from "./src/server/listening-library/modules/mover/adapter.js";
 import { createMoverReadingWritingRouter } from "./src/server/mover-reading-writing/moverReadingWritingRouter.js";
 import { createExamRouter } from "./src/server/exam-platform/examRouter.js";
+import { getWritingGradingProviders, gradeWritingWithProvider } from "./src/server/exam-platform/writingGradingProvider.js";
 import type { SmartImportImageInput, SmartImportVisionOptions } from "./src/server/listening-smart-import/service.js";
 import {
   DEVQUOTA_DEFAULT_BASE_URL,
@@ -2244,6 +2245,12 @@ const STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY)
 const DEVQUOTA_API_KEY = process.env.DEVQUOTA_API_KEY?.trim() || "";
 const DEVQUOTA_BASE_URL = process.env.DEVQUOTA_BASE_URL?.trim() || DEVQUOTA_DEFAULT_BASE_URL;
 const DEVQUOTA_SMART_IMPORT_PROVIDERS = getDevQuotaSmartImportProviders(DEVQUOTA_API_KEY);
+const WRITING_GRADING_CONFIG = {
+  staliApiKey: STALI_API_KEY,
+  staliBaseUrl: STALI_BASE_URL,
+  devQuotaApiKey: DEVQUOTA_API_KEY,
+  devQuotaBaseUrl: DEVQUOTA_BASE_URL,
+};
 
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -2915,6 +2922,10 @@ app.use(
     ticketSecret: `${LISTENING_TICKET_SECRET}:exam-platform-v1`,
     resolveGuestProfile,
     logAudit: logAuditAction,
+    writingGrading: {
+      providers: getWritingGradingProviders(WRITING_GRADING_CONFIG),
+      grade: input => gradeWritingWithProvider(input, WRITING_GRADING_CONFIG),
+    },
   })
 );
 

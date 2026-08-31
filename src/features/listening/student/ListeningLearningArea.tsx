@@ -94,6 +94,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const submitGuard = useRef(false);
+  const automaticSubmitStarted = useRef(false);
 
   const ownerKey = user?.id ? `user:${user.id}` : `guest:${guestId}`;
   const activeStorageKey = playable ? storageKey(ownerKey, playable.id, playable.versionId, accessToken) : '';
@@ -198,6 +199,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         answers: createEmptyListeningAnswers(),
         currentPart: 0,
       };
+      automaticSubmitStarted.current = false;
       setRun(nextRun);
       setAnswers(nextRun.answers);
       setCurrentPart(0);
@@ -275,7 +277,10 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     const tick = () => {
       const remaining = Math.max(0, Math.ceil((new Date(run.deadlineAt!).getTime() - Date.now()) / 1000));
       setRemainingSeconds(remaining);
-      if (remaining === 0) void submit(true);
+      if (remaining === 0 && !automaticSubmitStarted.current) {
+        automaticSubmitStarted.current = true;
+        void submit(true);
+      }
     };
     tick();
     const interval = window.setInterval(tick, 1000);

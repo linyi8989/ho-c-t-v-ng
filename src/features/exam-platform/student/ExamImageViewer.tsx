@@ -10,6 +10,7 @@ interface ExamImageViewerProps {
   imageClassName?: string;
   maxHeight?: string;
   triggerOnly?: boolean;
+  fillFrame?: boolean;
 }
 
 export default function ExamImageViewer({
@@ -21,6 +22,7 @@ export default function ExamImageViewer({
   imageClassName = '',
   maxHeight = 'min(68vh, 720px)',
   triggerOnly = false,
+  fillFrame = false,
 }: ExamImageViewerProps) {
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -52,9 +54,9 @@ export default function ExamImageViewer({
   };
 
   return <>
-    {triggerOnly ? <button type="button" onClick={event => { event.stopPropagation(); setZoom(1); setOpen(true); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} />Phóng to ảnh</button> : <div className={`exam-platform-image-viewer relative mx-auto w-fit max-w-full overflow-visible rounded-2xl ${className}`}>
-      <div ref={frameRef} className="relative mx-auto w-fit max-w-full overflow-hidden rounded-[inherit]">
-        <img src={src} alt={alt} draggable={false} className={`block h-auto w-auto max-w-full object-contain ${imageClassName}`} style={{ maxHeight }} />
+    {triggerOnly ? <button type="button" onClick={event => { event.stopPropagation(); setZoom(1); setOpen(true); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} />Phóng to ảnh</button> : <div className={`exam-platform-image-viewer relative mx-auto max-w-full overflow-visible rounded-2xl ${fillFrame ? 'h-full w-full' : 'w-fit'} ${className}`}>
+      <div ref={frameRef} className={`relative mx-auto max-w-full overflow-hidden rounded-[inherit] ${fillFrame ? 'h-full w-full' : 'w-fit'}`}>
+        <img src={src} alt={alt} draggable={false} className={`block object-contain ${fillFrame ? 'h-full w-full max-w-none' : 'h-auto w-auto max-w-full'} ${imageClassName}`} style={fillFrame ? undefined : { maxHeight }} />
         {children}
       </div>
       <button type="button" onClick={event => { event.stopPropagation(); setZoom(1); setOpen(true); }} className="exam-platform-image-expand absolute right-2 top-2 z-50 inline-flex h-10 w-10 items-center justify-center rounded-xl" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={20} /></button>

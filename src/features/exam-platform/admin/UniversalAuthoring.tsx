@@ -8,9 +8,13 @@ import { buildUniversalExamImportPrompt, buildUniversalExamPartImportPrompt } fr
 const fieldClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
 
 function fixedStarterStructure(content: ExamPaperContent) {
+  if (content.moduleId === 'flyer' && content.paperId === 'listening') return { partCount: 5, questionCounts: [5, 5, 5, 5, 5], label: 'Flyers Listening' };
+  if (content.moduleId === 'flyer' && content.paperId === 'reading-writing') return { partCount: 7, questionCounts: null, label: 'Flyers Reading & Writing' };
+  if (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') return { partCount: 5, questionCounts: null, label: 'KET Listening' };
+  if (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1') return { partCount: 9, questionCounts: null, label: 'KET Reading & Writing' };
   if (content.moduleId !== 'starter') return null;
-  if (content.paperId === 'listening') return { partCount: 4, questionCount: 5, label: 'Starters Listening' };
-  if (content.paperId === 'reading-writing') return { partCount: 5, questionCount: 5, label: 'Starters Reading & Writing' };
+  if (content.paperId === 'listening') return { partCount: 4, questionCounts: [5, 5, 5, 5], label: 'Starters Listening' };
+  if (content.paperId === 'reading-writing') return { partCount: 5, questionCounts: [5, 5, 5, 5, 5], label: 'Starters Reading & Writing' };
   return null;
 }
 
@@ -72,7 +76,7 @@ export function UniversalWholeImportPanel({
   const fixed = fixedStarterStructure(content);
   return <details open className="rounded-2xl border border-violet-200 bg-violet-50 p-4" id="universal-whole-json-import">
     <summary className="cursor-pointer text-sm font-black text-violet-900"><FileJson size={16} className="mr-2 inline" />Nhập Universal JSON tổng</summary>
-    <p className="mt-2 text-xs font-semibold leading-5 text-violet-800">{fixed ? `${fixed.label} khóa đúng ${fixed.partCount} Part và mỗi Part ${fixed.questionCount} câu; JSON nhập nội dung, cấu trúc câu và đáp án theo từng Part.` : 'JSON quyết định số Part, số dạng bài trong từng Part và số câu.'} Tọa độ chỉ được nhận như gợi ý để giáo viên xác nhận; nhập JSON không tự xuất bản.</p>
+    <p className="mt-2 text-xs font-semibold leading-5 text-violet-800">{fixed ? fixed.questionCounts ? `${fixed.label} khóa đúng ${fixed.partCount} Part với số câu lần lượt ${fixed.questionCounts.join('–')}; JSON nhập nội dung và đáp án theo từng mô hình Part đã thiết kế.` : `${fixed.label} khóa đúng ${fixed.partCount} Part nhưng số câu của từng Part được lấy từ JSON/đề gốc, không bị schema áp đặt.` : 'JSON quyết định số Part, số dạng bài trong từng Part và số câu.'} Tọa độ chỉ được nhận như gợi ý để giáo viên xác nhận; nhập JSON không tự xuất bản.</p>
     <button type="button" data-exam-action="copy-universal-json-prompt" onClick={async () => {
       const success = await copyPrompt(buildUniversalExamImportPrompt(content));
       if (!success) return;
@@ -92,8 +96,8 @@ export function UniversalWholeImportPanel({
         } else {
           const result = importUniversalExamBundle(content, source);
           const fixed = fixedStarterStructure(content);
-          if (fixed && (result.content.parts.length !== fixed.partCount || result.content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== fixed.questionCount))) {
-            throw new Error(`${fixed.label} phải có đúng ${fixed.partCount} Part theo thứ tự và mỗi Part đúng ${fixed.questionCount} câu. JSON chưa được áp dụng.`);
+          if (fixed && (result.content.parts.length !== fixed.partCount || result.content.parts.some((part, index) => part.part !== index + 1 || (fixed.questionCounts ? part.questions.length !== fixed.questionCounts[index] : part.questions.length < 1)))) {
+            throw new Error(fixed.questionCounts ? `${fixed.label} phải có đúng ${fixed.partCount} Part theo thứ tự và số câu ${fixed.questionCounts.join('–')}. JSON chưa được áp dụng.` : `${fixed.label} phải có đúng ${fixed.partCount} Part theo thứ tự và mỗi Part có ít nhất một câu. JSON chưa được áp dụng.`);
           }
           onChange(result.content);
           setReports(result.reports);
@@ -144,10 +148,10 @@ export function UniversalPartImportPanel({
         } else {
           const result = importUniversalExamPart(content, partIndex, source);
           const fixed = fixedStarterStructure(content);
-          if (fixed && result.part.questions.length !== fixed.questionCount) {
-            throw new Error(`${fixed.label} Part ${partIndex + 1} phải có đúng ${fixed.questionCount} câu. JSON chưa được áp dụng.`);
+          if (fixed?.questionCounts && result.part.questions.length !== fixed.questionCounts[partIndex]) {
+            throw new Error(`${fixed.label} Part ${partIndex + 1} phải có đúng ${fixed.questionCounts[partIndex]} câu. JSON chưa được áp dụng.`);
           }
-          onChange(result.part, true);
+          onChange(result.part, !((content.moduleId === 'flyer' && (content.paperId === 'listening' || content.paperId === 'reading-writing')) || (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') || (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1')));
           onMessage({ text: `Đã nhập Part ${partIndex + 1}: ${result.report.blockCount} dạng, ${result.report.questionCount} câu.${result.report.warnings.length ? ` ${result.report.warnings.length} mục cần xác nhận.` : ''}` });
         }
       } catch (reason: any) {

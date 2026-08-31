@@ -1,7 +1,8 @@
 import type { ExamModuleId, ExamPaperId } from '../listening-library/types';
 
-export const EXAM_CONTENT_SCHEMA_VERSION = 2;
+export const EXAM_CONTENT_SCHEMA_VERSION = 3;
 export const EXAM_LEGACY_CONTENT_SCHEMA_VERSION = 1;
+export const EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS = [1, 2, 3] as const;
 
 export type ExamQuestionType =
   | 'single-choice'
@@ -134,7 +135,21 @@ export interface ExamImageTextEntryLayout {
   targets: ExamImageTextEntryTarget[];
 }
 
-export type ExamInteractionLayout = StarterImageMatchingLayout | StarterSceneColourLayout | ExamSceneDrawLayout | ExamImageTextEntryLayout;
+export interface FlyerNamePlacementTarget {
+  id: string;
+  questionId: string;
+  label: string;
+  region: ExamInteractionRegion;
+  geometryConfirmedByTeacher?: boolean;
+}
+
+/** Public scene hitboxes for Flyers Listening Part 1. Answer keys stay on questions. */
+export interface FlyerNamePlacementLayout {
+  kind: 'flyer-name-placement-v1';
+  targets: FlyerNamePlacementTarget[];
+}
+
+export type ExamInteractionLayout = StarterImageMatchingLayout | StarterSceneColourLayout | ExamSceneDrawLayout | ExamImageTextEntryLayout | FlyerNamePlacementLayout;
 
 export interface ExamGeometryHint {
   id: string;
@@ -166,8 +181,26 @@ export interface ExamQuestion {
   maxSelections?: number;
   maxWords?: number;
   minWords?: number;
+  /** Printed number shown in a source image. It is independent from the internal sequence. */
+  displayNumber?: number;
+  /** Public prefix already printed for a spelling/form answer, for example the first letter or currency sign. */
+  answerPrefix?: string;
+  /** Total expected character count for fixed-cell spelling answers, including answerPrefix. */
+  answerLength?: number;
+  /** Public text rendered after an answer input. */
+  answerSuffix?: string;
   rubric?: string;
   modelAnswer?: string;
+  /** Private backend-only configuration for AI-assisted Writing grading. */
+  writingGrading?: ExamWritingGradingConfig;
+}
+
+export interface ExamWritingGradingConfig {
+  enabled: boolean;
+  providerId: string;
+  taskContext: string;
+  gradingInstructions: string;
+  scoreScale: 10;
 }
 
 /** Display-only worked example. It is public lesson content and is never scored. */
@@ -231,6 +264,8 @@ export interface ExamPaperContent {
   schemaVersion: number;
   /** `dynamic` means the JSON owns the number of Parts, blocks and questions. */
   structureMode?: 'definition' | 'dynamic';
+  /** Versioned paper-specific adapter. Published papers without this field keep their legacy renderer. */
+  templateVersion?: string;
   moduleId: Exclude<ExamModuleId, 'mover'>;
   paperId: ExamPaperId;
   title: string;
@@ -289,6 +324,12 @@ export interface ExamQuestionResult {
   pointsAwarded: number;
   maxPoints: number;
   pendingManualReview: boolean;
+  aiGradingStatus?: 'queued' | 'processing' | 'completed' | 'failed';
+  writingScore?: number;
+  sentenceCount?: number;
+  grammarErrors?: string[];
+  vocabularyErrors?: string[];
+  aiFeedback?: string;
 }
 
 export interface ExamCompletedAttempt {
@@ -303,8 +344,12 @@ export interface ExamCompletedAttempt {
   unansweredCount: number;
   totalCount: number;
   pendingManualCount: number;
+  aiGradingStatus?: 'queued' | 'processing' | 'completed' | 'failed';
+  aiGradingMessage?: string;
   completedAt: string;
   durationSeconds: number;
+  /** True when the answer snapshot was submitted at or after the configured deadline. */
+  timedOut?: boolean;
 }
 
 export interface ExamAttemptReview {

@@ -30,6 +30,10 @@ import type {
 } from '../types';
 import { EXAM_CONTENT_SCHEMA_VERSION } from '../types';
 import { examPartUnits, promoteExamPartToBlocks, replaceExamPartUnit } from '../examStructure';
+import { normalizeFixedFlyerListeningContent } from '../flyerListeningMigration';
+import { normalizeFixedFlyerReadingWritingContent } from '../flyerReadingWritingMigration';
+import { normalizeFixedKetReadingWritingContent } from '../ketReadingWritingMigration';
+import { isFixedKetListeningContent, normalizeFixedKetListeningContent } from '../ketListeningMigration';
 import {
   StarterImportReadiness,
   StarterListeningPart4Editor,
@@ -39,6 +43,10 @@ import {
 } from './StarterAuthoring';
 import { UniversalPartImportPanel, UniversalWholeImportPanel } from './UniversalAuthoring';
 import StarterReadingWritingAuthoring from './StarterReadingWritingAuthoring';
+import FlyerListeningAuthoring from './FlyerListeningAuthoring';
+import FlyerReadingWritingAuthoring from './FlyerReadingWritingAuthoring';
+import KetReadingWritingAuthoring from './KetReadingWritingAuthoring';
+import KetListeningAuthoring from './KetListeningAuthoring';
 
 interface Props { token: string; moduleId: Exclude<ExamModuleId, 'mover'> }
 interface PaperAdminProps extends Props { paperId: ExamPaperId; onBack: () => void }
@@ -294,8 +302,13 @@ function PartEditor({
   };
   const starter = content.moduleId === 'starter';
   const starterListening = starter && content.paperId === 'listening';
+  const flyerListening = content.moduleId === 'flyer' && content.paperId === 'listening';
+  const flyerReadingWriting = content.moduleId === 'flyer' && content.paperId === 'reading-writing';
+  const ketReadingWriting = content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.parts.length === 9;
+  const ketListening = isFixedKetListeningContent(content);
   const starterReadingWriting = starter && content.paperId === 'reading-writing';
-  const starterPart2 = starterListening && part.part === 2;
+  const fixedReadingWritingAuthoring = starterReadingWriting || flyerReadingWriting || ketReadingWriting;
+  const fixedListeningPart2 = (starterListening || flyerListening) && part.part === 2;
   const units = examPartUnits(part);
   const updateUnit = (unit: ExamPartContent) => onChange(replaceExamPartUnit(part, unit));
   return (
@@ -309,15 +322,15 @@ function PartEditor({
         <label className="text-xs font-black text-slate-700">Tiêu đề Part<input value={part.title} onChange={event => onChange({ ...part, title: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>
         <label className="text-xs font-black text-slate-700">Hướng dẫn<input value={part.instruction} onChange={event => onChange({ ...part, instruction: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>
       </div>
-      {starter && !part.blocks?.length && <StarterImportReadiness part={part} requiresAudio={partDefinition.requiresAudio} />}
-      {!starterListening && !starterPart2 && !starterReadingWriting && <label className="block text-xs font-black text-slate-700">Đoạn đọc/nội dung chung của Part<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-1 min-h-32 ${fieldClass}`} /></label>}
-      {!starterReadingWriting && <div className="grid gap-3 md:grid-cols-2">
-        <AssetField token={token} kind="image" label={starterPart2 ? 'Hình minh họa (không bắt buộc)' : starterListening && part.part === 3 ? 'Ảnh hiển thị chung cho học sinh' : starterListening && part.part === 4 ? 'Ảnh scene Colour + Draw' : 'Ảnh chung của Part'} assets={assets} assetId={part.imageAssetId} onUploaded={onAssets} pasteImages={starter} onChange={asset => {
+      {(starter || flyerListening) && !part.blocks?.length && <StarterImportReadiness part={part} requiresAudio={partDefinition.requiresAudio} />}
+      {!starterListening && !fixedListeningPart2 && !fixedReadingWritingAuthoring && !ketListening && <label className="block text-xs font-black text-slate-700">Đoạn đọc/nội dung chung của Part<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-1 min-h-32 ${fieldClass}`} /></label>}
+      {!fixedReadingWritingAuthoring && <div className="grid gap-3 md:grid-cols-2">
+        {!ketListening && <AssetField token={token} kind="image" label={flyerListening && part.part === 3 ? 'Ảnh lựa chọn A-H (hiển thị bên trái)' : flyerListening && part.part === 4 ? 'Ảnh trang nguồn để crop 15 lựa chọn' : flyerListening && part.part === 5 ? 'Ảnh scene Colour + Draw' : fixedListeningPart2 ? 'Hình minh họa (không bắt buộc)' : starterListening && part.part === 3 ? 'Ảnh hiển thị chung cho học sinh' : starterListening && part.part === 4 ? 'Ảnh scene Colour + Draw' : 'Ảnh chung của Part'} assets={assets} assetId={part.imageAssetId} onUploaded={onAssets} pasteImages={starter || flyerListening} onChange={asset => {
           const displayOnly = starterListening && part.part === 3;
-          const next = displayOnly ? { ...part, imageAssetId: asset?.id, imageUrl: asset?.url } : starter ? replaceStarterPartImage(part, asset) : { ...part, imageAssetId: asset?.id, imageUrl: asset?.url };
-          onChange(starterListening && !displayOnly && next.blocks?.length ? { ...next, blocks: next.blocks.map(block => ({ ...block, imageAssetId: asset?.id, imageUrl: asset?.url })) } : next);
-        }} />
-        {partDefinition.requiresAudio && <AssetField token={token} kind="audio" label="Audio bắt buộc" assets={assets} assetId={part.audioAssetId} onUploaded={onAssets} onChange={asset => onChange({ ...part, audioAssetId: asset?.id, audioUrl: asset?.url, ...(starterListening && part.blocks?.length ? { blocks: part.blocks.map(block => ({ ...block, audioAssetId: asset?.id, audioUrl: asset?.url })) } : {}) })} />}
+          let next = displayOnly ? { ...part, imageAssetId: asset?.id, imageUrl: asset?.url } : starter ? replaceStarterPartImage(part, asset) : { ...part, imageAssetId: asset?.id, imageUrl: asset?.url };
+          onChange((starterListening && !displayOnly || flyerListening) && next.blocks?.length ? { ...next, blocks: next.blocks.map(block => ({ ...block, imageAssetId: asset?.id, imageUrl: asset?.url })) } : next);
+        }} />}
+        {partDefinition.requiresAudio && <AssetField token={token} kind="audio" label="Audio bắt buộc" assets={assets} assetId={part.audioAssetId} onUploaded={onAssets} onChange={asset => onChange({ ...part, audioAssetId: asset?.id, audioUrl: asset?.url, ...((starterListening || flyerListening) && part.blocks?.length ? { blocks: part.blocks.map(block => ({ ...block, audioAssetId: asset?.id, audioUrl: asset?.url })) } : {}) })} />}
       </div>}
 
       {content.paperId === 'listening' && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-4" data-exam-part-transcript={part.part}>
@@ -351,11 +364,11 @@ function PartEditor({
         });
       }} onMessage={onMessage} />
 
-      <div className="space-y-4">{starterReadingWriting ? <StarterReadingWritingAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : starterListening && part.part === 4 ? <StarterListeningPart4Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : units.map((unit, unitIndex) => <div key={unit.id}>
+      <div className="space-y-4">{flyerListening ? <FlyerListeningAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : ketListening ? <KetListeningAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : flyerReadingWriting ? <FlyerReadingWritingAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : ketReadingWriting ? <KetReadingWritingAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : starterReadingWriting ? <StarterReadingWritingAuthoring token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : starterListening && part.part === 4 ? <StarterListeningPart4Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} /> : units.map((unit, unitIndex) => <div key={unit.id}>
         {part.blocks?.length && (!starterListening || part.part === 4) && <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">{starterListening && part.part === 4 ? (unit.interactionLayout?.kind === 'scene-draw-v1' ? 'Draw' : 'Colour') : `Dạng bài ${unitIndex + 1}/${units.length}`}</p>}
         <InteractionUnitEditor token={token} unit={unit} assets={assets} onAssets={onAssets} onChange={updateUnit} pasteImages={starter} compactStarterListening={starterListening && part.part !== 1} />
       </div>)}</div>
-      {partDefinition.questionCountFlexible && !part.blocks?.length && (
+      {partDefinition.questionCountFlexible && !part.blocks?.length && !ketListening && (
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => {
             const number = Math.max(0, ...content.parts.flatMap(item => item.questions.map(question => question.number))) + 1;
@@ -387,6 +400,8 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
   const [resultSet, setResultSet] = useState<ExamSetSummary | null>(null);
   const fixedStarterPaper = moduleId === 'starter' && (paperId === 'listening' || paperId === 'reading-writing');
   const fixedStarterListening = moduleId === 'starter' && paperId === 'listening';
+  const legacyKetReadingWriting = moduleId === 'ket' && paperId === 'reading-writing' && content.parts.length !== 9;
+  const legacyKetListening = moduleId === 'ket' && paperId === 'listening' && !isFixedKetListeningContent(content);
   const [starterPartsRevealed, setStarterPartsRevealed] = useState(fixedStarterPaper || moduleId !== 'starter');
   const autosaveRef = useRef(false);
 
@@ -425,11 +440,45 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
   const startNew = () => {
     setEditingId(''); setContent(createDefaultExamContent(definition)); setVisibility('draft'); setRevision(0); setDirty(true); setValidationErrors([]); setStep(0); setAutosave('idle'); setResults(null); setStarterPartsRevealed(fixedStarterPaper || moduleId !== 'starter');
   };
+  const convertLegacyKetReadingWriting = () => {
+    if (!legacyKetReadingWriting || !window.confirm('Chuyển bản nháp KET hiện tại sang cấu trúc 9 Part mới? Nội dung các Part cũ sẽ được thay bằng khung đề mới; tên đề, mô tả, thời gian, ảnh bìa và thiết lập xem kết quả vẫn được giữ.')) return;
+    const fresh = createDefaultExamContent(definition);
+    updateContent({
+      ...fresh,
+      title: content.title,
+      description: content.description,
+      timeLimitMinutes: content.timeLimitMinutes,
+      coverAssetId: content.coverAssetId,
+      coverUrl: content.coverUrl,
+      showReviewAfterSubmit: content.showReviewAfterSubmit,
+    });
+    setValidationErrors([]);
+    setStep(0);
+    setMessage({ text: 'Đã chuyển bản nháp sang cấu trúc KET Reading & Writing 9 Part. Hãy kiểm tra và lưu lại bộ đề.' });
+  };
+  const convertLegacyKetListening = () => {
+    if (!legacyKetListening || !window.confirm('Chuyển bản nháp KET Listening hiện tại sang cấu trúc 5 Part mới? Nội dung Part cũ sẽ được thay bằng khung đề mới; tên đề, mô tả, thời gian, ảnh bìa và thiết lập xem kết quả vẫn được giữ.')) return;
+    const fresh = createDefaultExamContent(definition);
+    updateContent({
+      ...fresh,
+      title: content.title,
+      description: content.description,
+      timeLimitMinutes: content.timeLimitMinutes,
+      coverAssetId: content.coverAssetId,
+      coverUrl: content.coverUrl,
+      showReviewAfterSubmit: content.showReviewAfterSubmit,
+    });
+    setValidationErrors([]);
+    setStep(0);
+    setMessage({ text: 'Đã chuyển bản nháp sang KET Listening 5 Part mới. Hãy nhập JSON, gắn media và kiểm tra trước khi xuất bản.' });
+  };
   const edit = async (setId: string) => {
     setBusy(true);
     try {
       const set = await examPlatformApi.getAdminSet(token, moduleId, paperId, setId);
-      setEditingId(set.id); setContent(set.draftContent); setVisibility(set.visibility || 'draft'); setRevision(Number(set.draftRevision || 0)); setDirty(false); setValidationErrors(set.validationErrors || []); setStep(0); setAutosave('saved'); setStarterPartsRevealed(true);
+      const upgradedContent = normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(set.draftContent))));
+      const upgraded = upgradedContent !== set.draftContent;
+      setEditingId(set.id); setContent(upgradedContent); setVisibility(set.visibility || 'draft'); setRevision(Number(set.draftRevision || 0)); setDirty(upgraded); setValidationErrors(upgraded ? [] : set.validationErrors || []); setStep(0); setAutosave(upgraded ? 'idle' : 'saved'); setStarterPartsRevealed(true);
     } catch (error: any) { setMessage({ text: error.message, error: true }); }
     finally { setBusy(false); }
   };
@@ -474,8 +523,10 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
       {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
       {validationErrors.length > 0 && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-900"><p className="mb-2 font-black">Cần hoàn thiện trước khi xuất bản:</p><ul className="list-disc space-y-1 pl-5">{validationErrors.map((error, index) => <li key={`${error}-${index}`}>{error}</li>)}</ul></div>}
       <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+        {step === 0 && legacyKetReadingWriting && <aside className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-black">Bản KET cũ đang được giữ nguyên, chưa tự động chuyển đổi.</p><p className="mt-1 font-semibold">Cấu trúc 9 Part mới cần một bản nháp riêng. Chỉ chuyển khi giáo viên đã sẵn sàng soạn lại nội dung.</p><button type="button" onClick={convertLegacyKetReadingWriting} className="mt-3 rounded-xl border border-amber-700 bg-white px-4 py-2.5 text-xs font-black text-amber-900">Chuyển sang cấu trúc KET 9 Part</button></aside>}
+        {step === 0 && legacyKetListening && <aside className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-black">Bản KET Listening cũ đang được giữ nguyên, chưa tự động chuyển đổi.</p><p className="mt-1 font-semibold">Template mới có 5 dạng Part cố định nhưng số câu linh hoạt. Chỉ chuyển khi giáo viên đã sẵn sàng soạn lại nội dung.</p><button type="button" onClick={convertLegacyKetListening} className="mt-3 rounded-xl border border-amber-700 bg-white px-4 py-2.5 text-xs font-black text-amber-900">Chuyển sang KET Listening 5 Part mới</button></aside>}
          {step === 0 && <div className="space-y-4"><div className="grid gap-3 md:grid-cols-2"><label className="text-xs font-black text-slate-700">Tên bộ đề<input value={content.title} onChange={event => updateContent({ ...content, title: event.target.value })} className={`mt-1 ${fieldClass}`} /></label><label className="text-xs font-black text-slate-700">Cấp độ<input value={content.level} onChange={event => updateContent({ ...content, level: event.target.value })} className={`mt-1 ${fieldClass}`} /></label><label className="text-xs font-black text-slate-700 md:col-span-2">Mô tả<textarea value={content.description} onChange={event => updateContent({ ...content, description: event.target.value })} className={`mt-1 min-h-24 ${fieldClass}`} /></label><label className="text-xs font-black text-slate-700">Thời gian (phút)<input type="number" min={0} value={content.timeLimitMinutes || 0} onChange={event => updateContent({ ...content, timeLimitMinutes: Number(event.target.value) || undefined })} className={`mt-1 ${fieldClass}`} /></label><label className="text-xs font-black text-slate-700">Hiển thị<select value={visibility} onChange={event => { setVisibility(event.target.value as ExamVisibility); setDirty(true); }} className={`mt-1 ${fieldClass}`}><option value="draft">Bản nháp</option><option value="public">Công khai</option><option value="assignment">Theo link/bài giao</option></select></label></div><UniversalWholeImportPanel content={content} definition={definition} onChange={updateContent} onImported={() => setStarterPartsRevealed(true)} onMessage={setMessage} />{fixedStarterListening && <StarterQuickAssetPanel token={token} content={content} assets={assets} onAsset={asset => setAssets(previous => [asset, ...previous.filter(item => item.id !== asset.id)])} onChange={updateContent} />}{moduleId === 'starter' && !starterPartsRevealed && <button type="button" onClick={() => setStarterPartsRevealed(true)} className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700">Tạo đề trống và soạn từng Part</button>}<AssetField token={token} kind="image" label="Ảnh bìa" assets={assets} assetId={content.coverAssetId} onUploaded={asset => setAssets(previous => [asset, ...previous.filter(item => item.id !== asset.id)])} pasteImages={moduleId === 'starter'} onChange={asset => updateContent({ ...content, coverAssetId: asset?.id, coverUrl: asset?.url })} /><label className="flex items-center gap-2 text-sm font-black text-slate-700"><input type="checkbox" checked={content.showReviewAfterSubmit} onChange={event => updateContent({ ...content, showReviewAfterSubmit: event.target.checked })} />Cho học sinh xem đáp án sau khi hoàn thành và được chấm xong</label></div>}
-        {step > 0 && step <= content.parts.length && <PartEditor token={token} content={content} partIndex={step - 1} assets={assets} onAssets={asset => setAssets(previous => [asset, ...previous.filter(item => item.id !== asset.id)])} onChange={part => updateContent({ ...content, parts: content.parts.map((item, index) => index === step - 1 ? part : item) })} onContentChange={updateContent} onMessage={setMessage} />}
+        {step > 0 && step <= content.parts.length && <PartEditor token={token} content={content} partIndex={step - 1} assets={assets} onAssets={asset => setAssets(previous => [asset, ...previous.filter(item => item.id !== asset.id)])} onChange={part => updateContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent({ ...content, parts: content.parts.map((item, index) => index === step - 1 ? part : item) })))} onContentChange={updateContent} onMessage={setMessage} />}
         {step === content.parts.length + 1 && <div className="space-y-4"><div className="rounded-2xl bg-white p-5"><p className="text-xs font-black uppercase text-indigo-600">Preview cấu trúc</p><h3 className="mt-1 text-2xl font-black text-slate-900">{content.title}</h3><p className="mt-2 text-sm font-semibold text-slate-500">{content.description}</p><p className="mt-3 text-sm font-black text-indigo-700">{content.parts.length} Part/Section · {totalQuestions} câu/task · {content.timeLimitMinutes || 'Không giới hạn'} phút</p></div>{content.parts.map(part => <article key={part.id} className="rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-black text-slate-900">Part {part.part}: {part.title}</h4>{part.passage && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{part.passage}</p>}{part.imageUrl && <img src={part.imageUrl} alt="" className="mt-3 max-h-72 rounded-xl object-contain" />}{part.audioUrl && <audio controls src={part.audioUrl} className="mt-3 w-full" /> }{part.blocks?.length ? <div className="mt-3 space-y-2">{examPartUnits(part).map(unit => <div key={unit.id} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black text-violet-700">{unit.interaction?.family} → {unit.interaction?.subtype} → {unit.interaction?.variant}</p><p className="mt-1 text-sm font-black text-slate-800">{unit.title} · {unit.questions.length} câu</p></div>)}</div> : <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm font-semibold text-slate-700">{part.questions.map(question => <li key={question.id}>{question.prompt} <span className="text-xs text-slate-400">({question.type})</span></li>)}</ol>}</article>)}</div>}
       </section>
     </div>
@@ -496,7 +547,7 @@ function ManualResult({ attempt, token, moduleId, paperId, setId, onGraded }: { 
   const [grades, setGrades] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const pending = (attempt.questions || []).filter((question: any) => question.pendingManualReview);
-  return <article className="rounded-2xl border border-slate-200 p-4"><button type="button" onClick={() => setOpen(value => !value)} className="grid w-full gap-2 text-left text-xs font-bold text-slate-700 sm:grid-cols-5"><span>{attempt.studentName || 'Học sinh'}</span><span>{attempt.status === 'pending_review' ? 'Chờ giáo viên chấm' : `Điểm: ${attempt.score}`}</span><span>Đúng: {attempt.correctCount}/{attempt.totalCount}</span><span>{attempt.durationSeconds || 0}s</span><span>{new Date(attempt.completedAt).toLocaleString('vi-VN')}</span></button>{open && <div className="mt-4 space-y-3">{(attempt.questions || []).map((question: any) => <div key={question.questionId} className={`rounded-xl border p-3 text-xs ${question.pendingManualReview ? 'border-violet-200 bg-violet-50' : question.correct ? 'border-emerald-200 bg-emerald-50' : question.unanswered ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><p className="font-black">Part {question.part} · {question.prompt}</p><p className="mt-1 whitespace-pre-wrap">Học sinh: {Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</p>{question.pendingManualReview && <label className="mt-2 flex items-center gap-2 font-black">Điểm<input type="number" min={0} max={question.maxPoints} step={0.5} value={grades[question.questionId] ?? ''} onChange={event => setGrades(previous => ({ ...previous, [question.questionId]: Number(event.target.value) }))} className="w-24 rounded-lg border border-violet-300 px-2 py-1" />/{question.maxPoints}</label>}</div>)}{attempt.status === 'pending_review' && <button type="button" disabled={busy || pending.some((question: any) => grades[question.questionId] === undefined)} onClick={async () => { setBusy(true); try { await examPlatformApi.manualGrade(token, moduleId, paperId, setId, attempt.id, grades); onGraded(); } finally { setBusy(false); } }} className="rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">Xác nhận điểm Writing</button>}</div>}</article>;
+  return <article className="rounded-2xl border border-slate-200 p-4"><button type="button" onClick={() => setOpen(value => !value)} className="grid w-full gap-2 text-left text-xs font-bold text-slate-700 sm:grid-cols-5"><span>{attempt.studentName || 'Học sinh'}</span><span>{attempt.status === 'pending_review' ? 'Chờ chấm Writing' : `Điểm: ${attempt.score}`}</span><span>Đúng: {attempt.correctCount}/{attempt.totalCount}</span><span>{attempt.durationSeconds || 0}s</span><span>{new Date(attempt.completedAt).toLocaleString('vi-VN')}</span></button>{open && <div className="mt-4 space-y-3">{attempt.aiGradingMessage && <p className={`rounded-xl border p-3 text-xs font-black ${attempt.aiGradingStatus === 'failed' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-blue-300 bg-blue-50 text-blue-950'}`}>{attempt.aiGradingMessage}</p>}{(attempt.questions || []).map((question: any) => <div key={question.questionId} className={`rounded-xl border p-3 text-xs ${question.pendingManualReview ? 'border-violet-200 bg-violet-50' : question.correct ? 'border-emerald-200 bg-emerald-50' : question.unanswered ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><p className="font-black">Part {question.part} · {question.prompt}</p><p className="mt-1 whitespace-pre-wrap">Học sinh: {Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</p>{question.pendingManualReview && <label className="mt-2 flex items-center gap-2 font-black">Điểm<input type="number" min={0} max={question.maxPoints} step={moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9 ? 1 : 0.5} value={grades[question.questionId] ?? ''} onChange={event => setGrades(previous => ({ ...previous, [question.questionId]: Number(event.target.value) }))} className="w-24 rounded-lg border border-violet-300 px-2 py-1" />/{question.maxPoints}</label>}</div>)}{attempt.status === 'pending_review' && <div className="flex flex-wrap gap-2">{attempt.aiGradingStatus === 'failed' && <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await examPlatformApi.retryWritingGrade(token, moduleId, paperId, setId, attempt.id); onGraded(); } finally { setBusy(false); } }} className="rounded-xl border border-blue-700 bg-white px-4 py-2.5 text-xs font-black text-blue-800 disabled:opacity-50">Thử chấm AI lại</button>}<button type="button" disabled={busy || pending.some((question: any) => grades[question.questionId] === undefined)} onClick={async () => { setBusy(true); try { await examPlatformApi.manualGrade(token, moduleId, paperId, setId, attempt.id, grades); onGraded(); } finally { setBusy(false); } }} className="rounded-xl bg-violet-800 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">Xác nhận điểm Writing</button></div>}</div>}</article>;
 }
 
 export default function GenericExamModuleAdmin({ token, moduleId }: Props) {
