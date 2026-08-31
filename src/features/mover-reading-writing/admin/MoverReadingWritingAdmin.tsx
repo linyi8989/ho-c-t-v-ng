@@ -5,6 +5,7 @@ import { listeningApi } from '../../listening/api';
 import type { ListeningAsset } from '../../listening/types';
 import { ListeningAssetPicker } from '../../listening/admin/ListeningAssetPicker';
 import { examPaperExamPath } from '../../listening-library/routes';
+import { filterExamAdminSetsByTitle } from '../../listening-library/admin/examAdminSearch';
 import { useListeningDraft } from '../../listening-editor/draft/useListeningDraft';
 import ListeningEditorShell from '../../listening-editor/shell/ListeningEditorShell';
 import { EditorField, EditorTextArea } from '../../listening-editor/shared/EditorFields';
@@ -30,11 +31,25 @@ import {
   ReadingPart6Editor,
 } from './MoverReadingWritingPartEditors';
 
-interface Props { token: string }
+interface Props {
+  token: string;
+  searchQuery?: string;
+  createRequestKey?: number;
+  embedded?: boolean;
+  onCreateRequestHandled?: () => void;
+  onEditorStateChange?: (editing: boolean) => void;
+}
 
 const steps = ['Thông tin chung', 'Part 1', 'Part 2', 'Part 3', 'Part 4', 'Part 5', 'Part 6', 'Xem trước'];
 
-export default function MoverReadingWritingAdmin({ token }: Props) {
+export default function MoverReadingWritingAdmin({
+  token,
+  searchQuery = '',
+  createRequestKey = 0,
+  embedded = false,
+  onCreateRequestHandled,
+  onEditorStateChange,
+}: Props) {
   const [sets, setSets] = useState<MoverReadingWritingSetSummary[]>([]);
   const [assets, setAssets] = useState<ListeningAsset[]>([]);
   const [smartImportCapability, setSmartImportCapability] = useState<MoverReadingWritingSmartImportCapability>();
@@ -51,6 +66,7 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
   const [autosaveTick, setAutosaveTick] = useState(0);
   const autosaveInFlight = useRef(false);
   const autosaveBlocked = useRef(false);
+  const handledCreateRequest = useRef(0);
   const draft = useListeningDraft<MoverReadingWritingContent, MoverReadingWritingVisibility>({
     content: createDefaultMoverReadingWritingContent(),
     visibility: 'draft',
@@ -241,6 +257,18 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
     setStep(0);
     setInEditor(true);
   };
+
+  useEffect(() => {
+    if (!createRequestKey || handledCreateRequest.current === createRequestKey) return;
+    handledCreateRequest.current = createRequestKey;
+    startNew();
+    onCreateRequestHandled?.();
+  }, [createRequestKey, onCreateRequestHandled]);
+
+  useEffect(() => {
+    onEditorStateChange?.(inEditor);
+    return () => onEditorStateChange?.(false);
+  }, [inEditor, onEditorStateChange]);
 
   const editSet = async (id: string) => {
     setBusy(true);
@@ -438,22 +466,24 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
     );
   }
 
+  const visibleSets = filterExamAdminSetsByTitle<MoverReadingWritingSetSummary>(sets, searchQuery);
+
   return (
     <div className="space-y-6" id="mover-reading-writing-admin">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Movers paper</p>
           <h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900"><BookOpenText className="text-indigo-600" /> Reading & Writing</h2>
           <p className="mt-1 text-sm font-semibold text-slate-500">Soạn và quản lý bộ đề 6 Part, 40 câu.</p>
         </div>
         <button type="button" onClick={startNew} className="mover-reading-primary-action inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-black text-white"><Plus size={17} /> Soạn bộ đề mới</button>
-      </div>
+      </div>}
       {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
-      <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
+      <div className="exam-paper-list-frame overflow-x-auto rounded-3xl border border-slate-200 bg-white">
         <table className="min-w-[1000px] w-full text-left text-xs">
           <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-600"><tr><th className="p-4">Bộ đề</th><th className="p-4">Cấu trúc</th><th className="p-4">Trạng thái</th><th className="p-4">Link</th><th className="p-4">Thao tác</th></tr></thead>
           <tbody>
-            {sets.map(set => (
+            {visibleSets.map(set => (
               <tr key={set.id} className="border-t border-slate-100">
                 <td className="p-4"><button type="button" onClick={() => window.location.href = previewUrl(set)} disabled={set.status !== 'published'} className="font-black text-blue-700 disabled:text-slate-500">{set.title}</button><p className="mt-1 max-w-sm text-slate-500 line-clamp-2">{set.description}</p></td>
                 <td className="p-4 font-bold text-slate-600">6 Part · 40 câu</td>
@@ -462,7 +492,7 @@ export default function MoverReadingWritingAdmin({ token }: Props) {
                 <td className="p-4"><LibraryRowActions onPlay={() => window.location.href = previewUrl(set)} playDisabled={set.status !== 'published'} onEdit={() => void editSet(set.id)} onClone={() => void cloneSet(set)} onResults={() => void showResults(set)} onDelete={() => void archiveSet(set)} disabled={busy} deleteTitle="Lưu trữ bộ đề" /></td>
               </tr>
             ))}
-            {sets.length === 0 && <tr><td colSpan={5} className="p-10 text-center font-semibold text-slate-500">Chưa có bộ đề Reading & Writing.</td></tr>}
+            {visibleSets.length === 0 && <tr><td colSpan={5} className="p-10 text-center font-semibold text-slate-500">{searchQuery.trim() ? 'Không tìm thấy bộ đề Reading & Writing phù hợp.' : 'Chưa có bộ đề Reading & Writing.'}</td></tr>}
           </tbody>
         </table>
       </div>

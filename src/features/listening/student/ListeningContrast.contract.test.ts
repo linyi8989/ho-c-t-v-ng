@@ -118,6 +118,7 @@ test('Part 1 keeps its answer dock outside the image scroller and uses transpare
   assert.match(part1Source, /listening-part1-layout flex h-full min-h-0 flex-col/);
   assert.match(part1Source, /listening-part1-answer-dock shrink-0/);
   assert.match(part1Source, /listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto/);
+  assert.match(part1Source, /ExamImageViewer src=\{part\.sceneUrl\} alt="Part 1" profile="interactive-scene"/);
   assert.match(learningAreaSource, /currentPart === 0[\s\S]*overflow-hidden[\s\S]*overflow-y-auto/);
   assert.match(part1Source, /data-state=\{answer \? 'filled' : activeChoice \? 'eligible' : 'idle'\}/);
   assert.doesNotMatch(part1Source, /bg-emerald-100|bg-rose-100/, 'Target regions must not tint the source image');
@@ -203,7 +204,9 @@ test('Part 3 supports clean click/drag connections, removal, and never consults 
   assert.doesNotMatch(part3Source, /picture\.side !== source\.side|selected\.side === picture\.side/);
   assert.match(part3Source, /boardNaturalWidth && boardNaturalWidth < 400/);
   assert.match(part3Source, /Math\.min\(boardNaturalWidth \* 1\.5, 480\)/);
-  assert.match(part3Source, /listening-part3-board relative isolate mx-auto w-fit max-w-full/);
+  assert.match(part3Source, /className="listening-part3-board isolate border border-slate-200\/80 bg-white"/);
+  assert.match(part3Source, /frameRef=\{boardRef\}/);
+  assert.match(part3Source, /profile="interactive-scene"/);
   assert.match(part3Source, /width: boardDisplayWidth \? `\$\{boardDisplayWidth\}px` : undefined/);
   assert.match(part3Source, /!assignedPictureIds\.has\(picture\.id\)/);
   assert.match(globalCss, /button\.listening-part3-answer-hitbox:not\(:disabled\)[\s\S]*background: transparent !important/);
@@ -220,8 +223,10 @@ test('completed Listening attempts share one visual result renderer with Learnin
   assert.match(visualReviewSource, /CheckCircle2/);
   assert.match(visualReviewSource, /XCircle/);
   assert.match(visualReviewSource, /item\.state !== 'correct' && item\.correctAnswer/);
-  assert.match(visualReviewSource, /className="block h-auto max-w-full"/);
-  assert.doesNotMatch(visualReviewSource, /className="block h-auto w-full/);
+  assert.match(visualReviewSource, /ExamImageViewer src=\{imageUrl\} alt=\{alt\} profile="interactive-scene"/);
+  assert.doesNotMatch(visualReviewSource, /<img src=\{imageUrl\} alt=\{alt\}/);
+  assert.match(globalCss, /\[data-listening-visual-review\] button\.exam-platform-image-expand:not\(:disabled\)/);
+  assert.match(globalCss, /\.exam-platform-image-dialog button\.exam-platform-image-tool:not\(:disabled\)/);
   assert.match(visualReviewSource, /source\.schemaVersion !== 2/);
   assert.match(visualReviewSource, /listening-review-part-tab/);
   assert.match(visualReviewSource, /data-active=\{item\.part === activePart \? 'true' : 'false'\}/);

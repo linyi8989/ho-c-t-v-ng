@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { filterExamAdminSetsByTitle } from './admin/examAdminSearch';
 
 const homeSource = readFileSync(new URL('./student/ListeningLibraryHome.tsx', import.meta.url), 'utf8');
 const moduleSource = readFileSync(new URL('./student/ListeningModulePage.tsx', import.meta.url), 'utf8');
 const routesSource = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const libraryAdminSource = readFileSync(new URL('./admin/ListeningLibraryAdmin.tsx', import.meta.url), 'utf8');
+const moduleAdminRouterSource = readFileSync(new URL('./admin/ListeningModuleRouter.tsx', import.meta.url), 'utf8');
+const moverClientModuleSource = readFileSync(new URL('./modules/mover/module.tsx', import.meta.url), 'utf8');
 const listeningAdminSource = readFileSync(new URL('../listening/admin/ListeningAdminModule.tsx', import.meta.url), 'utf8');
 const readingAdminSource = readFileSync(new URL('../mover-reading-writing/admin/MoverReadingWritingAdmin.tsx', import.meta.url), 'utf8');
+const genericAdminSource = readFileSync(new URL('../exam-platform/admin/GenericExamAdmin.tsx', import.meta.url), 'utf8');
 const dashboardSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 
@@ -36,6 +40,7 @@ test('exam directory uses the approved Cambridge & IELTS labels and one unified 
   assert.match(libraryAdminSource, /className="exam-module-quick-link group/);
   assert.match(libraryAdminSource, /xl:grid-cols-7/);
   assert.match(libraryAdminSource, /setSelectedModuleId\(module\.id\)/);
+  assert.match(libraryAdminSource, /<div key=\{selectedModuleId\} data-exam-module-admin=\{selectedModuleId\}>/);
   assert.doesNotMatch(libraryAdminSource, /if \(selectedModuleId\) \{\s*return/);
 });
 
@@ -46,6 +51,63 @@ test('admin module quick links keep feature-scoped readable default and selected
   assert.match(globalCssSource, /#listening-library-admin nav button\.exam-module-quick-link\[aria-pressed="true"\]/);
   assert.match(globalCssSource, /#listening-library-admin nav button\.exam-module-quick-link > \*/);
   for (const [foreground, background] of [['#1e3a8a', '#ffffff'], ['#1e3a8a', '#dbeafe'], ['#ffffff', '#1d4ed8']] as const) {
+    assert.ok(contrast(foreground, background) >= 4.5, `${foreground} on ${background} must meet WCAG AA`);
+  }
+});
+
+test('admin module click opens a searchable paper list without the intermediate chooser', () => {
+  assert.match(moduleAdminRouterSource, /id="exam-module-admin-hub"/);
+  assert.match(moduleAdminRouterSource, /data-exam-paper-filter=\{paper\.id\}/);
+  assert.match(moduleAdminRouterSource, /data-exam-paper-create=\{paper\.id\}/);
+  assert.match(moduleAdminRouterSource, /type="search"/);
+  assert.match(moduleAdminRouterSource, /className="exam-paper-sort-row/);
+  assert.match(moduleAdminRouterSource, /Soạn R&W/);
+  assert.match(moduleAdminRouterSource, /paperId=\{paperId\}/);
+  assert.match(moverClientModuleSource, /props\.paperId === 'listening'/);
+  assert.match(genericAdminSource, /filterExamAdminSetsByTitle<ExamSetSummary>/);
+  assert.match(listeningAdminSource, /filterExamAdminSetsByTitle<ListeningSetSummary>/);
+  assert.match(readingAdminSource, /filterExamAdminSetsByTitle<MoverReadingWritingSetSummary>/);
+  for (const source of [moduleAdminRouterSource, moverClientModuleSource, genericAdminSource]) {
+    assert.doesNotMatch(source, /Chọn module khác/);
+    assert.doesNotMatch(source, /Chọn loại bài thi/);
+    assert.doesNotMatch(source, /Loại bài khác/);
+  }
+});
+
+test('admin list header aligns title, search, and authoring while paper sort stays beside the list', () => {
+  const headerStart = moduleAdminRouterSource.indexOf('<header className="exam-module-list-header');
+  const headerEnd = moduleAdminRouterSource.indexOf('</header>', headerStart);
+  const search = moduleAdminRouterSource.indexOf('type="search"');
+  const sort = moduleAdminRouterSource.indexOf('className="exam-paper-sort-row');
+  assert.ok(headerStart >= 0 && search > headerStart && search < headerEnd, 'Search must stay inside the list header row');
+  assert.ok(sort > headerEnd, 'Paper sort must render after the header and immediately before the paper list');
+  assert.doesNotMatch(listeningAdminSource, /ListeningPdfImportDialog|showPdfImport|FileUp/);
+  for (const source of [listeningAdminSource, readingAdminSource, genericAdminSource]) {
+    assert.match(source, /exam-paper-list-frame/);
+  }
+});
+
+test('admin exam-title search is case, accent, and surrounding-space insensitive', () => {
+  const sets = [
+    { id: 'ket-1', title: 'Bộ đề KET số 1' },
+    { id: 'mover-1', title: 'Movers Reading & Writing Test 3' },
+  ];
+  assert.deepEqual(filterExamAdminSetsByTitle(sets, '  bo de ket  ').map(set => set.id), ['ket-1']);
+  assert.deepEqual(filterExamAdminSetsByTitle(sets, 'READING & WRITING').map(set => set.id), ['mover-1']);
+  assert.deepEqual(filterExamAdminSetsByTitle(sets, '   ').map(set => set.id), ['ket-1', 'mover-1']);
+});
+
+test('admin paper filters and authoring actions have opaque readable states', () => {
+  const broadOverride = globalCssSource.indexOf('#admin-dashboard-container button:not([disabled])');
+  const scopedContract = globalCssSource.lastIndexOf('/* Direct admin paper-list toolbar.');
+  assert.ok(scopedContract > broadOverride, 'Scoped paper toolbar CSS must follow the legacy admin override');
+  assert.match(globalCssSource, /#exam-module-admin-hub button\.exam-paper-filter-action\[aria-pressed="true"\]:not\(:disabled\)/);
+  assert.match(globalCssSource, /#exam-module-admin-hub button\.exam-paper-create-action:disabled/);
+  assert.match(globalCssSource, /#exam-module-admin-hub \.exam-library-search-control:focus-within/);
+  assert.match(globalCssSource, /#admin-main-panel section#exam-module-admin-hub/);
+  assert.match(globalCssSource, /#exam-module-admin-hub > header\.exam-module-list-header/);
+  assert.match(globalCssSource, /#exam-module-admin-hub \.exam-paper-list-frame/);
+  for (const [foreground, background] of [['#ffffff', '#4338ca'], ['#ffffff', '#0369a1'], ['#1e3a8a', '#ffffff'], ['#ffffff', '#1d4ed8'], ['#475569', '#e2e8f0']] as const) {
     assert.ok(contrast(foreground, background) >= 4.5, `${foreground} on ${background} must meet WCAG AA`);
   }
 });

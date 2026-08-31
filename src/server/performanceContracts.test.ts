@@ -33,13 +33,32 @@ function routeBody(path: string, nextPath?: string) {
 }
 
 test('auth and App release one route-scoped, abortable home-data generation', () => {
+  assert.match(authSource, /onIdTokenChanged/);
+  assert.doesNotMatch(authSource, /onAuthStateChanged/);
+  assert.match(authSource, /const initialAuthEvent = !authLifecycleReadyRef\.current/);
+  assert.match(authSource, /const authRejected = Number\(\(err as \{ status\?: number \}\)\?\.status\) === 401/);
   assert.match(authSource, /fetchProfile\(fUser, undefined, false, true\)/);
+  assert.match(authSource, /if \(initialAuthEvent\) setLoading\(true\)/);
+  assert.match(authSource, /if \(initialAuthEvent\) setLoading\(false\)/);
   assert.match(appSource, /if \(loading \|\| !isHomeDataView\) return/);
   assert.match(appSource, /currentPathname === '\/'/);
   assert.match(appSource, /\(!isStaff \|\| adminMode\)/);
   assert.match(appSource, /new AbortController\(\)/);
   assert.match(appSource, /homeDataRequestIdRef\.current === requestId/);
   assert.doesNotMatch(appSource, /loadJson\('\/api\/results'/);
+});
+
+test('auth middleware distinguishes invalid ID tokens from profile-storage failures', () => {
+  const start = serverSource.indexOf('const authenticateUser = async');
+  const end = serverSource.indexOf('// Check role restrictions', start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const middleware = serverSource.slice(start, end);
+  assert.match(middleware, /let decodedToken: any/);
+  assert.match(middleware, /Token verification failed:/);
+  assert.match(middleware, /Authenticated profile resolution failed:/);
+  assert.match(middleware, /Không thể xác minh hồ sơ người dùng\. Vui lòng thử lại\./);
+  assert.doesNotMatch(middleware, /console\.error\("Token verification failed:", error\)/);
 });
 
 test('admin owns one stale-safe summary loader and fetches result detail on demand', () => {

@@ -59,7 +59,7 @@ function FlyerPart4ImageOptionsView({ part, answers, onAnswer }: { part: ExamPar
   const unit = examPartUnits(part).find(item => item.interaction?.variant === 'image-options') || examPartUnits(part)[0] || part;
   const displayImage = unit.readingScenes?.[0]?.imageUrl || part.readingScenes?.[0]?.imageUrl;
   return <div className="space-y-3" data-flyer-listening-part="4" data-flyer-interaction="image-options">
-    {displayImage ? <ExamImageViewer src={displayImage} alt="Ảnh hiển thị Flyers Listening Part 4" maxHeight="min(34vh, 320px)" className="border-2 border-orange-300 bg-white p-2" /> : <MissingImage label="ảnh hiển thị chung Part 4" />}
+    {displayImage ? <ExamImageViewer src={displayImage} alt="Ảnh hiển thị Flyers Listening Part 4" maxHeight="min(34vh, 320px)" className="border border-slate-200/80 bg-white p-1" /> : <MissingImage label="ảnh hiển thị chung Part 4" />}
     <StarterImageOptionsView part={unit} answers={answers} onAnswer={onAnswer} />
   </div>;
 }

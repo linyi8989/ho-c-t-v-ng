@@ -33,7 +33,7 @@
 
 4. **[P0] `learnDetailNormalizer` không strip `correctAnswers` (số nhiều)** — `stripReviewSecrets()` loại bỏ `correctanswer` (singular) nhưng không loại bỏ `correctanswers` (plural). Grammar projector lưu đúng trường `correctAnswers`. Cần xác minh có rò rỉ qua API student không.
 
-5. **[P1] Firebase ID token không được tự động refresh** — `AuthContext.tsx` không đăng ký `onIdTokenChanged`. Sau 1 giờ, mọi request từ user đang đăng nhập lâu dài sẽ nhận 401 từ backend mà không có xử lý tự động.
+5. **[P1 · Đã xử lý 2026-08-31] Firebase ID token không được tự động refresh** — `AuthContext.tsx` hiện đăng ký `onIdTokenChanged`, cập nhật token cho phiên dài mà không bật lại global loading; backend cũng đã tách lỗi token 401 khỏi lỗi hồ sơ/storage 500/503.
 
 6. **[P1] N+1 query: `resolveVocabLearningAccess` duyệt toàn bộ assignments** — `server.ts:1158–1179` gọi `ensureAssignmentShareToken(...)` trong một vòng lặp qua toàn bộ `assignmentsSnapshot.docs`. Mỗi iteration có thể thực hiện thêm Firestore write. Sẽ rất chậm khi số assignment tăng.
 
@@ -51,7 +51,7 @@
 
 1. **Thêm `Math.min(100, ...)` cho score tại `server.ts:5056`** — 1 dòng, không thay đổi logic, chặn score injection.
 2. **Thêm `res.ok` check vào các `authFetch` handler trong AdminDashboard** — Pattern đã có ở `handleSaveGrammarSet` (line 916), chỉ cần nhân rộng.
-3. **Đăng ký `onIdTokenChanged` trong `AuthContext`** — Firebase SDK cung cấp sẵn, 5 dòng code, loại bỏ stale token hoàn toàn.
+3. **Đã hoàn thành: đăng ký `onIdTokenChanged` trong `AuthContext`** — Firebase SDK tự cập nhật token trong context và loại bỏ stale token của tab mở lâu.
 4. **Xác minh và fix `stripReviewSecrets` để cover `correctAnswers` plural** — 2 dòng thêm vào blocklist, rủi ro thấp.
 5. **Thêm `verifier.clear()` và lưu ref trước khi tạo `RecaptchaVerifier` mới** — Ngăn DOM leak trong OTP flow.
 

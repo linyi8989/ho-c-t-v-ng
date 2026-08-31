@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
-  onAuthStateChanged,
+  onIdTokenChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
@@ -108,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     LOCAL_AUTH_BYPASS_ENABLED ? LOCAL_AUTH_BYPASS_TOKEN : null
   ));
   const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
+  const authLifecycleReadyRef = useRef(LOCAL_AUTH_BYPASS_ENABLED);
 
   const syncProfileFromStores = async (
     firebaseUserInstance: FirebaseUser,
@@ -123,7 +124,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (!res.ok) {
-      throw new Error(`Backend profile verification failed with HTTP ${res.status}.`);
+      const error: Error & { status?: number } = new Error(`Backend profile verification failed with HTTP ${res.status}.`);
+      error.status = res.status;
+      throw error;
     }
 
     const profile = await res.json();
@@ -155,15 +158,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (LOCAL_AUTH_BYPASS_ENABLED) return;
-    const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
-      setLoading(true);
+    const unsubscribe = onIdTokenChanged(auth, async (fUser) => {
+      const initialAuthEvent = !authLifecycleReadyRef.current;
+      if (initialAuthEvent) setLoading(true);
       try {
         if (fUser) {
           setFirebaseUser(fUser);
-          // Keep the global auth boundary closed until both the token and the
-          // canonical backend profile are ready. Releasing `loading` after only
-          // the token is available makes consumers briefly behave as a guest,
-          // then reload again as an authenticated user.
+          // onIdTokenChanged also runs for Firebase's background ID-token
+          // refresh. Keep the latest token in context so long-lived tabs never
+          // continue sending the expired token captured at sign-in.
           await fetchProfile(fUser, undefined, false, true);
         } else {
           setFirebaseUser(null);
@@ -171,15 +174,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(null);
         }
       } catch (err) {
-        console.error("Failed to restore authenticated session:", err);
-        setFirebaseUser(null);
-        setUser(null);
-        setToken(null);
+        const authRejected = Number((err as { status?: number })?.status) === 401;
+        console.error(initialAuthEvent
+          ? "Failed to restore authenticated session:"
+          : "Failed to refresh authenticated session:", err);
+        // A transient background refresh/profile failure must not turn a
+        // still-valid Firebase session into a guest UI. Firebase will retry its
+        // token lifecycle. Initial restore and a real backend 401 stay closed.
+        if (initialAuthEvent || authRejected) {
+          setFirebaseUser(null);
+          setUser(null);
+          setToken(null);
+        }
       } finally {
-        setLoading(false);
+        authLifecycleReadyRef.current = true;
+        if (initialAuthEvent) setLoading(false);
       }
     }, (err) => {
-      console.error("Firebase auth state listener failed:", err);
+      console.error("Firebase ID token listener failed:", err);
+      authLifecycleReadyRef.current = true;
       setFirebaseUser(null);
       setUser(null);
       setToken(null);

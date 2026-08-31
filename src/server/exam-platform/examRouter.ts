@@ -10,7 +10,7 @@ import { getExamPaperDefinition } from '../../features/exam-platform/definitions
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 import { isListeningModuleId, isListeningPaperId } from '../../features/listening-library/registry.js';
 import { applyAiWritingGrade, applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt, markAiWritingFailed } from './examGrader.js';
-import type { WritingGradeInput, WritingGradeOutput } from './writingGradingProvider.js';
+import { describeWritingGradingFailure, type WritingGradeInput, type WritingGradeOutput } from './writingGradingProvider.js';
 import {
   sanitizeExamAnswers,
   sanitizeExamContentForStudent,
@@ -51,6 +51,10 @@ const safeEqual = (left: string, right: string) => {
   const b = Buffer.from(right);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
+const EXAM_TICKET_DEFAULT_TTL_MS = 24 * 60 * 60_000;
+const EXAM_TICKET_RENEWAL_TTL_MS = 15 * 60_000;
+const EXAM_TICKET_RENEWAL_GRACE_MS = 7 * 24 * 60 * 60_000;
+const EXAM_TICKET_CLOCK_SKEW_MS = 5 * 60_000;
 
 const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedKetReadingWritingContent(
   normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)),
@@ -117,19 +121,50 @@ function encodeTicket(payload: Record<string, unknown>, secret: string) {
   return `${encoded}.${signature}`;
 }
 
-function decodeTicket(value: unknown, secret: string) {
+function decodeTicket(value: unknown, secret: string, options: { allowExpired?: boolean } = {}) {
   const [encoded, signature, extra] = String(value || '').split('.');
   if (!encoded || !signature || extra) throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   const expected = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
   if (!safeEqual(signature, expected)) throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-    if (Number(payload.ticketExpiresAt || 0) < Date.now()) throw apiError(410, 'Phiếu làm bài đã hết hạn.');
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw apiError(401, 'Phiếu làm bài không hợp lệ.');
+    const expiresAt = Number(payload.ticketExpiresAt);
+    if (!options.allowExpired && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) {
+      throw apiError(410, 'Phiếu làm bài đã hết hạn.', { code: 'EXAM_ATTEMPT_TICKET_EXPIRED' });
+    }
     return payload;
   } catch (error: any) {
     if (error?.status) throw error;
     throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   }
+}
+
+function validateRecoverableTicket(ticket: any) {
+  const startedAt = new Date(ticket.startedAt).getTime();
+  const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+  if (!text(ticket.versionId, 180)
+    || !text(ticket.clientRunId, 180)
+    || !/^[a-f0-9]{64}$/i.test(String(ticket.runSecretHash || ''))
+    || !Number.isFinite(startedAt)
+    || startedAt > Date.now() + EXAM_TICKET_CLOCK_SKEW_MS) {
+    throw apiError(401, 'Phiếu làm bài không hợp lệ.');
+  }
+  const originalExpiry = Number.isFinite(ticketExpiresAt) && ticketExpiresAt > startedAt
+    ? ticketExpiresAt
+    : startedAt + EXAM_TICKET_DEFAULT_TTL_MS;
+  const defaultRecoveryEndsAt = originalExpiry + EXAM_TICKET_RENEWAL_GRACE_MS;
+  const claimedRecoveryEndsAt = Number(ticket.ticketRecoveryEndsAt);
+  const recoveryEndsAt = Number.isFinite(claimedRecoveryEndsAt) && claimedRecoveryEndsAt >= originalExpiry
+    ? Math.min(claimedRecoveryEndsAt, defaultRecoveryEndsAt)
+    : defaultRecoveryEndsAt;
+  if (Date.now() >= recoveryEndsAt) {
+    throw apiError(410, 'Lượt làm bài đã quá thời hạn khôi phục.', {
+      code: 'EXAM_ATTEMPT_TICKET_RECOVERY_EXPIRED',
+      recoverable: false,
+    });
+  }
+  return { recoveryEndsAt };
 }
 
 async function resolveActor(
@@ -333,10 +368,17 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
       await batch.commit();
       return nextAttempt;
-    } catch {
+    } catch (error) {
+      const failureReason = describeWritingGradingFailure(error, String(config.providerId || ''));
+      console.error('[Exam Writing] AI grading failed', {
+        attemptId: attempt.id,
+        providerId: config.providerId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error || ''),
+      });
       const failed = markAiWritingFailed(processingGrade, canonical.id);
       const timestamp = nowIso();
-      const nextAttempt = { ...processingAttempt, status: 'pending_review', aiGradingStatus: 'failed', aiGradingMessage: 'Chấm tự động chưa hoàn tất. Giáo viên có thể thử lại hoặc chấm tay.', updatedAt: timestamp };
+      const nextAttempt = { ...processingAttempt, status: 'pending_review', aiGradingStatus: 'failed', aiGradingMessage: `${failureReason} Giáo viên có thể thử lại hoặc chấm tay.`, updatedAt: timestamp };
       const nextDetail = { ...processingDetail, grade: failed, questions: failed.questions, updatedAt: timestamp };
       const batch = db.batch();
       batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
@@ -680,6 +722,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       if (!clientRunId || runSecret.length < 20) throw apiError(400, 'Thông tin lượt làm bài không hợp lệ.');
       const startedAt = nowIso();
       const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 60_000).toISOString() : undefined;
+      const ticketExpiresAt = Date.now() + Math.max(EXAM_TICKET_DEFAULT_TTL_MS, Number(set.timeLimitMinutes || 0) * 60_000 + 60 * 60_000);
       const ticket = encodeTicket({
         moduleId,
         paperId,
@@ -695,9 +738,40 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         assignmentDueAt: access.assignment?.dueDate || '',
         startedAt,
         deadlineAt,
-        ticketExpiresAt: Date.now() + Math.max(24 * 60 * 60_000, Number(set.timeLimitMinutes || 0) * 60_000 + 60 * 60_000),
+        ticketExpiresAt,
+        ticketRecoveryEndsAt: ticketExpiresAt + EXAM_TICKET_RENEWAL_GRACE_MS,
       }, ticketSecret);
       res.json({ ticket, startedAt, deadlineAt, versionId: set.publishedVersionId });
+    } catch (error) { sendError(res, error); }
+  });
+
+  router.post('/modules/:moduleId/papers/:paperId/sets/:setId/attempts/renew', authenticateOptionalUser, async (req, res) => {
+    try {
+      const { moduleId, paperId } = routeIdentity(req);
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
+      if (ticket.moduleId !== moduleId || ticket.paperId !== paperId || ticket.setId !== req.params.setId) throw apiError(401, 'Phiếu làm bài không khớp bộ đề.');
+      const set = await getSet(db, req.params.setId);
+      assertRouteSet(set, moduleId, paperId);
+      const actor = await resolveActor(req, resolveGuestProfile, { classId: ticket.classId, className: ticket.className, verified: Boolean(ticket.assignmentId) });
+      const runSecret = text(req.body?.runSecret, 300);
+      if (actor.ownerKey !== ticket.ownerKey || !safeEqual(String(ticket.runSecretHash || ''), sha256(runSecret))) {
+        throw apiError(401, 'Không có quyền khôi phục lượt làm bài này.');
+      }
+      const { recoveryEndsAt } = validateRecoverableTicket(ticket);
+      const version = await getVersion(db, ticket.versionId);
+      if (!version || version.setId !== set.id || version.moduleId !== moduleId || version.paperId !== paperId) throw apiError(409, 'Phiên bản đề thi không còn hợp lệ.');
+      const renewedTicket = encodeTicket({
+        ...ticket,
+        ticketExpiresAt: Math.min(Date.now() + EXAM_TICKET_RENEWAL_TTL_MS, recoveryEndsAt),
+        ticketRecoveryEndsAt: recoveryEndsAt,
+      }, ticketSecret);
+      res.json({
+        ticket: renewedTicket,
+        clientRunId: ticket.clientRunId,
+        versionId: ticket.versionId,
+        startedAt: ticket.startedAt,
+        ...(ticket.deadlineAt ? { deadlineAt: ticket.deadlineAt } : {}),
+      });
     } catch (error) { sendError(res, error); }
   });
 
@@ -710,7 +784,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       assertRouteSet(set, moduleId, paperId);
       const actor = await resolveActor(req, resolveGuestProfile, { classId: ticket.classId, className: ticket.className, verified: Boolean(ticket.assignmentId) });
       const runSecret = text(req.body?.runSecret, 300);
-      if (actor.ownerKey !== ticket.ownerKey || sha256(runSecret) !== ticket.runSecretHash) throw apiError(401, 'Không có quyền nộp lượt làm bài này.');
+      if (actor.ownerKey !== ticket.ownerKey || !safeEqual(String(ticket.runSecretHash || ''), sha256(runSecret))) throw apiError(401, 'Không có quyền nộp lượt làm bài này.');
       const attemptId = `examattempt-${sha256(`${actor.ownerKey}:${moduleId}:${paperId}:${set.id}:${ticket.clientRunId}`).slice(0, 40)}`;
       const existingSnapshot = await db.collection('exam_attempts').doc(attemptId).get();
       if (existingSnapshot.exists) {

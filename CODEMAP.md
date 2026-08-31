@@ -78,18 +78,20 @@ Current source/build/deployment ledger:
 - Current Git baseline before the uncommitted Mover Reading & Writing pass:
   `5127a31`. The working tree contains the additive implementation described
   in section 37 below.
-- Current local release build (generated 2026-08-22 with canonical
-  `npm run build` under the active Node 24 shell; repeat the final release gate
-  with Node 22): `dist/client/assets/index-D3eH0-bY.js` (458,774 bytes,
-  118.63 kB gzip) and `dist/client/assets/index-C1cDJeBh.css`. Screen, admin,
-  Firestore, Listening, and individual game code now ship as lazy chunks.
-- Current local server bundle: `dist/server.cjs` (819,545 bytes before Git
+- Current local release build (generated 2026-08-31 with canonical
+  `npm run build` under the release Node 22.16.0 runtime):
+  `dist/client/assets/index-CjfByv84.js` (494,981 bytes,
+  128.19 kB gzip) and `dist/client/assets/index-DLnO1PxT.css` (212,548 bytes,
+  29.57 kB gzip). The exam-library admin ships in the lazy
+  `ListeningLibraryAdmin-BLXYIlCo.js` chunk. Screen, admin, Firestore,
+  Listening, and individual game code continue to ship as lazy chunks.
+- Current local server bundle: `dist/server.cjs` (1,043,182 bytes before Git
   transport compression).
 - Last independently confirmed production UI artifact from the host terminal:
   `index-gODK9tEe.js` and `index-C7ymBAj4.css`.
 - Therefore the current local artifact remains **pending host
   confirmation** until cPanel deploy, one Node restart, and a fresh
-  `curl`/browser smoke show `index-CGhtDRoQ.js` plus `index-DhuzytxR.css`.
+  `curl`/browser smoke show `index-CjfByv84.js` plus `index-DLnO1PxT.css`.
 - The host ran `npm ci --omit=dev` successfully with 439 packages. Its install
   audit snapshot reported 11 findings (1 low, 7 moderate, 3 high). Review
   `npm audit`; never run `npm audit fix --force` blindly on production.
@@ -248,9 +250,12 @@ Supported auth flows:
 
 Profile sync behavior:
 
-1. On auth state change, Firebase ID token is fetched.
-2. Client verifies the profile through backend `/api/me`.
-3. Protected UI uses the backend-verified profile only.
+1. `onIdTokenChanged` fetches the Firebase ID token on initial restore and on
+   every background token refresh.
+2. Client verifies the profile through backend `/api/me`; the global loading
+   boundary is used only for initial restore, not hourly background refresh.
+3. Protected UI uses the backend-verified profile while long-lived tabs receive
+   the newest token without requiring a page reload.
 4. Registration calls backend `/api/register` and requires that backend profile sync succeeds.
 
 Important: direct client Firestore profile write fallback was removed in the Phase 1 security hardening pass. Backend Admin SDK is the profile write path.
@@ -271,6 +276,9 @@ Phase 2 authorization hardening:
 - `authenticateUser`: requires `Authorization: Bearer <Firebase ID token>`.
 - Verifies token with `adminAuth.verifyIdToken`.
 - Loads/creates `users/{uid}` profile.
+- Token verification failures return 401; profile/storage resolution failures
+  are handled separately as 500/503 and are not mislabeled as expired login
+  sessions. Logs contain only safe error metadata, never the bearer token.
 - Assigns `super_admin` role automatically for:
   - `linyi8901@gmail.com`
   - `admin@vocabulary.edu.vn`
@@ -3966,3 +3974,138 @@ Verification:
   at or after the deadline; Movers players use the same one-shot auto-submit
   guard. Empty and partially completed answer snapshots remain valid graded
   submissions, with unanswered items counted normally.
+
+## 63. Generic exam ticket recovery - 2026-08-31
+
+- Generic exam prepare tickets remain directly submittable for at least 24
+  hours. Each new ticket also carries a fixed seven-day recovery boundary after
+  that direct-submit expiry; a renewed ticket is valid for at most 15 minutes
+  and cannot move the original recovery boundary forward.
+- `POST /api/exam-platform/modules/:moduleId/papers/:paperId/sets/:setId/attempts/renew`
+  accepts an expired signed ticket only to reissue it for the same immutable
+  `clientRunId`, owner, run-secret hash, set and published version. It preserves
+  `startedAt` and `deadlineAt`, so recovery never grants extra test time.
+  Signed legacy tickets without expiry fields derive the same bounded window
+  from their original `startedAt`; malformed, cross-route, cross-owner,
+  wrong-secret, unavailable-version and over-age tickets are rejected.
+- `GenericExamLearningArea.tsx` invokes renewal only after a submit returns
+  HTTP 410, stores the renewed ticket with the existing answers, then retries
+  submission once. Permanent client errors clear `submissionPending` to avoid
+  reload loops while retaining the local answer snapshot; transient failures
+  remain manually retryable with the same idempotent run.
+
+## 64. KET Reading & Writing control contrast - 2026-08-31
+
+- Part 3 player and review navigation uses stable
+  `ket-part-three-tab` and `ket-part-three-page-nav` hooks. Selected, available
+  and disabled states are styled only below the KET player/review roots so the
+  legacy global button rules cannot wash out the 3A/3B controls.
+- Result actions use `ket-reading-result-home` and
+  `ket-reading-result-retry` hooks below `ket-reading-writing-result-screen`.
+  Their explicit blue/green palettes, plus the readable disabled Part 3
+  palette, meet the WCAG AA 4.5:1 text-contrast threshold and are protected by
+  the exam-platform contract test.
+
+## 65. KET Writing provider diagnostics - 2026-08-31
+
+- The provider catalog's `enabled` flag means only that the corresponding API
+  key is configured; the KET editor labels this state `đã cấu hình` instead of
+  claiming that the remote service is currently ready.
+- `describeWritingGradingFailure` converts connection, timeout, provider HTTP
+  and invalid-response failures into teacher-safe messages without including
+  an API key or essay. `examRouter.ts` persists that actionable message on the
+  pending attempt and writes a structured server log containing only the
+  attempt ID, provider ID and error name/message. Failed answers remain
+  available through the paper's `Kết quả` action for AI retry or manual 0–10
+  grading.
+
+## 66. Viewport-fitted exam images and normalized interaction stages - 2026-08-31
+
+- `src/features/exam-media/ExamImageViewer.tsx` is now the shared presentation
+  boundary for both the generic exam platform and the released Movers players;
+  the former student-local path remains a compatibility re-export. The inline
+  stage shrink-wraps the rendered image, applies semantic profile width/height
+  bounds and keeps overlays inside that exact box. Frames use only a thin,
+  low-contrast border supplied by the caller.
+- The interactive-scene profile is capped at 760px by 620px and reserves
+  viewport height for the exam header, audio, answer dock and navigation. Large
+  landscape or portrait assets therefore shrink into the working page while
+  small assets keep their natural size. Source pixel dimensions are not stored
+  as presentation dimensions and no content/attempt migration is required.
+- Movers Listening Part 3 keeps its established natural-width exception:
+  boards at least 400px wide retain their intrinsic width and only shrink for
+  the available viewport; boards below 400px use `min(naturalWidth * 1.5,
+  480px)`. Its SVG and hitboxes remain children of the same rendered stage.
+- The image dialog opens fitted to the viewport, offers original 1:1 size,
+  browser fullscreen and keyboard controls, and computes zoom multiplicatively
+  without the former 50%-300% product clamp. Original/zoomed assets use their
+  natural pixel width inside a two-axis scroll viewport. Escape closes the
+  dialog and focus returns to the expand trigger.
+- Movers Listening Parts 1, 2, 3 and 5, Flyers Listening Part 1, the reused
+  Starters/Flyers Colour/Draw player, and Listening visual review now use the
+  shared viewer. Part 1 regions, Part 3 lines/hitboxes and Part 5 Colour/Draw
+  overlays remain normalized to 0..1 and are children of the same responsive
+  stage used for pointer coordinate conversion. The previous adapter CSS that
+  resized only the Part 5 image was removed to prevent letterbox drift.
+- Movers Reading & Writing task and review images also use the shared viewer.
+  Expand, modal tool and close buttons have explicit feature-scoped default,
+  hover and focus-visible contrast rules under generic, Listening and Movers
+  roots so legacy global glass-button rules cannot wash them out.
+
+## 67. Long-lived Firebase session refresh - 2026-08-31
+
+- `AuthContext.tsx` subscribes to `onIdTokenChanged` instead of only
+  `onAuthStateChanged`. Firebase background refreshes therefore replace the ID
+  token held in React context before protected API clients reuse an expired
+  value. Initial restore still waits for `/api/me`, while later refresh events
+  do not reopen the global loading boundary or temporarily render a guest UI.
+- A transient 500/503 profile-sync failure during a background refresh
+  preserves the existing authenticated UI and the newly obtained token;
+  initial restore failures and a real backend 401 retain fail-closed behavior.
+- `authenticateUser` verifies the bearer token in its own error boundary.
+  Invalid/expired tokens keep the existing 401 contract, while authenticated
+  profile or storage failures return a truthful 500/503 response. Diagnostic
+  logs include only error code/name/message and never the token.
+- No schema, published content or attempt migration is involved. Before the
+  auth change, `.data/local-test.sqlite` was copied to a verified local backup;
+  both source and backup passed `PRAGMA quick_check` and matched by SHA-256.
+
+## 68. Direct admin exam-paper lists - 2026-08-31
+
+- `ListeningModuleRouter.tsx` now owns the common module-level paper toolbar.
+  Selecting Starters, Movers, Flyers, KET, PET, FCE or IELTS opens a paper list
+  immediately; the previous intermediate paper-choice cards and the redundant
+  `Chọn module khác` / `Chọn loại bài thi khác` actions are removed. The compact
+  module navigation remains mounted above the list and is the single way to
+  switch modules.
+- Filter and authoring actions are generated from each module manifest rather
+  than hard-coded. Starters, Movers, Flyers and KET expose Listening plus
+  Reading & Writing, including `Soạn Listening` and `Soạn R&W`; modules with
+  separate Reading, Writing or Academic papers expose their real paper set.
+  Authoring requests enter the established paper-specific editor and preserve
+  its existing APIs, validation, autosave, immutable publishing, result and
+  recoverable archive behavior.
+- `examAdminSearch.ts` provides shared title-only filtering for generic,
+  Movers Listening and Movers Reading & Writing lists. Search ignores letter
+  case, Vietnamese diacritics and surrounding spaces; it is presentation-only
+  and does not change or migrate persisted sets.
+- The common toolbar disables module-local search/filter/create controls while
+  a paper editor is open, preventing an accidental unmount of unsaved work.
+  Stable `exam-paper-*` hooks in the final `index.css` contract define opaque
+  default, hover, selected, disabled and focus states after the legacy admin
+  overrides. Navigation contracts cover the direct route, removal of the
+  intermediate screen, search normalization and WCAG-AA colour pairs.
+- The compact layout keeps the module/paper title, title search and paper-specific
+  authoring actions on one desktop row. Listening/Reading & Writing filters form
+  a separate sort row immediately above the list. The former Movers Listening
+  `Nhập từ PDF` entry is no longer rendered; its underlying importer/server
+  implementation remains intact but has no button in this admin surface. With
+  no remaining browser entry import, the PDF engine/dialog chunks are also
+  absent from the current production client manifest.
+- `exam-module-admin-hub` and its list header explicitly opt out of the legacy
+  `#admin-main-panel section`/global `header` surface rules. Their transparent
+  background removes the square layer behind rounded list corners, while the
+  shared `exam-paper-list-frame` clips each Listening, Movers R&W and generic
+  paper table to one 24px rounded boundary. The search field also removes the
+  global inner input border so it appears as one control rather than nested
+  rectangular frames.

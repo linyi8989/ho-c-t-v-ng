@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildWritingGradingPrompt, gradeWritingWithProvider, parseWritingGradeOutput } from './writingGradingProvider';
+import { buildWritingGradingPrompt, describeWritingGradingFailure, gradeWritingWithProvider, parseWritingGradeOutput } from './writingGradingProvider';
 
 const input = {
   providerId: 'stali:gpt-5.6-sol',
@@ -53,5 +53,13 @@ test('malformed provider JSON gets one same-provider retry and never silently fa
 
 test('invalid non-integer Writing scores are rejected', () => {
   assert.throws(() => parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify({ score: 7.5, sentenceCount: 2, grammarErrors: [], vocabularyErrors: [], feedback: 'Invalid score.' })), /số nguyên 0–10/);
+});
+
+test('Writing provider failures become actionable teacher-safe messages', () => {
+  assert.equal(describeWritingGradingFailure(new TypeError('fetch failed'), 'stali:gpt-5.6-sol'), 'Không thể kết nối tới Stali.');
+  assert.equal(describeWritingGradingFailure(new DOMException('This operation was aborted', 'AbortError'), 'stali:gpt-5.6-sol'), 'Stali không phản hồi trong thời gian cho phép.');
+  assert.equal(describeWritingGradingFailure(new Error('Stali chấm Writing thất bại (401).'), 'stali:gpt-5.6-sol'), 'Stali từ chối yêu cầu chấm (HTTP 401).');
+  assert.equal(describeWritingGradingFailure(new SyntaxError('Unexpected token'), 'stali:gpt-5.6-sol'), 'Stali trả về kết quả chấm không hợp lệ.');
+  assert.doesNotMatch(describeWritingGradingFailure(new Error('unknown'), 'stali:gpt-5.6-sol'), /api.?key|essay/i);
 });
 

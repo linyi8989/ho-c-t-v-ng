@@ -30,7 +30,7 @@ function PartOne({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<P
     {sharedQuestions.map((question, index) => <fieldset key={question.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm" data-ket-listening-part1-shared-image>
       <legend className="px-2 text-sm font-black text-slate-950">{question.displayNumber || index + 1}. {question.prompt}</legend>
       {question.imageUrl
-        ? <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || 3}`} maxHeight="min(48vh, 420px)" className="border-2 border-amber-300 bg-white p-2" />
+        ? <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || 3}`} maxHeight="min(48vh, 420px)" className="border border-slate-200/80 bg-white p-1" />
         : <p className="rounded-xl border border-amber-300 bg-white p-4 text-center text-sm font-black text-amber-900">Câu này chưa có ảnh chung.</p>}
       <div className="mt-3 grid grid-cols-3 gap-2">{question.options.slice(0, 3).map((option, optionIndex) => {
         const selected = answers[question.id] === option.id;

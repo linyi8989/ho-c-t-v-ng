@@ -6,8 +6,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import ExamImageViewer from '../../exam-media/ExamImageViewer';
 import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
-import { getExamImageProfile, type ExamImageProfile } from '../../exam-media/imageProfiles';
+import type { ExamImageProfile } from '../../exam-media/imageProfiles';
 import type {
   MoverReadingWritingVisualReviewBaseItem,
   MoverReadingWritingVisualReviewChoiceItem,
@@ -87,9 +88,8 @@ function ExampleBlock({ examples }: { examples: MoverReadingWritingVisualReviewE
 }
 
 function ReviewImage({ url, alt, profile = 'split-page' }: { url?: string; alt: string; profile?: ExamImageProfile }) {
-  const limits = getExamImageProfile(profile);
   return url
-    ? <img src={url} alt={alt} data-exam-image-profile={profile} className="mx-auto h-auto w-auto max-w-full rounded-2xl border border-slate-200 bg-white object-contain" style={{ maxWidth: limits.maxWidth, maxHeight: limits.maxHeight }} />
+    ? <ExamImageViewer src={url} alt={alt} profile={profile} className="border border-slate-200/80 bg-white" />
     : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
 }
 

@@ -3186,14 +3186,42 @@ textarea::placeholder {
 #generic-exam-player button.exam-platform-image-expand:not(:disabled),
 #listening-exam-root button.exam-platform-image-expand:not(:disabled),
 #listening-review-screen button.exam-platform-image-expand:not(:disabled),
-#starter-reading-review-screen button.exam-platform-image-expand:not(:disabled) {
-  background: rgba(15, 23, 42, 0.88) !important;
-  border: 2px solid rgba(255, 255, 255, 0.92) !important;
+[data-listening-visual-review] button.exam-platform-image-expand:not(:disabled),
+#starter-reading-review-screen button.exam-platform-image-expand:not(:disabled),
+#mover-reading-writing-player button.exam-platform-image-expand:not(:disabled),
+[data-mover-reading-visual-review] button.exam-platform-image-expand:not(:disabled) {
+  background: #0f172a !important;
+  border: 1px solid #bfdbfe !important;
   color: #ffffff !important;
   opacity: 1 !important;
   filter: none !important;
-  backdrop-filter: blur(6px) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.3) !important;
+}
+
+#generic-exam-player button.exam-platform-image-expand:not(:disabled):hover,
+#listening-exam-root button.exam-platform-image-expand:not(:disabled):hover,
+#listening-review-screen button.exam-platform-image-expand:not(:disabled):hover,
+[data-listening-visual-review] button.exam-platform-image-expand:not(:disabled):hover,
+#starter-reading-review-screen button.exam-platform-image-expand:not(:disabled):hover,
+#mover-reading-writing-player button.exam-platform-image-expand:not(:disabled):hover,
+[data-mover-reading-visual-review] button.exam-platform-image-expand:not(:disabled):hover {
+  background: #0f172a !important;
+  border-color: #bfdbfe !important;
+  color: #ffffff !important;
+}
+
+#generic-exam-player button.exam-platform-image-expand:focus-visible,
+#listening-exam-root button.exam-platform-image-expand:focus-visible,
+#listening-review-screen button.exam-platform-image-expand:focus-visible,
+[data-listening-visual-review] button.exam-platform-image-expand:focus-visible,
+#starter-reading-review-screen button.exam-platform-image-expand:focus-visible,
+#mover-reading-writing-player button.exam-platform-image-expand:focus-visible,
+[data-mover-reading-visual-review] button.exam-platform-image-expand:focus-visible,
+.exam-platform-image-dialog button:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 2px !important;
 }
 
 .exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled),
@@ -3217,11 +3245,26 @@ textarea::placeholder {
   border-color: #fb7185 !important;
 }
 
+.exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled):hover {
+  background: #1d4ed8 !important;
+  border-color: #93c5fd !important;
+  color: #ffffff !important;
+}
+
+.exam-platform-image-dialog button.exam-platform-image-close:not(:disabled):hover {
+  background: #9f1239 !important;
+  border-color: #fda4af !important;
+  color: #ffffff !important;
+}
+
 .exam-platform-image-dialog button svg,
 #generic-exam-player button.exam-platform-image-expand svg,
 #listening-exam-root button.exam-platform-image-expand svg,
 #listening-review-screen button.exam-platform-image-expand svg,
-#starter-reading-review-screen button.exam-platform-image-expand svg {
+[data-listening-visual-review] button.exam-platform-image-expand svg,
+#starter-reading-review-screen button.exam-platform-image-expand svg,
+#mover-reading-writing-player button.exam-platform-image-expand svg,
+[data-mover-reading-visual-review] button.exam-platform-image-expand svg {
   color: currentColor !important;
   opacity: 1 !important;
 }
@@ -3244,13 +3287,6 @@ textarea::placeholder {
   width: 100%;
   height: clamp(88px, 11dvh, 112px);
   max-width: 112px;
-  margin-inline: auto;
-}
-
-#listening-exam-root [data-starter-interaction="scene-colour-draw"] img.listening-interactive-scene {
-  width: auto;
-  max-width: 100%;
-  max-height: min(72dvh, 720px, max(220px, calc(100dvh - 330px)));
   margin-inline: auto;
 }
 
@@ -3463,6 +3499,150 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+/* Direct admin paper-list toolbar. These semantic hooks intentionally follow
+   the legacy admin button/input overrides so every enabled and disabled state
+   remains opaque and readable. */
+#admin-main-panel section#exam-module-admin-hub,
+#exam-module-admin-hub > header.exam-module-list-header,
+#exam-module-admin-hub .exam-paper-sort-row {
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#exam-module-admin-hub .exam-library-search-control,
+#exam-module-admin-hub .exam-library-search-control input {
+  background: #ffffff !important;
+  background-image: none !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#exam-module-admin-hub .exam-library-search-control {
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+#exam-module-admin-hub .exam-library-search-control input {
+  min-height: 0 !important;
+  border: 0 !important;
+  padding-block: .5rem !important;
+  box-shadow: none !important;
+}
+
+#exam-module-admin-hub .exam-paper-sort-label {
+  color: #475569 !important;
+}
+
+#exam-module-admin-hub .exam-paper-list-frame {
+  overflow-y: hidden !important;
+  border-radius: 1.5rem !important;
+  background-clip: padding-box !important;
+  isolation: isolate;
+}
+
+#exam-module-admin-hub .exam-library-search-control:focus-within {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px #dbeafe !important;
+}
+
+#exam-module-admin-hub .exam-library-search-control input::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action:not(:disabled) {
+  background: #4338ca !important;
+  background-image: none !important;
+  border: 2px solid #3730a3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 5px 12px rgba(67, 56, 202, .22) !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action[data-exam-paper-create="listening"]:not(:disabled) {
+  background: #0369a1 !important;
+  border-color: #075985 !important;
+  box-shadow: 0 5px 12px rgba(3, 105, 161, .22) !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action:not(:disabled):hover {
+  background: #3730a3 !important;
+  border-color: #312e81 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+#exam-module-admin-hub button.exam-paper-create-action[data-exam-paper-create="listening"]:not(:disabled):hover {
+  background: #075985 !important;
+  border-color: #0c4a6e !important;
+}
+
+#exam-module-admin-hub button.exam-paper-filter-action:not(:disabled) {
+  background: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#exam-module-admin-hub button.exam-paper-filter-action:not(:disabled):hover {
+  background: #dbeafe !important;
+  border-color: #2563eb !important;
+  color: #1e3a8a !important;
+}
+
+#exam-module-admin-hub button.exam-paper-filter-action[aria-pressed="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border-color: #1e3a8a !important;
+  color: #ffffff !important;
+  box-shadow: 0 5px 12px rgba(29, 78, 216, .22) !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action:disabled,
+#exam-module-admin-hub button.exam-paper-filter-action:disabled,
+#exam-module-admin-hub .exam-library-search-control:has(input:disabled) {
+  background: #e2e8f0 !important;
+  background-image: none !important;
+  border-color: #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action > *,
+#exam-module-admin-hub button.exam-paper-filter-action > * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#exam-module-admin-hub button.exam-paper-create-action:focus-visible,
+#exam-module-admin-hub button.exam-paper-filter-action:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 3px !important;
+}
+
 /* Flyers Listening Part 3 keeps the compact A-H answer column readable even
    under the legacy global dark input override. Scope it away from Movers. */
 #listening-exam-root [data-flyer-interaction="two-image-letter-input"] input[type="text"] {
@@ -3513,9 +3693,126 @@ textarea::placeholder {
   -webkit-backdrop-filter: none !important;
 }
 
+#ket-reading-writing-player button.ket-part-three-tab[data-active="false"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-tab[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#ket-reading-writing-player button.ket-part-three-tab[data-active="true"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-tab[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-color: #1d4ed8 !important;
+  background-image: none !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 5px 12px rgba(29, 78, 216, .26) !important;
+}
+
+#ket-reading-writing-player button.ket-part-three-page-nav[data-direction="previous"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-page-nav[data-direction="previous"]:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#ket-reading-writing-player button.ket-part-three-page-nav[data-direction="next"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-page-nav[data-direction="next"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-color: #1d4ed8 !important;
+  background-image: none !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, .22) !important;
+}
+
+#ket-reading-writing-player button.ket-part-three-page-nav:disabled,
+#ket-reading-writing-review-screen button.ket-part-three-page-nav:disabled {
+  background: #e2e8f0 !important;
+  background-color: #e2e8f0 !important;
+  background-image: none !important;
+  border: 2px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-home:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-color: #1d4ed8 !important;
+  background-image: none !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, .24) !important;
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-retry:not(:disabled) {
+  background: #047857 !important;
+  background-color: #047857 !important;
+  background-image: none !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 8px 18px rgba(4, 120, 87, .22) !important;
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-home:not(:disabled):hover {
+  background: #1e40af !important;
+  border-color: #1e3a8a !important;
+  color: #ffffff !important;
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-retry:not(:disabled):hover {
+  background: #065f46 !important;
+  border-color: #064e3b !important;
+  color: #ffffff !important;
+}
+
 #ket-reading-writing-result-screen button *,
 #ket-reading-writing-review-screen button *,
-#ket-reading-writing-authoring button * {
+#ket-reading-writing-authoring button *,
+#ket-reading-writing-player button.ket-part-three-tab *,
+#ket-reading-writing-player button.ket-part-three-page-nav * {
   color: currentColor !important;
   opacity: 1 !important;
 }
@@ -3523,6 +3820,8 @@ textarea::placeholder {
 #ket-reading-writing-result-screen button:focus-visible,
 #ket-reading-writing-review-screen button:focus-visible,
 #ket-reading-writing-authoring button:focus-visible,
+#ket-reading-writing-player button.ket-part-three-tab:focus-visible,
+#ket-reading-writing-player button.ket-part-three-page-nav:focus-visible,
 #ket-reading-writing-player input:focus-visible,
 #ket-reading-writing-player textarea:focus-visible {
   outline: 3px solid #f59e0b !important;

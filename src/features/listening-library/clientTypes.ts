@@ -14,6 +14,12 @@ export interface ListeningExamComponentProps {
 
 export interface ListeningAdminComponentProps {
   token: string;
+  paperId?: ListeningPaperId;
+  searchQuery?: string;
+  createRequestKey?: number;
+  embedded?: boolean;
+  onCreateRequestHandled?: () => void;
+  onEditorStateChange?: (editing: boolean) => void;
 }
 
 export interface ListeningClientModule {

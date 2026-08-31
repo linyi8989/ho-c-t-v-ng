@@ -75,6 +75,10 @@ test('Part 2/5 and legacy Part 6 keep their released presentation contracts', ()
   assert.doesNotMatch(partViewsSource, /Nhập tối đa \$\{maxWords\} từ/);
   assert.match(partViewsSource, /part\.illustrationUrl/);
   assert.match(partViewsSource, /part\.optionsUrl/);
+  assert.match(partViewsSource, /ExamImageViewer/);
+  assert.match(visualReviewSource, /ExamImageViewer/);
+  assert.ok(globalCss.includes('#mover-reading-writing-player button.exam-platform-image-expand'));
+  assert.ok(globalCss.includes('[data-mover-reading-visual-review] button.exam-platform-image-expand'));
   assert.match(partViewsSource, /Bảng lựa chọn Part 6/);
   assert.match(partViewsSource, /function InlineAnswerInput/);
   assert.doesNotMatch(partViewsSource, /<select/);

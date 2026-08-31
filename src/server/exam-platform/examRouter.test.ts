@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,6 +12,19 @@ import { importUniversalExamBundle } from '../../features/exam-platform/universa
 import type { ExamAnswers, ExamPaperContent } from '../../features/exam-platform/types';
 import { getLearningHistory, getLearningHistoryDetail } from '../learning-history/learningHistoryService';
 import { createExamRouter } from './examRouter';
+
+const EXAM_ROUTER_TEST_TICKET_SECRET = 'generic-exam-router-test-secret';
+
+function ticketPayload(ticket: string) {
+  const [encoded] = ticket.split('.');
+  return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as Record<string, any>;
+}
+
+function signedTicket(payload: Record<string, any>) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', EXAM_ROUTER_TEST_TICKET_SECRET).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
 
 function completeContent(moduleId: 'starter' | 'pet' | 'ket', paperId: 'reading-writing' | 'writing') {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
@@ -106,7 +120,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
     authenticateUser: authenticateTeacher,
     authenticateOptionalUser: authenticateOptional,
     requireStaff: pass,
-    ticketSecret: 'generic-exam-router-test-secret',
+    ticketSecret: EXAM_ROUTER_TEST_TICKET_SECRET,
     resolveGuestProfile: async (guestId, studentName) => ({ id: String(guestId), displayName: String(studentName), status: 'active' }),
     writingGrading: {
       providers: [{ id: 'stali:gpt-5.6-sol', label: 'Stali test', enabled: true }],
@@ -242,6 +256,103 @@ test('generic exam API preserves immutable publish, private grading and manual W
   });
   assert.equal(retryResponse.status, 200);
   assert.equal((await retryResponse.json() as any).id, attempt.id);
+
+  const recoveryIdentity = { guestId: 'guest-exam-recovery', studentName: 'Minh Anh' };
+  const recoveryPrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...recoveryIdentity, shareToken: 'exam-assignment-token', clientRunId: 'expired-ticket-client-run', runSecret: 'expired-ticket-run-secret-123456' }),
+  });
+  assert.equal(recoveryPrepareResponse.status, 200);
+  const recoveryPrepared = await recoveryPrepareResponse.json() as any;
+  const originalRecoveryPayload = ticketPayload(recoveryPrepared.ticket);
+  const expiredTicketNow = Number(originalRecoveryPayload.ticketExpiresAt) + 1;
+  Date.now = () => expiredTicketNow;
+  try {
+    const expiredSubmit = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: recoveryPrepared.ticket, runSecret: 'expired-ticket-run-secret-123456', answers: correctAnswers(objectiveContent) }),
+    });
+    assert.equal(expiredSubmit.status, 410);
+    assert.equal((await expiredSubmit.json() as any).details.code, 'EXAM_ATTEMPT_TICKET_EXPIRED');
+
+    const wrongSecretRenewal = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: recoveryPrepared.ticket, runSecret: 'wrong-expired-ticket-secret-123456' }),
+    });
+    assert.equal(wrongSecretRenewal.status, 401);
+    const wrongOwnerRenewal = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestId: 'guest-exam-other', studentName: 'Other Student', ticket: recoveryPrepared.ticket, runSecret: 'expired-ticket-run-secret-123456' }),
+    });
+    assert.equal(wrongOwnerRenewal.status, 401);
+    const wrongRouteRenewal = await fetch(`${baseUrl}/modules/starter/papers/listening/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: recoveryPrepared.ticket, runSecret: 'expired-ticket-run-secret-123456' }),
+    });
+    assert.equal(wrongRouteRenewal.status, 401);
+    const wrongVersionTicket = signedTicket({ ...originalRecoveryPayload, versionId: 'examver-missing' });
+    const wrongVersionRenewal = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: wrongVersionTicket, runSecret: 'expired-ticket-run-secret-123456' }),
+    });
+    assert.equal(wrongVersionRenewal.status, 409);
+
+    const renewalResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: recoveryPrepared.ticket, runSecret: 'expired-ticket-run-secret-123456' }),
+    });
+    const renewed = await renewalResponse.json() as any;
+    assert.equal(renewalResponse.status, 200, JSON.stringify(renewed));
+    assert.equal(renewed.clientRunId, 'expired-ticket-client-run');
+    assert.equal(renewed.versionId, recoveryPrepared.versionId);
+    assert.equal(renewed.startedAt, recoveryPrepared.startedAt);
+    assert.equal(renewed.deadlineAt, recoveryPrepared.deadlineAt);
+    assert.equal(ticketPayload(renewed.ticket).ticketRecoveryEndsAt, originalRecoveryPayload.ticketRecoveryEndsAt);
+
+    const recoveredSubmit = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: renewed.ticket, runSecret: 'expired-ticket-run-secret-123456', answers: correctAnswers(objectiveContent) }),
+    });
+    const recoveredAttempt = await recoveredSubmit.json() as any;
+    assert.equal(recoveredSubmit.status, 201, JSON.stringify(recoveredAttempt));
+    assert.equal(recoveredAttempt.timedOut, true);
+  } finally {
+    Date.now = realDateNow;
+  }
+
+  const legacyPrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...recoveryIdentity, shareToken: 'exam-assignment-token', clientRunId: 'legacy-ticket-client-run', runSecret: 'legacy-ticket-run-secret-12345678' }),
+  });
+  const legacyPrepared = await legacyPrepareResponse.json() as any;
+  const legacyPayload = ticketPayload(legacyPrepared.ticket);
+  delete legacyPayload.ticketExpiresAt;
+  delete legacyPayload.ticketRecoveryEndsAt;
+  const legacyTicket = signedTicket(legacyPayload);
+  Date.now = () => new Date(legacyPrepared.startedAt).getTime() + 25 * 60 * 60_000;
+  try {
+    const legacyRenewalResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: legacyTicket, runSecret: 'legacy-ticket-run-secret-12345678' }),
+    });
+    const legacyRenewed = await legacyRenewalResponse.json() as any;
+    assert.equal(legacyRenewalResponse.status, 200, JSON.stringify(legacyRenewed));
+    assert.equal(legacyRenewed.startedAt, legacyPrepared.startedAt);
+  } finally {
+    Date.now = realDateNow;
+  }
+
+  Date.now = () => new Date(legacyPrepared.startedAt).getTime() + 9 * 24 * 60 * 60_000;
+  try {
+    const staleLegacyRenewal = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/renew`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...recoveryIdentity, ticket: legacyTicket, runSecret: 'legacy-ticket-run-secret-12345678' }),
+    });
+    assert.equal(staleLegacyRenewal.status, 410);
+    assert.equal((await staleLegacyRenewal.json() as any).details.code, 'EXAM_ATTEMPT_TICKET_RECOVERY_EXPIRED');
+  } finally {
+    Date.now = realDateNow;
+  }
 
   const reviewResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/${attempt.id}/review?guestId=guest-exam-1&studentName=Lan%20Anh`, {
     headers: { 'X-Exam-Run-Secret': 'objective-run-secret-123456' },

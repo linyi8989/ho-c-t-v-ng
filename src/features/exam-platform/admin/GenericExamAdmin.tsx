@@ -9,13 +9,15 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LibraryLinkStatus, LibraryRowActions } from '../../../components/admin/LibraryRowControls';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset } from '../../listening/types';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
 import { ListeningRegionEditor } from '../../listening/admin/ListeningRegionEditor';
 import { examPaperExamPath } from '../../listening-library/routes';
+import { filterExamAdminSetsByTitle } from '../../listening-library/admin/examAdminSearch';
+import type { ListeningAdminComponentProps } from '../../listening-library/clientTypes';
 import type { ExamModuleId, ExamPaperId } from '../../listening-library/types';
 import { createDefaultExamContent, getExamPaperDefinition, getModuleExamPaperDefinitions } from '../definitions';
 import { examPlatformApi } from '../api';
@@ -48,8 +50,8 @@ import FlyerReadingWritingAuthoring from './FlyerReadingWritingAuthoring';
 import KetReadingWritingAuthoring from './KetReadingWritingAuthoring';
 import KetListeningAuthoring from './KetListeningAuthoring';
 
-interface Props { token: string; moduleId: Exclude<ExamModuleId, 'mover'> }
-interface PaperAdminProps extends Props { paperId: ExamPaperId; onBack: () => void }
+interface Props extends ListeningAdminComponentProps { moduleId: Exclude<ExamModuleId, 'mover'> }
+interface PaperAdminProps extends Omit<Props, 'paperId'> { paperId: ExamPaperId }
 
 const fieldClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
 const choiceTypes = new Set<ExamQuestionType>(['single-choice', 'multiple-choice', 'true-false', 'true-false-not-given', 'yes-no-not-given', 'matching']);
@@ -382,7 +384,16 @@ function PartEditor({
   );
 }
 
-function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
+function PaperAdmin({
+  token,
+  moduleId,
+  paperId,
+  searchQuery = '',
+  createRequestKey = 0,
+  embedded = false,
+  onCreateRequestHandled,
+  onEditorStateChange,
+}: PaperAdminProps) {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
   const [sets, setSets] = useState<ExamSetSummary[]>([]);
   const [assets, setAssets] = useState<ListeningAsset[]>([]);
@@ -404,6 +415,7 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
   const legacyKetListening = moduleId === 'ket' && paperId === 'listening' && !isFixedKetListeningContent(content);
   const [starterPartsRevealed, setStarterPartsRevealed] = useState(fixedStarterPaper || moduleId !== 'starter');
   const autosaveRef = useRef(false);
+  const handledCreateRequest = useRef(0);
 
   const load = async () => {
     const [setRows, assetRows] = await Promise.all([
@@ -509,8 +521,22 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
   };
 
   const editing = Boolean(editingId) || dirty;
+  const visibleSets = filterExamAdminSetsByTitle<ExamSetSummary>(sets, searchQuery);
   const totalQuestions = content.parts.reduce((sum, part) => sum + part.questions.length, 0);
   const steps = starterPartsRevealed ? ['Thông tin', ...content.parts.map((part, index) => `Part ${part.part || index + 1}`), 'Preview'] : ['Thông tin'];
+
+  useEffect(() => {
+    if (!createRequestKey || handledCreateRequest.current === createRequestKey) return;
+    handledCreateRequest.current = createRequestKey;
+    startNew();
+    onCreateRequestHandled?.();
+  }, [createRequestKey, onCreateRequestHandled]);
+
+  useEffect(() => {
+    onEditorStateChange?.(editing);
+    return () => onEditorStateChange?.(false);
+  }, [editing, onEditorStateChange]);
+
   if (editing) return (
     <div className="space-y-4" id="generic-exam-editor" data-module={moduleId} data-paper={paperId}>
       <header className="sticky top-0 z-20 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
@@ -534,9 +560,9 @@ function PaperAdmin({ token, moduleId, paperId, onBack }: PaperAdminProps) {
 
   return (
     <div className="space-y-6" id="generic-exam-admin" data-module={moduleId} data-paper={paperId}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">{definition.level}</p><h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900">{paperId === 'listening' ? <Headphones className="text-sky-600" /> : <BookOpenText className="text-indigo-600" />}{definition.displayName}</h2><p className="mt-1 text-sm font-semibold text-slate-500">{definition.description}</p></div><div className="flex gap-2"><button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-black"><ArrowLeft size={15} />Loại bài khác</button><button type="button" onClick={startNew} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-black text-white"><Plus size={17} />Soạn đề mới</button></div></div>
+      {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">{definition.level}</p><h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900">{paperId === 'listening' ? <Headphones className="text-sky-600" /> : <BookOpenText className="text-indigo-600" />}{definition.displayName}</h2><p className="mt-1 text-sm font-semibold text-slate-500">{definition.description}</p></div><button type="button" onClick={startNew} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-black text-white"><Plus size={17} />Soạn đề mới</button></div>}
       {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
-      <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white"><table className="min-w-[960px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-600"><tr><th className="p-4">Bộ đề</th><th className="p-4">Cấu trúc</th><th className="p-4">Trạng thái</th><th className="p-4">Link</th><th className="p-4">Thao tác</th></tr></thead><tbody>{sets.map(set => <tr key={set.id} className="border-t border-slate-100"><td className="p-4"><p className="font-black text-slate-900">{set.title}</p><p className="mt-1 max-w-sm text-slate-500 line-clamp-2">{set.description}</p></td><td className="p-4 font-bold text-slate-600">Theo JSON/bản nháp</td><td className="p-4 font-bold text-slate-600">{set.status === 'published' ? `Đã xuất bản v${set.publishedVersionNumber || 1}` : 'Bản nháp'}</td><td className="p-4"><LibraryLinkStatus visibility={set.visibility} privateUrl={set.visibility === 'assignment' && set.shareToken ? previewUrl(set) : undefined} onCopyPrivateLink={set.shareToken ? async () => { await navigator.clipboard.writeText(previewUrl(set)); setMessage({ text: 'Đã sao chép link riêng.' }); } : undefined} /></td><td className="p-4"><LibraryRowActions onPlay={() => { window.location.href = previewUrl(set); }} playDisabled={set.status !== 'published'} onEdit={() => void edit(set.id)} onClone={async () => { await examPlatformApi.cloneSet(token, moduleId, paperId, set.id); await load(); }} onResults={() => void showResults(set)} onDelete={async () => { if (!window.confirm(`Lưu trữ bộ đề "${set.title}"? Kết quả cũ vẫn được giữ.`)) return; await examPlatformApi.archiveSet(token, moduleId, paperId, set.id); await load(); }} disabled={busy} deleteTitle="Lưu trữ bộ đề" /></td></tr>)}{sets.length === 0 && <tr><td colSpan={5} className="p-10 text-center font-semibold text-slate-500">Chưa có bộ đề {definition.displayName}.</td></tr>}</tbody></table></div>
+      <div className="exam-paper-list-frame overflow-x-auto rounded-3xl border border-slate-200 bg-white"><table className="min-w-[960px] w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-600"><tr><th className="p-4">Bộ đề</th><th className="p-4">Cấu trúc</th><th className="p-4">Trạng thái</th><th className="p-4">Link</th><th className="p-4">Thao tác</th></tr></thead><tbody>{visibleSets.map(set => <tr key={set.id} className="border-t border-slate-100"><td className="p-4"><p className="font-black text-slate-900">{set.title}</p><p className="mt-1 max-w-sm text-slate-500 line-clamp-2">{set.description}</p></td><td className="p-4 font-bold text-slate-600">Theo JSON/bản nháp</td><td className="p-4 font-bold text-slate-600">{set.status === 'published' ? `Đã xuất bản v${set.publishedVersionNumber || 1}` : 'Bản nháp'}</td><td className="p-4"><LibraryLinkStatus visibility={set.visibility} privateUrl={set.visibility === 'assignment' && set.shareToken ? previewUrl(set) : undefined} onCopyPrivateLink={set.shareToken ? async () => { await navigator.clipboard.writeText(previewUrl(set)); setMessage({ text: 'Đã sao chép link riêng.' }); } : undefined} /></td><td className="p-4"><LibraryRowActions onPlay={() => { window.location.href = previewUrl(set); }} playDisabled={set.status !== 'published'} onEdit={() => void edit(set.id)} onClone={async () => { await examPlatformApi.cloneSet(token, moduleId, paperId, set.id); await load(); }} onResults={() => void showResults(set)} onDelete={async () => { if (!window.confirm(`Lưu trữ bộ đề "${set.title}"? Kết quả cũ vẫn được giữ.`)) return; await examPlatformApi.archiveSet(token, moduleId, paperId, set.id); await load(); }} disabled={busy} deleteTitle="Lưu trữ bộ đề" /></td></tr>)}{visibleSets.length === 0 && <tr><td colSpan={5} className="p-10 text-center font-semibold text-slate-500">{searchQuery.trim() ? `Không tìm thấy bộ đề ${definition.displayName} phù hợp.` : `Chưa có bộ đề ${definition.displayName}.`}</td></tr>}</tbody></table></div>
       {results && resultSet && <section className="rounded-3xl border border-slate-200 bg-white p-5"><div className="mb-4 flex items-center justify-between"><div><h3 className="text-lg font-black text-slate-900">Kết quả: {resultSet.title}</h3><p className="text-xs font-semibold text-slate-500">{results.length} lượt làm bài</p></div><button type="button" onClick={() => setResults(null)} className="rounded-xl border border-slate-200 p-2"><X size={16} /></button></div><div className="space-y-3">{results.map(attempt => <ManualResult key={attempt.id} attempt={attempt} token={token} moduleId={moduleId} paperId={paperId} setId={resultSet.id} onGraded={() => void showResults(resultSet)} />)}{results.length === 0 && <p className="py-8 text-center text-sm font-semibold text-slate-500">Chưa có lượt làm bài.</p>}</div></section>}
     </div>
   );
@@ -550,9 +576,12 @@ function ManualResult({ attempt, token, moduleId, paperId, setId, onGraded }: { 
   return <article className="rounded-2xl border border-slate-200 p-4"><button type="button" onClick={() => setOpen(value => !value)} className="grid w-full gap-2 text-left text-xs font-bold text-slate-700 sm:grid-cols-5"><span>{attempt.studentName || 'Học sinh'}</span><span>{attempt.status === 'pending_review' ? 'Chờ chấm Writing' : `Điểm: ${attempt.score}`}</span><span>Đúng: {attempt.correctCount}/{attempt.totalCount}</span><span>{attempt.durationSeconds || 0}s</span><span>{new Date(attempt.completedAt).toLocaleString('vi-VN')}</span></button>{open && <div className="mt-4 space-y-3">{attempt.aiGradingMessage && <p className={`rounded-xl border p-3 text-xs font-black ${attempt.aiGradingStatus === 'failed' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-blue-300 bg-blue-50 text-blue-950'}`}>{attempt.aiGradingMessage}</p>}{(attempt.questions || []).map((question: any) => <div key={question.questionId} className={`rounded-xl border p-3 text-xs ${question.pendingManualReview ? 'border-violet-200 bg-violet-50' : question.correct ? 'border-emerald-200 bg-emerald-50' : question.unanswered ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><p className="font-black">Part {question.part} · {question.prompt}</p><p className="mt-1 whitespace-pre-wrap">Học sinh: {Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</p>{question.pendingManualReview && <label className="mt-2 flex items-center gap-2 font-black">Điểm<input type="number" min={0} max={question.maxPoints} step={moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9 ? 1 : 0.5} value={grades[question.questionId] ?? ''} onChange={event => setGrades(previous => ({ ...previous, [question.questionId]: Number(event.target.value) }))} className="w-24 rounded-lg border border-violet-300 px-2 py-1" />/{question.maxPoints}</label>}</div>)}{attempt.status === 'pending_review' && <div className="flex flex-wrap gap-2">{attempt.aiGradingStatus === 'failed' && <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await examPlatformApi.retryWritingGrade(token, moduleId, paperId, setId, attempt.id); onGraded(); } finally { setBusy(false); } }} className="rounded-xl border border-blue-700 bg-white px-4 py-2.5 text-xs font-black text-blue-800 disabled:opacity-50">Thử chấm AI lại</button>}<button type="button" disabled={busy || pending.some((question: any) => grades[question.questionId] === undefined)} onClick={async () => { setBusy(true); try { await examPlatformApi.manualGrade(token, moduleId, paperId, setId, attempt.id, grades); onGraded(); } finally { setBusy(false); } }} className="rounded-xl bg-violet-800 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">Xác nhận điểm Writing</button></div>}</div>}</article>;
 }
 
-export default function GenericExamModuleAdmin({ token, moduleId }: Props) {
-  const definitions = useMemo(() => getModuleExamPaperDefinitions(moduleId), [moduleId]);
-  const [paperId, setPaperId] = useState<ExamPaperId | null>(null);
-  if (paperId) return <PaperAdmin token={token} moduleId={moduleId} paperId={paperId} onBack={() => setPaperId(null)} />;
-  return <div className="space-y-5" id="generic-exam-paper-admin-hub"><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">{moduleId}</p><h2 className="mt-1 text-2xl font-black text-slate-900">Chọn loại bài thi</h2><p className="mt-1 text-sm font-semibold text-slate-500">Mỗi paper có cấu trúc Part, validation và cách chấm riêng.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{definitions.map(definition => <button type="button" key={definition.paperId} onClick={() => setPaperId(definition.paperId)} className="rounded-3xl border border-indigo-200 bg-gradient-to-br from-white to-indigo-50 p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">{definition.paperId === 'listening' ? <Headphones size={30} className="text-sky-700" /> : <BookOpenText size={30} className="text-indigo-700" />}<span className="mt-4 block text-xl font-black text-slate-900">{definition.displayName}</span><span className="mt-2 block text-sm font-semibold text-slate-600">{definition.parts.length} Part/Section · {definition.totalQuestionCount} câu/task</span></button>)}</div></div>;
+export default function GenericExamModuleAdmin({ moduleId, paperId, ...props }: Props) {
+  const definitions = getModuleExamPaperDefinitions(moduleId);
+  const selectedPaperId = paperId
+    || definitions.find(definition => definition.paperId === 'reading-writing')?.paperId
+    || definitions[0]?.paperId;
+  return selectedPaperId
+    ? <PaperAdmin {...props} moduleId={moduleId} paperId={selectedPaperId} />
+    : null;
 }

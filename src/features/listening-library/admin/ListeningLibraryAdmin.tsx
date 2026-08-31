@@ -17,7 +17,7 @@ export default function ListeningLibraryAdmin({ token }: ListeningLibraryAdminPr
         <div className="shrink-0">
           <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
           <h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900"><BookOpenText size={25} className="text-sky-600" aria-hidden="true" /> Kho đề luyện thi</h2>
-          <p className="mt-1 text-sm font-semibold text-slate-500">Chọn module trước khi quản lý danh sách bộ đề.</p>
+          <p className="mt-1 text-sm font-semibold text-slate-500">Chọn module để mở ngay danh sách bộ đề đã soạn.</p>
         </div>
         <nav aria-label="Truy cập nhanh module kho đề" className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4 xl:max-w-5xl xl:grid-cols-7">
           {modules.map(module => {
@@ -38,7 +38,9 @@ export default function ListeningLibraryAdmin({ token }: ListeningLibraryAdminPr
         </nav>
       </div>
       {selectedModuleId
-        ? <ListeningModuleRouter moduleId={selectedModuleId} token={token} onBack={() => setSelectedModuleId(null)} />
+        ? <div key={selectedModuleId} data-exam-module-admin={selectedModuleId}>
+            <ListeningModuleRouter moduleId={selectedModuleId} token={token} onBack={() => setSelectedModuleId(null)} />
+          </div>
         : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {modules.map(module => {
           const active = module.status === 'active' && module.capabilities.admin;

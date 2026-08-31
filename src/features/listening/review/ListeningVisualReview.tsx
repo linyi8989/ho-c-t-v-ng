@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ChevronLeft, ChevronRight, CircleMinus, FileText, XCircle } from 'lucide-react';
+import ExamImageViewer from '../../exam-media/ExamImageViewer';
 import type {
   ListeningRegion,
   ListeningReviewTranscript,
@@ -92,12 +93,9 @@ function ReviewScene({ imageUrl, children, alt }: {
 }) {
   if (!imageUrl) return null;
   return (
-    <div className="overflow-auto rounded-2xl border border-slate-200 bg-white p-2">
-      <div className="relative mx-auto w-fit max-w-full overflow-visible">
-        <img src={imageUrl} alt={alt} className="block h-auto max-w-full" draggable={false} />
-        {children}
-      </div>
-    </div>
+    <ExamImageViewer src={imageUrl} alt={alt} profile="interactive-scene" className="border border-slate-200/80 bg-white p-1">
+      {children}
+    </ExamImageViewer>
   );
 }
 
@@ -137,7 +135,7 @@ function TextReview({ part }: { part: Extract<ListeningVisualReviewPart, { part:
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
       <div className="space-y-3">
-        {part.imageUrl && <img src={part.imageUrl} alt="" className="mx-auto max-h-80 rounded-2xl border border-slate-200 object-contain" />}
+        {part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Ảnh minh họa Part 2" profile="illustration" className="border border-slate-200/80 bg-white" />}
         {part.exampleText && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold"><span className="text-sky-700">Example:</span> {part.exampleText}</p>}
       </div>
       <div className="space-y-3">
@@ -288,7 +286,7 @@ type ImageOptionsPart = Extract<ListeningVisualReviewPart, { mode: 'image-option
 function ImageOptionsReview({ part }: { part: ImageOptionsPart }) {
   return (
     <div className="space-y-4">
-      {'imageUrl' in part && part.imageUrl && <img src={part.imageUrl} alt="" className="mx-auto max-h-[34rem] rounded-2xl border border-slate-200 object-contain" />}
+      {'imageUrl' in part && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Ảnh hiển thị của Part" profile="illustration" className="border border-slate-200/80 bg-white" />}
       {part.items.map((item, questionIndex) => (
         <article key={item.questionIndex} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-start justify-between gap-3">

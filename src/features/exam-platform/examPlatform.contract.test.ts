@@ -37,7 +37,7 @@ const ketListeningPlayerSource = readFileSync(new URL('./student/KetListeningVie
 const ketListeningMigrationSource = readFileSync(new URL('./ketListeningMigration.ts', import.meta.url), 'utf8');
 const ketListeningCropSource = readFileSync(new URL('./ketListeningCrops.ts', import.meta.url), 'utf8');
 const writingGradingProviderSource = readFileSync(new URL('../../server/exam-platform/writingGradingProvider.ts', import.meta.url), 'utf8');
-const imageViewerSource = readFileSync(new URL('./student/ExamImageViewer.tsx', import.meta.url), 'utf8');
+const imageViewerSource = readFileSync(new URL('../exam-media/ExamImageViewer.tsx', import.meta.url), 'utf8');
 const imageProfileSource = readFileSync(new URL('../exam-media/imageProfiles.ts', import.meta.url), 'utf8');
 const splitLayoutSource = readFileSync(new URL('../exam-media/ExamSplitTaskLayout.tsx', import.meta.url), 'utf8');
 const moverReadingPlayerSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
@@ -45,6 +45,21 @@ const listeningPartViewsSource = readFileSync(new URL('../listening/student/List
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
+
+const hexToRgb = (hex: string) => {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+};
+
+const luminance = (hex: string) => hexToRgb(hex)
+  .map(channel => channel / 255)
+  .map(channel => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+
+const contrastRatio = (foreground: string, background: string) => {
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+};
 
 test('all new modules use the shared client platform and IELTS remains Academic-only', () => {
   for (const moduleName of ['starter', 'flyer', 'ket', 'pet', 'fce', 'ielts']) {
@@ -93,6 +108,17 @@ test('timed practice attempts remain submittable and automatic timeout submissio
     assert.match(source, /automaticSubmitStarted/);
     assert.match(source, /remaining === 0 && !automaticSubmitStarted\.current/);
   }
+});
+
+test('expired generic exam tickets use one bounded authenticated recovery before retrying submission', () => {
+  assert.match(examRouterSource, /EXAM_TICKET_RENEWAL_GRACE_MS = 7 \* 24 \* 60 \* 60_000/);
+  assert.match(examRouterSource, /attempts\/renew/);
+  assert.match(examRouterSource, /allowExpired: true/);
+  assert.match(examRouterSource, /ticketRecoveryEndsAt/);
+  assert.match(genericPlayerSource, /examPlatformApi\.renewAttempt/);
+  assert.match(genericPlayerSource, /Number\(reason\?\.status\) !== 410/);
+  assert.match(genericPlayerSource, /submissionPending: retryable/);
+  assert.doesNotMatch(genericPlayerSource, /reason\.message\} Bạn có thể nộp lại với cùng lượt làm bài/);
 });
 
 test('generic exam start actions keep explicit contrast without touching Movers players', () => {
@@ -147,11 +173,23 @@ test('student exam images use shared viewport-aware profiles and overflow-safe s
     'option',
   ]);
   assert.equal(EXAM_IMAGE_PROFILES['split-page'].maxWidth, '540px');
+  assert.equal(EXAM_IMAGE_PROFILES['interactive-scene'].maxWidth, '760px');
+  assert.match(EXAM_IMAGE_PROFILES['interactive-scene'].maxHeight, /100dvh - 390px/);
   assert.equal(EXAM_IMAGE_PROFILES.option.maxWidth, '112px');
   assert.match(imageProfileSource, /100dvh/);
   assert.match(imageViewerSource, /data-exam-image-profile/);
   assert.match(imageViewerSource, /data-exam-image-stage/);
   assert.match(imageViewerSource, /resolvedMaxWidth/);
+  assert.match(imageViewerSource, /naturalSize\.width \* scale/);
+  assert.match(imageViewerSource, /setScale\('fit'\)/);
+  assert.match(imageViewerSource, /setScale\(1\)/);
+  assert.doesNotMatch(imageViewerSource, /Math\.min\(3|Math\.max\(\.5/);
+  assert.match(listeningPartViewsSource, /ExamImageViewer/);
+  assert.match(listeningPartViewsSource, /profile="interactive-scene"/);
+  assert.match(listeningPartViewsSource, /frameRef=\{boardRef\}/);
+  assert.match(listeningPartViewsSource, /maxWidth="100%"/);
+  assert.match(listeningPartViewsSource, /maxHeight="max\(220px, calc\(100dvh - 390px\)\)"/);
+  assert.match(listeningPartViewsSource, /stageProps=\{\{/);
   assert.match(splitLayoutSource, /47fr/);
   assert.match(splitLayoutSource, /53fr/);
   assert.doesNotMatch(splitLayoutSource, /grid-cols-\[minmax\(0,44%\)|grid-cols-\[minmax\(0,56%\)/);
@@ -396,17 +434,51 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   assert.match(examRouterSource, /aiGradingStatus: 'queued'/);
   assert.match(examRouterSource, /aiGradingStatus: 'processing'/);
   assert.match(examRouterSource, /aiGradingStatus: 'failed'/);
+  assert.match(examRouterSource, /describeWritingGradingFailure\(error/);
+  assert.match(examRouterSource, /aiGradingMessage: `\$\{failureReason\} Giáo viên có thể thử lại hoặc chấm tay\.`/);
   assert.match(writingGradingProviderSource, /Uses only the explicitly selected provider/);
   assert.match(writingGradingProviderSource, /UNTRUSTED STUDENT ESSAY/);
   assert.match(writingGradingProviderSource, /Number\.isInteger\(score\)/);
+  assert.match(writingGradingProviderSource, /describeWritingGradingFailure/);
+  assert.match(ketReadingAuthoringSource, /provider\.enabled \? ' · đã cấu hình' : ' · chưa cấu hình'/);
   assert.match(globalCssSource, /#ket-reading-writing-authoring/);
   assert.match(globalCssSource, /#ket-reading-writing-player/);
   assert.match(globalCssSource, /#ket-reading-writing-result-screen/);
   assert.match(globalCssSource, /#ket-reading-writing-review-screen/);
+  for (const hook of ['ket-part-three-tab', 'ket-part-three-page-nav']) {
+    assert.ok(ketReadingPlayerSource.includes(hook), `KET Part 3 player contrast hook is missing: ${hook}`);
+    assert.ok(ketReadingResultSource.includes(hook), `KET Part 3 review contrast hook is missing: ${hook}`);
+    assert.ok(globalCssSource.includes(hook), `KET Part 3 contrast CSS is missing: ${hook}`);
+  }
+  for (const hook of ['ket-reading-result-home', 'ket-reading-result-retry']) {
+    assert.ok(ketReadingResultSource.includes(hook), `KET result action contrast hook is missing: ${hook}`);
+    assert.ok(globalCssSource.includes(hook), `KET result action contrast CSS is missing: ${hook}`);
+  }
+  assert.match(ketReadingPlayerSource, /aria-pressed=\{activeGroup === index\}/);
+  assert.match(ketReadingPlayerSource, /data-active=\{activeGroup === index\}/);
+  assert.match(globalCssSource, /#ket-reading-writing-player button\.ket-part-three-page-nav:disabled/);
+  assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-home:not\(:disabled\)/);
+  assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-retry:not\(:disabled\)/);
   assert.match(listeningAssetPickerSource, /onChange\(asset\.id, asset\)/);
   assert.match(flyerReadingAuthoringSource, /uploadedAsset \|\|/);
   assert.match(ketReadingAuthoringSource, /uploadedAsset \|\|/);
   assert.match(starterAuthoringSource, /uploadedAsset \|\| assets\.find/);
+});
+
+test('KET Reading & Writing Part 3 and result controls meet WCAG AA text contrast', () => {
+  const colourPairs = [
+    ['#1e40af', '#ffffff'], // inactive tab and previous page
+    ['#ffffff', '#1d4ed8'], // active tab, next page and home
+    ['#ffffff', '#047857'], // retry
+    ['#475569', '#e2e8f0'], // disabled page navigation
+  ] as const;
+
+  for (const [foreground, background] of colourPairs) {
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${foreground} on ${background} must meet a 4.5:1 contrast ratio`,
+    );
+  }
 });
 
 test('KET Listening keeps five flexible Part types, special Part 1 crops and the shared listening review shell', () => {

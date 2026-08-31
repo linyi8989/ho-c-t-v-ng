@@ -60,7 +60,7 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
     ...expected.filter(row => !submittedKeys.has(`${row.sourceNodeId}\u0000${row.targetNodeId}`)).map((row, index) => ({ ...row, colour: '#16a34a', dashed: true, key: `correct-${index}` })),
   ];
   return <div className="space-y-4">
-    <ExamImageViewer src={unit.imageUrl} alt="Kết quả nối hình Part 1" profile="interactive-scene" className="border-2 border-slate-200 bg-white">
+    <ExamImageViewer src={unit.imageUrl} alt="Kết quả nối hình Part 1" profile="interactive-scene" className="border border-slate-200/80 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" focusable="false" className="pointer-events-none absolute inset-0 h-full w-full">
         {lines.map(line => {
           const source = sourceById.get(line.sourceNodeId);
@@ -77,12 +77,12 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
 
 function ImageOptionResults({ part, results, showSource = true, displayImageUrl }: { part: ExamPartContent; results: ExamQuestionResult[]; showSource?: boolean; displayImageUrl?: string }) {
   const unit = examPartUnits(part)[0] || part;
-  return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" profile="illustration" className="border-2 border-orange-300 bg-white p-2" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border-2 border-orange-300 bg-white p-2" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
+  return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" profile="illustration" className="border border-slate-200/80 bg-white p-1" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border border-slate-200/80 bg-white p-1" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
     const result = results.find(item => item.questionId === question.id);
     const state = stateOf(result);
     const user = normalized(answerText(result?.userAnswer));
     const correct = normalized(answerText(result?.correctAnswer));
-    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div>{question.imageUrl && <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || questionIndex + 1}`} maxHeight="min(38vh, 340px)" className="mb-3 border-2 border-amber-300 bg-white p-2" />}<div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
+    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div>{question.imageUrl && <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || questionIndex + 1}`} maxHeight="min(38vh, 340px)" className="mb-3 border border-slate-200/80 bg-white p-1" />}<div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
       const optionValues = [normalized(option.label), normalized(option.text)];
       const selected = optionValues.includes(user);
       const right = optionValues.includes(correct);
@@ -100,7 +100,7 @@ function FlyerNameResults({ part, results }: { part: ExamPartContent; results: E
   const unit = examPartUnits(part)[0] || part;
   const layout = unit.interactionLayout?.kind === 'flyer-name-placement-v1' ? unit.interactionLayout : undefined;
   if (!layout || !part.imageUrl) return <TextResults part={unit} results={results} />;
-  return <div className="space-y-4"><ExamImageViewer src={part.imageUrl} alt={`Kết quả Flyers Part ${part.part}`} className="border-2 border-orange-300 bg-white">{layout.targets.map((target, index) => {
+  return <div className="space-y-4"><ExamImageViewer src={part.imageUrl} alt={`Kết quả Flyers Part ${part.part}`} className="border border-slate-200/80 bg-white">{layout.targets.map((target, index) => {
     const result = results.find(item => item.questionId === target.questionId);
     const state = stateOf(result);
     return <div key={target.id} style={regionPositionStyle(target.region)} className="pointer-events-none absolute z-20 flex items-center justify-center"><span className={`rounded-xl border-2 bg-white px-2 py-1 text-[10px] font-black shadow ${stateClasses(state)}`}>{answerText(result?.userAnswer) || '—'} {state === 'correct' ? '✓' : state === 'incorrect' ? `· đúng: ${answerText(result?.correctAnswer)}` : ''}</span><span className="sr-only">Vùng {index + 1}</span></div>;
@@ -129,7 +129,7 @@ function SceneResults({ part, results, answers, review }: { part: ExamPartConten
   const privateDrawTargets = review.sceneDrawTargets || [];
 
   return <div className="space-y-4">
-    {imageUrl ? <ExamImageViewer src={imageUrl} alt="Kết quả Part 4" profile="interactive-scene" className="border-2 border-orange-300 bg-white">
+    {imageUrl ? <ExamImageViewer src={imageUrl} alt="Kết quả Part 4" profile="interactive-scene" className="border border-slate-200/80 bg-white">
       {colours.flatMap(({ unit, target }) => {
         const question = unit.questions.find(item => item.id === target.questionId);
         const result = results.find(item => item.questionId === target.questionId);

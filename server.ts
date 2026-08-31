@@ -357,8 +357,19 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
   }
 
   const token = authHeader.split("Bearer ")[1];
+  let decodedToken: any;
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
+    decodedToken = await adminAuth.verifyIdToken(token);
+  } catch (error: any) {
+    console.error("Token verification failed:", {
+      code: String(error?.code || "unknown"),
+      name: String(error?.name || "Error"),
+      message: String(error?.message || "Token verification failed")
+    });
+    return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
+  }
+
+  try {
     const uid = decodedToken.uid;
     const email = decodedToken.email || "";
     // Load or create profile in Firestore
@@ -399,11 +410,14 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
     req.user = userProfile;
     next();
   } catch (error: any) {
-    console.error("Token verification failed:", error);
+    console.error("Authenticated profile resolution failed:", {
+      name: String(error?.name || "Error"),
+      message: String(error?.message || "Profile resolution failed")
+    });
     if (isStorageUnavailableError(error)) {
       return sendApiError(res, error);
     }
-    return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
+    return res.status(500).json({ error: "Không thể xác minh hồ sơ người dùng. Vui lòng thử lại." });
   }
 };
 

@@ -228,12 +228,42 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     if (!run || submitGuard.current) return;
     if (!automatic && answered < totalQuestions && !window.confirm(`Bạn mới trả lời ${answered}/${totalQuestions} câu/task. Vẫn nộp bài?`)) return;
     submitGuard.current = true; setSubmitting(true); setError('');
-    const pending = { ...run, answers, currentPart, submissionPending: true }; setRun(pending);
+    const pending = { ...run, answers, currentPart, submissionPending: true };
+    let activePending = pending;
+    setRun(pending);
     try {
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(pending));
-      const completed = await examPlatformApi.submit(moduleId, paperId, setId, token, { ticket: run.ticket, runSecret: run.runSecret, guestId, studentName, answers });
-      setReviewRunSecret(run.runSecret); setResult(completed); setRun(null); if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
-    } catch (reason: any) { setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} Bạn có thể nộp lại với cùng lượt làm bài.`); setRun(pending); }
+      let completed: ExamCompletedAttempt;
+      try {
+        completed = await examPlatformApi.submit(moduleId, paperId, setId, token, { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers });
+      } catch (reason: any) {
+        if (Number(reason?.status) !== 410) throw reason;
+        const renewed = await examPlatformApi.renewAttempt(moduleId, paperId, setId, token, { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName });
+        if (renewed.clientRunId !== pending.clientRunId || renewed.versionId !== pending.versionId) {
+          throw Object.assign(new Error('Phiếu khôi phục không khớp lượt làm bài đã lưu.'), { status: 409 });
+        }
+        activePending = {
+          ...pending,
+          ticket: renewed.ticket,
+          startedAt: renewed.startedAt,
+          deadlineAt: renewed.deadlineAt,
+        };
+        setRun(activePending);
+        if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(activePending));
+        completed = await examPlatformApi.submit(moduleId, paperId, setId, token, { ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers });
+      }
+      setReviewRunSecret(activePending.runSecret); setResult(completed); setRun(null); if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
+    } catch (reason: any) {
+      const status = Number(reason?.status);
+      const retryable = !Number.isFinite(status) || status >= 500 || [408, 425, 429].includes(status);
+      const retained = { ...activePending, submissionPending: retryable };
+      const suffix = retryable
+        ? 'Câu trả lời đã được lưu; bạn có thể nộp lại với cùng lượt làm bài.'
+        : 'Câu trả lời vẫn được lưu trên thiết bị, nhưng lượt này không thể tự nộp lại. Vui lòng bắt đầu lượt mới khi cần.';
+      setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} ${suffix}`);
+      setRun(retained);
+      if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(retained));
+    }
     finally { submitGuard.current = false; setSubmitting(false); }
   };
   const loadReview = async () => {

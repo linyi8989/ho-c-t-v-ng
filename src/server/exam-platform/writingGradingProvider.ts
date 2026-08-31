@@ -32,6 +32,29 @@ export interface WritingGradingProviderConfig {
   timeoutMs?: number;
 }
 
+const providerLabel = (providerId: string) => providerId === 'stali:gpt-5.6-sol'
+  ? 'Stali'
+  : providerId === DEVQUOTA_PROVIDER_ID
+    ? 'DevQuota'
+    : 'nhà cung cấp AI';
+
+/** Converts provider/runtime failures into a teacher-safe message without exposing keys or essay content. */
+export function describeWritingGradingFailure(error: unknown, providerId: string) {
+  const reason = error instanceof Error ? error : new Error(String(error || ''));
+  const cause = reason.cause instanceof Error ? reason.cause.message : String(reason.cause || '');
+  const detail = `${reason.name} ${reason.message} ${cause}`.trim();
+  const label = providerLabel(providerId);
+  if (/chưa được cấu hình trên máy chủ/i.test(detail)) return `${label} chưa được cấu hình trên máy chủ.`;
+  if (/chấm Writing thất bại \(\d{3}\)/i.test(detail)) {
+    const status = detail.match(/chấm Writing thất bại \((\d{3})\)/i)?.[1];
+    return `${label} từ chối yêu cầu chấm (HTTP ${status}).`;
+  }
+  if (/AbortError|aborted|timeout|timed out/i.test(detail)) return `${label} không phản hồi trong thời gian cho phép.`;
+  if (/fetch failed|network|ENOTFOUND|ECONN|EAI_AGAIN|socket/i.test(detail)) return `Không thể kết nối tới ${label}.`;
+  if (/không trả về|không phải số nguyên|số câu không hợp lệ|chưa trả về nhận xét|SyntaxError|JSON|Unexpected token/i.test(detail)) return `${label} trả về kết quả chấm không hợp lệ.`;
+  return `Chấm Writing qua ${label} chưa hoàn tất.`;
+}
+
 const responseSchema = {
   type: 'object',
   additionalProperties: false,

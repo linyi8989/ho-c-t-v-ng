@@ -22,7 +22,7 @@ function createExamComponent(moduleId: GenericModuleId, paperId: ExamPaperId): C
 export function createGenericClientModule(moduleId: GenericModuleId): ListeningClientModule {
   const manifest = getListeningModule(moduleId);
   if (!manifest) throw new Error(`Missing ${moduleId} exam module manifest.`);
-  const AdminComponent = ({ token }: ListeningAdminComponentProps) => <GenericExamModuleAdmin token={token} moduleId={moduleId} />;
+  const AdminComponent = (props: ListeningAdminComponentProps) => <GenericExamModuleAdmin {...props} moduleId={moduleId} />;
   const papers: Partial<Record<ExamPaperId, ListeningClientPaper>> = {};
   manifest.papers.forEach(paper => {
     const ExamComponent = createExamComponent(moduleId, paper.id);
@@ -58,4 +58,3 @@ export const ketClientModule = createGenericClientModule('ket');
 export const petClientModule = createGenericClientModule('pet');
 export const fceClientModule = createGenericClientModule('fce');
 export const ieltsClientModule = createGenericClientModule('ielts');
-

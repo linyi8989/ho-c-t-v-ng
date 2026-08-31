@@ -49,8 +49,8 @@ export const EXAM_IMAGE_PROFILES = {
     maxHeight: 'min(34dvh, 280px)',
   },
   'interactive-scene': {
-    maxWidth: '1100px',
-    maxHeight: 'min(72dvh, 720px, max(220px, calc(100dvh - 330px)))',
+    maxWidth: '760px',
+    maxHeight: 'min(62dvh, 620px, max(220px, calc(100dvh - 390px)))',
   },
   option: {
     maxWidth: '112px',

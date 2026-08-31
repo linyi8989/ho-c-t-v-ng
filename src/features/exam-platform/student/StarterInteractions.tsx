@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { ListeningPart2View, ListeningPart4View, ListeningPart5View } from '../../listening/student/ListeningPartViews';
 import type { ListeningAnswers, ListeningPart2, ListeningPart4, ListeningPart5SceneColourDraw } from '../../listening/types';
-import { getExamImageProfile } from '../../exam-media/imageProfiles';
 import type { ExamAnswerValue, ExamAnswers, ExamInteractionRegion, ExamMatchingConnection, ExamPartContent, ExamScenePlacement } from '../types';
 import { examPartUnits } from '../examStructure';
 import { starterColourValue } from '../starterImport';
@@ -11,8 +10,6 @@ import {
   starterMatchingResponseKey,
 } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
-
-const interactiveImageProfile = getExamImageProfile('interactive-scene');
 
 function RegionShape({ region, fill, stroke = 'rgba(37,99,235,.85)', onClick, label }: { key?: string; region: ExamInteractionRegion; fill: string; stroke?: string; onClick?: () => void; label?: string }) {
   const onKeyDown = (event: KeyboardEvent<SVGElement>) => {
@@ -91,7 +88,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     const value = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(' ') : '';
     return [question.id, { answer: value }];
   }));
-  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative">{part.imageUrl && <div className="absolute left-3 top-3 z-50"><ExamImageViewer src={part.imageUrl} alt="Ảnh minh họa Part 2" triggerOnly /></div>}<ListeningPart2View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part2[question.id]?.answer || '';
       if (nextValue !== moverAnswers.part2[question.id]?.answer) onAnswer(question.id, nextValue);
@@ -132,7 +129,7 @@ export function StarterImageOptionsView({ part, answers, onAnswer }: { part: Exa
 export function StarterListeningPart3View({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const unit = examPartUnits(part).find(item => item.interaction?.variant === 'image-options') || examPartUnits(part)[0] || part;
   return <div className="space-y-5" data-starter-listening-part3>
-    {part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border-2 border-orange-300 bg-white p-2" /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Part 3 chưa có ảnh hiển thị chung.</p>}
+    {part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border border-slate-200/80 bg-white p-1" /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Part 3 chưa có ảnh hiển thị chung.</p>}
     <StarterImageOptionsView part={unit} answers={answers} onAnswer={onAnswer} />
   </div>;
 }
@@ -202,7 +199,7 @@ export function StarterListeningPart4View({ part, answers, onAnswer }: { part: E
     const value = answers[target.questionId];
     if (isScenePlacement(value)) moverAnswers.part5[target.id] = { type: 'place_object', paletteItemId: target.id, anchor: { x: value.x, y: value.y } };
   });
-  return <div data-starter-interaction="scene-colour-draw" className="relative h-full">{sceneUrl && <div className="absolute right-3 top-3 z-50"><ExamImageViewer src={sceneUrl} alt="Ảnh scene Part 4" triggerOnly /></div>}<ListeningPart5View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div data-starter-interaction="scene-colour-draw" className="relative h-full"><ListeningPart5View part={moverPart} answers={moverAnswers} onAnswers={next => {
     colourTargets.forEach(({ unit, target }) => {
       const value = next.part5[target.id];
       const colourId = value && typeof value === 'object' && value.type === 'colour_object' ? value.colourId : '';
@@ -388,48 +385,49 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
       className={`flex min-w-40 items-center gap-2 rounded-xl border-2 bg-white p-2 text-left text-xs font-bold ${active?.id === target.id ? 'border-blue-700 ring-2 ring-blue-200' : 'border-sky-300'}`}
     >{target.tokenUrl ? <img src={target.tokenUrl} alt="" draggable={false} className="h-12 w-12 shrink-0 object-contain" /> : <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black">{target.object}</span>}<span><b className="text-indigo-700">{index + 1}.</b> {questionById.get(target.questionId)?.prompt || target.label}</span></button>)}</div>
     <p className="text-xs font-bold text-slate-600">Kéo hình vào đúng vị trí trên tranh, hoặc chọn hình rồi chạm vị trí cần đặt. Nhấn hình đã đặt để gỡ.</p>
-    <div
-      className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border-2 border-orange-300 bg-white"
-      data-exam-image-profile="interactive-scene"
-      style={{ maxWidth: interactiveImageProfile.maxWidth }}
-      tabIndex={active ? 0 : undefined}
-      aria-label={active ? `Ảnh bài tập; dùng phím mũi tên rồi Enter để đặt ${active.object}` : 'Ảnh bài tập Draw'}
-      onKeyDown={event => {
-        if (!active) return;
-        const step = event.shiftKey ? .05 : .02;
-        const movement: Partial<Record<string, { x: number; y: number }>> = { ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step } };
-        const delta = movement[event.key];
-        if (delta) {
+    <ExamImageViewer
+      src={part.imageUrl}
+      alt="Scene để vẽ thêm vật"
+      profile="interactive-scene"
+      className="border border-slate-200/80 bg-white"
+      stageProps={{
+        tabIndex: active ? 0 : undefined,
+        'aria-label': active ? `Ảnh bài tập; dùng phím mũi tên rồi Enter để đặt ${active.object}` : 'Ảnh bài tập Draw',
+        onKeyDown: event => {
+          if (!active) return;
+          const step = event.shiftKey ? .05 : .02;
+          const movement: Partial<Record<string, { x: number; y: number }>> = { ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step } };
+          const delta = movement[event.key];
+          if (delta) {
+            event.preventDefault();
+            setKeyboardAnchor(point => ({ x: Math.max(0, Math.min(1, point.x + delta.x)), y: Math.max(0, Math.min(1, point.y + delta.y)) }));
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            placeAt(active, keyboardAnchor.x, keyboardAnchor.y);
+          }
+        },
+        onDragOver: event => { if (event.dataTransfer.types.includes('text/exam-scene-draw')) event.preventDefault(); },
+        onDrop: event => {
+          const target = layout.targets.find(item => item.id === event.dataTransfer.getData('text/exam-scene-draw'));
+          if (!target) return;
           event.preventDefault();
-          setKeyboardAnchor(point => ({ x: Math.max(0, Math.min(1, point.x + delta.x)), y: Math.max(0, Math.min(1, point.y + delta.y)) }));
-        } else if (event.key === 'Enter') {
-          event.preventDefault();
-          placeAt(active, keyboardAnchor.x, keyboardAnchor.y);
-        }
-      }}
-      onDragOver={event => { if (event.dataTransfer.types.includes('text/exam-scene-draw')) event.preventDefault(); }}
-      onDrop={event => {
-        const target = layout.targets.find(item => item.id === event.dataTransfer.getData('text/exam-scene-draw'));
-        if (!target) return;
-        event.preventDefault();
-        const bounds = event.currentTarget.getBoundingClientRect();
-        placeAt(target, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
-      }}
-      onClick={event => {
-        if (!active) return;
-        const bounds = event.currentTarget.getBoundingClientRect();
-        placeAt(active, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
+          const bounds = event.currentTarget.getBoundingClientRect();
+          placeAt(target, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
+        },
+        onClick: event => {
+          if (!active) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          placeAt(active, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
+        },
       }}
     >
-      <img src={part.imageUrl} alt="Scene để vẽ thêm vật" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: interactiveImageProfile.maxHeight }} draggable={false} />
-      <div className="absolute right-2 top-2 z-50"><ExamImageViewer src={part.imageUrl} alt="Scene để vẽ thêm vật" triggerOnly /></div>
       {active && <span aria-hidden="true" style={{ left: `${keyboardAnchor.x * 100}%`, top: `${keyboardAnchor.y * 100}%` }} className="pointer-events-none absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/80" />}
       {layout.targets.map(target => {
         const placement = answers[target.questionId];
         if (!isScenePlacement(placement)) return null;
         return <button key={target.id} type="button" onClick={event => { event.stopPropagation(); onAnswer(target.questionId, ''); }} className="absolute z-30 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/90 p-1 shadow" style={{ left: `${placement.x * 100}%`, top: `${placement.y * 100}%` }} aria-label={`${target.object} đã đặt; nhấn để gỡ`}>{target.tokenUrl ? <img src={target.tokenUrl} alt={target.object} draggable={false} className="h-10 w-10 object-contain" /> : <span className="text-[10px] font-black">{target.object}</span>}</button>;
       })}
-    </div>
+    </ExamImageViewer>
   </div>;
 }
 
@@ -437,11 +435,11 @@ export default function StarterInteractionView(props: { part: ExamPartContent; a
   if (props.part.interactionLayout?.kind === 'image-text-entry-v1') {
     const layout = props.part.interactionLayout;
     return <div className="space-y-3" data-exam-interaction="image-text-entry">
-      {props.part.imageUrl ? <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white" data-exam-image-profile="interactive-scene" style={{ maxWidth: interactiveImageProfile.maxWidth }}><img src={props.part.imageUrl} alt="" className="block h-auto w-auto max-w-full object-contain" style={{ maxHeight: interactiveImageProfile.maxHeight }} /><div className="absolute right-2 top-2 z-50"><ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" triggerOnly /></div>{layout.targets.map((target, index) => {
+      {props.part.imageUrl ? <ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" profile="interactive-scene" className="border border-slate-200/80 bg-white">{layout.targets.map((target, index) => {
         const raw = props.answers[target.questionId];
         const value = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : '';
         return <label key={target.id} className="absolute" style={{ left: `${target.region.x * 100}%`, top: `${target.region.y * 100}%`, width: `${target.region.width * 100}%`, height: `${target.region.height * 100}%` }}><span className="sr-only">{target.label || `Câu ${index + 1}`}</span><input value={value} onChange={event => props.onAnswer(target.questionId, event.target.value)} className="h-full w-full rounded-md border-2 border-indigo-400 bg-white/95 px-2 text-center text-sm font-black text-slate-900 shadow-sm outline-none focus:border-indigo-600" /></label>;
-      })}</div> : <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Dạng bài chưa có ảnh.</p>}
+      })}</ExamImageViewer> : <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Dạng bài chưa có ảnh.</p>}
     </div>;
   }
   if (props.part.interaction?.family === 'text-entry' && (props.part.interaction.variant === 'single-input' || (props.part.part === 2 && props.part.interaction.variant === 'inline-gap'))) return <StarterTextEntryView {...props} />;

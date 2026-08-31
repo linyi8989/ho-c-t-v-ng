@@ -62,13 +62,13 @@ function CompoundPart({ part, answers, onAnswer }: Props) {
   if (!unit) return null;
   return <div className="space-y-4" data-ket-part-three-groups data-active-group={activeGroup === 0 ? '3A' : '3B'}>
     <nav className="flex items-center justify-center gap-2" aria-label="Điều hướng Part 3">
-      {units.slice(0, 2).map((candidate, index) => <button key={candidate.id} type="button" onClick={() => setActiveGroup(index)} aria-pressed={activeGroup === index} className={`rounded-full border-2 px-5 py-2 text-sm font-black ${activeGroup === index ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-300 bg-white text-blue-800'}`}>3{index === 0 ? 'A' : 'B'}</button>)}
+      {units.slice(0, 2).map((candidate, index) => <button key={candidate.id} type="button" onClick={() => setActiveGroup(index)} aria-pressed={activeGroup === index} data-active={activeGroup === index} className={`ket-part-three-tab rounded-full border-2 px-5 py-2 text-sm font-black ${activeGroup === index ? 'border-blue-700 bg-blue-700 text-white' : 'border-blue-300 bg-white text-blue-800'}`}>3{index === 0 ? 'A' : 'B'}</button>)}
     </nav>
     <section className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
       <div><p className="text-xs font-black uppercase tracking-wide text-indigo-700">Part 3{activeGroup === 0 ? 'A' : 'B'}</p><h3 className="mt-1 text-lg font-black text-slate-950">{unit.title}</h3>{unit.instruction && <p className="mt-1 text-sm font-semibold text-slate-600">{unit.instruction}</p>}</div>
       {activeGroup === 0 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} showPrompt imageTop hideExamples stackPrompt /> : <FlyerLetterMatchingView part={unit} answers={answers} onAnswer={onAnswer} />}
     </section>
-    <div className="flex items-center justify-between gap-3"><button type="button" disabled={activeGroup === 0} onClick={() => setActiveGroup(0)} className="rounded-xl border-2 border-blue-600 bg-white px-4 py-2 text-sm font-black text-blue-800 disabled:opacity-35">← Trang 3A</button><button type="button" disabled={activeGroup >= Math.min(1, units.length - 1)} onClick={() => setActiveGroup(1)} className="rounded-xl border-2 border-blue-700 bg-blue-700 px-4 py-2 text-sm font-black text-white disabled:opacity-35">Trang 3B →</button></div>
+    <div className="flex items-center justify-between gap-3"><button type="button" disabled={activeGroup === 0} onClick={() => setActiveGroup(0)} data-direction="previous" className="ket-part-three-page-nav rounded-xl border-2 border-blue-600 bg-white px-4 py-2 text-sm font-black text-blue-800">← Trang 3A</button><button type="button" disabled={activeGroup >= Math.min(1, units.length - 1)} onClick={() => setActiveGroup(1)} data-direction="next" className="ket-part-three-page-nav rounded-xl border-2 border-blue-700 bg-blue-700 px-4 py-2 text-sm font-black text-white">Trang 3B →</button></div>
   </div>;
 }
 

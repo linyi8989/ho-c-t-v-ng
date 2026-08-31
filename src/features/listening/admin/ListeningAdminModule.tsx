@@ -1,9 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  FileUp,
-  Plus,
-  X,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, X } from 'lucide-react';
 import { LibraryLinkStatus, LibraryRowActions } from '../../../components/admin/LibraryRowControls';
 import ListeningEditorShell from '../../listening-editor/shell/ListeningEditorShell';
 import { EditorField, EditorTextArea } from '../../listening-editor/shared/EditorFields';
@@ -20,6 +16,7 @@ import {
   moverListeningEditorDefinition,
 } from '../../listening-library/modules/mover/editor/moduleDefinition';
 import { examPaperExamPath } from '../../listening-library/routes';
+import { filterExamAdminSetsByTitle } from '../../listening-library/admin/examAdminSearch';
 import { listeningApi } from '../api';
 import type {
   ListeningAsset,
@@ -31,13 +28,24 @@ import { ListeningAssetPicker } from './ListeningAssetPicker';
 
 interface ListeningAdminModuleProps {
   token: string;
+  searchQuery?: string;
+  createRequestKey?: number;
+  embedded?: boolean;
+  onCreateRequestHandled?: () => void;
+  onEditorStateChange?: (editing: boolean) => void;
 }
 
 export const createDefaultListeningContent = createDefaultMoverListeningContent;
 const SHOW_WHOLE_EXAM_RESOURCE_TRAY = false;
-const ListeningPdfImportDialog = React.lazy(() => import('../../listening-pdf-import/ListeningPdfImportDialog'));
 
-export default function ListeningAdminModule({ token }: ListeningAdminModuleProps) {
+export default function ListeningAdminModule({
+  token,
+  searchQuery = '',
+  createRequestKey = 0,
+  embedded = false,
+  onCreateRequestHandled,
+  onEditorStateChange,
+}: ListeningAdminModuleProps) {
   const [sets, setSets] = useState<ListeningSetSummary[]>([]);
   const [assets, setAssets] = useState<ListeningAsset[]>([]);
   const [capabilities, setCapabilities] = useState<any>(null);
@@ -53,7 +61,6 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [results, setResults] = useState<any[] | null>(null);
   const [resultsTitle, setResultsTitle] = useState('');
-  const [showPdfImport, setShowPdfImport] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle');
   const [autosaveTick, setAutosaveTick] = useState(0);
   const [importCandidates, setImportCandidates] = useState<Partial<Record<1 | 2 | 3 | 4 | 5, ListeningSmartImportCandidate>>>({});
@@ -302,6 +309,27 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
   };
 
   const inEditor = Boolean(editingId) || content.title !== '__library__';
+  const handledCreateRequest = useRef(0);
+  const librarySets = useMemo(
+    () => sets.filter(set => set.status !== 'archived'),
+    [sets],
+  );
+  const visibleSets = useMemo(
+    () => filterExamAdminSetsByTitle<ListeningSetSummary>(librarySets, searchQuery),
+    [librarySets, searchQuery],
+  );
+
+  useEffect(() => {
+    if (!createRequestKey || handledCreateRequest.current === createRequestKey) return;
+    handledCreateRequest.current = createRequestKey;
+    startNew();
+    onCreateRequestHandled?.();
+  }, [createRequestKey, onCreateRequestHandled]);
+
+  useEffect(() => {
+    onEditorStateChange?.(inEditor);
+    return () => onEditorStateChange?.(false);
+  }, [inEditor, onEditorStateChange]);
   const hasImportCandidates = Object.values(importCandidates).some(Boolean);
   const goLibrary = () => {
     if ((draft.dirty || hasImportCandidates) && !window.confirm(
@@ -435,39 +463,26 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
   if (!inEditor) {
     return (
       <div className="space-y-6 animate-fade-in" id="listening-admin-module">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[.16em] text-sky-600">Listening Studio</p>
             <h2 className="text-2xl font-black text-slate-900">Bộ đề nghe 5 Part</h2>
             <p className="text-sm text-slate-500">Mỗi phiên bản xuất bản là bất biến; chỉnh sửa tiếp theo không đổi bài đang làm.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button type="button" onClick={() => setShowPdfImport(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-white px-5 py-3 text-sm font-black text-blue-700 shadow-sm">
-              <FileUp size={17} /> Nhập từ PDF
-            </button>
             <button type="button" onClick={startNew} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-200">
               <Plus size={17} /> Tạo bộ đề mới
             </button>
           </div>
-        </div>
-        {showPdfImport && (
-          <React.Suspense fallback={<div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 text-sm font-black text-white">Đang mở bộ nhập PDF…</div>}>
-            <ListeningPdfImportDialog
-              token={token}
-              capability={capabilities?.smartImport}
-              onClose={() => setShowPdfImport(false)}
-              onCompleted={load}
-            />
-          </React.Suspense>
-        )}
+        </div>}
         {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
-        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="exam-paper-list-frame overflow-x-auto rounded-3xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[1080px] text-left text-sm">
             <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500">
               <tr><th className="p-4">Bộ đề</th><th className="p-4">Trình độ</th><th className="p-4">Phiên bản</th><th className="p-4">Trạng thái</th><th className="p-4">Link</th><th className="p-4">Thao tác</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sets.filter(set => set.status !== 'archived').map(set => (
+              {visibleSets.map(set => (
                 <tr key={set.id}>
                   <td className="p-4"><p className="font-black text-slate-900">{set.title}</p><p className="max-w-sm truncate text-xs text-slate-400">{set.description}</p></td>
                   <td className="p-4 font-bold text-slate-600">{set.level}</td>
@@ -495,7 +510,7 @@ export default function ListeningAdminModule({ token }: ListeningAdminModuleProp
                   </td>
                 </tr>
               ))}
-              {!sets.filter(set => set.status !== 'archived').length && <tr><td colSpan={6} className="p-10 text-center text-sm font-semibold text-slate-400">Chưa có bộ đề nghe.</td></tr>}
+              {!visibleSets.length && <tr><td colSpan={6} className="p-10 text-center text-sm font-semibold text-slate-500">{searchQuery.trim() ? 'Không tìm thấy bộ đề Listening phù hợp.' : 'Chưa có bộ đề nghe.'}</td></tr>}
             </tbody>
           </table>
         </div>

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import ExamImageViewer from '../../exam-media/ExamImageViewer';
 import type {
   ListeningAnswers,
   ListeningPart1,
@@ -120,8 +121,7 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
         </div>
       </div>
       <div className="listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-2xl p-1">
-        <div className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white shadow-inner">
-          <img src={part.sceneUrl} alt="Part 1" className="block h-auto w-full" draggable={false} />
+        <ExamImageViewer src={part.sceneUrl} alt="Part 1" profile="interactive-scene" className="border border-slate-200/80 bg-white shadow-sm">
           {part.targets.map((target, index) => {
             const answer = answers.part1[target.id];
             return (
@@ -147,7 +147,7 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
               </button>
             );
           })}
-        </div>
+        </ExamImageViewer>
       </div>
       <p className="shrink-0 text-center text-xs font-bold text-slate-500">Kéo thẻ tên vào vùng, hoặc chạm thẻ rồi chạm vùng trên tranh.</p>
     </div>
@@ -184,7 +184,7 @@ export function ListeningPart2View({ part, answers, onAnswers }: PartProps<Liste
   return (
     <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
       <div className="space-y-4">
-        {part.illustrationUrl && <img src={part.illustrationUrl} alt="" className="listening-part2-illustration mx-auto max-h-80 w-full rounded-2xl border-2 border-orange-300 object-contain" />}
+        {part.illustrationUrl && <ExamImageViewer src={part.illustrationUrl} alt="Ảnh minh họa Part 2" profile="illustration" imageClassName="listening-part2-illustration" className="border border-slate-200/80 bg-white" />}
         {part.exampleText && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700"><span className="text-sky-700">Example: </span>{part.exampleText}</div>}
       </div>
       <div>
@@ -325,15 +325,18 @@ function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<Liste
   };
   return (
     <div className="space-y-3" onKeyDown={event => { if (event.key === 'Escape') { setSelected(undefined); setPreviewPoint(undefined); } }}>
-      <div ref={boardRef} className="listening-part3-board relative isolate mx-auto w-fit max-w-full overflow-hidden rounded-2xl border-2 border-orange-300 bg-white">
-        <img
-          src={part.boardUrl}
-          alt="Part 3"
-          onLoad={event => setBoardIntrinsic({ src: part.boardUrl, width: event.currentTarget.naturalWidth })}
-          style={{ width: boardDisplayWidth ? `${boardDisplayWidth}px` : undefined }}
-          className="relative z-0 block h-auto max-w-full"
-          draggable={false}
-        />
+      <ExamImageViewer
+        frameRef={boardRef}
+        src={part.boardUrl}
+        alt="Part 3"
+        profile="interactive-scene"
+        maxWidth="100%"
+        maxHeight="max(220px, calc(100dvh - 390px))"
+        className="listening-part3-board isolate border border-slate-200/80 bg-white"
+        imageClassName="relative z-0"
+        imageStyle={{ width: boardDisplayWidth ? `${boardDisplayWidth}px` : undefined }}
+        onImageLoad={event => setBoardIntrinsic({ src: part.boardUrl, width: event.currentTarget.naturalWidth })}
+      >
         <svg className="pointer-events-none absolute inset-0 z-30 h-full w-full" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-label="Các đường nối Part 3">
           {lines.map(line => (
             <React.Fragment key={line.id}>
@@ -354,7 +357,7 @@ function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<Liste
           if (locked) return null;
           return <button key={picture.id} type="button" tabIndex={eligible ? 0 : -1} onClick={() => assign(picture.id, selected ? { ...selected, side: picture.side } : selected)} style={regionStyle(picture.region)} className={`listening-part3-picture-hitbox absolute z-20 border-0 bg-transparent ${eligible ? 'cursor-crosshair' : 'pointer-events-none'}`} aria-label={`Nối tới hình ${picture.side === 'left' ? 'bên trái' : 'bên phải'} hàng ${picture.row}`} />;
         })}
-      </div>
+      </ExamImageViewer>
       <p className="text-center text-xs font-bold text-slate-500">Chạm answer rồi chạm hình, hoặc giữ và kéo answer tới hình. Chạm đường đã nối để xóa và làm lại. Example đã khóa.</p>
     </div>
   );
@@ -378,9 +381,7 @@ export function ListeningPart3View({ part, answers, onAnswers }: PartProps<Liste
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
       {composite ? (
-        <div className="overflow-hidden rounded-2xl border-4 border-rose-300 bg-white p-2 shadow-sm">
-          <img src={part.boardUrl} alt="Bảng lựa chọn A đến F" className="h-auto w-full object-contain" />
-        </div>
+        <ExamImageViewer src={part.boardUrl} alt="Bảng lựa chọn A đến F" profile="page-scan" className="border border-slate-200/80 bg-white p-1 shadow-sm" />
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
           {part.options.map((option, index) => (
@@ -569,42 +570,47 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
         </div>
       </div>
       <div className="listening-part5-image-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-        <div
-        className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white"
-        tabIndex={selectedPaletteItem ? 0 : undefined}
-        aria-label={selectedPaletteItem ? 'Ảnh bài tập; dùng phím mũi tên để di chuyển và Enter để đặt hình' : undefined}
-        onKeyDown={event => {
-          if (!selectedPaletteItem) return;
-          const step = event.shiftKey ? 0.05 : 0.02;
-          const movement: Partial<Record<string, { x: number; y: number }>> = {
-            ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step },
-          };
-          if (movement[event.key]) {
-            event.preventDefault();
-            const delta = movement[event.key]!;
-            setKeyboardAnchor(point => ({ x: Math.max(0, Math.min(1, point.x + delta.x)), y: Math.max(0, Math.min(1, point.y + delta.y)) }));
-          } else if (event.key === 'Enter' && selectedPaletteItem) {
-            event.preventDefault();
-            placeAt(keyboardAnchor.x, keyboardAnchor.y);
-          }
-        }}
-        onDragOver={event => {
-          if (event.dataTransfer.types.includes('text/listening-palette')) event.preventDefault();
-        }}
-        onDrop={event => {
-          const paletteItemId = event.dataTransfer.getData('text/listening-palette');
-          if (!paletteItemId) return;
-          event.preventDefault();
-          const bounds = event.currentTarget.getBoundingClientRect();
-          placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height, paletteItemId);
-        }}
-        onClick={event => {
-          if (!selectedPaletteItem) return;
-          const bounds = event.currentTarget.getBoundingClientRect();
-          placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
-        }}
-      >
-        <img src={part.sceneUrl} alt="Part 5" className="listening-interactive-scene block h-auto w-full" draggable={false} />
+        <ExamImageViewer
+          src={part.sceneUrl}
+          alt="Part 5"
+          profile="interactive-scene"
+          className="border border-slate-200/80 bg-white"
+          imageClassName="listening-interactive-scene"
+          stageProps={{
+            tabIndex: selectedPaletteItem ? 0 : undefined,
+            'aria-label': selectedPaletteItem ? 'Ảnh bài tập; dùng phím mũi tên để di chuyển và Enter để đặt hình' : undefined,
+            onKeyDown: event => {
+              if (!selectedPaletteItem) return;
+              const step = event.shiftKey ? 0.05 : 0.02;
+              const movement: Partial<Record<string, { x: number; y: number }>> = {
+                ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step },
+              };
+              if (movement[event.key]) {
+                event.preventDefault();
+                const delta = movement[event.key]!;
+                setKeyboardAnchor(point => ({ x: Math.max(0, Math.min(1, point.x + delta.x)), y: Math.max(0, Math.min(1, point.y + delta.y)) }));
+              } else if (event.key === 'Enter' && selectedPaletteItem) {
+                event.preventDefault();
+                placeAt(keyboardAnchor.x, keyboardAnchor.y);
+              }
+            },
+            onDragOver: event => {
+              if (event.dataTransfer.types.includes('text/listening-palette')) event.preventDefault();
+            },
+            onDrop: event => {
+              const paletteItemId = event.dataTransfer.getData('text/listening-palette');
+              if (!paletteItemId) return;
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height, paletteItemId);
+            },
+            onClick: event => {
+              if (!selectedPaletteItem) return;
+              const bounds = event.currentTarget.getBoundingClientRect();
+              placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
+            },
+          }}
+        >
         {selectedPaletteItem && <span aria-hidden="true" style={{ left: `${keyboardAnchor.x * 100}%`, top: `${keyboardAnchor.y * 100}%` }} className="pointer-events-none absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/80" />}
         {part.interactiveObjects.map((object, index) => {
           const selectedEntry = structuredAnswers.find(({ answer }) => answer.type === 'colour_object' && answer.objectId === object.id);
@@ -646,7 +652,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
           const item = part.objectPalette.find(entry => entry.id === answer.paletteItemId);
           return <button key={actionId} type="button" onClick={event => { event.stopPropagation(); clearAnswer(actionId); }} style={{ left: `${answer.anchor.x * 100}%`, top: `${answer.anchor.y * 100}%` }} className="absolute z-30 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-blue-700 bg-white/90 p-1 text-[10px] font-black shadow" aria-label={`${item?.label || 'Hình đã đặt'}, nhấn để gỡ`}>{item?.tokenUrl ? <img src={item.tokenUrl} alt={item.label} className="h-10 w-10 object-contain" /> : item?.label || '●'}</button>;
         })}
-        </div>
+        </ExamImageViewer>
       </div>
       <p className="shrink-0 text-center text-xs font-bold text-slate-500">Kéo màu vào vật thể hoặc kéo hình vào vị trí cần đặt. Hình đã dùng sẽ rời khỏi khay; màu có thể dùng lại khi bài yêu cầu. Nhấn vào đáp án trên ảnh để gỡ.</p>
     </div>
@@ -695,8 +701,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
           </button>
         ))}
       </div>
-      <div className="relative mx-auto max-w-5xl overflow-hidden rounded-2xl border-2 border-orange-300 bg-white">
-        <img src={part.sceneUrl} alt="Part 5" className="listening-interactive-scene block h-auto w-full" draggable={false} />
+      <ExamImageViewer src={part.sceneUrl} alt="Part 5" profile="interactive-scene" imageClassName="listening-interactive-scene" className="border border-slate-200/80 bg-white">
         {part.targets.map((target, index) => {
           const answer = legacyAnswers[target.id];
           const colour = colours.get(answer);
@@ -723,7 +728,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
             </button>
           );
         })}
-      </div>
+      </ExamImageViewer>
       <p id="listening-part5-instructions" className="text-center text-xs font-bold text-slate-500">Kéo màu vào vùng cần tô, hoặc chọn một màu rồi chạm vùng. Chạm vùng đã tô khi chưa chọn màu để trả màu về hàng trên.</p>
     </div>
   );

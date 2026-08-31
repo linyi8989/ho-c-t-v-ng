@@ -99,6 +99,11 @@ export const examPlatformApi = {
       method: 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
   },
+  renewAttempt(moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, token: string | null, body: { ticket: string; runSecret: string; guestId?: string; studentName?: string }) {
+    return requestJson<{ ticket: string; clientRunId: string; versionId: string; startedAt: string; deadlineAt?: string }>(`${paperBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/renew`, {
+      method: 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  },
   submit(moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, token: string | null, body: { ticket: string; runSecret: string; guestId?: string; studentName?: string; answers: ExamAnswers }) {
     return requestJson<ExamCompletedAttempt>(`${paperBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/submit`, {
       method: 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body),

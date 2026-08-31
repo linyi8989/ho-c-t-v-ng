@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import ExamImageViewer from '../../exam-media/ExamImageViewer';
 import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
-import { getExamImageProfile, type ExamImageProfile } from '../../exam-media/imageProfiles';
+import type { ExamImageProfile } from '../../exam-media/imageProfiles';
 import type {
   MoverReadingWritingAnswers,
   MoverReadingWritingChoiceQuestion,
@@ -19,8 +20,7 @@ interface AnswerProps {
 }
 
 function ProfiledImage({ src, alt, profile }: { src: string; alt: string; profile: ExamImageProfile }) {
-  const limits = getExamImageProfile(profile);
-  return <img src={src} alt={alt} data-exam-image-profile={profile} className="mx-auto h-auto w-auto max-w-full rounded-2xl border border-slate-200 bg-white object-contain" style={{ maxWidth: limits.maxWidth, maxHeight: limits.maxHeight }} />;
+  return <ExamImageViewer src={src} alt={alt} profile={profile} className="border border-slate-200/80 bg-white" />;
 }
 
 function Layout({ imageUrl, imageAlt, profile = 'split-page', children }: { imageUrl?: string; imageAlt: string; profile?: ExamImageProfile; children: ReactNode }) {
