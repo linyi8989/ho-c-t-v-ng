@@ -124,8 +124,8 @@ function LetterPart({ token, part, assets, onAssets, onChange }: Props) {
   const setQuestions = (questions: ExamQuestion[]) => onChange({ ...part, questions, readingScenes: part.readingScenes?.map(scene => ({ ...scene, questionIds: questions.map(question => question.id) })) });
   return <div className="space-y-4">
     <CountControls count={part.questions.length} onAdd={() => setQuestions([...part.questions, shortQuestion(part, { prompt: `Row ${part.questions.length + 1}` })])} onRemove={() => setQuestions(part.questions.slice(0, -1))} />
-    <ImagePicker label="Ảnh thứ nhất · trang câu hỏi/lựa chọn A-H" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />
-    <FlyerPart3Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} />
+    <ImagePicker label="Ảnh đề duy nhất · hiển thị bên trái khu vực làm bài" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />
+    <FlyerPart3Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} singleImage />
   </div>;
 }
 
@@ -149,10 +149,10 @@ function CompoundPart({ token, part, assets, onAssets, onChange }: Props) {
       <ChoiceRows unit={first} showPrompt onChange={commit} />
     </section>
     <section className="space-y-4 rounded-3xl border border-violet-200 bg-violet-50/40 p-4">
-      <div><p className="text-xs font-black uppercase tracking-wide text-violet-700">Part 3B</p><h4 className="text-lg font-black text-slate-950">Hai ảnh và cột nhập chữ A-H</h4></div>
+      <div><p className="text-xs font-black uppercase tracking-wide text-violet-700">Part 3B</p><h4 className="text-lg font-black text-slate-950">Một ảnh và cột nhập chữ A-H</h4></div>
       <CountControls count={second.questions.length} onAdd={addSecond} onRemove={() => commit({ ...second, questions: second.questions.slice(0, -1), readingScenes: second.readingScenes?.map(scene => ({ ...scene, questionIds: second.questions.slice(0, -1).map(question => question.id) })) })} label="câu nhóm 3B" />
-      <ImagePicker label="Ảnh thứ nhất nhóm 3B" value={second.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => commit({ ...second, imageAssetId: asset?.id, imageUrl: asset?.url })} />
-      <FlyerPart3Editor token={token} part={second} assets={assets} onAssets={onAssets} onChange={commit} />
+      <ImagePicker label="Ảnh đề duy nhất nhóm 3B · hiển thị bên trái" value={second.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => commit({ ...second, imageAssetId: asset?.id, imageUrl: asset?.url })} />
+      <FlyerPart3Editor token={token} part={second} assets={assets} onAssets={onAssets} onChange={commit} singleImage />
     </section>
   </div>;
 }
@@ -186,10 +186,11 @@ function NumberedGapsPart({ part, onChange }: Props) {
   </div>;
 }
 
-function FormPart({ part, onChange }: Props) {
+function FormPart({ token, part, assets, onAssets, onChange, withImage = false }: Props & { withImage?: boolean }) {
   const update = (index: number, question: ExamQuestion) => onChange({ ...part, questions: part.questions.map((item, itemIndex) => itemIndex === index ? question : item) });
   return <div className="space-y-4">
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, shortQuestion(part, { prompt: `Field ${part.questions.length + 1}`, maxWords: 5 })] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} label="hàng biểu mẫu" />
+    {withImage && <ImagePicker label="Ảnh đề Part 8 · hiển thị phía trên khu vực làm bài" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />}
     <PassageEditor value={part.passage} onChange={passage => onChange({ ...part, passage })} label="Nội dung hướng dẫn và example dạng chữ hiển thị phía trên" />
     <div className="space-y-3">{part.questions.map((question, index) => <article key={question.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-[110px_minmax(180px,1fr)_180px_minmax(220px,1fr)]">
       <DisplayNumber question={question} onChange={next => update(index, next)} />
@@ -238,15 +239,15 @@ export default function KetReadingWritingAuthoring(props: Props) {
     return () => { active = false; };
   }, [part.part, props.token]);
   return <section id="ket-reading-writing-authoring" className="space-y-4" data-ket-reading-writing-part={part.part}>
-    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-800">KET Reading & Writing · Part {part.part}/9</p><p className="mt-1 text-sm font-semibold text-blue-950">Part 2 và Part 6–9 dùng nội dung chữ được nhận diện từ JSON; Part 3A/3B, 4 và 5 giữ ảnh đề. Part 1–8 linh hoạt số câu, Part 9 cố định một bài viết 10 điểm.</p></div>
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-800">KET Reading & Writing · Part {part.part}/9</p><p className="mt-1 text-sm font-semibold text-blue-950">Part 2 và Part 6–9 dùng nội dung chữ được nhận diện từ JSON; Part 1, 3A/3B, 4, 5 và 8 có ảnh đề do giáo viên tải/dán. Part 1–8 linh hoạt số câu, Part 9 cố định một bài viết 10 điểm.</p></div>
     {part.part === 1 ? <LetterPart {...props} />
       : part.part === 2 ? <ChoicePart {...props} showPrompt withImage={false} />
         : part.part === 3 ? <CompoundPart {...props} />
           : part.part === 4 ? <ChoicePart {...props} showPrompt showExample={false} />
-            : part.part === 5 ? <ChoicePart {...props} showExample={false} />
+            : part.part === 5 ? <ChoicePart {...props} />
               : part.part === 6 ? <SpellingPart {...props} />
                 : part.part === 7 ? <NumberedGapsPart {...props} />
-                  : part.part === 8 ? <FormPart {...props} />
+                  : part.part === 8 ? <FormPart {...props} withImage />
                     : <WritingPart {...props} providers={providers} />}
   </section>;
 }

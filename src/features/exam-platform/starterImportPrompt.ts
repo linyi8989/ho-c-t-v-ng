@@ -44,7 +44,7 @@ PART 2
 - questions đúng 5 phần tử, mỗi câu chỉ có đúng 1 gap.
 - template phải chứa đúng một chuỗi ____ tại vị trí học sinh nhập đáp án.
 - acceptedAnswers chứa đáp án tên hoặc số và các biến thể chính thức nếu answer key cho phép; maxWords là số từ tối đa.
-- Có thể đặt ví dụ không chấm điểm ở trường passage của section.
+- passage bắt buộc chứa đúng 2 example không chấm điểm; mỗi example là một dòng đầy đủ gồm câu hỏi và đáp án in sẵn.
 
 PART 3
 - questions đúng 5 phần tử; không đưa hàng example vào questions.
@@ -111,7 +111,7 @@ MẪU CẤU TRÚC PHẢI ĐIỀN ĐỦ
           "slot": "part-2",
           "title": "Part 2",
           "instruction": "Listen and write a name or a number. There are two examples.",
-          "passage": "Example text and answer",
+          "passage": "What's the boy's name? — Sam.\nHow old is he? — 10.",
           "interaction": {"family":"text-entry","subtype":"short-answer","variant":"single-input","schemaVersion":1},
           "payload": {
             "questions": [

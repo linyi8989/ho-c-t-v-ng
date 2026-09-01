@@ -4,6 +4,7 @@ import type { ListeningAnswers, ListeningPart2, ListeningPart4, ListeningPart5Sc
 import type { ExamAnswerValue, ExamAnswers, ExamInteractionRegion, ExamMatchingConnection, ExamPartContent, ExamScenePlacement } from '../types';
 import { examPartUnits } from '../examStructure';
 import { starterColourValue } from '../starterImport';
+import { splitStarterPart2ExampleLines } from '../starterListeningPart2';
 import {
   readExamMatchingConnections,
   starterMatchingModel,
@@ -59,6 +60,11 @@ function pointInRegion(point: { x: number; y: number }, region: ExamInteractionR
 }
 
 const starterPart2Blank = /(_{3,}|\{\{(?:answer|blank)\}\})/i;
+export const STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH = '912px';
+export const STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT = 'min(74.4dvh, 744px, max(264px, calc(90dvh - 315px)))';
+export const STARTER_LISTENING_LARGE_IMAGE_SCALE = 1.2;
+export { splitStarterPart2ExampleLines } from '../starterListeningPart2';
+
 export const normalizeStarterPart2PromptForMover = (prompt: string) => {
   let blankFound = false;
   const normalizedPrompt = prompt.replace(new RegExp(starterPart2Blank.source, 'gi'), () => {
@@ -88,7 +94,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     const value = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(' ') : '';
     return [question.id, { answer: value }];
   }));
-  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part2[question.id]?.answer || '';
       if (nextValue !== moverAnswers.part2[question.id]?.answer) onAnswer(question.id, nextValue);
@@ -199,7 +205,7 @@ export function StarterListeningPart4View({ part, answers, onAnswer }: { part: E
     const value = answers[target.questionId];
     if (isScenePlacement(value)) moverAnswers.part5[target.id] = { type: 'place_object', paletteItemId: target.id, anchor: { x: value.x, y: value.y } };
   });
-  return <div data-starter-interaction="scene-colour-draw" className="relative h-full"><ListeningPart5View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div data-starter-interaction="scene-colour-draw" className="relative h-full"><ListeningPart5View part={moverPart} answers={moverAnswers} imageMaxWidth={STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH} imageMaxHeight={STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT} imageScale={STARTER_LISTENING_LARGE_IMAGE_SCALE} onAnswers={next => {
     colourTargets.forEach(({ unit, target }) => {
       const value = next.part5[target.id];
       const colourId = value && typeof value === 'object' && value.type === 'colour_object' ? value.colourId : '';
@@ -292,7 +298,7 @@ function MatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answ
   const activeSource = sourceById.get(activeSourceId);
   return <div className="space-y-3" id="starter-interaction" data-starter-interaction="image-matching" onKeyDown={event => { if (event.key === 'Escape') { setActiveSourceId(''); setPreviewPoint(undefined); } }}>
     <p className="text-xs font-bold text-slate-600">Chạm một hình nguồn rồi chạm hình đích, hoặc giữ và kéo để nối. Chạm đường đã nối để xóa. Đường example in sẵn được khóa.</p>
-    <ExamImageViewer frameRef={boardRef} src={part.imageUrl} alt="Starters matching scene" profile="interactive-scene" className="isolate border border-slate-200 bg-white">
+    <ExamImageViewer frameRef={boardRef} src={part.imageUrl} alt="Starters matching scene" profile="interactive-scene" maxWidth={STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH} maxHeight={STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT} preferredScale={STARTER_LISTENING_LARGE_IMAGE_SCALE} className="isolate border border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" focusable="false" className="starter-matching-lines pointer-events-none absolute inset-0 z-30 h-full w-full" aria-label="Các đường nối Starters Part 1">
         {connections.map(connection => {
           const source = sourceById.get(connection.sourceNodeId);

@@ -17,9 +17,25 @@ function completeDraft(content: ExamPaperContent) {
   content.title = 'Verified test paper';
   content.parts.forEach(part => {
     if (content.paperId === 'listening') part.audioAssetId = `audio-${part.part}`;
+    if (content.moduleId === 'starter' && content.paperId === 'listening' && part.part === 2) {
+      part.passage = "What's the boy's name? — Sam.\nHow old is he? — 10.";
+    }
     if (content.moduleId === 'starter' && content.paperId === 'reading-writing') {
       if (part.part <= 4) part.imageAssetId = `image-${part.part}`;
-      if (part.part === 1 && part.examples?.[0]) part.examples[0].imageAssetId = 'image-example-1';
+      if (part.part === 1) {
+        part.examples?.forEach((example, index) => { example.imageAssetId = `image-part-1-example-${index + 1}`; });
+        part.questions.forEach((question, index) => { question.imageAssetId = `image-part-1-question-${index + 1}`; });
+      }
+      if (part.part === 3) {
+        part.examples?.forEach((example, index) => {
+          example.imageAssetId = `image-part-3-example-left-${index + 1}`;
+          example.secondaryImageAssetId = `image-part-3-example-right-${index + 1}`;
+        });
+        part.questions.forEach((question, index) => {
+          question.imageAssetId = `image-part-3-question-left-${index + 1}`;
+          question.secondaryImageAssetId = `image-part-3-question-right-${index + 1}`;
+        });
+      }
       if (part.part === 5) part.readingScenes?.forEach((scene, index) => { scene.imageAssetId = `image-scene-${index + 1}`; });
     }
     if (content.moduleId === 'flyer' && content.paperId === 'reading-writing') {
@@ -28,8 +44,8 @@ function completeDraft(content: ExamPaperContent) {
       if (part.part === 5) part.passage = 'A complete story used by the sentence-completion questions.';
     }
     if (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.parts.length === 9) {
-      if ([1, 4, 5].includes(part.part)) part.imageAssetId = `image-ket-rw-${part.part}`;
-      if (part.part === 2) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
+      if ([1, 4, 5, 8].includes(part.part)) part.imageAssetId = `image-ket-rw-${part.part}`;
+      if ([2, 5].includes(part.part)) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
       if ([6, 7, 8].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
       if (part.part === 9) part.passage = 'Printed writing task and all required hints.';
       if (part.part === 1 && part.readingScenes?.[0]) part.readingScenes[0].imageAssetId = 'image-ket-rw-1-middle';
@@ -106,6 +122,7 @@ function completeDraft(content: ExamPaperContent) {
       } else {
         const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
         question.acceptedAnswers = (content.moduleId === 'flyer' && part.part === 3) || (content.moduleId === 'ket' && ((content.paperId === 'listening' && part.part === 2) || (content.paperId === 'reading-writing' && (part.part === 1 || ketLetterIds.has(question.id))))) ? ['A'] : ['answer'];
+        if (content.moduleId === 'starter' && content.paperId === 'reading-writing' && part.part === 3) question.answerLength = 6;
         if (content.moduleId === 'ket' && part.part === 6) {
           question.answerPrefix = 'a';
           question.answerLength = 6;
@@ -132,6 +149,15 @@ test('every default paper validates after teacher supplies media and official an
     const content = completeDraft(createDefaultExamContent(definition));
     assert.deepEqual(validateExamPaperContent(content), [], `${definition.moduleId}/${definition.paperId}`);
   }
+});
+
+test('Starters Listening Part 2 requires two separate unscored example lines', () => {
+  const definition = EXAM_PAPER_DEFINITIONS.find(item => item.moduleId === 'starter' && item.paperId === 'listening')!;
+  const content = completeDraft(createDefaultExamContent(definition));
+  content.parts[1].passage = "What's the boy's name? — Sam.";
+  assert.ok(validateExamPaperContent(content).some(error => error.includes('phải nhập đủ đúng 2 example')));
+  content.parts[1].passage = "What's the boy's name? — Sam.\nHow old is he? — 10.";
+  assert.equal(validateExamPaperContent(content).some(error => error.includes('phải nhập đủ đúng 2 example')), false);
 });
 
 test('Flyers Listening upgrades released Part 2 name-placement drafts and keeps Movers-size Part 1 regions', () => {

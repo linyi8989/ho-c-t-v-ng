@@ -3219,13 +3219,30 @@ textarea::placeholder {
 #starter-reading-review-screen button.exam-platform-image-expand:focus-visible,
 #mover-reading-writing-player button.exam-platform-image-expand:focus-visible,
 [data-mover-reading-visual-review] button.exam-platform-image-expand:focus-visible,
-.exam-platform-image-dialog button:focus-visible {
+#exam-platform-image-dialog button:focus-visible {
   outline: 3px solid #fbbf24 !important;
   outline-offset: 2px !important;
 }
 
-.exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled),
-.exam-platform-image-dialog button.exam-platform-image-close:not(:disabled) {
+#exam-platform-image-dialog .exam-platform-image-toolbar {
+  background: #0f172a !important;
+  background-image: none !important;
+  border: 1px solid #334155 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#exam-platform-image-dialog .exam-platform-image-scale {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+
+#exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled),
+#exam-platform-image-dialog button.exam-platform-image-close:not(:disabled) {
   display: inline-flex;
   height: 2.5rem;
   width: 2.5rem;
@@ -3240,24 +3257,24 @@ textarea::placeholder {
   backdrop-filter: none !important;
 }
 
-.exam-platform-image-dialog button.exam-platform-image-close:not(:disabled) {
+#exam-platform-image-dialog button.exam-platform-image-close:not(:disabled) {
   background: #be123c !important;
   border-color: #fb7185 !important;
 }
 
-.exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled):hover {
+#exam-platform-image-dialog button.exam-platform-image-tool:not(:disabled):hover {
   background: #1d4ed8 !important;
   border-color: #93c5fd !important;
   color: #ffffff !important;
 }
 
-.exam-platform-image-dialog button.exam-platform-image-close:not(:disabled):hover {
+#exam-platform-image-dialog button.exam-platform-image-close:not(:disabled):hover {
   background: #9f1239 !important;
   border-color: #fda4af !important;
   color: #ffffff !important;
 }
 
-.exam-platform-image-dialog button svg,
+#exam-platform-image-dialog button svg,
 #generic-exam-player button.exam-platform-image-expand svg,
 #listening-exam-root button.exam-platform-image-expand svg,
 #listening-review-screen button.exam-platform-image-expand svg,
@@ -3782,6 +3799,35 @@ textarea::placeholder {
   box-shadow: 0 8px 18px rgba(29, 78, 216, .24) !important;
 }
 
+#ket-reading-writing-result-screen button.ket-reading-result-review:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #1d4ed8 !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, .12) !important;
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-review:disabled {
+  background: #e2e8f0 !important;
+  background-color: #e2e8f0 !important;
+  background-image: none !important;
+  border: 2px solid #64748b !important;
+  color: #334155 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  cursor: wait;
+}
+
 #ket-reading-writing-result-screen button.ket-reading-result-retry:not(:disabled) {
   background: #047857 !important;
   background-color: #047857 !important;
@@ -3881,5 +3927,200 @@ textarea::placeholder {
 
   #ket-reading-writing-player [data-ket-choice-answer-rows] fieldset > div > p {
     grid-column: 1 / -1;
+  }
+}
+
+#ket-reading-writing-result-screen button.ket-reading-result-review:not(:disabled):hover {
+  background: #eff6ff !important;
+  border-color: #1e40af !important;
+  color: #1e3a8a !important;
+}
+
+#ket-reading-writing-review-screen button.ket-reading-review-part-tab:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #93c5fd !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+#ket-reading-writing-review-screen button.ket-reading-review-part-tab[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-color: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, .22) !important;
+}
+
+#ket-reading-writing-review-screen button.ket-reading-review-back:not(:disabled) {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 2px solid #1d4ed8 !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, .14) !important;
+}
+
+/* Starters Reading & Writing crop authoring and inline Yes/No controls.
+   Keep this feature scope after legacy admin/player overrides. */
+#starter-reading-writing-authoring [data-starter-rw-crop-grid] {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 240px));
+  align-items: start;
+  justify-content: start;
+}
+
+#starter-reading-writing-authoring [data-starter-rw-crop-card] {
+  min-width: 0;
+}
+
+#starter-reading-writing-authoring .starter-rw-crop-thumbnail {
+  width: 100%;
+  max-width: 128px;
+  margin-inline: auto;
+}
+
+#starter-reading-writing-authoring [data-starter-rw-detected-preview] > div > p {
+  display: none;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-action:not(:disabled) {
+  background: #4338ca !important;
+  border: 1px solid #3730a3 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-action:not(:disabled):hover {
+  background: #3730a3 !important;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-confirm:not(:disabled) {
+  background: #047857 !important;
+  border: 1px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-confirm:not(:disabled):hover {
+  background: #065f46 !important;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-secondary:not(:disabled) {
+  background: #ffffff !important;
+  border: 1px solid #60a5fa !important;
+  color: #1e40af !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#starter-reading-writing-authoring button.starter-rw-crop-secondary:not(:disabled):hover {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+}
+
+#starter-reading-writing-authoring button[class*="starter-rw-crop-"]:disabled {
+  background: #e2e8f0 !important;
+  border: 1px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#starter-reading-writing-authoring button[class*="starter-rw-crop-"] *,
+#generic-exam-player .starter-rw-inline-choice * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#starter-reading-writing-authoring button[class*="starter-rw-crop-"]:focus-visible,
+#generic-exam-player .starter-rw-inline-choice:focus-within {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+#generic-exam-player .starter-rw-inline-choice[data-selected="false"] {
+  background: #f8fafc !important;
+  border-color: #94a3b8 !important;
+  color: #1e293b !important;
+  opacity: 1 !important;
+}
+
+#generic-exam-player .starter-rw-inline-choice[data-selected="false"]:hover {
+  background: #eff6ff !important;
+  border-color: #3b82f6 !important;
+}
+
+#generic-exam-player .starter-rw-inline-choice[data-selected="true"] {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+#generic-exam-player [data-starter-rw-spelling-cells] input.starter-rw-spelling-cell {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+  border-style: solid !important;
+  border-radius: 5px 5px 3px 3px !important;
+  color: #172554 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  caret-color: #1d4ed8 !important;
+}
+
+#generic-exam-player [data-starter-rw-part3-paired-rows] [data-starter-rw-part3-row] {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#generic-exam-player [data-starter-rw-part3-paired-rows] [data-starter-rw-part3-image],
+#generic-exam-player [data-starter-rw-part3-paired-rows] [data-starter-rw-part3-image] > .exam-platform-image-viewer {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#generic-exam-player [data-starter-rw-spelling-cells] input.starter-rw-spelling-cell:focus-visible {
+  background: #dbeafe !important;
+  border-color: #1d4ed8 !important;
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+#generic-exam-player [data-starter-rw-spelling-example] .starter-rw-spelling-example-cell {
+  background: #ffffff !important;
+  border-color: #6366f1 !important;
+  color: #312e81 !important;
+  opacity: 1 !important;
+}
+
+@media (max-width: 639px) {
+  #starter-reading-writing-authoring [data-starter-rw-crop-grid] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #starter-reading-writing-authoring .starter-rw-crop-thumbnail {
+    max-width: 108px;
   }
 }

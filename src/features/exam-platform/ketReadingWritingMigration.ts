@@ -166,7 +166,7 @@ function normalizeQuestion(part: number, question: ExamQuestion, number: number,
 }
 
 function publicExamples(part: number, examples: ExamPartContent['examples']) {
-  if (![1, 2].includes(part)) return undefined;
+  if (![1, 2, 5].includes(part)) return undefined;
   return examples?.length ? examples : [{ prompt: 'Printed example', answer: '' }];
 }
 

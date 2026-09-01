@@ -50,6 +50,12 @@ interface PartProps<T> {
   onAnswers: (answers: ListeningAnswers) => void;
 }
 
+interface Part5PresentationProps {
+  imageMaxWidth?: string;
+  imageMaxHeight?: string;
+  imageScale?: number;
+}
+
 function regionStyle(region: ListeningRegion): React.CSSProperties {
   return {
     left: `${region.x * 100}%`,
@@ -180,12 +186,17 @@ function renderPrompt(
   });
 }
 
-export function ListeningPart2View({ part, answers, onAnswers }: PartProps<ListeningPart2>) {
+export function ListeningPart2View({ part, answers, onAnswers, exampleLines }: PartProps<ListeningPart2> & { exampleLines?: string[] }) {
+  const starterExampleLines = exampleLines === undefined ? undefined : [exampleLines[0] || '—', exampleLines[1] || '—'];
   return (
     <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
       <div className="space-y-4">
         {part.illustrationUrl && <ExamImageViewer src={part.illustrationUrl} alt="Ảnh minh họa Part 2" profile="illustration" imageClassName="listening-part2-illustration" className="border border-slate-200/80 bg-white" />}
-        {part.exampleText && <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700"><span className="text-sky-700">Example: </span>{part.exampleText}</div>}
+        {starterExampleLines
+          ? <div className="space-y-1 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700" data-starter-part2-example-lines>{starterExampleLines.map((line, index) => <p key={`${index}-${line}`}><span className="text-sky-700">Example {index + 1}: </span>{line}</p>)}</div>
+          : part.exampleText
+            ? <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700"><span className="text-sky-700">Example: </span>{part.exampleText}</div>
+            : null}
       </div>
       <div>
         <h3 className="mb-4 text-center text-2xl font-black uppercase text-rose-500">{part.heading}</h3>
@@ -461,7 +472,7 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
   );
 }
 
-function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<ListeningPart5SceneColourDraw>) {
+function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5SceneColourDraw> & Part5PresentationProps) {
   const [selectedColour, setSelectedColour] = useState('');
   const [selectedPaletteItem, setSelectedPaletteItem] = useState('');
   const [keyboardAnchor, setKeyboardAnchor] = useState({ x: 0.5, y: 0.5 });
@@ -574,6 +585,9 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
           src={part.sceneUrl}
           alt="Part 5"
           profile="interactive-scene"
+          maxWidth={imageMaxWidth}
+          maxHeight={imageMaxHeight}
+          preferredScale={imageScale}
           className="border border-slate-200/80 bg-white"
           imageClassName="listening-interactive-scene"
           stageProps={{
@@ -659,9 +673,9 @@ function ListeningPart5SceneView({ part, answers, onAnswers }: PartProps<Listeni
   );
 }
 
-export function ListeningPart5View({ part, answers, onAnswers }: PartProps<ListeningPart5>) {
+export function ListeningPart5View({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5> & Part5PresentationProps) {
   if (part.displayMode === 'scene-colour-draw') {
-    return <ListeningPart5SceneView part={part} answers={answers} onAnswers={onAnswers} />;
+    return <ListeningPart5SceneView part={part} answers={answers} onAnswers={onAnswers} imageMaxWidth={imageMaxWidth} imageMaxHeight={imageMaxHeight} imageScale={imageScale} />;
   }
   const [selectedColour, setSelectedColour] = useState('');
   const colours = useMemo(() => new Map(part.colours.map(colour => [colour.id, colour])), [part.colours]);
@@ -701,7 +715,7 @@ export function ListeningPart5View({ part, answers, onAnswers }: PartProps<Liste
           </button>
         ))}
       </div>
-      <ExamImageViewer src={part.sceneUrl} alt="Part 5" profile="interactive-scene" imageClassName="listening-interactive-scene" className="border border-slate-200/80 bg-white">
+      <ExamImageViewer src={part.sceneUrl} alt="Part 5" profile="interactive-scene" maxWidth={imageMaxWidth} maxHeight={imageMaxHeight} preferredScale={imageScale} imageClassName="listening-interactive-scene" className="border border-slate-200/80 bg-white">
         {part.targets.map((target, index) => {
           const answer = legacyAnswers[target.id];
           const colour = colours.get(answer);

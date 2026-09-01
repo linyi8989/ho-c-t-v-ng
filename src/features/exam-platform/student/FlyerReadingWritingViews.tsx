@@ -61,7 +61,14 @@ function StoryTitle({ unit, answers, onAnswer }: { unit: ExamPartContent; answer
     const question = gaps[Number(match[1]) - 1];
     return question ? <ShortInput key={index} question={question} value={stringAnswer(answers[question.id])} onChange={value => onAnswer(question.id, value)} /> : <span key={index} className="font-black text-rose-700">[Thiếu ô]</span>;
   });
-  return <TwoColumn imageUrl={unit.imageUrl}><Examples part={unit} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{story}</div>{titleQuestion && <fieldset className="rounded-2xl border border-orange-200 bg-orange-50 p-4"><legend className="px-1 text-base font-black text-slate-900">{gaps.length + 1}. {titleQuestion.prompt}</legend><div className="mt-3 grid gap-3 md:grid-cols-3">{titleQuestion.options.slice(0, 3).map((option, index) => <label key={option.id} className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${answers[titleQuestion.id] === option.id ? 'border-orange-500 bg-orange-500 text-white' : 'border-orange-200 bg-white text-slate-700'}`}><input type="radio" name={`flyer-rw-title-${titleQuestion.id}`} checked={answers[titleQuestion.id] === option.id} onChange={() => onAnswer(titleQuestion.id, option.id)} className="mr-2" /><b>{String.fromCharCode(65 + index)}.</b> {option.text}</label>)}</div></fieldset>}</TwoColumn>;
+  return <div className="mx-auto max-w-6xl space-y-5" data-flyer-reading-part4-stacked>
+    <div className="flex justify-center">{unit.imageUrl ? <ExamImageViewer src={unit.imageUrl} alt="Ảnh minh họa Flyers Reading & Writing Part 4" maxWidth="min(100%, 900px)" maxHeight="min(42vh, 420px)" className="border border-slate-200 bg-white" /> : <div className="w-full rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-10 text-center text-sm font-black text-amber-900">Chưa tải ảnh hiển thị.</div>}</div>
+    <div className="space-y-4" data-flyer-reading-part4-content>
+      <Examples part={unit} />
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{story}</div>
+      {titleQuestion && <fieldset className="rounded-2xl border border-orange-200 bg-orange-50 p-4"><legend className="px-1 text-base font-black text-slate-900">{gaps.length + 1}. {titleQuestion.prompt}</legend><div className="mt-3 grid gap-3 md:grid-cols-3">{titleQuestion.options.slice(0, 3).map((option, index) => <label key={option.id} className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${answers[titleQuestion.id] === option.id ? 'border-orange-500 bg-orange-500 text-white' : 'border-orange-200 bg-white text-slate-700'}`}><input type="radio" name={`flyer-rw-title-${titleQuestion.id}`} checked={answers[titleQuestion.id] === option.id} onChange={() => onAnswer(titleQuestion.id, option.id)} className="mr-2" /><b>{String.fromCharCode(65 + index)}.</b> {option.text}</label>)}</div></fieldset>}
+    </div>
+  </div>;
 }
 
 function StoryCompletion({ unit, answers, onAnswer }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer'] }) {

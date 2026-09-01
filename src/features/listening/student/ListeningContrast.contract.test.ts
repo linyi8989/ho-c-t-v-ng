@@ -226,7 +226,7 @@ test('completed Listening attempts share one visual result renderer with Learnin
   assert.match(visualReviewSource, /ExamImageViewer src=\{imageUrl\} alt=\{alt\} profile="interactive-scene"/);
   assert.doesNotMatch(visualReviewSource, /<img src=\{imageUrl\} alt=\{alt\}/);
   assert.match(globalCss, /\[data-listening-visual-review\] button\.exam-platform-image-expand:not\(:disabled\)/);
-  assert.match(globalCss, /\.exam-platform-image-dialog button\.exam-platform-image-tool:not\(:disabled\)/);
+  assert.match(globalCss, /#exam-platform-image-dialog button\.exam-platform-image-tool:not\(:disabled\)/);
   assert.match(visualReviewSource, /source\.schemaVersion !== 2/);
   assert.match(visualReviewSource, /listening-review-part-tab/);
   assert.match(visualReviewSource, /data-active=\{item\.part === activePart \? 'true' : 'false'\}/);

@@ -229,7 +229,10 @@ function collectAssetFields(content: ExamPaperContent) {
     layout.targets.forEach(target => add(target.tokenAssetId, 'image', target.id, 'draw-token', url => { target.tokenUrl = url; }));
   };
   const addReadingMedia = (owner: Pick<ExamPaperContent['parts'][number], 'examples' | 'readingScenes'>) => {
-    (owner.examples || []).forEach((example, index) => add(example.imageAssetId, 'image', `example-${index + 1}`, 'example-image', url => { example.imageUrl = url; }));
+    (owner.examples || []).forEach((example, index) => {
+      add(example.imageAssetId, 'image', `example-${index + 1}`, 'example-image', url => { example.imageUrl = url; });
+      add(example.secondaryImageAssetId, 'image', `example-${index + 1}`, 'example-secondary-image', url => { example.secondaryImageUrl = url; });
+    });
     (owner.readingScenes || []).forEach(scene => add(scene.imageAssetId, 'image', scene.id, 'reading-scene-image', url => { scene.imageUrl = url; }));
   };
   add(content.coverAssetId, 'image', 'paper', 'cover', url => { content.coverUrl = url; });
@@ -246,6 +249,7 @@ function collectAssetFields(content: ExamPaperContent) {
     });
     part.questions.forEach(question => {
       add(question.imageAssetId, 'image', question.id, 'question-image', url => { question.imageUrl = url; });
+      add(question.secondaryImageAssetId, 'image', question.id, 'question-secondary-image', url => { question.secondaryImageUrl = url; });
       question.options.forEach(option => add(option.imageAssetId, 'image', option.id, 'option-image', url => { option.imageUrl = url; }));
     });
   });
@@ -258,7 +262,10 @@ async function resolveContentAssets(db: any, raw: ExamPaperContent, user: any) {
     if (text(url, 2_000) && !text(assetId, 180)) throw apiError(400, `${label} phải được chọn từ thư viện media.`);
   };
   const requireReadingMediaIds = (owner: Pick<ExamPaperContent['parts'][number], 'examples' | 'readingScenes'>, label: string) => {
-    (owner.examples || []).forEach((example, index) => requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`));
+    (owner.examples || []).forEach((example, index) => {
+      requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`);
+      requireAssetIdForUrl(example.secondaryImageAssetId, example.secondaryImageUrl, `${label}, ảnh phụ example ${index + 1}`);
+    });
     (owner.readingScenes || []).forEach((scene, index) => requireAssetIdForUrl(scene.imageAssetId, scene.imageUrl, `${label}, reading scene ${index + 1}`));
   };
   const requireDrawTokenIds = (layout: ExamPaperContent['parts'][number]['interactionLayout'], label: string) => {
@@ -279,6 +286,7 @@ async function resolveContentAssets(db: any, raw: ExamPaperContent, user: any) {
     });
     part.questions.forEach(question => {
       requireAssetIdForUrl(question.imageAssetId, question.imageUrl, `Ảnh câu ${question.number}`);
+      requireAssetIdForUrl(question.secondaryImageAssetId, question.secondaryImageUrl, `Ảnh phụ câu ${question.number}`);
       question.options.forEach(option => requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `Ảnh lựa chọn ${option.label}`));
     });
   });

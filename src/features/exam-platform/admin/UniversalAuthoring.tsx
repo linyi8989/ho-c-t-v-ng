@@ -151,7 +151,7 @@ export function UniversalPartImportPanel({
           if (fixed?.questionCounts && result.part.questions.length !== fixed.questionCounts[partIndex]) {
             throw new Error(`${fixed.label} Part ${partIndex + 1} phải có đúng ${fixed.questionCounts[partIndex]} câu. JSON chưa được áp dụng.`);
           }
-          onChange(result.part, !((content.moduleId === 'flyer' && (content.paperId === 'listening' || content.paperId === 'reading-writing')) || (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') || (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1')));
+          onChange(result.part, !((content.moduleId === 'starter' && content.paperId === 'reading-writing') || (content.moduleId === 'flyer' && (content.paperId === 'listening' || content.paperId === 'reading-writing')) || (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') || (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1')));
           onMessage({ text: `Đã nhập Part ${partIndex + 1}: ${result.report.blockCount} dạng, ${result.report.questionCount} câu.${result.report.warnings.length ? ` ${result.report.warnings.length} mục cần xác nhận.` : ''}` });
         }
       } catch (reason: any) {

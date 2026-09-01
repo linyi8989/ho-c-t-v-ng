@@ -129,7 +129,8 @@ function PartView({ moduleId, paperId, part, answers, onAnswer, starterListening
     const partImage = !special && unit.imageUrl
       ? <ExamImageViewer src={unit.imageUrl} alt={`Ảnh Part ${unit.part}`} profile={imageProfile} className="border border-slate-200 bg-white" />
       : null;
-    const passage = unit.passage ? <div className="rounded-2xl border border-slate-200 bg-white p-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{unit.passage}</div> : null;
+    const hideStarterPart2DuplicateExample = starterListening && part.part === 2 && special;
+    const passage = unit.passage && !hideStarterPart2DuplicateExample ? <div className="rounded-2xl border border-slate-200 bg-white p-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{unit.passage}</div> : null;
     const answerContent = <>
       {unit.audioUrl && !starterListening && <audio controls preload="metadata" src={unit.audioUrl} className="w-full" />}
       {special ? <StarterInteractionView part={unit} answers={answers} onAnswer={onAnswer} /> : unit.questions.map(question => <QuestionView key={question.id} question={question} value={questionAnswerValue(answers[question.id])} onChange={value => onAnswer(question.id, value)} />)}
@@ -303,6 +304,20 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
 
   const activePart = playable.content.parts[currentPart];
   const ketListening = isFixedKetListeningContent(playable.content);
+  const listeningHeader = ketListening && activePart.part === 4
+    ? 'Part 4 listening - Question 16–20.'
+    : ketListening && activePart.part === 5
+      ? 'Part 5 listening - Question 21–25.'
+      : activePart.instruction;
+  const compactStarterListeningFrame = moduleId === 'starter' && paperId === 'listening' && !ketListening && [1, 3, 4].includes(activePart.part);
+  const fixedListeningWorkArea = !ketListening && (moduleId === 'flyer' ? [1, 5].includes(activePart.part) : [1, 4].includes(activePart.part));
+  const listeningWorkAreaClass = compactStarterListeningFrame
+    ? fixedListeningWorkArea
+      ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1 sm:h-[calc(90dvh-261px)] sm:min-h-[360px]'
+      : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1 sm:max-h-[calc(90dvh-261px)] sm:min-h-[360px]'
+    : fixedListeningWorkArea
+      ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1'
+      : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1';
   if (((moduleId === 'starter' || moduleId === 'flyer') && paperId === 'listening') || ketListening) return <main id="listening-exam-root" className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100 p-2 sm:p-4">
     <header className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-1 py-2 text-white">
       <div className="rounded-2xl bg-sky-700/80 px-5 py-2 shadow"><p className="text-lg font-black">{ketListening ? 'KET' : moduleId === 'flyer' ? 'Flyers' : 'Starters'}</p><p className="text-[10px] font-black uppercase">Listening · Part {currentPart + 1}</p></div>
@@ -310,9 +325,9 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
       <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{answered}/{totalQuestions} câu</div>
     </header>
-    <section className="mx-auto max-w-[1500px] rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6">
-      <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center"><p className="text-lg font-black uppercase text-slate-950">{activePart.instruction}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
-      <div className={!ketListening && (moduleId === 'flyer' ? [1, 5].includes(activePart.part) : [1, 4].includes(activePart.part)) ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1' : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1'}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !ketListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
+    <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${compactStarterListeningFrame ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
+      <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center"><p className="text-lg font-black uppercase text-slate-950">{listeningHeader}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
+      <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !ketListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
     </section>
     <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
       <button type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>

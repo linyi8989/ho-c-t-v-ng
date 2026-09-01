@@ -20,6 +20,7 @@ import {
 } from '../starterMatching';
 import { groupStarterPart3OptionCrops } from '../starterPart3Crops';
 import { buildStarterListeningBundlePrompt } from '../starterImportPrompt';
+import { joinStarterPart2ExampleLines, starterPart2ExampleEditorLines } from '../starterListeningPart2';
 import { examPartUnits, replaceExamPartUnit } from '../examStructure';
 import {
   STARTER_BASIC_COLOURS,
@@ -262,6 +263,11 @@ export function StarterQuickAssetPanel({
 const sameRegion = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
 
 export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartContent; onChange: (part: ExamPartContent) => void }) {
+  const exampleLines = starterPart2ExampleEditorLines(part.passage);
+  const updateExampleLine = (index: number, value: string) => onChange({
+    ...part,
+    passage: joinStarterPart2ExampleLines(exampleLines.map((line, lineIndex) => lineIndex === index ? value : line)),
+  });
   const normalizeQuestion = (question: ExamPartContent['questions'][number], patch: Partial<ExamPartContent['questions'][number]> = {}) => {
     const merged = { ...question, ...patch };
     const {
@@ -288,7 +294,13 @@ export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartConte
       <p className="mt-1 text-xs font-semibold leading-5 text-sky-800">Dạng câu được cố định là short-answer. Đặt <code>____</code> tại vị trí ô trống; nếu không có ký hiệu này, ô trả lời sẽ nằm cuối câu.</p>
     </div>
     <label className="block text-xs font-black text-slate-700">Tiêu đề nội dung<input value={part.title} onChange={event => onChange({ ...part, title: event.target.value })} className={`mt-1 ${fieldClass}`} placeholder="Ví dụ: THE LAKE CAFÉ" /></label>
-    <label className="block text-xs font-black text-slate-700">Ví dụ không chấm điểm (không bắt buộc)<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-1 min-h-20 ${fieldClass}`} placeholder="Ví dụ: What's the boy's name? — Sam" /></label>
+    <section className="rounded-2xl border border-sky-200 bg-white p-4" data-starter-part2-example-editor>
+      <p className="text-xs font-black text-slate-700">Hai example không chấm điểm</p>
+      <p className="mt-1 text-[11px] font-semibold text-slate-500">Mỗi example là một câu riêng và sẽ hiển thị thành đúng hai dòng dưới ảnh.</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {exampleLines.map((line, index) => <label key={index} className="block text-xs font-black text-slate-700">Example {index + 1}<input value={line} onChange={event => updateExampleLine(index, event.target.value)} className={`mt-1 ${fieldClass}`} placeholder={index === 0 ? "What's the boy's name? — Sam." : 'How old is he? — 10.'} /></label>)}
+      </div>
+    </section>
     <div className="space-y-3">
       {part.questions.map((question, questionIndex) => <div key={question.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <p className="text-sm font-black text-slate-800">Câu {questionIndex + 1}</p>

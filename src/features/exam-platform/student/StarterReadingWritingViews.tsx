@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
 import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
 import type { ExamImageProfile } from '../../exam-media/imageProfiles';
 import { examPartUnits } from '../examStructure';
@@ -44,6 +44,18 @@ function Image({ src, alt, profile = 'split-page', maxHeight }: { src?: string; 
     : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
 }
 
+function FramedImage({ src, alt, className = 'h-32', transparentFrame = false }: { src?: string; alt: string; className?: string; transparentFrame?: boolean }) {
+  return <div data-starter-rw-part3-image={transparentFrame ? 'true' : undefined} className={`min-w-0 overflow-hidden ${transparentFrame ? 'bg-transparent' : 'rounded-xl border border-slate-200 bg-slate-50'} ${className}`}>
+    {src ? <ExamImageViewer src={src} alt={alt} fillFrame className={transparentFrame ? 'rounded-none bg-transparent' : 'rounded-xl bg-white'} /> : <div className="flex h-full items-center justify-center p-3 text-center text-xs font-bold text-slate-400">Không có ảnh</div>}
+  </div>;
+}
+
+function LargeLeftImage({ src, alt, profile }: { src?: string; alt: string; profile: ExamImageProfile }) {
+  return <div className="h-[clamp(380px,64dvh,650px)] min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-2" data-starter-rw-large-image-frame>
+    {src ? <ExamImageViewer src={src} alt={alt} profile={profile} fillFrame className="rounded-xl bg-white" /> : <div className="flex h-full items-center justify-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>}
+  </div>;
+}
+
 function TwoColumn({ media, children }: { media: ReactNode; children: ReactNode }) {
   return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
 }
@@ -56,7 +68,94 @@ function YesNoQuestion({ question, index, value, onChange }: { key?: string; que
   </fieldset>;
 }
 
+function InlineYesNoQuestion({ question, index, value, onChange, imageUrl }: { key?: string; question: ExamQuestion; index: number; value: ExamAnswerValue | undefined; onChange: (value: string) => void; imageUrl?: string }) {
+  const selected = typeof value === 'string' ? value : '';
+  return <fieldset className={`grid items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ${imageUrl ? 'grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[150px_minmax(0,1fr)]' : ''}`} data-starter-rw-yes-no-row>
+    {imageUrl && <FramedImage src={imageUrl} alt={`Hình câu ${index + 1}`} className="h-24 sm:h-28" />}
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+      <p className="min-w-0 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{question.prompt}</p>
+      <div className="grid shrink-0 grid-cols-2 gap-2" role="radiogroup" aria-label={`Câu ${index + 1}`}>
+        {question.options.slice(0, 2).map(option => <label key={option.id} data-selected={selected === option.id} className="starter-rw-inline-choice cursor-pointer rounded-xl border px-4 py-2.5 text-center text-xs font-black uppercase"><input className="sr-only" type="radio" name={`starter-rw-inline-${question.id}`} checked={selected === option.id} onChange={() => onChange(option.id)} />{option.text}</label>)}
+      </div>
+    </div>
+  </fieldset>;
+}
+
+function PictureExampleRow({ imageUrl, prompt, answer, index }: { key?: string; imageUrl?: string; prompt: string; answer: string; index: number }) {
+  return <div className="grid grid-cols-[112px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-3 sm:grid-cols-[150px_minmax(0,1fr)]" data-starter-rw-picture-example>
+    <FramedImage src={imageUrl} alt={`Hình example ${index + 1}`} className="h-24 sm:h-28" />
+    <p className="grid min-w-0 items-center gap-3 text-sm font-semibold leading-6 text-slate-800 sm:grid-cols-[minmax(0,1fr)_auto]"><span><b className="mr-2 text-indigo-700">Example.</b>{prompt}</span><b className="rounded-lg border-b-2 border-dotted border-indigo-500 bg-white px-4 py-2 text-center text-indigo-900">{answer}</b></p>
+  </div>;
+}
+
+export function starterSpellingCharacters(value: string, length: number) {
+  const boundedLength = Math.max(1, Math.min(30, length || 1));
+  return Array.from(value).filter(character => /[\p{L}\p{N}'-]/u.test(character)).slice(0, boundedLength);
+}
+
+export function updateStarterSpellingValue(value: string, length: number, index: number, input: string) {
+  const boundedLength = Math.max(1, Math.min(30, length || 1));
+  const current = starterSpellingCharacters(value, boundedLength);
+  const typed = starterSpellingCharacters(input, boundedLength);
+  const safeIndex = Math.max(0, Math.min(boundedLength - 1, index));
+  const next = Array.from({ length: boundedLength }, (_, cell) => current[cell] || '');
+  if (!typed.length) {
+    next[safeIndex] = '';
+  } else {
+    const insertionIndex = next[safeIndex] || safeIndex <= current.length ? safeIndex : current.length;
+    typed.slice(0, boundedLength - insertionIndex).forEach((character, offset) => { next[insertionIndex + offset] = character; });
+  }
+  return next.join('');
+}
+
+function SpellingAnswerCells({ answer }: { answer?: string }) {
+  const characters = starterSpellingCharacters(answer || '', Math.max(1, Array.from(answer || '').length));
+  return <span className="flex min-w-0 flex-wrap items-center justify-center gap-1" data-starter-rw-spelling-example aria-label={`Đáp án example: ${answer || ''}`}>
+    {Array.from({ length: Math.max(1, characters.length) }, (_, index) => <span key={index} className="starter-rw-spelling-example-cell flex h-9 w-8 items-center justify-center border-b-2 text-lg font-black lowercase">{characters[index] || ''}</span>)}
+  </span>;
+}
+
+function SpellingInput({ question, value, onChange }: { question: ExamQuestion; value: string; onChange: (value: string) => void }) {
+  // Correct answers are deliberately removed from the playable payload. The
+  // authoring/import contract carries the visible dash count separately.
+  const length = Math.max(1, Math.min(30, question.answerLength || 3));
+  const characters = starterSpellingCharacters(value, length);
+  const inputs = (target: HTMLInputElement) => target.parentElement?.querySelectorAll<HTMLInputElement>('input');
+  const handleChange = (index: number, event: ChangeEvent<HTMLInputElement>) => {
+    const typed = starterSpellingCharacters(event.target.value, length);
+    const insertionIndex = characters[index] || index <= characters.length ? index : characters.length;
+    onChange(updateStarterSpellingValue(value, length, index, event.target.value));
+    if (typed.length) inputs(event.currentTarget)?.[Math.min(length - 1, insertionIndex + typed.length)]?.focus();
+  };
+  const handleKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
+    const cells = inputs(event.currentTarget);
+    if (event.key === 'ArrowLeft' && index > 0) {
+      cells?.[index - 1]?.focus();
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'ArrowRight' && index < length - 1) {
+      cells?.[index + 1]?.focus();
+      event.preventDefault();
+      return;
+    }
+    if (event.key !== 'Backspace' || characters[index] || index <= 0) return;
+    onChange(updateStarterSpellingValue(value, length, index - 1, ''));
+    cells?.[index - 1]?.focus();
+    event.preventDefault();
+  };
+  return <span className="flex min-w-0 flex-wrap items-center justify-center gap-1" role="group" data-starter-rw-spelling-cells aria-label={`Câu trả lời ${question.displayNumber || question.number}: ${question.prompt}`}>
+    <span className="sr-only">Câu trả lời {question.number}: {question.prompt}</span>
+    {Array.from({ length }, (_, index) => <input key={index} value={characters[index] || ''} maxLength={length} inputMode="text" autoComplete="off" aria-label={`Chữ cái ${index + 1} câu ${question.displayNumber || question.number}`} onFocus={event => event.currentTarget.select()} onChange={event => handleChange(index, event)} onKeyDown={event => handleKeyDown(index, event)} className="starter-rw-spelling-cell h-10 w-8 border-0 border-b-2 text-center text-lg font-black lowercase outline-none" />)}
+  </span>;
+}
+
 function PartOne({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
+  const croppedLayout = (unit.examples || []).length === 2 && (unit.examples || []).every(example => example.imageUrl) && unit.questions.every(question => question.imageUrl);
+  if (croppedLayout) return <div className="mx-auto max-w-5xl space-y-3" data-starter-rw-part1-cropped-rows>
+    {(unit.examples || []).map((example, index) => <PictureExampleRow key={`example-${index}`} imageUrl={example.imageUrl} prompt={example.prompt} answer={example.answer} index={index} />)}
+    {unit.questions.map((question, index) => <InlineYesNoQuestion key={question.id} question={question} index={index} imageUrl={question.imageUrl} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}
+  </div>;
   const example = unit.examples?.[0];
   return <div className="space-y-6">
     {example?.imageUrl && <div className="mx-auto max-w-4xl"><Image src={example.imageUrl} alt="Ảnh example Part 1" profile="cover" maxHeight="min(34dvh, 300px)" /></div>}
@@ -65,10 +164,24 @@ function PartOne({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<P
 }
 
 function PartTwo({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<Image src={unit.imageUrl} alt="Tranh tình huống Part 2" profile="illustration" />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <YesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
+  return <TwoColumn media={<LargeLeftImage src={unit.imageUrl} alt="Tranh tình huống Part 2" profile="illustration" />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <InlineYesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
 }
 
 function PartThree({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
+  const example = unit.examples?.[0];
+  const croppedLayout = Boolean(example?.imageUrl && example.secondaryImageUrl) && unit.questions.every(question => question.imageUrl && question.secondaryImageUrl);
+  if (croppedLayout) return <div className="mx-auto max-w-5xl space-y-3" data-starter-rw-part3-paired-rows>
+    <div className="grid grid-cols-[minmax(64px,1fr)_minmax(112px,180px)_minmax(64px,1fr)] items-center gap-3 px-1 py-2 sm:grid-cols-[minmax(90px,1fr)_minmax(180px,290px)_minmax(90px,1fr)]" data-starter-rw-part3-row>
+      <FramedImage src={example?.imageUrl} alt="Hình example bên trái" className="h-24 sm:h-32" transparentFrame />
+      <div className="min-w-0 text-center" data-starter-rw-part3-answer><SpellingAnswerCells answer={example?.answer} /></div>
+      <FramedImage src={example?.secondaryImageUrl} alt="Hình example bên phải" className="h-24 sm:h-32" transparentFrame />
+    </div>
+    {unit.questions.map((question, index) => <div key={question.id} className="grid grid-cols-[minmax(64px,1fr)_minmax(112px,180px)_minmax(64px,1fr)] items-center gap-3 px-1 py-2 sm:grid-cols-[minmax(90px,1fr)_minmax(180px,290px)_minmax(90px,1fr)]" data-starter-rw-part3-row>
+      <FramedImage src={question.imageUrl} alt={`Hình bên trái câu ${index + 1}`} className="h-24 sm:h-32" transparentFrame />
+      <div className="min-w-0" data-starter-rw-part3-answer><SpellingInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} /></div>
+      <FramedImage src={question.secondaryImageUrl} alt={`Hình bên phải câu ${index + 1}`} className="h-24 sm:h-32" transparentFrame />
+    </div>)}
+  </div>;
   return <TwoColumn media={<Image src={unit.imageUrl} alt="Trang bài tập Part 3" profile="split-page" />}><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{unit.questions.map((question, index) => <div key={question.id} className="border-b border-slate-100 py-4 last:border-0"><p className="text-base font-semibold leading-10 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{renderPrompt(question, <TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} />)}</p></div>)}</div></TwoColumn>;
 }
 
@@ -84,7 +197,7 @@ function renderStory(unit: ExamPartContent, answers: ExamAnswers, onAnswer: Prop
 }
 
 function PartFour({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<Image src={unit.imageUrl} alt="Ngân hàng từ Part 4" profile="word-bank" />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
+  return <TwoColumn media={<LargeLeftImage src={unit.imageUrl} alt="Ngân hàng từ Part 4" profile="word-bank" />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
 }
 
 function PartFive({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {

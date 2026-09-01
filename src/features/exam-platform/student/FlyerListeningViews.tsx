@@ -36,19 +36,22 @@ function FlyerNamePlacementView({ part, answers, onAnswer }: { part: ExamPartCon
   }} /></div>;
 }
 
-export function FlyerLetterMatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export function FlyerLetterMatchingView({ part, answers, onAnswer, singleImage = false }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void; singleImage?: boolean }) {
   const unit = examPartUnits(part)[0] || part;
   const middle = unit.readingScenes?.[0]?.imageUrl || part.readingScenes?.[0]?.imageUrl;
+  const ketImage = part.imageUrl || middle;
   return <div className="space-y-3" data-flyer-listening-part="3" data-flyer-interaction="two-image-letter-input">
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-2">
-      <div data-flyer-part3-fixed-frames className="grid h-[clamp(360px,58vh,600px)] min-w-[920px] grid-cols-[minmax(300px,1fr)_minmax(300px,1fr)_180px] overflow-hidden rounded-2xl border-2 border-slate-300 bg-white divide-x-2 divide-slate-300">
-        <div className="min-w-0 overflow-hidden p-2">{part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Các lựa chọn A đến H" fillFrame className="rounded-xl bg-white" /> : <MissingImage label="ảnh lựa chọn A-H" />}</div>
-        <div className="min-w-0 overflow-hidden p-2">{middle ? <ExamImageViewer src={middle} alt="Danh sách người cần ghép" fillFrame className="rounded-xl bg-white" /> : <MissingImage label="ảnh người và tên" />}</div>
+      <div data-flyer-part3-fixed-frames data-letter-matching-image-count={singleImage ? 1 : 2} className={`grid h-[clamp(360px,58vh,600px)] overflow-hidden rounded-2xl border-2 border-slate-300 bg-white divide-x-2 divide-slate-300 ${singleImage ? 'min-w-[680px] grid-cols-[minmax(360px,1fr)_220px]' : 'min-w-[960px] grid-cols-[minmax(300px,1fr)_minmax(300px,1fr)_220px]'}`}>
+        {singleImage
+          ? <div className="min-w-0 overflow-hidden p-2">{ketImage ? <ExamImageViewer src={ketImage} alt="KET letter-matching task" fillFrame className="rounded-xl bg-white" /> : <MissingImage label="ảnh đề" />}</div>
+          : <><div className="min-w-0 overflow-hidden p-2">{part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Các lựa chọn A đến H" fillFrame className="rounded-xl bg-white" /> : <MissingImage label="ảnh lựa chọn A-H" />}</div>
+            <div className="min-w-0 overflow-hidden p-2">{middle ? <ExamImageViewer src={middle} alt="Danh sách người cần ghép" fillFrame className="rounded-xl bg-white" /> : <MissingImage label="ảnh người và tên" />}</div></>}
         <div className="min-w-0 space-y-2 overflow-y-auto bg-white p-3"><h3 className="text-center text-sm font-black uppercase text-blue-800">Write a letter</h3>{unit.questions.map((question, index) => {
           const raw = answers[question.id];
           const value = typeof raw === 'string' ? raw : '';
-          const displayNumber = question.displayNumber || index + 1;
-          return <label key={question.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm font-black text-slate-800"><span className="w-7 shrink-0 text-right text-blue-700">{displayNumber}.</span><input value={value} maxLength={1} inputMode="text" autoComplete="off" aria-label={`Chữ cái đáp án câu ${displayNumber}`} onChange={event => onAnswer(question.id, event.target.value.toUpperCase().replace(/[^A-H]/g, '').slice(0, 1))} className="h-10 min-w-0 flex-1 rounded-lg border-2 border-blue-300 bg-white text-center text-xl font-black uppercase text-blue-900" /></label>;
+          const personName = question.prompt.trim() || `Người ${index + 1}`;
+          return <label key={question.id} data-flyer-part3-answer-name={personName} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm font-black text-slate-800"><span className="min-w-0 flex-1 break-words text-left text-blue-800">{personName}</span><input value={value} maxLength={1} inputMode="text" autoComplete="off" aria-label={`Chữ cái đáp án cho ${personName}`} onChange={event => onAnswer(question.id, event.target.value.toUpperCase().replace(/[^A-H]/g, '').slice(0, 1))} className="h-10 w-14 shrink-0 rounded-lg border-2 border-blue-300 bg-white text-center text-xl font-black uppercase text-blue-900" /></label>;
         })}</div>
       </div>
     </div>

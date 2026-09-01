@@ -148,7 +148,7 @@ function normalizePart(part: ExamPartContent, partNumber: number, startNumber: n
     questions,
     blocks: undefined,
     ...(importedExamples ? { examples: importedExamples } : { examples: undefined }),
-    ...(importedPassage ? { passage: importedPassage } : partNumber === 3 ? { passage: 'Listen and choose the best answer for each question.' } : { passage: undefined }),
+    ...(importedPassage ? { passage: importedPassage } : { passage: undefined }),
   };
   if (partNumber === 2) {
     next.readingScenes = importedScenes?.slice(0, 1).map(scene => ({ ...scene, questionIds: questions.map(question => question.id) }))

@@ -247,8 +247,8 @@ function PartTwo({ token, part, assets, onAssets, onChange }: Props) {
   const setQuestions = (questions: ExamQuestion[]) => onChange({ ...part, questions, readingScenes: part.readingScenes?.map(scene => ({ ...scene, questionIds: questions.map(question => question.id) })) });
   return <div className="space-y-4" data-ket-listening-part-two>
     <CountControls count={part.questions.length} onAdd={() => setQuestions([...part.questions, { ...shortQuestion(part, `Row ${part.questions.length + 1}`), maxWords: 1 }])} onRemove={() => setQuestions(part.questions.slice(0, -1))} />
-    <ImagePicker label="Ảnh thứ nhất · trang câu hỏi/lựa chọn A-H" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />
-    <FlyerPart3Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} />
+    <ImagePicker label="Ảnh đề duy nhất · hiển thị bên trái khu vực làm bài" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />
+    <FlyerPart3Editor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} singleImage />
   </div>;
 }
 
@@ -263,7 +263,7 @@ function ChoiceRows({ part, onChange }: { part: ExamPartContent; onChange: (part
 function PartThree({ part, onChange }: Props) {
   return <div className="space-y-4" data-ket-listening-part-three>
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, choiceQuestion(part, `Dialogue question ${part.questions.length + 1}`)] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
-    <label className="block rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-black text-indigo-950">Đề bài/hướng dẫn được ChatGPT tạo từ JSON<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-2 min-h-28 ${fieldClass}`} placeholder="Ví dụ: Listen to each conversation and choose the best answer, A, B or C." /></label>
+    <p className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-bold text-indigo-950">Tiêu đề chính của Part 3 được quản lý ở phần thông tin Part phía trên. Giao diện học sinh không lặp lại một khối tiêu đề nhỏ trong nội dung.</p>
     <ExampleEditor examples={part.examples || []} onChange={examples => onChange({ ...part, examples })} />
     <ChoiceRows part={part} onChange={onChange} />
   </div>;
@@ -273,7 +273,7 @@ function FormPart({ part, onChange }: Props) {
   const update = (index: number, question: ExamQuestion) => onChange({ ...part, questions: part.questions.map((item, itemIndex) => itemIndex === index ? question : item) });
   return <div className="space-y-4" data-ket-listening-form-part>
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, shortQuestion(part)] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
-    <label className="block rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-black text-indigo-950">Nội dung hướng dẫn, câu hỏi và example dạng chữ hiển thị phía trên<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-2 min-h-44 ${fieldClass}`} placeholder="Nội dung này được tạo từ JSON và hiển thị nguyên văn cho học sinh." /></label>
+    <label className="block rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-black text-indigo-950">Nội dung biểu mẫu và example hiển thị dưới tiêu đề chính<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-2 min-h-44 ${fieldClass}`} placeholder="Chỉ nhập nội dung in sẵn của biểu mẫu; không lặp Part, dải số câu hoặc hướng dẫn nghe." /></label>
     <div className="space-y-3">{part.questions.map((question, index) => <article key={question.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 xl:grid-cols-[100px_minmax(180px,1fr)_150px_150px_minmax(220px,1fr)]">
       <DisplayNumber question={question} onChange={next => update(index, next)} />
       <label className="text-xs font-black text-slate-700">Nhãn hàng<input value={question.prompt} onChange={event => update(index, { ...question, prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>

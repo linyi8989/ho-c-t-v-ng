@@ -82,7 +82,7 @@ function starterReadingWritingPrompt(content: ExamPaperContent, focusedPart?: nu
         title: 'Look, read and choose Yes or No',
         interaction: { family: 'choice', subtype: 'single', variant: 'yes-no', schemaVersion: 1 },
         content: {
-          examples: [{ prompt: 'Example sentence', answer: 'Yes' }],
+          examples: [{ prompt: 'Example sentence 1', answer: 'Yes' }, { prompt: 'Example sentence 2', answer: 'No' }],
           questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Sentence ${index + 1}`, type: 'true-false', options: [{ label: 'YES', text: 'Yes' }, { label: 'NO', text: 'No' }], answerSource: 'official-answer-key', answerKey: { correctOptionLabels: [index % 2 ? 'NO' : 'YES'] } })),
         },
       }],
@@ -109,7 +109,7 @@ function starterReadingWritingPrompt(content: ExamPaperContent, focusedPart?: nu
         blockNumber: 1,
         title: 'Spell the words',
         interaction: { family: 'text-entry', subtype: 'short-answer', variant: 'image-spelling', schemaVersion: 1 },
-        content: { questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Picture ${index + 1}: ____`, type: 'short-answer', maxWords: 1, answerSource: 'official-answer-key', answerKey: { acceptedAnswers: [`word-${index + 1}`] } })) },
+        content: { examples: [{ prompt: 'Printed example', answer: 'ear' }], questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: index + 1, prompt: `Picture ${index + 1}: ____`, type: 'short-answer', maxWords: 1, answerLength: 4, answerSource: 'official-answer-key', answerKey: { acceptedAnswers: [`word-${index + 1}`] } })) },
       }],
     },
     4: {
@@ -151,13 +151,13 @@ function starterReadingWritingPrompt(content: ExamPaperContent, focusedPart?: nu
 
 MỤC TIÊU
 ${focusedPart ? `- CHỈ phân tích Part ${focusedPart}; papers[0].parts chỉ chứa đúng Part ${focusedPart}.` : '- Phân tích đúng một bài gồm CỐ ĐỊNH 5 Part, mỗi Part đúng 5 câu chấm điểm, tổng 25 câu.'}
-- Giữ đúng mô hình giao diện đã khóa: Part 1 Yes/No có ảnh example riêng; Part 2 giống Movers Reading & Writing Part 2; Part 3 dùng nguyên trang ảnh ở bên trái và năm ô nhập ở bên phải; Part 4 giống Movers Part 4 nhưng có đúng năm gap; Part 5 giống Movers Part 5 với ba cảnh, hai example ở cảnh 1 và phân bố 5 câu chấm điểm là 1 + 2 + 2.
-- JSON chỉ chứa nội dung và đáp án. Giáo viên sẽ tải ảnh example, ảnh trang bài, ảnh word bank và ba ảnh cảnh trong editor.
+- Giữ đúng mô hình giao diện đã khóa: Part 1 có 2 example và 5 câu Yes/No theo 7 hàng ảnh; Part 2 giống Movers Reading & Writing Part 2; Part 3 có 1 hàng example và 5 hàng câu hỏi, mỗi hàng gồm ảnh trái, ô nhập giữa và ảnh chữ gợi ý bên phải; Part 4 giống Movers Part 4 nhưng có đúng năm gap; Part 5 giống Movers Part 5 với ba cảnh, hai example ở cảnh 1 và phân bố 5 câu chấm điểm là 1 + 2 + 2.
+- JSON chỉ chứa nội dung, đáp án và answerLength. Giáo viên tải một ảnh trang nguồn; ứng dụng dùng pixel để tự dò và crop 7 hình Part 1 hoặc crop 12 hình Part 3, đồng thời cho giáo viên kiểm tra/chỉnh vùng trước khi lưu. Ảnh word bank và ba ảnh cảnh còn lại được tải trong editor.
 
 QUY TẮC TỪNG PART
-- Part 1: một block choice/single/yes-no; content.examples có đúng một example không chấm; 5 câu có đúng hai options YES/NO.
+- Part 1: một block choice/single/yes-no; content.examples có đúng 2 example không chấm; 5 câu có đúng hai options YES/NO. Hai example và năm câu phải giữ đúng thứ tự từ trên xuống của đề gốc.
 - Part 2: một block choice/single/yes-no; content.examples chứa các example in trên đề; 5 nhận định có đúng hai options YES/NO.
-- Part 3: một block text-entry/short-answer/image-spelling; đúng 5 câu, mỗi câu một từ. Đọc đáp án từ official key, không tự giải chữ xáo trộn nếu key không rõ.
+- Part 3: một block text-entry/short-answer/image-spelling; content.examples có đúng 1 example; đúng 5 câu, mỗi câu một từ. Mỗi câu phải có answerLength bằng số chữ cái thực tế để player dựng đúng số gạch chân. Đọc đáp án từ official key, không tự giải chữ xáo trộn nếu key không rõ.
 - Part 4: một block text-entry/short-answer/story-gaps; content.passage phải giữ đủ và đúng một lần các marker [[1]], [[2]], [[3]], [[4]], [[5]] tại vị trí ô trống; đúng 5 answer keys một từ.
 - Part 5: một block text-entry/short-answer/scene-story; content.examples có đúng 2 example không chấm điểm và đều thuộc cảnh 1; content.scenes có đúng ba cảnh theo thứ tự, lần lượt 1, 2 và 2 câu chấm điểm; prompt đặt ____ tại vị trí ô nhập; mỗi đáp án tối đa ba từ.
 
@@ -319,10 +319,10 @@ function ketListeningPrompt(content: ExamPaperContent, focusedPart?: number) {
   }));
   const templates: Record<number, unknown> = {
     1: { partNumber: 1, title: 'Listen and tick the box', instruction: 'Listen and choose the correct picture.', blocks: [{ blockNumber: 1, title: 'Choose picture A, B or C', interaction: { family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'B' }], questions: choices(5) } }] },
-    2: { partNumber: 2, title: 'Listen and write a letter', instruction: 'Write a letter for each numbered item.', blocks: [{ blockNumber: 1, title: 'Two-image letter matching', interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'A' }], questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: 6 + index, prompt: `Row ${6 + index}`, type: 'short-answer', maxWords: 1, ...accepted([String.fromCharCode(65 + index)]) })) } }] },
-    3: { partNumber: 3, title: 'Listen and choose A, B or C', instruction: 'Choose the best reply for each conversation.', blocks: [{ blockNumber: 1, title: 'Dialogue choices', interaction: { family: 'choice', subtype: 'dialogue', variant: 'dialogue-choice', schemaVersion: 1 }, content: { passage: 'Transcribe the complete printed task instruction as text for students.', examples: [{ prompt: 'How are you?', answer: 'C' }], questions: choices(5, 11) } }] },
-    4: { partNumber: 4, title: 'Listen and complete the notes', instruction: 'Complete each field with the information you hear.', blocks: [{ blockNumber: 1, title: 'Listening form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: 'Transcribe the complete printed heading, instruction and example as text.', questions: formRows(5, 16) } }] },
-    5: { partNumber: 5, title: 'Listen and complete the notes', instruction: 'Complete each field with the information you hear.', blocks: [{ blockNumber: 1, title: 'Listening form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: 'Transcribe the complete printed heading, instruction and example as text.', questions: formRows(5, 21).map((question, index) => index === 0 ? { ...question, prompt: 'New address', answerPrefix: '98', answerSuffix: 'Road', ...accepted(['Warnock']) } : question) } }] },
+    2: { partNumber: 2, title: 'Listen and write a letter', instruction: 'Write a letter for each numbered item.', blocks: [{ blockNumber: 1, title: 'Single-image letter matching', interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'A' }], questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: 6 + index, prompt: `Row ${6 + index}`, type: 'short-answer', maxWords: 1, ...accepted([String.fromCharCode(65 + index)]) })) } }] },
+    3: { partNumber: 3, title: 'Listen and choose A, B or C', instruction: 'Choose the best reply for each conversation.', blocks: [{ blockNumber: 1, title: 'Dialogue choices', interaction: { family: 'choice', subtype: 'dialogue', variant: 'dialogue-choice', schemaVersion: 1 }, content: { examples: [{ prompt: 'How are you?', answer: 'C' }], questions: choices(5, 11) } }] },
+    4: { partNumber: 4, title: 'Part 4 listening - Question 16–20.', instruction: 'Part 4 listening - Question 16–20.', blocks: [{ blockNumber: 1, title: 'Listening form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: 'Phone Message\nTo: Martin\nInclude only the printed form content and example.', questions: formRows(5, 16) } }] },
+    5: { partNumber: 5, title: 'Part 5 listening - Question 21–25.', instruction: 'Part 5 listening - Question 21–25.', blocks: [{ blockNumber: 1, title: 'Listening form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: 'Event details\nInclude only the printed form content and example.', questions: formRows(5, 21).map((question, index) => index === 0 ? { ...question, prompt: 'New address', answerPrefix: '98', answerSuffix: 'Road', ...accepted(['Warnock']) } : question) } }] },
   };
   return `Bạn là chuyên gia số hóa Cambridge A2 Key (KET) Listening từ ảnh/PDF đề bài và official answer key.
 
@@ -333,9 +333,9 @@ MỤC TIÊU CẤU TRÚC
 
 ÁNH XẠ GIAO DIỆN
 - Part 1: giống Movers Listening Part 4 và mỗi câu vẫn có ba đáp án A/B/C. Ứng dụng chỉ tự crop ba ảnh lựa chọn cho từng câu in số 1, 2, 4, 5, tổng cộng 12 ảnh. Câu in số 3 là đúng MỘT ảnh tổng đặc biệt do giáo viên tải/dán riêng; ảnh nằm trên và ba nút A/B/C nằm dưới, tuyệt đối không sinh ba crop hay ba ảnh riêng cho câu 3. Câu thêm ngoài bộ 1–5 do giáo viên gắn ảnh thủ công.
-- Part 2: giống Flyers Reading & Writing Part 3: hai ảnh đặt cạnh nhau và cột nhập chữ ở bên phải. Trả đúng một example, prompt/nhãn của từng hàng và acceptedAnswers là đúng một chữ A–H.
-- Part 3: giống Movers Reading & Writing Part 3 nhưng không dùng ảnh. content.passage bắt buộc chứa nguyên đề bài/hướng dẫn được nhận diện để hiển thị cho học sinh. Trả đúng một example dạng text; mỗi câu có prompt là lời thoại/câu hỏi đầy đủ nằm trên và đúng ba lựa chọn A/B/C nằm dưới.
-- Part 4 và Part 5: giống Key Reading & Writing Part 8 nhưng dùng cho nghe. Không phụ thuộc ảnh; content.passage phải chép đầy đủ tiêu đề, hướng dẫn, thông tin in sẵn và example thành text để hiển thị phía trên. Mỗi question là một hàng biểu mẫu có questionNumber, prompt là nhãn, answerPrefix là chữ/ký hiệu in sẵn trước ô và answerSuffix là chữ/ký hiệu in sẵn sau ô (cả hai đều có thể rỗng), maxWords và acceptedAnswers. Ví dụ câu 21 “New address: 98 ___ Road” phải trả answerPrefix "98", answerSuffix "Road", acceptedAnswers chỉ là phần điền giữa như "Warnock".
+- Part 2: dùng đúng một ảnh đặt bên trái và cột nhập chữ ở bên phải. Trả đúng một example, prompt/nhãn của từng hàng và acceptedAnswers là đúng một chữ A–H.
+- Part 3: không dùng ảnh và không trả content.passage lặp lại tiêu đề/hướng dẫn. Trả đúng một example dạng text; mỗi câu có prompt là lời thoại/câu hỏi đầy đủ nằm trên và đúng ba lựa chọn A/B/C nằm dưới.
+- Part 4 và Part 5: title và instruction phải lần lượt đúng “Part 4 listening - Question 16–20.” và “Part 5 listening - Question 21–25.”. content.passage CHỈ chứa nội dung biểu mẫu in sẵn và example nằm dưới tiêu đề chính; tuyệt đối không lặp PART, dải QUESTIONS, tiêu đề hoặc hướng dẫn nghe. Mỗi question là một hàng biểu mẫu có questionNumber, prompt là nhãn, answerPrefix là chữ/ký hiệu in sẵn trước ô và answerSuffix là chữ/ký hiệu in sẵn sau ô (cả hai đều có thể rỗng), maxWords và acceptedAnswers. Ví dụ câu 21 “New address: 98 ___ Road” phải trả answerPrefix "98", answerSuffix "Road", acceptedAnswers chỉ là phần điền giữa như "Warnock".
 
 QUY TẮC ĐÁP ÁN
 - Chỉ dùng answerSource "official-answer-key" khi nhìn thấy đáp án trực tiếp trong key. Nếu chưa chắc, dùng "unverified" và để answerKey rỗng; không đoán từ transcript.
@@ -349,7 +349,7 @@ QUY TẮC ĐÁP ÁN
 JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa và số lượng mẫu bằng dữ liệu thật):
 ${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: content.title, description: content.description, level: 'A2 Key' }, papers: [{ paperId: 'listening', title: 'Listening', timeLimitMinutes: content.timeLimitMinutes || 30, parts: selected.map(part => templates[part]) }] }, null, 2)}
 
-Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng số câu thật và đúng interaction đã khóa` : 'đủ 5 Part; Part 1 có 12 crop + một ảnh chung câu 3, Part 2 hai ảnh + chữ A–H, Part 3 có passage đề bài + thoại A/B/C, Part 4/5 passage + form hỗ trợ prefix/input/suffix'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng số câu thật và đúng interaction đã khóa` : 'đủ 5 Part; Part 1 có 12 crop + một ảnh chung câu 3, Part 2 một ảnh + chữ A–H, Part 3 không lặp khối tiêu đề, Part 4/5 tách tiêu đề chính khỏi nội dung biểu mẫu và hỗ trợ prefix/input/suffix'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
 
 function ketReadingWritingPrompt(content: ExamPaperContent, focusedPart?: number) {
@@ -371,11 +371,11 @@ function ketReadingWritingPrompt(content: ExamPaperContent, focusedPart?: number
     ...accepted([String.fromCharCode(65 + index)]),
   }));
   const templates: Record<number, unknown> = {
-    1: { partNumber: 1, title: 'Write a letter', instruction: 'Read the question page and write a letter for each number.', blocks: [{ blockNumber: 1, title: 'Two-image letter matching', interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'A' }], questions: letters(5) } }] },
+    1: { partNumber: 1, title: 'Write a letter', instruction: 'Read the question page and write a letter for each number.', blocks: [{ blockNumber: 1, title: 'Single-image letter matching', interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'A' }], questions: letters(5) } }] },
     2: { partNumber: 2, title: 'Choose A, B or C', instruction: 'Read each question and choose the correct answer.', blocks: [{ blockNumber: 1, title: 'Text questions and answer rows', interaction: { family: 'choice', subtype: 'cloze', variant: 'multiple-choice-cloze', schemaVersion: 1 }, content: { examples: [{ prompt: 'Nina ____ up early that morning because it was her birthday.', answer: 'B' }], questions: choices(5, true, 6) } }] },
     3: { partNumber: 3, title: 'Two exercise groups', instruction: 'Complete both exercise groups.', blocks: [{ blockNumber: 1, title: 'Part 3A · Choose A, B or C', interaction: { family: 'choice', subtype: 'cloze', variant: 'multiple-choice-cloze', schemaVersion: 1 }, content: { questions: choices(5, true, 11) } }, { blockNumber: 2, title: 'Part 3B · Write a letter', interaction: { family: 'text-entry', subtype: 'letter-matching', variant: 'two-image-letter-input', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example', answer: 'A' }], questions: letters(5, 16) } }] },
     4: { partNumber: 4, title: 'Read and choose', instruction: 'Read each question and choose A, B or C.', blocks: [{ blockNumber: 1, title: 'Image, question and three choices', interaction: { family: 'choice', subtype: 'single', variant: 'prompt-choice-rows', schemaVersion: 1 }, content: { questions: choices(7, true, 21) } }] },
-    5: { partNumber: 5, title: 'Choose A, B or C', instruction: 'Choose the correct answer for each number.', blocks: [{ blockNumber: 1, title: 'Image and answer rows', interaction: { family: 'choice', subtype: 'cloze', variant: 'multiple-choice-cloze', schemaVersion: 1 }, content: { questions: choices(8, false, 28) } }] },
+    5: { partNumber: 5, title: 'Choose A, B or C', instruction: 'Choose the correct answer for each number.', blocks: [{ blockNumber: 1, title: 'Image, example and answer rows', interaction: { family: 'choice', subtype: 'cloze', variant: 'multiple-choice-cloze', schemaVersion: 1 }, content: { examples: [{ prompt: 'Printed example sentence', answer: 'A' }], questions: choices(8, false, 28) } }] },
     6: { partNumber: 6, title: 'Complete the spelling', instruction: 'The first letter is given. Write the remaining letters.', blocks: [{ blockNumber: 1, title: 'Initial-letter spelling', interaction: { family: 'text-entry', subtype: 'spelling', variant: 'initial-letter-spelling', schemaVersion: 1 }, content: { passage: 'PART 6\nRead the descriptions of some words. What is the word for each description? The first letter is already there.\nEXAMPLE\nYou can take photos of your holiday with this. c a m e r a', questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: 36 + index, prompt: `Description ${36 + index}`, type: 'short-answer', answerPrefix: 'p', answerLength: 8, maxWords: 1, ...accepted(['assport']) })) } }] },
     7: { partNumber: 7, title: 'Complete the text', instruction: 'Write one word for each numbered space.', blocks: [{ blockNumber: 1, title: 'Numbered text gaps', interaction: { family: 'text-entry', subtype: 'open-cloze', variant: 'image-numbered-gaps', schemaVersion: 1 }, content: { passage: 'PART 7\nComplete the letter. Write ONE word for each space.\nDear Pat,\nI arrived (Example: here) three weeks ago. Transcribe the complete printed text and preserve every numbered gap.', questions: Array.from({ length: 10 }, (_, index) => ({ questionNumber: 41 + index, prompt: '', type: 'short-answer', maxWords: 1, ...accepted([`word${index + 1}`]) })) } }] },
     8: { partNumber: 8, title: 'Complete the notes', instruction: 'Read the source and complete each labelled field.', blocks: [{ blockNumber: 1, title: 'Text source and form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: "Andy's Notes\nFilm Club with Sheila\nDay: Tuesday (Example)\nTranscribe the complete instruction and source text needed to answer the fields.", questions: Array.from({ length: 5 }, (_, index) => ({ questionNumber: 51 + index, prompt: ['Date', 'Name of film', 'Starting time', 'Ticket price', 'Meet Sheila in'][index], type: 'short-answer', answerPrefix: index === 3 ? '£' : '', maxWords: 5, ...accepted([`answer ${index + 1}`]) })) } }] },
@@ -385,20 +385,20 @@ function ketReadingWritingPrompt(content: ExamPaperContent, focusedPart?: number
 
 MỤC TIÊU CỐ ĐỊNH
 - ${focusedPart ? `CHỈ trả Part ${focusedPart}; papers[0].parts chỉ có đúng Part ${focusedPart}.` : 'Trả đúng 9 Part theo thứ tự 1–9.'}
-- Số câu của Part 1–8 KHÔNG bị khóa theo JSON mẫu. Hãy đọc số câu thật trên đề và tạo đúng số câu chấm điểm. Part 2 giữ example tách riêng; Part 6–8 chép example vào content.passage và không tạo câu chấm điểm cho example.
+- Số câu của Part 1–8 KHÔNG bị khóa theo JSON mẫu. Hãy đọc số câu thật trên đề và tạo đúng số câu chấm điểm. Part 2 và Part 5 giữ đúng một example tách riêng; Part 6–8 chép example vào content.passage và không tạo câu chấm điểm cho example.
 - Part 3 luôn có đúng hai blocks theo thứ tự 3A rồi 3B. Part 9 luôn có đúng một bài viết, points 10 và được chấm điểm nguyên 0–10.
-- JSON chỉ chứa nội dung/đáp án. Ảnh chỉ dùng ở Part 1, 3A, 3B, 4 và 5 và do giáo viên tải hoặc dán riêng trong editor; Part 2 và Part 6–9 phải trả đầy đủ chữ cần hiển thị, không phụ thuộc ảnh. Không trả asset ID, URL, base64, crop hay tọa độ.
+- JSON chỉ chứa nội dung/đáp án. Ảnh dùng ở Part 1, 3A, 3B, 4, 5 và 8, do giáo viên tải hoặc dán riêng trong editor; Part 2, 6, 7 và 9 phải trả đầy đủ chữ cần hiển thị, không phụ thuộc ảnh. Không trả asset ID, URL, base64, crop hay tọa độ.
 
 ÁNH XẠ GIAO DIỆN
-- Part 1: hai ảnh và một cột nhập chữ A–H, giống Flyers Reading & Writing Part 3.
+- Part 1: đúng một ảnh đặt bên trái và một cột nhập chữ A–H bên phải.
 - Part 2: không dùng ảnh. Trả đúng một example dạng chữ trong content.examples. Mỗi câu bắt buộc có questionNumber và prompt là câu hỏi thật; câu hỏi nằm trên, đúng ba đáp án A/B/C nằm ngay bên dưới.
 - Part 3A: ảnh hiển thị phía trên và phần làm bài ở dưới; không tạo khối example riêng. Mỗi câu bắt buộc có prompt là câu hỏi thật nằm trên ba đáp án A/B/C.
-- Part 3B: giống Part 1. Đọc đúng số in cạnh từng chỗ trống trên ảnh và trả số đó trong questionNumber (ví dụ 16, 17, 18, 19, 20); tuyệt đối không đánh lại thành 1..5. Hai nhóm có số câu độc lập và đều có thể thêm/bớt.
+- Part 3B: giống Part 1, chỉ dùng một ảnh bên trái. Đọc đúng số in cạnh từng chỗ trống trên ảnh và trả số đó trong questionNumber (ví dụ 16, 17, 18, 19, 20); tuyệt đối không đánh lại thành 1..5. Hai nhóm có số câu độc lập và đều có thể thêm/bớt.
 - Part 4: ảnh hiển thị phía trên, bỏ example riêng; mỗi câu nằm dưới ảnh với prompt ở trên và ba phương án A/B/C dàn đều bên dưới.
-- Part 5: ảnh hiển thị phía trên, bỏ example riêng; phần làm bài nằm bên dưới.
+- Part 5: ảnh hiển thị phía trên; trả đúng một example trong content.examples rồi đến phần làm bài bên dưới.
 - Part 6: không dùng ảnh. content.passage phải chép nguyên hướng dẫn và example thành chữ. Mỗi question bắt buộc có questionNumber, prompt, answerPrefix đúng một chữ cái và answerLength là TỔNG số ký tự của từ đầy đủ. answerKey.acceptedAnswers CHỈ chứa phần học sinh phải nhập, không gồm answerPrefix. Ví dụ passport: answerPrefix "p", answerLength 8, acceptedAnswers ["assport"], học sinh thấy đúng 7 ô.
 - Part 7: không dùng ảnh. content.passage phải chứa toàn bộ hướng dẫn, bài đọc và example thành chữ, giữ nguyên các số ô trống. Mỗi question chỉ cần questionNumber khớp bài đọc, prompt rỗng, maxWords 1 và đáp án; không sinh "Gap 1". Các ô được giao diện chia hai cột.
-- Part 8: không dùng ảnh. content.passage phải chứa hướng dẫn, nguồn thông tin và example thành chữ. Mỗi question có questionNumber, prompt là nhãn biểu mẫu, một answerPrefix không bắt buộc (ví dụ £) nằm ngay đầu cùng vùng nhập và acceptedAnswers chỉ chứa phần học sinh điền tiếp. Không sinh answerSuffix. Số hàng có thể thêm/bớt.
+- Part 8: giáo viên tải/dán một ảnh riêng trong editor và ảnh hiển thị phía trên khu vực làm bài; JSON không chứa trường ảnh. content.passage phải chứa hướng dẫn, nguồn thông tin và example thành chữ. Mỗi question có questionNumber, prompt là nhãn biểu mẫu, một answerPrefix không bắt buộc (ví dụ £) nằm ngay đầu cùng vùng nhập và acceptedAnswers chỉ chứa phần học sinh điền tiếp. Không sinh answerSuffix. Số hàng có thể thêm/bớt.
 - Part 9: không dùng ảnh. content.passage phải chứa đầy đủ câu hỏi và các gợi ý thành chữ; context/taskContext mô tả trung thực yêu cầu đó. minWords/maxWords do giáo viên cấu hình; không tự khóa ở 25–35 hay 50 từ. Giữ writingGrading đúng cấu trúc mẫu, points 10, scoreScale 10.
 
 QUY TẮC ĐÁP ÁN VÀ AN TOÀN
@@ -413,7 +413,7 @@ QUY TẮC ĐÁP ÁN VÀ AN TOÀN
 JSON MẪU ĐÚNG CẤU TRÚC (thay dữ liệu minh họa và số lượng mẫu bằng dữ liệu thật):
 ${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: content.title, description: content.description, level: 'A2 Key' }, papers: [{ paperId: 'reading-writing', title: 'Reading & Writing', timeLimitMinutes: content.timeLimitMinutes || 60, parts: selected.map(part => templates[part]) }] }, null, 2)}
 
-Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng interaction và đúng số câu thật trên ảnh` : 'đủ 9 Part; Part 3 đúng hai block; Part 9 đúng một bài viết 10 điểm'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng interaction và đúng số câu thật trên ảnh` : 'đủ 9 Part; Part 1/3B mỗi dạng chỉ một ảnh; Part 3 đúng hai block; Part 5 có một example; Part 8 có ảnh giáo viên gắn; Part 9 đúng một bài viết 10 điểm'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
 
 function buildUniversalExamPrompt(content: ExamPaperContent, focusedPart?: number) {

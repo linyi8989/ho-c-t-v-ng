@@ -4759,7 +4759,7 @@ function normalizeQuestion(part2, question, number2, mode) {
   return { ...base, type: "short-answer", options: [], correctOptionIds: [] };
 }
 function publicExamples(part2, examples) {
-  if (![1, 2].includes(part2)) return void 0;
+  if (![1, 2, 5].includes(part2)) return void 0;
   return examples?.length ? examples : [{ prompt: "Printed example", answer: "" }];
 }
 function blockFrom(source, part2, block, questions, interaction) {
@@ -4980,7 +4980,7 @@ function normalizePart3(part2, partNumber, startNumber) {
     questions,
     blocks: void 0,
     ...importedExamples ? { examples: importedExamples } : { examples: void 0 },
-    ...importedPassage ? { passage: importedPassage } : partNumber === 3 ? { passage: "Listen and choose the best answer for each question." } : { passage: void 0 }
+    ...importedPassage ? { passage: importedPassage } : { passage: void 0 }
   };
   if (partNumber === 2) {
     next.readingScenes = importedScenes?.slice(0, 1).map((scene) => ({ ...scene, questionIds: questions.map((question) => question.id) })) || [{ id: makeId3("ket-listening-p2-middle"), passage: "", questionIds: questions.map((question) => question.id) }];
@@ -10898,6 +10898,22 @@ function getListeningServerModule(moduleId) {
   return serverModules.get(moduleId);
 }
 
+// src/features/exam-platform/starterListeningPart2.ts
+var cleanLine = (value) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 2e3);
+function splitStarterPart2ExampleLines(value = "") {
+  const explicitLines = value.replace(/\r\n?/g, "\n").split(/\n+/).map(cleanLine).filter(Boolean);
+  if (explicitLines.length > 1) return [explicitLines[0], explicitLines.slice(1).join(" ")];
+  const inline = explicitLines[0] || "";
+  const questionMarks = [...inline.matchAll(/\?/g)].map((match) => match.index ?? -1).filter((index) => index >= 0);
+  if (questionMarks.length < 2) return inline ? [inline] : [];
+  const betweenQuestions = inline.slice(questionMarks[0] + 1, questionMarks[1]);
+  const sentenceBreaks = [...betweenQuestions.matchAll(/[.!]\s+(?=[A-Z0-9])/g)];
+  const lastBreak = sentenceBreaks.at(-1);
+  if (lastBreak?.index === void 0) return [inline];
+  const splitAt = questionMarks[0] + 1 + lastBreak.index + lastBreak[0].length;
+  return [inline.slice(0, splitAt).trim(), inline.slice(splitAt).trim()].filter(Boolean);
+}
+
 // src/server/exam-platform/examValidation.ts
 var text2 = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
 var objectiveTypes = /* @__PURE__ */ new Set([
@@ -10933,6 +10949,8 @@ var smartImportTechnicalFields = /* @__PURE__ */ new Set([
   "id",
   "imageAssetId",
   "imageUrl",
+  "secondaryImageAssetId",
+  "secondaryImageUrl",
   "audioAssetId",
   "audioUrl",
   "correctOptionIds"
@@ -11167,21 +11185,41 @@ function validateStarterReadingWritingPart(part2, partIndex, errors) {
     errors.push(`Starters Reading & Writing Part ${partNumber}: d\u1EA1ng b\xE0i kh\xF4ng \u0111\xFAng c\u1EA5u tr\xFAc \u0111\xE3 thi\u1EBFt k\u1EBF.`);
   }
   if (partNumber <= 2) {
-    if (!text2(unit.imageAssetId, 180)) errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i t\u1EA3i \u1EA3nh b\xE0i l\xE0m cho h\u1ECDc sinh.`);
+    if (partNumber === 2 && !text2(unit.imageAssetId, 180)) errors.push("Starters Reading & Writing Part 2: ph\u1EA3i t\u1EA3i \u1EA3nh b\xE0i l\xE0m cho h\u1ECDc sinh.");
     if (unit.questions.some((question) => question.type !== "true-false" || question.options.length !== 2)) {
       errors.push(`Starters Reading & Writing Part ${partNumber}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 \u0111\xFAng hai l\u1EF1a ch\u1ECDn Yes/No.`);
     }
-    if (partNumber === 1 && !text2(unit.examples?.[0]?.imageAssetId, 180)) {
-      errors.push("Starters Reading & Writing Part 1: ph\u1EA3i t\u1EA3i \u1EA3nh example ri\xEAng \u1EDF ph\xEDa tr\xEAn.");
-    }
-    const expectedExamples = partNumber === 1 ? 1 : 2;
-    if ((unit.examples || []).length !== expectedExamples) {
-      errors.push(`Starters Reading & Writing Part ${partNumber}: ph\u1EA3i c\xF3 \u0111\xFAng ${expectedExamples} example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
+    if (partNumber === 1) {
+      const examples = unit.examples || [];
+      const croppedLayout = examples.length === 2;
+      if (croppedLayout) {
+        if (examples.some((example) => !text2(example.imageAssetId, 180)) || unit.questions.some((question) => !text2(question.imageAssetId, 180))) {
+          errors.push("Starters Reading & Writing Part 1: c\u1EA7n \u0111\u1EE7 2 \u1EA3nh example v\xE0 5 \u1EA3nh c\xE2u h\u1ECFi \u0111\xE3 crop.");
+        }
+      } else if (examples.length !== 1 || !text2(examples[0]?.imageAssetId, 180) || !text2(unit.imageAssetId, 180)) {
+        errors.push("Starters Reading & Writing Part 1: \u0111\u1EC1 c\u0169 c\u1EA7n m\u1ED9t \u1EA3nh example v\xE0 m\u1ED9t \u1EA3nh b\xE0i; \u0111\u1EC1 m\u1EDBi c\u1EA7n \u0111\u1EE7 7 \u1EA3nh crop.");
+      }
+    } else if ((unit.examples || []).length !== 2) {
+      errors.push("Starters Reading & Writing Part 2: ph\u1EA3i c\xF3 \u0111\xFAng 2 example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.");
     }
   }
   if (partNumber === 3) {
-    if (!text2(unit.imageAssetId, 180)) errors.push("Starters Reading & Writing Part 3: ph\u1EA3i t\u1EA3i \u1EA3nh trang b\xE0i t\u1EADp hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.");
     if (unit.questions.some((question) => question.type !== "short-answer")) errors.push("Starters Reading & Writing Part 3: c\u1EA3 5 c\xE2u ph\u1EA3i l\xE0 d\u1EA1ng \u0111i\u1EC1n t\u1EEB.");
+    const pairedLayout = Boolean(unit.examples?.length) || unit.questions.some((question) => text2(question.imageAssetId, 180) || text2(question.secondaryImageAssetId, 180));
+    if (pairedLayout) {
+      if (unit.questions.some((question) => !Number.isInteger(question.answerLength) || Number(question.answerLength) < 1 || Number(question.answerLength) > 30)) {
+        errors.push("Starters Reading & Writing Part 3: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 s\u1ED1 ch\u1EEF c\xE1i t\u1EEB 1 \u0111\u1EBFn 30 \u0111\u1EC3 d\u1EF1ng \u0111\xFAng s\u1ED1 g\u1EA1ch ch\xE2n.");
+      }
+      if (unit.questions.some((question) => question.acceptedAnswers.some((answer) => Array.from(answer.replace(/\s+/g, "")).length !== question.answerLength))) {
+        errors.push("Starters Reading & Writing Part 3: s\u1ED1 ch\u1EEF c\xE1i ph\u1EA3i kh\u1EDBp v\u1EDBi \u0111\xE1p \xE1n ch\xEDnh th\u1EE9c.");
+      }
+      const example = unit.examples?.[0];
+      if ((unit.examples || []).length !== 1 || !text2(example?.imageAssetId, 180) || !text2(example?.secondaryImageAssetId, 180) || unit.questions.some((question) => !text2(question.imageAssetId, 180) || !text2(question.secondaryImageAssetId, 180))) {
+        errors.push("Starters Reading & Writing Part 3: c\u1EA7n \u0111\u1EE7 12 \u1EA3nh crop (2 \u1EA3nh example v\xE0 2 \u1EA3nh cho m\u1ED7i c\xE2u).");
+      }
+    } else if (!text2(unit.imageAssetId, 180)) {
+      errors.push("Starters Reading & Writing Part 3: \u0111\u1EC1 c\u0169 c\u1EA7n \u1EA3nh nguy\xEAn trang; \u0111\u1EC1 m\u1EDBi c\u1EA7n \u0111\u1EE7 12 \u1EA3nh crop.");
+    }
   }
   if (partNumber === 4) {
     if (!text2(unit.imageAssetId, 180)) errors.push("Starters Reading & Writing Part 4: ph\u1EA3i t\u1EA3i \u1EA3nh ng\xE2n h\xE0ng t\u1EEB/h\xECnh.");
@@ -11287,9 +11325,8 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     }
   };
   if (partNumber === 1) {
-    if (units.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t d\u1EA1ng b\xE0i hai \u1EA3nh v\xE0 c\u1ED9t ch\u1EEF c\xE1i.`);
-    requireImage(part2, "\u1EA3nh l\u1EF1a ch\u1ECDn b\xEAn tr\xE1i");
-    if (!text2(part2.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i ch\u1ECDn \u1EA3nh \u0111\u1EC1/danh s\xE1ch \u1EDF gi\u1EEFa.`);
+    if (units.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t d\u1EA1ng b\xE0i m\u1ED9t \u1EA3nh v\xE0 c\u1ED9t ch\u1EEF c\xE1i.`);
+    requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB b\xEAn tr\xE1i");
     if (part2.questions.some((question) => question.type !== "short-answer" || question.acceptedAnswers.some((answer) => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: m\u1ED7i \u0111\xE1p \xE1n ph\u1EA3i l\xE0 \u0111\xFAng m\u1ED9t ch\u1EEF A\u2013H.`);
   }
   if (partNumber === 2) {
@@ -11302,6 +11339,7 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     if (units.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t d\u1EA1ng b\xE0i ch\u1ECDn A/B/C.`);
     requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn");
     requireThreeChoices(part2.questions);
+    if ((part2.examples || []).length !== 1 || (part2.examples || []).some((example) => !text2(example.prompt, 8e3) || !text2(example.answer, 500))) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example d\u1EA1ng ch\u1EEF, kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
   }
   if (partNumber === 3) {
     if (part2.blocks?.length !== 2 || units.length !== 2) {
@@ -11312,12 +11350,11 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     const referenced = part2.blocks.flatMap((block) => block.questionIds);
     if (referenced.length !== part2.questions.length || new Set(referenced).size !== part2.questions.length || part2.questions.some((question) => !referenced.includes(question.id))) errors.push(`${label}: hai ph\u1EA7n ph\u1EA3i ph\u1EE7 \u0111\xFAng m\u1ED7i c\xE2u m\u1ED9t l\u1EA7n.`);
     if (!choiceUnit.questions.length || choiceUnit.interaction?.variant !== "multiple-choice-cloze") errors.push(`${label}A: ph\u1EA3i d\xF9ng d\u1EA1ng \u1EA3nh v\xE0 h\xE0ng \u0111\xE1p \xE1n A/B/C.`);
-    if (!letterUnit.questions.length || letterUnit.interaction?.variant !== "two-image-letter-input") errors.push(`${label}B: ph\u1EA3i d\xF9ng d\u1EA1ng hai \u1EA3nh v\xE0 c\u1ED9t nh\u1EADp ch\u1EEF c\xE1i.`);
+    if (!letterUnit.questions.length || letterUnit.interaction?.variant !== "two-image-letter-input") errors.push(`${label}B: ph\u1EA3i d\xF9ng d\u1EA1ng m\u1ED9t \u1EA3nh v\xE0 c\u1ED9t nh\u1EADp ch\u1EEF c\xE1i.`);
     requireImage(choiceUnit, "\u1EA3nh \u0111\u1EC1 Part 3A");
     requireThreeChoices(choiceUnit.questions);
     if (choiceUnit.questions.some((question) => !text2(question.prompt, 8e3))) errors.push(`${label}A: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 n\u1ED9i dung c\xE2u h\u1ECFi hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn ba \u0111\xE1p \xE1n A/B/C.`);
-    requireImage(letterUnit, "\u1EA3nh l\u1EF1a ch\u1ECDn Part 3B");
-    if (!text2(letterUnit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}B: ph\u1EA3i ch\u1ECDn \u1EA3nh \u0111\u1EC1/danh s\xE1ch \u1EDF gi\u1EEFa.`);
+    requireImage(letterUnit, "\u1EA3nh \u0111\u1EC1 Part 3B hi\u1EC3n th\u1ECB b\xEAn tr\xE1i");
     if (letterUnit.questions.some((question) => question.type !== "short-answer" || question.acceptedAnswers.some((answer) => !/^[A-H]$/i.test(answer)))) errors.push(`${label}B: m\u1ED7i \u0111\xE1p \xE1n ph\u1EA3i l\xE0 \u0111\xFAng m\u1ED9t ch\u1EEF A\u2013H.`);
   }
   if (partNumber === 4) {
@@ -11339,6 +11376,7 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     if (part2.questions.some((question) => question.type !== "short-answer" || question.maxWords !== 1 || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1 in tr\xEAn \u1EA3nh v\xE0 \xF4 \u0111i\u1EC1n \u0111\xFAng m\u1ED9t t\u1EEB.`);
   }
   if (partNumber === 8) {
+    requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn khu v\u1EF1c l\xE0m b\xE0i");
     if (!text2(part2.passage, 2e4)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung ngu\u1ED3n, h\u01B0\u1EDBng d\u1EABn v\xE0 example d\u1EA1ng ch\u1EEF.`);
     if (part2.questions.some((question) => question.type !== "short-answer" || !text2(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1, nh\xE3n bi\u1EC3u m\u1EABu v\xE0 \u0111\xE1p \xE1n \u0111i\u1EC1n.`);
     if (part2.questions.some((question) => text2(question.answerSuffix, 80))) errors.push(`${label}: ch\u1EC9 d\xF9ng m\u1ED9t v\xF9ng nh\u1EADp v\u1EDBi k\xFD t\u1EF1 c\xF3 s\u1EB5n \u1EDF \u0111\u1EA7u; kh\xF4ng d\xF9ng k\xFD t\u1EF1 ph\xEDa sau.`);
@@ -11369,18 +11407,16 @@ function validateKetListeningPart(part2, partIndex, errors) {
     if (unit.questions.some((question) => Number(question.displayNumber) !== KET_LISTENING_MANUAL_DISPLAY_NUMBER && question.options.some((option) => !text2(option.imageAssetId, 180)))) errors.push(`${label}: c\xE1c c\xE2u ngo\xE0i c\xE2u 3 ph\u1EA3i c\xF3 \u0111\u1EE7 ba \u1EA3nh A/B/C; \u0111\u1EC1 chu\u1EA9n c\u1EA7n 12 \u1EA3nh crop cho c\xE2u 1, 2, 4 v\xE0 5.`);
   }
   if (number2 === 2) {
-    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i t\u1EA3i \u1EA3nh l\u1EF1a ch\u1ECDn A\u2013H b\xEAn tr\xE1i.`);
-    if (!text2(unit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i t\u1EA3i \u1EA3nh \u0111\u1EC1/danh s\xE1ch \u1EDF gi\u1EEFa.`);
+    if (!text2(unit.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i t\u1EA3i m\u1ED9t \u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.`);
     if ((unit.examples || []).length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
     if (unit.questions.some((question) => question.type !== "short-answer" || question.acceptedAnswers.length < 1 || question.acceptedAnswers.some((answer) => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: m\u1ED7i \u0111\xE1p \xE1n ph\u1EA3i l\xE0 \u0111\xFAng m\u1ED9t ch\u1EEF A\u2013H.`);
   }
   if (number2 === 3) {
-    if (!text2(unit.passage, 2e4)) errors.push(`${label}: thi\u1EBFu \u0111\u1EC1 b\xE0i/h\u01B0\u1EDBng d\u1EABn d\u1EA1ng text \u0111\u01B0\u1EE3c t\u1EA1o t\u1EEB JSON.`);
     if ((unit.examples || []).length !== 1 || (unit.examples || []).some((example) => !text2(example.prompt, 2e3) || !text2(example.answer, 1e3))) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example d\u1EA1ng text, kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
     if (unit.questions.some((question) => !text2(question.prompt, 8e3) || question.type !== "single-choice" || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 n\u1ED9i dung tho\u1EA1i, \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
   }
   if (number2 === 4 || number2 === 5) {
-    if (!text2(unit.passage, 2e4)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung h\u01B0\u1EDBng d\u1EABn v\xE0 example d\u1EA1ng text hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn.`);
+    if (!text2(unit.passage, 2e4)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung bi\u1EC3u m\u1EABu v\xE0 example d\u1EA1ng text hi\u1EC3n th\u1ECB d\u01B0\u1EDBi ti\xEAu \u0111\u1EC1 ch\xEDnh.`);
     if (unit.questions.some((question) => question.type !== "short-answer" || !text2(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1 in tr\xEAn \u0111\u1EC1, nh\xE3n v\xE0 \xF4 nh\u1EADp \u0111\xE1p \xE1n.`);
     if (unit.questions.some((question) => String(question.answerPrefix || "").length > 20 || String(question.answerSuffix || "").length > 80)) errors.push(`${label}: ch\u1EEF/k\xFD hi\u1EC7u tr\u01B0\u1EDBc ho\u1EB7c sau \xF4 nh\u1EADp v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n cho ph\xE9p.`);
   }
@@ -11425,6 +11461,12 @@ function validateExamPaperContent(content) {
     if (!text2(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
     if (content.moduleId === "starter" && content.paperId === "listening" && partIndex === 2 && !text2(part2?.imageAssetId, 180)) {
       errors.push("Part 3: ph\u1EA3i t\u1EA3i \u1EA3nh hi\u1EC3n th\u1ECB chung cho h\u1ECDc sinh, t\xE1ch bi\u1EC7t v\u1EDBi \u1EA3nh ngu\u1ED3n crop \u0111\xE1p \xE1n.");
+    }
+    if (content.moduleId === "starter" && content.paperId === "listening" && partIndex === 1) {
+      const unit = examPartUnits(part2)[0] || part2;
+      if (splitStarterPart2ExampleLines(unit.passage).length !== 2) {
+        errors.push("Starters Listening Part 2: ph\u1EA3i nh\u1EADp \u0111\u1EE7 \u0111\xFAng 2 example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m, m\u1ED7i example m\u1ED9t d\xF2ng.");
+      }
     }
     if (content.moduleId === "starter" && content.paperId === "reading-writing") {
       validateStarterReadingWritingPart(part2, partIndex, errors);
@@ -11590,6 +11632,9 @@ function sanitizeExamContentForStudent(content) {
     ...structuredClone(content),
     parts: content.parts.map((part2) => {
       const studentColourPalette = starterStudentColourPalette(part2);
+      const sourceUnit = examPartUnits(part2)[0] || part2;
+      const completeStarterReadingPart1Crops = content.moduleId === "starter" && content.paperId === "reading-writing" && part2.part === 1 && (sourceUnit.examples || []).length === 2 && (sourceUnit.examples || []).every((example) => text2(example.imageAssetId, 180)) && sourceUnit.questions.every((question) => text2(question.imageAssetId, 180));
+      const completeStarterReadingPart3Crops = content.moduleId === "starter" && content.paperId === "reading-writing" && part2.part === 3 && (sourceUnit.examples || []).length === 1 && (sourceUnit.examples || []).every((example) => text2(example.imageAssetId, 180) && text2(example.secondaryImageAssetId, 180)) && sourceUnit.questions.every((question) => text2(question.imageAssetId, 180) && text2(question.secondaryImageAssetId, 180));
       const matchingQuestionIds = /* @__PURE__ */ new Set([
         ...part2.interactionLayout?.kind === "starter-image-matching-v1" || part2.interactionLayout?.kind === "starter-image-matching-v2" ? part2.questions.map((question) => question.id) : [],
         ...(part2.blocks || []).flatMap((block) => block.interactionLayout?.kind === "starter-image-matching-v1" || block.interactionLayout?.kind === "starter-image-matching-v2" ? block.questionIds : [])
@@ -11609,6 +11654,10 @@ function sanitizeExamContentForStudent(content) {
         })
       };
       delete safePart.audioTranscript;
+      if (completeStarterReadingPart1Crops || completeStarterReadingPart3Crops) {
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
       if (content.moduleId === "flyer" && content.paperId === "listening" && part2.part === 4) {
         delete safePart.imageAssetId;
         delete safePart.imageUrl;
@@ -11639,9 +11688,13 @@ function sanitizeExamContentForStudent(content) {
         });
       }
       if (Array.isArray(safePart.blocks)) {
-        safePart.blocks = safePart.blocks.map((block) => {
+        safePart.blocks = safePart.blocks.map((block, blockIndex) => {
           const safeBlock = { ...block };
           delete safeBlock.geometryHints;
+          if (blockIndex === 0 && (completeStarterReadingPart1Crops || completeStarterReadingPart3Crops)) {
+            delete safeBlock.imageAssetId;
+            delete safeBlock.imageUrl;
+          }
           if (content.moduleId === "starter" && content.paperId === "listening" && part2.part === 3 && safeBlock.interaction?.variant === "image-options") {
             delete safeBlock.imageAssetId;
             delete safeBlock.imageUrl;
@@ -14160,9 +14213,14 @@ function collectAssetFields(content) {
     }));
   };
   const addReadingMedia = (owner) => {
-    (owner.examples || []).forEach((example, index) => add(example.imageAssetId, "image", `example-${index + 1}`, "example-image", (url) => {
-      example.imageUrl = url;
-    }));
+    (owner.examples || []).forEach((example, index) => {
+      add(example.imageAssetId, "image", `example-${index + 1}`, "example-image", (url) => {
+        example.imageUrl = url;
+      });
+      add(example.secondaryImageAssetId, "image", `example-${index + 1}`, "example-secondary-image", (url) => {
+        example.secondaryImageUrl = url;
+      });
+    });
     (owner.readingScenes || []).forEach((scene) => add(scene.imageAssetId, "image", scene.id, "reading-scene-image", (url) => {
       scene.imageUrl = url;
     }));
@@ -14193,6 +14251,9 @@ function collectAssetFields(content) {
       add(question.imageAssetId, "image", question.id, "question-image", (url) => {
         question.imageUrl = url;
       });
+      add(question.secondaryImageAssetId, "image", question.id, "question-secondary-image", (url) => {
+        question.secondaryImageUrl = url;
+      });
       question.options.forEach((option) => add(option.imageAssetId, "image", option.id, "option-image", (url) => {
         option.imageUrl = url;
       }));
@@ -14206,7 +14267,10 @@ async function resolveContentAssets3(db, raw, user) {
     if (text4(url, 2e3) && !text4(assetId, 180)) throw apiError3(400, `${label} ph\u1EA3i \u0111\u01B0\u1EE3c ch\u1ECDn t\u1EEB th\u01B0 vi\u1EC7n media.`);
   };
   const requireReadingMediaIds = (owner, label) => {
-    (owner.examples || []).forEach((example, index) => requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`));
+    (owner.examples || []).forEach((example, index) => {
+      requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`);
+      requireAssetIdForUrl(example.secondaryImageAssetId, example.secondaryImageUrl, `${label}, \u1EA3nh ph\u1EE5 example ${index + 1}`);
+    });
     (owner.readingScenes || []).forEach((scene, index) => requireAssetIdForUrl(scene.imageAssetId, scene.imageUrl, `${label}, reading scene ${index + 1}`));
   };
   const requireDrawTokenIds = (layout, label) => {
@@ -14227,6 +14291,7 @@ async function resolveContentAssets3(db, raw, user) {
     });
     part2.questions.forEach((question) => {
       requireAssetIdForUrl(question.imageAssetId, question.imageUrl, `\u1EA2nh c\xE2u ${question.number}`);
+      requireAssetIdForUrl(question.secondaryImageAssetId, question.secondaryImageUrl, `\u1EA2nh ph\u1EE5 c\xE2u ${question.number}`);
       question.options.forEach((option) => requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `\u1EA2nh l\u1EF1a ch\u1ECDn ${option.label}`));
     });
   });

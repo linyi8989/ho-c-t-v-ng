@@ -35,8 +35,8 @@ function TwoColumn({ imageUrl, children, imageAlt = 'Ảnh đề KET Reading & W
   </div>;
 }
 
-function TopImage({ imageUrl }: { imageUrl?: string }) {
-  return <div className="mx-auto w-full max-w-4xl" data-ket-image-top>{imageUrl ? <ExamImageViewer src={imageUrl} alt="Ảnh đề KET Part 2" maxHeight="min(48vh,520px)" className="border border-slate-200 bg-white" /> : <div className="flex min-h-64 items-center justify-center rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-8 text-center text-sm font-black text-amber-950">Chưa có ảnh đề hiển thị.</div>}</div>;
+function TopImage({ imageUrl, imageAlt = 'Ảnh đề KET Reading & Writing' }: { imageUrl?: string; imageAlt?: string }) {
+  return <div className="mx-auto w-full max-w-4xl" data-ket-image-top>{imageUrl ? <ExamImageViewer src={imageUrl} alt={imageAlt} maxHeight="min(48vh,520px)" className="border border-slate-200 bg-white" /> : <div className="flex min-h-64 items-center justify-center rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 p-8 text-center text-sm font-black text-amber-950">Chưa có ảnh đề hiển thị.</div>}</div>;
 }
 
 function ChoiceRows({ unit, answers, onAnswer, showPrompt = false, stackPrompt = false }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer']; showPrompt?: boolean; stackPrompt?: boolean }) {
@@ -66,7 +66,7 @@ function CompoundPart({ part, answers, onAnswer }: Props) {
     </nav>
     <section className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
       <div><p className="text-xs font-black uppercase tracking-wide text-indigo-700">Part 3{activeGroup === 0 ? 'A' : 'B'}</p><h3 className="mt-1 text-lg font-black text-slate-950">{unit.title}</h3>{unit.instruction && <p className="mt-1 text-sm font-semibold text-slate-600">{unit.instruction}</p>}</div>
-      {activeGroup === 0 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} showPrompt imageTop hideExamples stackPrompt /> : <FlyerLetterMatchingView part={unit} answers={answers} onAnswer={onAnswer} />}
+      {activeGroup === 0 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} showPrompt imageTop hideExamples stackPrompt /> : <FlyerLetterMatchingView part={unit} answers={answers} onAnswer={onAnswer} singleImage />}
     </section>
     <div className="flex items-center justify-between gap-3"><button type="button" disabled={activeGroup === 0} onClick={() => setActiveGroup(0)} data-direction="previous" className="ket-part-three-page-nav rounded-xl border-2 border-blue-600 bg-white px-4 py-2 text-sm font-black text-blue-800">← Trang 3A</button><button type="button" disabled={activeGroup >= Math.min(1, units.length - 1)} onClick={() => setActiveGroup(1)} data-direction="next" className="ket-part-three-page-nav rounded-xl border-2 border-blue-700 bg-blue-700 px-4 py-2 text-sm font-black text-white">Trang 3B →</button></div>
   </div>;
@@ -114,7 +114,7 @@ function NumberedRows({ unit, answers, onAnswer }: { unit: ExamPartContent; answ
 }
 
 function FormRows({ unit, answers, onAnswer }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer'] }) {
-  return <div className="space-y-5"><TextSource passage={unit.passage} label="Hướng dẫn và example" /><div className="space-y-2" data-ket-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(110px,.7fr)_minmax(180px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-900">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-600 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200"><b className="shrink-0 pl-3 text-slate-800">{question.answerPrefix}</b><input value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Đáp án ${question.prompt}`} className="h-10 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /></span></label>)}</div></div>;
+  return <div className="space-y-5" data-ket-part8-image-top>{unit.imageUrl && <TopImage imageUrl={unit.imageUrl} imageAlt="Ảnh đề KET Reading & Writing Part 8" />}<TextSource passage={unit.passage} label="Hướng dẫn và example" /><div className="space-y-2" data-ket-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(110px,.7fr)_minmax(180px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-900">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-600 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200"><b className="shrink-0 pl-3 text-slate-800">{question.answerPrefix}</b><input value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Đáp án ${question.prompt}`} className="h-10 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /></span></label>)}</div></div>;
 }
 
 function WritingPart({ unit, answers, onAnswer }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer'] }) {
@@ -135,11 +135,11 @@ export default function KetReadingWritingPartView({ part, answers, onAnswer }: P
   const units = examPartUnits(part);
   const unit = units[0] || part;
   return <div id="ket-reading-writing-player" data-ket-reading-writing-part={part.part}>
-    {part.part === 1 ? <FlyerLetterMatchingView part={unit} answers={answers} onAnswer={onAnswer} />
+    {part.part === 1 ? <FlyerLetterMatchingView part={unit} answers={answers} onAnswer={onAnswer} singleImage />
       : part.part === 2 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} showPrompt withoutImage stackPrompt />
         : part.part === 3 ? <CompoundPart part={part} answers={answers} onAnswer={onAnswer} />
           : part.part === 4 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} showPrompt imageTop hideExamples stackPrompt />
-            : part.part === 5 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} imageTop hideExamples />
+            : part.part === 5 ? <ChoicePart unit={unit} answers={answers} onAnswer={onAnswer} imageTop />
               : part.part === 6 ? <SpellingPart unit={unit} answers={answers} onAnswer={onAnswer} />
                 : part.part === 7 ? <NumberedRows unit={unit} answers={answers} onAnswer={onAnswer} />
                   : part.part === 8 ? <FormRows unit={unit} answers={answers} onAnswer={onAnswer} />

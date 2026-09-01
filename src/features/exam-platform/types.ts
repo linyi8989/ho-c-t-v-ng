@@ -170,6 +170,9 @@ export interface ExamQuestion {
   context?: string;
   imageAssetId?: string;
   imageUrl?: string;
+  /** Optional second public picture used by paired-image spelling rows. */
+  secondaryImageAssetId?: string;
+  secondaryImageUrl?: string;
   options: ExamOption[];
   /** Private grading data; removed from every playable payload. */
   correctOptionIds: string[];
@@ -209,6 +212,9 @@ export interface ExamDisplayExample {
   answer: string;
   imageAssetId?: string;
   imageUrl?: string;
+  /** Optional second public picture used by a paired-image worked example. */
+  secondaryImageAssetId?: string;
+  secondaryImageUrl?: string;
 }
 
 /** A public picture/passage group that references canonical questions in the Part. */

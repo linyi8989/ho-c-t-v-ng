@@ -451,7 +451,7 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
         correctOptionIds: [],
       }));
       yesNoPart.examples = partIndex === 0
-        ? [{ prompt: '', answer: 'Yes' }]
+        ? [{ prompt: '', answer: 'Yes' }, { prompt: '', answer: 'No' }]
         : [{ prompt: '', answer: 'Yes' }, { prompt: '', answer: 'No' }];
     });
 
@@ -467,7 +467,9 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
       ...question,
       prompt: `Từ ${index + 1}: ____`,
       maxWords: 1,
+      answerLength: 3,
     }));
+    part3.examples = [{ prompt: 'Example', answer: '' }];
 
     const part4 = content.parts[3];
     part4.interaction = {

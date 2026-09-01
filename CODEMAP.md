@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 ## 1. Project Overview
 
@@ -4109,3 +4109,255 @@ Verification:
   paper table to one 24px rounded boundary. The search field also removes the
   global inner input border so it appears as one control rather than nested
   rectangular frames.
+
+## 69. Starters Reading & Writing cropped-row layouts - 2026-08-31
+
+- `StarterReadingWritingAuthoring.tsx` reuses the existing normalized
+  `VisualCropEditor` and derived Listening-media upload path for two new fixed
+  authoring contracts. Part 1 accepts one private page source and produces two
+  example crops plus five scored-question crops. Part 3 accepts one private
+  page source and produces one worked-example pair plus five scored left/right
+  pairs. Replacing a source invalidates only its derived crops so stale images
+  cannot remain attached to a newly uploaded page.
+- Universal JSON v2 remains responsible only for recognized text and official
+  answers. Its Starters Reading & Writing prompt now requires two Part 1
+  examples, one Part 3 example and `answerLength` for every Part 3 word; import
+  preserves teacher-owned crop media, keeps this paper in definition mode and
+  rejects both primary and secondary technical media fields supplied by
+  external JSON. A single-Part import does not promote untouched sibling Parts.
+- `ExamQuestion` and `ExamDisplayExample` have additive optional secondary
+  image references. The existing JSON content column needs no migration.
+  `examRouter.ts` resolves, authorizes and usage-tracks both sides through the
+  existing media library. Publish validation requires all 7 or 12 derived
+  images for the new layouts and verifies Part 3 dash counts against official
+  answers. Released legacy Part 1 and Part 3 page-image layouts remain valid.
+- Student sanitization removes the private Part 1/3 source page once the full
+  crop set is complete, while keeping the public derived images. Part 1 then
+  renders one picture/statement/Yes-No row per item; Part 3 renders left image,
+  spelling input and right image per row. Part 2 and Part 4 use taller fitted
+  image frames, and Part 2 choices share a row with their wrapping statement.
+  Result review mirrors both new crop layouts and retains the legacy fallback.
+- New crop actions and inline Yes/No controls have feature-scoped opaque
+  enabled, hover, focus, selected, disabled and loading contrast states under
+  stable Starters/generic-exam hooks so legacy global CSS cannot wash them out.
+
+## 70. Starters fixed Listening scale and smart page crop - 2026-09-01
+
+- Starters Listening Parts 1, 3 and 4 now use a desktop working frame at 90%
+  of the former width, height and minimum height. Parts 1 and 4 opt into a
+  1.2x shared interactive-image stage with 912px/744px semantic caps. Image,
+  SVG lines, hitboxes, Colour regions and Draw anchors remain children of the
+  same normalized 0..1 stage, so presentation scaling does not change stored
+  geometry or answer coordinates. Small-screen layouts keep the full available
+  viewport and the existing fullscreen viewer remains available.
+- Starters Listening Part 2 has one canonical two-example contract. The author
+  enters exactly two separate lines; released one-line text is split when its
+  two printed question/sentence boundaries can be recognized. The generic
+  passage copy above the activity is suppressed and the single lower example
+  panel renders exactly two labelled rows. Publish validation blocks a draft
+  until both unscored examples are present.
+- `starterReadingWritingCropDetection.ts` performs deterministic, browser-local
+  pixel segmentation for the official Starters Reading & Writing page shapes.
+  Part 1 detects seven top-to-bottom illustration rows while excluding the
+  sentence column. Part 3 detects six paired rows and emits twelve crops in
+  left/right order. It never asks AI to invent geometry and refuses incomplete
+  or ambiguous detection instead of guessing.
+- `StarterReadingWritingAuthoring.tsx` exposes one-click detection, a preview
+  for every slot, per-slot correction through the existing normalized crop
+  editor and an explicit batch confirmation. Derived media uploads are bounded
+  in groups; the Part content receives all 7 or 12 references in one update
+  only after every upload succeeds and only if the source page is unchanged.
+  Universal JSON continues to own recognized text, answers and Part 3 word
+  lengths while teacher-reviewed crop geometry stays application-owned.
+- Verification: TypeScript lint passes; exam-platform tests pass 65/65;
+  Listening tests pass 138/138; focused crop/layout contracts pass 22/22; and
+  canonical `npm run build` produces `index-C1ElIRTG.js`,
+  `index-CgWDhoKR.css`, `clientRegistry-CQMAA9q3.js` and `dist/server.cjs`.
+  The native-only legacy integration suite cannot start in the active Node 24
+  shell because installed `better-sqlite3` targets the documented production
+  Node 22 ABI 127; no native rebuild or database/dependency mutation was made.
+
+## 71. Flyers Listening Part 3 answer-name rows - 2026-09-01
+
+- `FlyerLetterMatchingView` now labels each student answer field with the
+  teacher/import-owned `question.prompt` person name instead of the internal
+  display number 1–5. Empty legacy draft prompts use `Người 1` through
+  `Người 5` only as a presentation fallback; question IDs, answer order,
+  accepted A–H values and grading remain unchanged.
+- The fixed third column grows from 180px to 220px and keeps a bounded 56px
+  letter field so normal and wrapping person names remain readable. Stable
+  `data-flyer-part3-answer-name` and name-based accessible labels are covered
+  by the exam-platform presentation contract. Focused contracts pass 19/19,
+  TypeScript lint passes and the canonical production build succeeds.
+
+## 72. Flyers Reading & Writing Part 4 stacked student layout - 2026-09-01
+
+- `FlyerReadingWritingViews.tsx` now presents Part 4 as one bounded vertical
+  flow instead of the shared desktop split layout: the fitted illustration is
+  centered first, followed by the unscored example, story with inline gaps and
+  the final title-choice row. Mobile and desktop therefore keep the same visual
+  reading order as the paper.
+- This is presentation-only. Existing question IDs, `[[n]]` markers, answer
+  state, one-word limits, title option IDs and grading remain unchanged. Stable
+  `data-flyer-reading-part4-stacked` and `data-flyer-reading-part4-content`
+  hooks protect the Part-specific contract without changing the other six
+  Flyers Reading & Writing layouts. Focused contracts pass 19/19, TypeScript
+  lint passes and the canonical production build succeeds.
+
+## 73. Starters Reading Part 1 pastel-row crop detector - 2026-09-01
+
+- Part 1 now uses the dedicated browser-local `pastel-row-v1` strategy instead
+  of the mixed dark/colour illustration predicate. It scans only the official
+  illustration column from normalized x=0.15 to x=0.65, converts each pixel to
+  HSV saturation and activates pixels at S>=20/255. White/grey paper, black
+  sentence text and checkboxes therefore do not participate in segmentation;
+  coloured content outside the illustration ROI is ignored.
+- A vertical projection smooths scan noise and closes only short gaps inside a
+  pastel island. The closing limit is 0.8% of page height: on the 307x797
+  official scan this bridges internal texture noise but preserves the 10px gap
+  between the shoe and sofa cards. Within each row, an 8%-height horizontal
+  density projection selects the dominant pastel island and rejects sparse
+  coloured scan haze extending toward the sentence column. A restrained 3.5%
+  margin keeps grey/black objects such as a camera, elephant or shoe inside the
+  crop without restoring adjacent text. Candidates remain ordered top-to-bottom
+  as two examples followed by five scored questions.
+- Structural validation is fail-closed: both band count and usable crop count
+  must equal seven. Six, eight, blank or otherwise ambiguous detections return
+  no automatic crops and confidence zero; the teacher can use the existing
+  normalized manual crop editor. Successful detection still requires preview
+  and explicit batch confirmation before any Part references are updated.
+- The Part 3 paired-column detector and the pre-existing black-frame A/B/C
+  detector are unchanged. Regression coverage verifies grey objects on pastel
+  backgrounds, coloured noise outside the ROI, rejection of eight/blank rows,
+  the close shoe/sofa rows, six paired Part 3 rows and both black-frame grouping
+  cases. Exam-platform tests pass 69/69, focused black-frame tests pass 2/2, TypeScript lint passes
+  and the canonical production build succeeds. A direct run against the saved
+  307x797 camera-to-sofa source returns seven ordered crops, confidence 0.96
+  and no warnings; their right edges remain before normalized x=0.59.
+
+## 74. Compact Starters Reading crop authoring previews - 2026-09-01
+
+- `StarterReadingWritingAuthoring.tsx` keeps the seven/twelve crop slots in a
+  compact auto-fit grid instead of stretching three preview cards across the
+  full editor width. Both newly detected regions and already saved derived
+  images use a bounded 128px thumbnail (108px on narrow screens); the duplicate
+  caption under an auto-detected preview is hidden because the slot card already
+  owns the accessible label.
+- Thumbnail sizing is presentation-only. Normalized crop geometry, source and
+  derived asset references, batch confirmation and student rendering are
+  unchanged. The complete source image remains available only inside the
+  existing `VisualCropEditor` after `Kiểm tra / chỉnh vùng tự dò`, `Crop lại` or
+  `Chọn vùng crop` is activated. Focused presentation contracts pass 19/19 and
+  TypeScript lint passes.
+
+## 75. Starters Reading Part 3 paired-colour crop detector - 2026-09-01
+
+- Part 3 now uses the dedicated browser-local `paired-colour-anchor-v1`
+  strategy. It scans only normalized x=0.15..0.45 for object illustrations and
+  x=0.63..0.92 for letter bags; the answer dashes and labels in the middle are
+  outside both ROIs. The vertical scan begins at y=0.10 rather than the proposed
+  y=0.16 because the worked-example ear and bag in the saved official-shaped
+  source begin above 16%.
+- HSV colour pixels are grouped with 8-connected components and filtered by
+  scale-relative area, width and height. Exactly six substantial right-side
+  bags are required and sorted by vertical centre as row anchors. Each valid
+  left-side component is assigned only to its nearest anchor within a bounded
+  tolerance; components in the same row are unioned before cropping, so the two
+  separate feet become one illustration while short coloured answer dashes are
+  rejected as noise.
+- Detection remains fail-closed. Anything other than six right anchors or six
+  completed left/right rows returns no crops, leaves Part data unchanged and
+  keeps the existing `VisualCropEditor` fallback. Successful output is flattened
+  as example-left/right followed by question 1..5 left/right, matching the
+  existing twelve-slot authoring and batch-upload contract.
+- A direct run against the saved 294x388 ear-to-mouth source returns 12 ordered
+  crops, confidence 0.96 and no warnings. Regression coverage includes the
+  split-feet union, ignored middle dashes and rejection of five right anchors;
+  focused crop/presentation contracts pass 28/28, exam-platform tests pass
+  71/71 and TypeScript lint passes.
+
+## 76. Starters Reading Part 3 per-letter spelling cells - 2026-09-01
+
+- The Part 3 student view now renders exactly `answerLength` letter cells rather
+  than one tracked text input with a multi-dash placeholder. Each typed letter
+  occupies its own underline; typing or pasting advances across cells, an empty
+  Backspace removes the previous letter, and Left/Right arrows move keyboard
+  focus. The worked example uses the same one-character-per-underline visual.
+- This follows the KET Reading & Writing Part 6 interaction but deliberately
+  keeps different storage semantics: KET stores only the characters after its
+  supplied prefix, while Starters joins every visible cell into the complete
+  word. Existing answer state, submission payload and backend short-answer
+  grading therefore remain unchanged, and playable data continues to use the
+  public `answerLength` without exposing accepted answers.
+- The paired layout gives the spelling column enough desktop width for normal
+  Starters words and wraps longer configured answers without overflowing on
+  small screens. Feature-scoped CSS keeps every enabled/focused underline
+  opaque and readable despite legacy input rules. Focused behavior/presentation
+  contracts pass 20/20, exam-platform tests pass 72/72 and TypeScript lint
+  passes.
+
+## 77. Starters Reading Part 3 frameless paired rows - 2026-09-01
+
+- The cropped Part 3 student layout keeps the containing Part panel and its
+  three-column reading order, but removes the decorative border, background,
+  corner radius and shadow from each paired row. The left/right image shells
+  are also transparent and frameless; the source illustration pixels and the
+  existing fullscreen image action remain unchanged.
+- This styling is isolated by `data-starter-rw-part3-row` and
+  `data-starter-rw-part3-image`. Part 1 and every other image layout continue
+  to use the shared framed image presentation. Student spelling cells retain
+  their opaque high-contrast surface and receive only a restrained 5px/3px
+  corner radius, so the individual-letter interaction stays clear without a
+  rigid rectangular appearance.
+- This is presentation-only: crop references, image fit, answer state,
+  submission payload, keyboard behavior and grading contracts are unchanged.
+  The focused exam-platform presentation suite passes 20/20.
+
+## 78. Exam-wide double-click image expansion - 2026-09-01
+
+- The shared `ExamImageViewer` no longer renders its corner expand button by
+  default. Every current practice-exam image that uses this boundary now opens
+  the same fullscreen viewer by double-clicking its inline stage. The stage
+  exposes a zoom cursor, a concise instruction and an Enter/Space keyboard
+  equivalent; existing zoom, fit, original-size, browser-fullscreen and close
+  controls inside the opened viewer are unchanged. `showExpandButton` remains
+  an explicit opt-in for a future exceptional screen, and no current exam
+  caller enables it.
+- In the cropped Starters Reading & Writing Part 3 layout, the visible
+  `Example` caption and question numbers 1-5 are removed. Image order, the
+  unscored example, accessible answer labels, per-letter inputs, stored answer
+  values and grading order remain intact. Stable double-click and label-free
+  presentation hooks are covered by the focused 20/20 contract suite; the full
+  exam-platform suite passes 72/72, the TypeScript gate passes and the
+  canonical production build succeeds.
+
+## 79. KET single-image matching, Part 5/8 media and Listening heading ownership - 2026-09-01
+
+- KET Reading & Writing Part 1 and Part 3B, plus KET Listening Part 2, now
+  opt into a KET-only single-image mode of the shared letter-matching view.
+  The one task image stays on the left and the existing answer column stays on
+  the right in the player and review screens. Flyers keeps its original
+  two-image layout. The KET authoring screens expose one image picker; any
+  legacy second-image reference is preserved in stored data for compatibility
+  but is no longer required or rendered.
+- KET Reading & Writing Part 5 now owns exactly one unscored text example in
+  migration, authoring, player, review, import prompt and publish validation.
+  Part 8 adds a teacher-owned upload/paste image field; the attached image is
+  preserved across JSON re-import, published to students and displayed above
+  the text source and form rows in both the live attempt and detailed review.
+- KET Listening Part 3 no longer renders its legacy lower passage as a second
+  title block. Parts 4 and 5 use the fixed main headings `Part 4 listening -
+  Question 16–20.` and `Part 5 listening - Question 21–25.`. The import prompt
+  assigns Part/range/instruction ownership only to the main heading and limits
+  `content.passage` to the printed form content/example. A presentation adapter
+  removes the duplicated first legacy paragraph when an existing set still
+  contains the old heading/instruction prefix, without rewriting stored data.
+- KET Reading & Writing result and history controls now have stable scoped
+  hooks and explicit opaque active/inactive styling for the Home action, view-
+  result action, Part tabs and return-to-summary action. The view-result loading
+  state remains readable and announces `Đang tải kết quả…` instead of relying
+  on low opacity. No answer values, scoring weights or grading semantics
+  changed. TypeScript lint passes and the exam-platform suite passes 72/72. The
+  canonical production build succeeds with
+  `index-C1ElIRTG.js`, `index-CgWDhoKR.css`, `clientRegistry-CQMAA9q3.js` and
+  `dist/server.cjs`.

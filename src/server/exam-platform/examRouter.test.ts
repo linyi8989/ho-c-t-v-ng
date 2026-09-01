@@ -34,15 +34,32 @@ function completeContent(moduleId: 'starter' | 'pet' | 'ket', paperId: 'reading-
   content.parts.forEach(part => {
     if (moduleId === 'starter' && paperId === 'reading-writing') {
       if (part.part <= 4) { part.imageAssetId = 'exam-image-1'; part.imageUrl = '/listening-media/exam-image.png'; }
-      if (part.part === 1 && part.examples?.[0]) { part.examples[0].imageAssetId = 'exam-image-1'; part.examples[0].imageUrl = '/listening-media/exam-image.png'; }
+      if (part.part === 1) {
+        part.examples?.forEach(example => { example.imageAssetId = 'exam-image-1'; example.imageUrl = '/listening-media/exam-image.png'; });
+        part.questions.forEach(question => { question.imageAssetId = 'exam-image-1'; question.imageUrl = '/listening-media/exam-image.png'; });
+      }
+      if (part.part === 3) {
+        part.examples?.forEach(example => {
+          example.imageAssetId = 'exam-image-1';
+          example.imageUrl = '/listening-media/exam-image.png';
+          example.secondaryImageAssetId = 'exam-image-1';
+          example.secondaryImageUrl = '/listening-media/exam-image.png';
+        });
+        part.questions.forEach(question => {
+          question.imageAssetId = 'exam-image-1';
+          question.imageUrl = '/listening-media/exam-image.png';
+          question.secondaryImageAssetId = 'exam-image-1';
+          question.secondaryImageUrl = '/listening-media/exam-image.png';
+        });
+      }
       if (part.part === 5) part.readingScenes?.forEach(scene => { scene.imageAssetId = 'exam-image-1'; scene.imageUrl = '/listening-media/exam-image.png'; });
     }
     if (moduleId === 'ket' && paperId === 'reading-writing') {
-      if ([1, 4, 5].includes(part.part)) {
+      if ([1, 4, 5, 8].includes(part.part)) {
         part.imageAssetId = 'exam-image-1';
         part.imageUrl = '/listening-media/exam-image.png';
       }
-      if (part.part === 2) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
+      if ([2, 5].includes(part.part)) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
       if ([6, 7, 8].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
       if (part.part === 9) part.passage = 'Printed writing task and all required hints.';
       if (part.part === 1 && part.readingScenes?.[0]) {
@@ -66,6 +83,7 @@ function completeContent(moduleId: 'starter' | 'pet' | 'ket', paperId: 'reading-
       } else {
         const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
         question.acceptedAnswers = moduleId === 'ket' && (part.part === 1 || ketLetterIds.has(question.id)) ? ['A'] : ['answer'];
+        if (moduleId === 'starter' && paperId === 'reading-writing' && part.part === 3) question.answerLength = 6;
         if (moduleId === 'ket' && part.part === 6) {
           question.answerPrefix = 'a';
           question.answerLength = 6;

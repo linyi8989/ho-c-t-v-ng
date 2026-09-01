@@ -5,6 +5,7 @@ import { examPartUnits } from '../examStructure';
 import { starterColourValue } from '../starterImport';
 import { readExamMatchingConnections, starterMatchingModel, starterMatchingResponseKey } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
+import { ketListeningFormBodyPassage } from './KetListeningViews';
 
 type State = 'correct' | 'incorrect' | 'unanswered';
 
@@ -93,7 +94,8 @@ function ImageOptionResults({ part, results, showSource = true, displayImageUrl 
 
 function KetFormResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
   const unit = examPartUnits(part)[0] || part;
-  return <div className="space-y-4">{unit.passage && <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4"><p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Instructions and example</p><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-900">{unit.passage}</p></section>}<TextResults part={unit} results={results} /></div>;
+  const bodyPassage = ketListeningFormBodyPassage(unit.passage);
+  return <div className="space-y-4">{bodyPassage && <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4"><p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Content and example</p><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-900">{bodyPassage}</p></section>}<TextResults part={unit} results={results} /></div>;
 }
 
 function FlyerNameResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
@@ -107,12 +109,15 @@ function FlyerNameResults({ part, results }: { part: ExamPartContent; results: E
   })}</ExamImageViewer><TextResults part={unit} results={results} /></div>;
 }
 
-function FlyerLetterResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+function FlyerLetterResults({ part, results, singleImage = false }: { part: ExamPartContent; results: ExamQuestionResult[]; singleImage?: boolean }) {
   const unit = examPartUnits(part)[0] || part;
   const middle = unit.readingScenes?.[0]?.imageUrl || part.readingScenes?.[0]?.imageUrl;
-  return <div className="overflow-x-auto rounded-2xl bg-slate-50 p-2"><div data-flyer-part3-review-fixed-frames className="grid h-[clamp(360px,56vh,580px)] min-w-[880px] grid-cols-[minmax(280px,1fr)_minmax(280px,1fr)_220px] overflow-hidden rounded-2xl border-2 border-slate-300 bg-white divide-x-2 divide-slate-300">
-    <div className="min-w-0 overflow-hidden p-2">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Các lựa chọn A-H" fillFrame className="rounded-xl bg-white" />}</div>
-    <div className="min-w-0 overflow-hidden p-2">{middle && <ExamImageViewer src={middle} alt="Danh sách người" fillFrame className="rounded-xl bg-white" />}</div>
+  const imageUrl = part.imageUrl || middle;
+  return <div className="overflow-x-auto rounded-2xl bg-slate-50 p-2"><div data-flyer-part3-review-fixed-frames data-letter-matching-image-count={singleImage ? 1 : 2} className={`grid h-[clamp(360px,56vh,580px)] overflow-hidden rounded-2xl border-2 border-slate-300 bg-white divide-x-2 divide-slate-300 ${singleImage ? 'min-w-[650px] grid-cols-[minmax(360px,1fr)_220px]' : 'min-w-[880px] grid-cols-[minmax(280px,1fr)_minmax(280px,1fr)_220px]'}`}>
+    {singleImage
+      ? <div className="min-w-0 overflow-hidden p-2">{imageUrl && <ExamImageViewer src={imageUrl} alt="Ảnh đề KET letter matching" fillFrame className="rounded-xl bg-white" />}</div>
+      : <><div className="min-w-0 overflow-hidden p-2">{part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Các lựa chọn A-H" fillFrame className="rounded-xl bg-white" />}</div>
+        <div className="min-w-0 overflow-hidden p-2">{middle && <ExamImageViewer src={middle} alt="Danh sách người" fillFrame className="rounded-xl bg-white" />}</div></>}
     <div className="min-w-0 space-y-2 overflow-y-auto p-3">{unit.questions.map((question, index) => {
       const result = results.find(item => item.questionId === question.id);
       const state = stateOf(result);
@@ -192,7 +197,7 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
               ? part.part === 1
                 ? <ImageOptionResults part={part} results={results} showSource={false} />
                 : part.part === 2
-                  ? <FlyerLetterResults part={part} results={results} />
+                  ? <FlyerLetterResults part={part} results={results} singleImage />
                   : part.part === 3
                     ? <ImageOptionResults part={part} results={results} showSource={false} />
                     : <KetFormResults part={part} results={results} />

@@ -73,6 +73,9 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
   assert.match(prompt, /answerSuffix/);
   assert.match(prompt, /98 ___ Road/);
   assert.match(prompt, /số câu KHÔNG bị khóa/);
+  assert.match(prompt, /Part 2: dùng đúng một ảnh đặt bên trái/);
+  assert.match(prompt, /Part 4 listening - Question 16–20\./);
+  assert.match(prompt, /content\.passage CHỈ chứa nội dung biểu mẫu/);
 });
 
 test('KET Listening Part 1 crop grouping ignores the single combined frame for printed question 3', () => {
@@ -132,6 +135,43 @@ test('KET text-only Parts preserve imported source text and the Part 2 example',
   assert.equal(part6.passage, 'Read the descriptions. Example: camera.');
   assert.deepEqual(part6.questions[0].acceptedAnswers, ['assport']);
   assert.equal(part6.imageAssetId, undefined);
+
+  const part5 = importUniversalExamPart(current, 4, JSON.stringify({
+    partNumber: 5,
+    title: 'Choose A, B or C',
+    instruction: 'Choose the correct answer.',
+    blocks: [{
+      blockNumber: 1,
+      title: 'Image, example and answer rows',
+      interaction: interaction('choice', 'cloze', 'multiple-choice-cloze'),
+      content: {
+        examples: [{ prompt: 'There are ___ sizes of Schnauzer dogs.', answer: 'C' }],
+        questions: [{ questionNumber: 28, prompt: 'Gap 28', options: [{ label: 'A', text: 'came' }, { label: 'B', text: 'come' }, { label: 'C', text: 'comes' }], answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } }],
+      },
+    }],
+  })).part;
+  assert.deepEqual(part5.examples, [{ prompt: 'There are ___ sizes of Schnauzer dogs.', answer: 'C' }]);
+
+  current.parts[7].imageAssetId = 'ket-part8-teacher-image';
+  current.parts[7].imageUrl = '/media/ket-part8-teacher-image.png';
+  const part8 = importUniversalExamPart(current, 7, JSON.stringify({
+    partNumber: 8,
+    title: 'Complete the notes',
+    instruction: 'Complete each field.',
+    blocks: [{
+      blockNumber: 1,
+      title: 'Form fields',
+      interaction: interaction('text-entry', 'form-completion', 'image-form-fields'),
+      content: { passage: 'Printed source and example.', questions: [{ questionNumber: 51, prompt: 'Date', type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: ['Tuesday'] } }] },
+    }],
+  })).part;
+  assert.equal(part8.imageAssetId, 'ket-part8-teacher-image');
+  assert.equal(part8.imageUrl, '/media/ket-part8-teacher-image.png');
+
+  const prompt = buildUniversalExamImportPrompt(current);
+  assert.match(prompt, /Part 1: đúng một ảnh đặt bên trái/);
+  assert.match(prompt, /Part 5: ảnh hiển thị phía trên; trả đúng một example/);
+  assert.match(prompt, /Part 8: giáo viên tải\/dán một ảnh riêng/);
 });
 
 test('Universal JSON v2 owns a flexible six-Part structure and supports several blocks outside fixed Cambridge young-learner papers', () => {
@@ -500,9 +540,9 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
     answerKey: { acceptedAnswers: [`answer-${index + 1}`] },
   }));
   const parts = [
-    { partNumber: 1, title: 'Part 1', instruction: 'Choose yes or no.', blocks: [{ blockNumber: 1, title: 'Part 1', instruction: 'Choose.', interaction: interaction('choice', 'single', 'yes-no'), content: { examples: [{ prompt: 'Example', answer: 'Yes' }], questions: yesNoQuestions('Object') } }] },
+    { partNumber: 1, title: 'Part 1', instruction: 'Choose yes or no.', blocks: [{ blockNumber: 1, title: 'Part 1', instruction: 'Choose.', interaction: interaction('choice', 'single', 'yes-no'), content: { examples: [{ prompt: 'Example 1', answer: 'Yes' }, { prompt: 'Example 2', answer: 'No' }], questions: yesNoQuestions('Object') } }] },
     { partNumber: 2, title: 'Part 2', instruction: 'Choose yes or no.', blocks: [{ blockNumber: 1, title: 'Part 2', instruction: 'Choose.', interaction: interaction('choice', 'single', 'yes-no'), content: { examples: [{ prompt: 'Example 1', answer: 'Yes' }, { prompt: 'Example 2', answer: 'No' }], questions: yesNoQuestions('Statement') } }] },
-    { partNumber: 3, title: 'Part 3', instruction: 'Write the words.', blocks: [{ blockNumber: 1, title: 'Part 3', instruction: 'Write.', interaction: interaction('text-entry', 'short-answer', 'image-spelling'), content: { questions: shortQuestions('Picture') } }] },
+    { partNumber: 3, title: 'Part 3', instruction: 'Write the words.', blocks: [{ blockNumber: 1, title: 'Part 3', instruction: 'Write.', interaction: interaction('text-entry', 'short-answer', 'image-spelling'), content: { examples: [{ prompt: 'Example', answer: 'ear' }], questions: shortQuestions('Picture').map(question => ({ ...question, answerLength: question.answerKey.acceptedAnswers[0].replace(/\s+/g, '').length })) } }] },
     { partNumber: 4, title: 'Part 4', instruction: 'Complete the story.', blocks: [{ blockNumber: 1, title: 'Part 4', instruction: 'Write.', interaction: interaction('text-entry', 'short-answer', 'story-gaps'), content: { examples: [{ prompt: 'Example', answer: 'word' }], passage: 'One [[1]], two [[2]], three [[3]], four [[4]], five [[5]].', questions: shortQuestions('Gap') } }] },
     { partNumber: 5, title: 'Part 5', instruction: 'Answer the questions.', blocks: [{ blockNumber: 1, title: 'Part 5', instruction: 'Write.', interaction: interaction('text-entry', 'short-answer', 'scene-story'), content: { examples: [{ prompt: 'Example 1', answer: 'answer 1' }, { prompt: 'Example 2', answer: 'answer 2' }], scenes: [
       { sceneNumber: 1, passage: 'Scene one.', questions: shortQuestions('Scene one', 3).slice(0, 1) },
@@ -512,6 +552,7 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
   ];
   const source = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'starter' }, papers: [{ paperId: 'reading-writing', parts }] });
   const content = importUniversalExamBundle(current, source).content;
+  assert.equal(content.structureMode, 'definition');
   content.parts.forEach((part, partIndex) => {
     const block = part.blocks![0];
     if (partIndex < 4) {
@@ -519,8 +560,27 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
       block.imageUrl = `/media/student-image-${partIndex + 1}`;
     }
     if (partIndex === 0) {
-      block.examples![0].imageAssetId = 'example-image-1';
-      block.examples![0].imageUrl = '/media/example-image-1';
+      block.examples!.forEach((example, index) => {
+        example.imageAssetId = `example-image-${index + 1}`;
+        example.imageUrl = `/media/example-image-${index + 1}`;
+      });
+      content.parts[partIndex].questions.forEach((question, index) => {
+        question.imageAssetId = `question-image-${index + 1}`;
+        question.imageUrl = `/media/question-image-${index + 1}`;
+      });
+    }
+    if (partIndex === 2) {
+      const example = block.examples![0];
+      example.imageAssetId = 'part-3-example-left';
+      example.imageUrl = '/media/part-3-example-left';
+      example.secondaryImageAssetId = 'part-3-example-right';
+      example.secondaryImageUrl = '/media/part-3-example-right';
+      content.parts[partIndex].questions.forEach((question, index) => {
+        question.imageAssetId = `part-3-question-${index + 1}-left`;
+        question.imageUrl = `/media/part-3-question-${index + 1}-left`;
+        question.secondaryImageAssetId = `part-3-question-${index + 1}-right`;
+        question.secondaryImageUrl = `/media/part-3-question-${index + 1}-right`;
+      });
     }
     if (partIndex === 4) block.readingScenes!.forEach((scene, sceneIndex) => {
       scene.imageAssetId = `scene-image-${sceneIndex + 1}`;
@@ -531,6 +591,17 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
   assert.deepEqual(examPartUnits(content.parts[4])[0].readingScenes?.map(scene => scene.questionIds.length), [1, 2, 2]);
   assert.equal(examPartUnits(content.parts[4])[0].examples?.length, 2);
   assert.deepEqual(validateExamPaperContent(content), []);
+
+  const reimportedPartThree = importUniversalExamPart(content, 2, JSON.stringify(parts[2])).part;
+  const reimportedPartThreeUnit = examPartUnits(reimportedPartThree)[0];
+  assert.equal(reimportedPartThreeUnit.examples?.[0].imageUrl, '/media/part-3-example-left');
+  assert.equal(reimportedPartThreeUnit.examples?.[0].secondaryImageUrl, '/media/part-3-example-right');
+  assert.equal(reimportedPartThree.questions[0].imageUrl, '/media/part-3-question-1-left');
+  assert.equal(reimportedPartThree.questions[0].secondaryImageUrl, '/media/part-3-question-1-right');
+
+  const wrongDashCount = structuredClone(content);
+  wrongDashCount.parts[2].questions[0].answerLength = 1;
+  assert.ok(validateExamPaperContent(wrongDashCount).some(error => error.includes('số chữ cái phải khớp')));
 
   const oldPartFiveShape = structuredClone(content);
   const oldPartFiveBlock = oldPartFiveShape.parts[4].blocks![0];
@@ -546,7 +617,11 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
   assert.ok(oldShapeErrors.some(error => error.includes('cảnh 3 phải có đúng 2 câu chấm điểm')));
 
   const safe = sanitizeExamContentForStudent(content);
-  assert.equal(safe.parts[0].blocks?.[0].examples?.[0].imageUrl, '/media/example-image-1');
+  assert.equal(safe.parts[0].blocks?.[0].imageUrl, undefined);
+  assert.deepEqual(safe.parts[0].blocks?.[0].examples?.map(example => example.imageUrl), ['/media/example-image-1', '/media/example-image-2']);
+  assert.equal(safe.parts[2].blocks?.[0].imageUrl, undefined);
+  assert.equal(safe.parts[2].blocks?.[0].examples?.[0].secondaryImageUrl, '/media/part-3-example-right');
+  assert.equal(safe.parts[2].questions[0].secondaryImageUrl, '/media/part-3-question-1-right');
   assert.deepEqual(safe.parts[4].blocks?.[0].readingScenes?.map(scene => scene.imageUrl), ['/media/scene-image-1', '/media/scene-image-2', '/media/scene-image-3']);
   assert.equal(JSON.stringify(safe).includes('acceptedAnswers'), false);
   assert.equal(JSON.stringify(safe).includes('correctOptionIds'), false);
@@ -560,6 +635,9 @@ test('Starters Reading & Writing imports the fixed five-Part contract, preserves
   const partPrompt = buildUniversalExamPartImportPrompt(content, 4);
   assert.match(prompt, /CỐ ĐỊNH 5 Part/);
   assert.match(prompt, /1 \+ 2 \+ 2/);
+  assert.match(prompt, /crop 7 hình/);
+  assert.match(prompt, /crop 12 hình/);
+  assert.match(prompt, /answerLength/);
   assert.equal(prompt.match(/"questionNumber"/g)?.length, 25);
   assert.match(partPrompt, /CHỈ phân tích Part 5/);
   assert.match(partPrompt, /ba cảnh/);

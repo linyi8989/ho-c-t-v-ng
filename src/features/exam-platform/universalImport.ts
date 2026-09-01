@@ -23,7 +23,7 @@ const MAX_BLOCKS_PER_PART = 20;
 const MAX_QUESTIONS_PER_BLOCK = 200;
 const families = new Set<ExamInteractionFamily>(['choice', 'matching', 'text-entry', 'scene', 'writing']);
 const technicalFields = new Set([
-  'id', 'questionId', 'questionIds', 'imageAssetId', 'imageUrl', 'audioAssetId', 'audioUrl',
+  'id', 'questionId', 'questionIds', 'imageAssetId', 'imageUrl', 'secondaryImageAssetId', 'secondaryImageUrl', 'audioAssetId', 'audioUrl',
   'correctOptionIds', 'interactionSourceNodeId', 'responseKey', 'base64', 'filePath', 'url',
 ]);
 
@@ -257,6 +257,8 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
       ...(cleanText(rawQuestion.context, 8_000) ? { context: cleanText(rawQuestion.context, 8_000) } : {}),
       ...(currentQuestion?.imageAssetId ? { imageAssetId: currentQuestion.imageAssetId } : {}),
       ...(currentQuestion?.imageUrl ? { imageUrl: currentQuestion.imageUrl } : {}),
+      ...(currentQuestion?.secondaryImageAssetId ? { secondaryImageAssetId: currentQuestion.secondaryImageAssetId } : {}),
+      ...(currentQuestion?.secondaryImageUrl ? { secondaryImageUrl: currentQuestion.secondaryImageUrl } : {}),
       options,
       correctOptionIds,
       acceptedAnswers,
@@ -397,6 +399,8 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
         answer: cleanText(example.answer, 1_000),
         ...(previous?.imageAssetId ? { imageAssetId: previous.imageAssetId } : {}),
         ...(previous?.imageUrl ? { imageUrl: previous.imageUrl } : {}),
+        ...(previous?.secondaryImageAssetId ? { secondaryImageAssetId: previous.secondaryImageAssetId } : {}),
+        ...(previous?.secondaryImageUrl ? { secondaryImageUrl: previous.secondaryImageUrl } : {}),
       };
     });
     const rawScenes = Array.isArray(payload.scenes)
@@ -646,14 +650,17 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   const nextNumber = () => ++questionNumber;
   const fixedFlyerListening = current.moduleId === 'flyer' && current.paperId === 'listening';
   const fixedFlyerReadingWriting = current.moduleId === 'flyer' && current.paperId === 'reading-writing';
+  const fixedStarterReadingWriting = current.moduleId === 'starter' && current.paperId === 'reading-writing';
   const fixedKetListening = isFixedKetListeningContent(current);
   const fixedKetReadingWriting = current.moduleId === 'ket' && current.paperId === 'reading-writing' && current.templateVersion === 'ket-reading-writing-9-v1';
   if (fixedFlyerListening && rawParts.length !== 5) throw new Error('Flyers Listening phải có đúng 5 Part.');
   if (fixedFlyerReadingWriting && rawParts.length !== 7) throw new Error('Flyers Reading & Writing phải có đúng 7 Part.');
+  if (fixedStarterReadingWriting && rawParts.length !== 5) throw new Error('Starters Reading & Writing phải có đúng 5 Part.');
   if (fixedKetReadingWriting && rawParts.length !== 9) throw new Error('KET Reading & Writing phải có đúng 9 Part.');
   if (fixedKetListening && rawParts.length !== 5) throw new Error('KET Listening phải có đúng 5 Part.');
   const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
+  if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   const builtParts = fixedFlyerListening
     ? built.map((item, index) => normalizeFlyerListeningPart(item.part, current.parts[index]))
     : built.map(item => item.part);
@@ -669,7 +676,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
     content: {
       ...current,
       schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
-      ...(fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
+      ...(fixedStarterReadingWriting || fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
       title: cleanText(paper.title || exam.title, 240) || current.title,
       description: cleanText(paper.description || exam.description, 4_000) || current.description,
       level: cleanText(paper.level || exam.level, 240) || current.level,

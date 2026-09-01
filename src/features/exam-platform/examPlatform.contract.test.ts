@@ -2,8 +2,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { EXAM_IMAGE_PROFILES } from '../exam-media/imageProfiles';
-import { normalizeStarterPart2PromptForMover } from './student/StarterInteractions';
+import {
+  normalizeStarterPart2PromptForMover,
+  splitStarterPart2ExampleLines,
+  STARTER_LISTENING_LARGE_IMAGE_SCALE,
+  STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT,
+  STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH,
+} from './student/StarterInteractions';
+import { starterPart2ExampleEditorLines } from './starterListeningPart2';
 import { resolveExamImageProfile, resolveExamTaskLayout } from './student/examPresentation';
+import { starterSpellingCharacters, updateStarterSpellingValue } from './student/StarterReadingWritingViews';
 
 const adminSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../../../server.ts', import.meta.url), 'utf8');
@@ -179,11 +187,23 @@ test('student exam images use shared viewport-aware profiles and overflow-safe s
   assert.match(imageProfileSource, /100dvh/);
   assert.match(imageViewerSource, /data-exam-image-profile/);
   assert.match(imageViewerSource, /data-exam-image-stage/);
+  assert.match(imageViewerSource, /data-exam-image-double-click/);
+  assert.match(imageViewerSource, /showExpandButton = false/);
+  assert.match(imageViewerSource, /expandOnDoubleClick = true/);
+  assert.match(imageViewerSource, /onDoubleClick=/);
+  assert.match(imageViewerSource, /\['Enter', ' '\]\.includes\(event\.key\)/);
   assert.match(imageViewerSource, /resolvedMaxWidth/);
   assert.match(imageViewerSource, /naturalSize\.width \* scale/);
   assert.match(imageViewerSource, /setScale\('fit'\)/);
   assert.match(imageViewerSource, /setScale\(1\)/);
   assert.doesNotMatch(imageViewerSource, /Math\.min\(3|Math\.max\(\.5/);
+  assert.match(imageViewerSource, /exam-platform-image-toolbar/);
+  assert.match(imageViewerSource, /exam-platform-image-scale/);
+  assert.match(imageViewerSource, /id="exam-platform-image-dialog"/);
+  assert.doesNotMatch(globalCssSource, /:not\(\.exam-platform-image-tool\)/);
+  assert.match(globalCssSource, /#exam-platform-image-dialog \.exam-platform-image-toolbar/);
+  assert.match(globalCssSource, /#exam-platform-image-dialog \.exam-platform-image-scale/);
+  assert.match(globalCssSource, /#exam-platform-image-dialog button\.exam-platform-image-tool:not\(:disabled\)/);
   assert.match(listeningPartViewsSource, /ExamImageViewer/);
   assert.match(listeningPartViewsSource, /profile="interactive-scene"/);
   assert.match(listeningPartViewsSource, /frameRef=\{boardRef\}/);
@@ -256,6 +276,8 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.match(genericAdminSource, /!starterListening && !fixedListeningPart2 && !fixedReadingWritingAuthoring && !ketListening && <label[^>]*>Đoạn đọc\/nội dung chung của Part/);
   assert.match(starterAuthoringSource, /data-starter-special-editor="text-entry"/);
   assert.match(starterAuthoringSource, /Dạng câu được cố định là short-answer/);
+  assert.match(starterAuthoringSource, /data-starter-part2-example-editor/);
+  assert.match(starterAuthoringSource, /Hai example không chấm điểm/);
   assert.match(starterPlayerSource, /data-starter-interaction="text-entry"/);
   assert.match(starterPlayerSource, /ListeningPart2View/);
   assert.match(starterPlayerSource, /const moverPart: ListeningPart2/);
@@ -265,6 +287,32 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.equal(normalizeStarterPart2PromptForMover('Which class is Sam in?'), 'Which class is Sam in? {{answer}}');
   assert.equal(normalizeStarterPart2PromptForMover("What's the name? {{answer}}"), "What's the name? {{answer}}");
   assert.equal(normalizeStarterPart2PromptForMover('Teacher: ____ / duplicate {{blank}}'), 'Teacher: {{answer}} / duplicate ');
+  assert.deepEqual(splitStarterPart2ExampleLines("What's the boy's name? — Sam.\nHow old is he? — 10."), ["What's the boy's name? — Sam.", 'How old is he? — 10.']);
+  assert.deepEqual(splitStarterPart2ExampleLines("What's the boy's name? — Sam. How old is he? — 10."), ["What's the boy's name? — Sam.", 'How old is he? — 10.']);
+  assert.deepEqual(starterPart2ExampleEditorLines('\nHow old is he? — 10.'), ['', 'How old is he? — 10.']);
+  assert.match(genericPlayerSource, /hideStarterPart2DuplicateExample = starterListening && part\.part === 2 && special/);
+  assert.match(listeningPartViewsSource, /data-starter-part2-example-lines/);
+  assert.match(listeningPartViewsSource, /Example \{index \+ 1\}/);
+});
+
+test('Starter Listening Parts 1, 3 and 4 use compact task frames while interactive scenes grow as one stage', () => {
+  assert.equal(STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH, '912px');
+  assert.equal(STARTER_LISTENING_LARGE_IMAGE_SCALE, 1.2);
+  assert.match(STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT, /74\.4dvh/);
+  assert.match(STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT, /744px/);
+  assert.match(genericPlayerSource, /\[1, 3, 4\]\.includes\(activePart\.part\)/);
+  assert.match(genericPlayerSource, /data-starter-listening-frame/);
+  assert.match(genericPlayerSource, /data-starter-listening-work-area/);
+  assert.match(genericPlayerSource, /sm:h-\[calc\(90dvh-261px\)\]/);
+  assert.match(genericPlayerSource, /sm:w-\[90%\]/);
+  assert.match(genericPlayerSource, /sm:max-w-\[1350px\]/);
+  assert.match(starterPlayerSource, /maxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
+  assert.match(starterPlayerSource, /imageMaxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
+  assert.match(starterPlayerSource, /preferredScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
+  assert.match(starterPlayerSource, /imageScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
+  assert.match(listeningPartViewsSource, /maxWidth=\{imageMaxWidth\}/);
+  assert.match(starterPlayerSource, /\(clientX - bounds\.left\) \/ bounds\.width/);
+  assert.match(listeningPartViewsSource, /\(event\.clientX - bounds\.left\) \/ bounds\.width/);
 });
 
 test('Starter Listening Part 3 uses Movers image options and keeps manual crop collapsed', () => {
@@ -288,10 +336,20 @@ test('Starters Reading & Writing keeps five fixed authoring, player and visual-r
   assert.match(genericPlayerSource, /StarterReadingWritingPartView/);
   assert.match(genericPlayerSource, /StarterReadingWritingResult/);
   for (const contract of [
-    'Ảnh example ở phía trên',
-    'Ảnh bài làm ở cột bên trái',
+    'crop 7 hình',
+    'crop 12 hình',
+    'data-starter-rw-crop-slots',
+    'data-starter-rw-auto-detect',
+    'data-starter-rw-auto-crop-review',
+    'data-starter-rw-crop-grid',
+    'starter-rw-crop-thumbnail',
+    'data-starter-rw-part1-pastel-detector',
+    'data-starter-rw-part3-paired-detector',
+    'detectStarterReadingPart1Crops',
+    'detectStarterReadingPart3Crops',
+    'Ảnh nguồn đã thay đổi',
+    'secondaryImageAssetId',
     'Ảnh tình huống ở cột bên trái',
-    'Ảnh nguyên trang hiển thị bên trái cho học sinh',
     'Ảnh ngân hàng từ/hình ở cột bên trái',
     'Tranh và câu chuyện',
     'const counts = [1, 2, 2]',
@@ -303,11 +361,60 @@ test('Starters Reading & Writing keeps five fixed authoring, player and visual-r
   assert.match(starterReadingPlayerSource, /part\.part === 4/);
   assert.match(starterReadingPlayerSource, /readingScenes/);
   assert.match(starterReadingPlayerSource, /ExamImageViewer/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part1-cropped-rows/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part3-paired-rows/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part3-row/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part3-image/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part3-answer/);
+  assert.doesNotMatch(starterReadingPlayerSource, /text-\[10px\] font-black uppercase text-indigo-700">Example/);
+  assert.doesNotMatch(starterReadingPlayerSource, /mb-2 text-center text-xs font-black text-blue-700">\{index \+ 1\}/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-spelling-cells/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-spelling-example/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-yes-no-row/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-large-image-frame/);
+  assert.match(starterReadingAuthoringSource, /id="starter-reading-writing-authoring"/);
+  assert.match(starterReadingAuthoringSource, /starter-rw-crop-action/);
+  assert.match(starterReadingAuthoringSource, /starter-rw-crop-confirm/);
+  assert.match(universalAuthoringSource, /content\.moduleId === 'starter' && content\.paperId === 'reading-writing'/);
+  assert.match(universalImporterSource, /fixedStarterReadingWriting/);
+  assert.match(globalCssSource, /#starter-reading-writing-authoring button\.starter-rw-crop-action/);
+  assert.match(globalCssSource, /#starter-reading-writing-authoring \.starter-rw-crop-thumbnail/);
+  assert.match(globalCssSource, /max-width: 128px/);
+  assert.match(globalCssSource, /#generic-exam-player \.starter-rw-inline-choice\[data-selected="true"\]/);
+  assert.match(globalCssSource, /#generic-exam-player \[data-starter-rw-spelling-cells\] input\.starter-rw-spelling-cell/);
+  assert.match(globalCssSource, /#generic-exam-player \[data-starter-rw-part3-paired-rows\] \[data-starter-rw-part3-row\]/);
+  assert.match(globalCssSource, /border-radius: 5px 5px 3px 3px !important/);
+  assert.match(starterReadingResultSource, /data-starter-rw-part1-cropped-review/);
+  assert.match(starterReadingResultSource, /data-starter-rw-part3-paired-review/);
   assert.match(starterReadingResultSource, /starter-reading-review-part-tab/);
   assert.match(starterReadingResultSource, /Quay lại tổng kết/);
   assert.match(starterReadingResultSource, /Xem kết quả/);
   for (const cssHook of ['starter-reading-primary-action', 'starter-reading-review-action', 'starter-reading-review-part-tab', 'starter-reading-review-part-nav']) {
     assert.ok(globalCssSource.includes(cssHook), `Starters Reading contrast CSS is missing: ${cssHook}`);
+  }
+});
+
+test('Starters Reading Part 3 stores separate letter cells as one gradable word', () => {
+  assert.deepEqual(starterSpellingCharacters('f a!c-e', 5), ['f', 'a', 'c', '-', 'e']);
+  assert.equal(updateStarterSpellingValue('', 4, 0, 'face'), 'face');
+  assert.equal(updateStarterSpellingValue('fa', 4, 2, 'c'), 'fac');
+  assert.equal(updateStarterSpellingValue('face', 4, 2, ''), 'fae');
+  assert.equal(updateStarterSpellingValue('', 4, 3, 'n'), 'n');
+});
+
+test('Starters Reading & Writing crop and inline answer controls meet WCAG AA text contrast', () => {
+  for (const [foreground, background] of [
+    ['#ffffff', '#4338ca'], // crop
+    ['#ffffff', '#047857'], // confirm
+    ['#1e40af', '#ffffff'], // secondary
+    ['#475569', '#e2e8f0'], // disabled/loading
+    ['#1e293b', '#f8fafc'], // unselected Yes/No
+    ['#ffffff', '#1d4ed8'], // selected Yes/No
+  ]) {
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${foreground} on ${background} must meet a 4.5:1 contrast ratio`,
+    );
   }
 });
 
@@ -352,6 +459,9 @@ test('Flyers Reading & Writing keeps seven fixed Part types with flexible scored
   assert.match(flyerReadingPlayerSource, /grid-cols-\[minmax\(0,1fr\)_9rem\]/);
   assert.match(flyerReadingPlayerSource, /data-flyer-reading-part2-rows/);
   assert.match(flyerReadingPlayerSource, /grid-cols-\[minmax\(0,1fr\)_4\.5rem_4\.5rem\]/);
+  assert.match(flyerReadingPlayerSource, /data-flyer-reading-part4-stacked/);
+  assert.match(flyerReadingPlayerSource, /data-flyer-reading-part4-content/);
+  assert.match(flyerReadingPlayerSource, /alt="Ảnh minh họa Flyers Reading & Writing Part 4"/);
   assert.match(flyerReadingPlayerSource, /sm:grid-cols-\[42px_repeat\(3,minmax\(0,1fr\)\)\]/);
   assert.match(flyerReadingPlayerSource, /ExamImageViewer/);
   assert.match(flyerReadingAuthoringSource, /Ảnh bài đọc duy nhất · học sinh nhìn bên trái/);
@@ -396,6 +506,7 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   for (const contract of [
     'id="ket-reading-writing-player"',
     'FlyerLetterMatchingView',
+    'singleImage',
     'SpellingCells',
     'data-ket-image-top',
     'stackPrompt',
@@ -419,8 +530,15 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   assert.doesNotMatch(ketReadingAuthoringSource, /<ExampleEditor examples=\{first\.examples \|\| \[\]\}/);
   assert.match(ketReadingPlayerSource, /showPrompt imageTop hideExamples stackPrompt/);
   assert.match(ketReadingPlayerSource, /withoutImage stackPrompt/);
+  assert.match(ketReadingPlayerSource, /data-ket-part8-image-top/);
+  assert.match(ketReadingPlayerSource, /part=\{unit\} answers=\{answers\} onAnswer=\{onAnswer\} singleImage/);
+  assert.match(ketReadingAuthoringSource, /Part 8 · hiển thị phía trên khu vực làm bài/);
+  assert.match(ketReadingAuthoringSource, /part\.part === 5 \? <ChoicePart \{\.\.\.props\} \/>/);
+  assert.match(ketReadingMigrationSource, /\[1, 2, 5\]\.includes\(part\)/);
   assert.match(ketReadingResultSource, /<CompoundReview units=\{units\} results=\{results\} \/>/);
-  assert.match(flyerPlayerSource, /question\.displayNumber \|\| index \+ 1/);
+  assert.match(flyerPlayerSource, /const personName = question\.prompt\.trim\(\) \|\| `Người \$\{index \+ 1\}`/);
+  assert.match(flyerPlayerSource, /data-flyer-part3-answer-name=\{personName\}/);
+  assert.match(flyerPlayerSource, /aria-label=\{`Chữ cái đáp án cho \$\{personName\}`\}/);
   assert.match(validationSource, /Part \$\{partNumber\}.*mỗi câu phải có nội dung câu hỏi hiển thị phía trên ba đáp án A\/B\/C/s);
   for (const contract of [
     'id="ket-reading-writing-result-screen"',
@@ -450,7 +568,7 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
     assert.ok(ketReadingResultSource.includes(hook), `KET Part 3 review contrast hook is missing: ${hook}`);
     assert.ok(globalCssSource.includes(hook), `KET Part 3 contrast CSS is missing: ${hook}`);
   }
-  for (const hook of ['ket-reading-result-home', 'ket-reading-result-retry']) {
+  for (const hook of ['ket-reading-result-home', 'ket-reading-result-review', 'ket-reading-result-retry', 'ket-reading-review-part-tab', 'ket-reading-review-back']) {
     assert.ok(ketReadingResultSource.includes(hook), `KET result action contrast hook is missing: ${hook}`);
     assert.ok(globalCssSource.includes(hook), `KET result action contrast CSS is missing: ${hook}`);
   }
@@ -458,6 +576,8 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   assert.match(ketReadingPlayerSource, /data-active=\{activeGroup === index\}/);
   assert.match(globalCssSource, /#ket-reading-writing-player button\.ket-part-three-page-nav:disabled/);
   assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-home:not\(:disabled\)/);
+  assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-review:not\(:disabled\)/);
+  assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-review:disabled/);
   assert.match(globalCssSource, /#ket-reading-writing-result-screen button\.ket-reading-result-retry:not\(:disabled\)/);
   assert.match(listeningAssetPickerSource, /onChange\(asset\.id, asset\)/);
   assert.match(flyerReadingAuthoringSource, /uploadedAsset \|\|/);
@@ -469,7 +589,9 @@ test('KET Reading & Writing Part 3 and result controls meet WCAG AA text contras
   const colourPairs = [
     ['#1e40af', '#ffffff'], // inactive tab and previous page
     ['#ffffff', '#1d4ed8'], // active tab, next page and home
+    ['#1e40af', '#ffffff'], // view result
     ['#ffffff', '#047857'], // retry
+    ['#334155', '#e2e8f0'], // loading result
     ['#475569', '#e2e8f0'], // disabled page navigation
   ] as const;
 
@@ -498,6 +620,7 @@ test('KET Listening keeps five flexible Part types, special Part 1 crops and the
     'KET_LISTENING_MANUAL_DISPLAY_NUMBER',
     'groupKetListeningPart1OptionCrops',
     'FlyerPart3Editor',
+    'singleImage',
     'pasteImages',
     'data-ket-listening-count-controls',
     'Ảnh chung của câu 3',
@@ -508,10 +631,13 @@ test('KET Listening keeps five flexible Part types, special Part 1 crops and the
     'StarterImageOptionsView',
     'FlyerLetterMatchingView',
     'data-ket-listening-part1-shared-image',
-    'data-ket-listening-part3-prompt',
     'data-ket-listening-dialogue-choices',
     'data-ket-listening-form-rows',
+    'ketListeningFormBodyPassage',
   ]) assert.ok(ketListeningPlayerSource.includes(contract), `KET Listening player is missing: ${contract}`);
+  assert.doesNotMatch(ketListeningPlayerSource, /data-ket-listening-part3-prompt/);
+  assert.match(universalPromptSource, /Part 4 listening - Question 16–20\./);
+  assert.match(universalPromptSource, /content\.passage CHỈ chứa nội dung biểu mẫu/);
   assert.match(genericPlayerSource, /isFixedKetListeningContent\(playable\.content\)/);
   assert.match(genericPlayerSource, /ketListening=\{ketListening\}/);
   assert.match(starterResultSource, /ket-listening-5-v1/);

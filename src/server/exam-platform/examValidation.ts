@@ -30,6 +30,7 @@ import {
   starterMatchingModel,
   starterMatchingResponseKey,
 } from '../../features/exam-platform/starterMatching.js';
+import { splitStarterPart2ExampleLines } from '../../features/exam-platform/starterListeningPart2.js';
 
 const text = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max);
 const objectiveTypes = new Set<ExamQuestionType>([
@@ -73,6 +74,8 @@ const smartImportTechnicalFields = new Set([
   'id',
   'imageAssetId',
   'imageUrl',
+  'secondaryImageAssetId',
+  'secondaryImageUrl',
   'audioAssetId',
   'audioUrl',
   'correctOptionIds',
@@ -383,22 +386,43 @@ function validateStarterReadingWritingPart(part: ExamPartContent, partIndex: num
   }
 
   if (partNumber <= 2) {
-    if (!text(unit.imageAssetId, 180)) errors.push(`Starters Reading & Writing Part ${partNumber}: phải tải ảnh bài làm cho học sinh.`);
+    if (partNumber === 2 && !text(unit.imageAssetId, 180)) errors.push('Starters Reading & Writing Part 2: phải tải ảnh bài làm cho học sinh.');
     if (unit.questions.some(question => question.type !== 'true-false' || question.options.length !== 2)) {
       errors.push(`Starters Reading & Writing Part ${partNumber}: mỗi câu phải có đúng hai lựa chọn Yes/No.`);
     }
-    if (partNumber === 1 && !text(unit.examples?.[0]?.imageAssetId, 180)) {
-      errors.push('Starters Reading & Writing Part 1: phải tải ảnh example riêng ở phía trên.');
-    }
-    const expectedExamples = partNumber === 1 ? 1 : 2;
-    if ((unit.examples || []).length !== expectedExamples) {
-      errors.push(`Starters Reading & Writing Part ${partNumber}: phải có đúng ${expectedExamples} example không chấm điểm.`);
+    if (partNumber === 1) {
+      const examples = unit.examples || [];
+      const croppedLayout = examples.length === 2;
+      if (croppedLayout) {
+        if (examples.some(example => !text(example.imageAssetId, 180)) || unit.questions.some(question => !text(question.imageAssetId, 180))) {
+          errors.push('Starters Reading & Writing Part 1: cần đủ 2 ảnh example và 5 ảnh câu hỏi đã crop.');
+        }
+      } else if (examples.length !== 1 || !text(examples[0]?.imageAssetId, 180) || !text(unit.imageAssetId, 180)) {
+        errors.push('Starters Reading & Writing Part 1: đề cũ cần một ảnh example và một ảnh bài; đề mới cần đủ 7 ảnh crop.');
+      }
+    } else if ((unit.examples || []).length !== 2) {
+      errors.push('Starters Reading & Writing Part 2: phải có đúng 2 example không chấm điểm.');
     }
   }
 
   if (partNumber === 3) {
-    if (!text(unit.imageAssetId, 180)) errors.push('Starters Reading & Writing Part 3: phải tải ảnh trang bài tập hiển thị bên trái.');
     if (unit.questions.some(question => question.type !== 'short-answer')) errors.push('Starters Reading & Writing Part 3: cả 5 câu phải là dạng điền từ.');
+    const pairedLayout = Boolean(unit.examples?.length) || unit.questions.some(question => text(question.imageAssetId, 180) || text(question.secondaryImageAssetId, 180));
+    if (pairedLayout) {
+      if (unit.questions.some(question => !Number.isInteger(question.answerLength) || Number(question.answerLength) < 1 || Number(question.answerLength) > 30)) {
+        errors.push('Starters Reading & Writing Part 3: mỗi câu phải có số chữ cái từ 1 đến 30 để dựng đúng số gạch chân.');
+      }
+      if (unit.questions.some(question => question.acceptedAnswers.some(answer => Array.from(answer.replace(/\s+/g, '')).length !== question.answerLength))) {
+        errors.push('Starters Reading & Writing Part 3: số chữ cái phải khớp với đáp án chính thức.');
+      }
+      const example = unit.examples?.[0];
+      if ((unit.examples || []).length !== 1 || !text(example?.imageAssetId, 180) || !text(example?.secondaryImageAssetId, 180)
+        || unit.questions.some(question => !text(question.imageAssetId, 180) || !text(question.secondaryImageAssetId, 180))) {
+        errors.push('Starters Reading & Writing Part 3: cần đủ 12 ảnh crop (2 ảnh example và 2 ảnh cho mỗi câu).');
+      }
+    } else if (!text(unit.imageAssetId, 180)) {
+      errors.push('Starters Reading & Writing Part 3: đề cũ cần ảnh nguyên trang; đề mới cần đủ 12 ảnh crop.');
+    }
   }
 
   if (partNumber === 4) {
@@ -512,9 +536,8 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
   };
 
   if (partNumber === 1) {
-    if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài hai ảnh và cột chữ cái.`);
-    requireImage(part, 'ảnh lựa chọn bên trái');
-    if (!text(part.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: phải chọn ảnh đề/danh sách ở giữa.`);
+    if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài một ảnh và cột chữ cái.`);
+    requireImage(part, 'ảnh đề hiển thị bên trái');
     if (part.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: mỗi đáp án phải là đúng một chữ A–H.`);
   }
   if (partNumber === 2) {
@@ -527,6 +550,7 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
     if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài chọn A/B/C.`);
     requireImage(part, 'ảnh đề hiển thị phía trên');
     requireThreeChoices(part.questions);
+    if ((part.examples || []).length !== 1 || (part.examples || []).some(example => !text(example.prompt, 8_000) || !text(example.answer, 500))) errors.push(`${label}: phải có đúng một example dạng chữ, không chấm điểm.`);
   }
   if (partNumber === 3) {
     if (part.blocks?.length !== 2 || units.length !== 2) {
@@ -537,12 +561,11 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
     const referenced = part.blocks.flatMap(block => block.questionIds);
     if (referenced.length !== part.questions.length || new Set(referenced).size !== part.questions.length || part.questions.some(question => !referenced.includes(question.id))) errors.push(`${label}: hai phần phải phủ đúng mỗi câu một lần.`);
     if (!choiceUnit.questions.length || choiceUnit.interaction?.variant !== 'multiple-choice-cloze') errors.push(`${label}A: phải dùng dạng ảnh và hàng đáp án A/B/C.`);
-    if (!letterUnit.questions.length || letterUnit.interaction?.variant !== 'two-image-letter-input') errors.push(`${label}B: phải dùng dạng hai ảnh và cột nhập chữ cái.`);
+    if (!letterUnit.questions.length || letterUnit.interaction?.variant !== 'two-image-letter-input') errors.push(`${label}B: phải dùng dạng một ảnh và cột nhập chữ cái.`);
     requireImage(choiceUnit, 'ảnh đề Part 3A');
     requireThreeChoices(choiceUnit.questions);
     if (choiceUnit.questions.some(question => !text(question.prompt, 8_000))) errors.push(`${label}A: mỗi câu phải có nội dung câu hỏi hiển thị phía trên ba đáp án A/B/C.`);
-    requireImage(letterUnit, 'ảnh lựa chọn Part 3B');
-    if (!text(letterUnit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}B: phải chọn ảnh đề/danh sách ở giữa.`);
+    requireImage(letterUnit, 'ảnh đề Part 3B hiển thị bên trái');
     if (letterUnit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}B: mỗi đáp án phải là đúng một chữ A–H.`);
   }
   if (partNumber === 4) {
@@ -564,6 +587,7 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
     if (part.questions.some(question => question.type !== 'short-answer' || question.maxWords !== 1 || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên ảnh và ô điền đúng một từ.`);
   }
   if (partNumber === 8) {
+    requireImage(part, 'ảnh đề hiển thị phía trên khu vực làm bài');
     if (!text(part.passage, 20_000)) errors.push(`${label}: thiếu nội dung nguồn, hướng dẫn và example dạng chữ.`);
     if (part.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số, nhãn biểu mẫu và đáp án điền.`);
     if (part.questions.some(question => text(question.answerSuffix, 80))) errors.push(`${label}: chỉ dùng một vùng nhập với ký tự có sẵn ở đầu; không dùng ký tự phía sau.`);
@@ -595,18 +619,16 @@ function validateKetListeningPart(part: ExamPartContent, partIndex: number, erro
     if (unit.questions.some(question => Number(question.displayNumber) !== KET_LISTENING_MANUAL_DISPLAY_NUMBER && question.options.some(option => !text(option.imageAssetId, 180)))) errors.push(`${label}: các câu ngoài câu 3 phải có đủ ba ảnh A/B/C; đề chuẩn cần 12 ảnh crop cho câu 1, 2, 4 và 5.`);
   }
   if (number === 2) {
-    if (!text(unit.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh lựa chọn A–H bên trái.`);
-    if (!text(unit.readingScenes?.[0]?.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh đề/danh sách ở giữa.`);
+    if (!text(unit.imageAssetId, 180)) errors.push(`${label}: phải tải một ảnh đề hiển thị bên trái.`);
     if ((unit.examples || []).length !== 1) errors.push(`${label}: phải có đúng một example không chấm điểm.`);
     if (unit.questions.some(question => question.type !== 'short-answer' || question.acceptedAnswers.length < 1 || question.acceptedAnswers.some(answer => !/^[A-H]$/i.test(answer)))) errors.push(`${label}: mỗi đáp án phải là đúng một chữ A–H.`);
   }
   if (number === 3) {
-    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu đề bài/hướng dẫn dạng text được tạo từ JSON.`);
     if ((unit.examples || []).length !== 1 || (unit.examples || []).some(example => !text(example.prompt, 2_000) || !text(example.answer, 1_000))) errors.push(`${label}: phải có đúng một example dạng text, không chấm điểm.`);
     if (unit.questions.some(question => !text(question.prompt, 8_000) || question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có nội dung thoại, đúng ba lựa chọn A/B/C và một đáp án đúng.`);
   }
   if (number === 4 || number === 5) {
-    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu nội dung hướng dẫn và example dạng text hiển thị phía trên.`);
+    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu nội dung biểu mẫu và example dạng text hiển thị dưới tiêu đề chính.`);
     if (unit.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên đề, nhãn và ô nhập đáp án.`);
     if (unit.questions.some(question => String(question.answerPrefix || '').length > 20 || String(question.answerSuffix || '').length > 80)) errors.push(`${label}: chữ/ký hiệu trước hoặc sau ô nhập vượt quá giới hạn cho phép.`);
   }
@@ -653,6 +675,12 @@ export function validateExamPaperContent(content: ExamPaperContent) {
     if (!text(part?.title, 240)) errors.push(`Part ${partIndex + 1}: thiếu tiêu đề.`);
     if (content.moduleId === 'starter' && content.paperId === 'listening' && partIndex === 2 && !text(part?.imageAssetId, 180)) {
       errors.push('Part 3: phải tải ảnh hiển thị chung cho học sinh, tách biệt với ảnh nguồn crop đáp án.');
+    }
+    if (content.moduleId === 'starter' && content.paperId === 'listening' && partIndex === 1) {
+      const unit = examPartUnits(part)[0] || part;
+      if (splitStarterPart2ExampleLines(unit.passage).length !== 2) {
+        errors.push('Starters Listening Part 2: phải nhập đủ đúng 2 example không chấm điểm, mỗi example một dòng.');
+      }
     }
     if (content.moduleId === 'starter' && content.paperId === 'reading-writing') {
       validateStarterReadingWritingPart(part, partIndex, errors);
@@ -822,6 +850,15 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
     ...structuredClone(content),
     parts: content.parts.map(part => {
       const studentColourPalette = starterStudentColourPalette(part);
+      const sourceUnit = examPartUnits(part)[0] || part;
+      const completeStarterReadingPart1Crops = content.moduleId === 'starter' && content.paperId === 'reading-writing' && part.part === 1
+        && (sourceUnit.examples || []).length === 2
+        && (sourceUnit.examples || []).every(example => text(example.imageAssetId, 180))
+        && sourceUnit.questions.every(question => text(question.imageAssetId, 180));
+      const completeStarterReadingPart3Crops = content.moduleId === 'starter' && content.paperId === 'reading-writing' && part.part === 3
+        && (sourceUnit.examples || []).length === 1
+        && (sourceUnit.examples || []).every(example => text(example.imageAssetId, 180) && text(example.secondaryImageAssetId, 180))
+        && sourceUnit.questions.every(question => text(question.imageAssetId, 180) && text(question.secondaryImageAssetId, 180));
       const matchingQuestionIds = new Set([
         ...((part.interactionLayout?.kind === 'starter-image-matching-v1' || part.interactionLayout?.kind === 'starter-image-matching-v2') ? part.questions.map(question => question.id) : []),
         ...(part.blocks || []).flatMap(block => block.interactionLayout?.kind === 'starter-image-matching-v1' || block.interactionLayout?.kind === 'starter-image-matching-v2' ? block.questionIds : []),
@@ -843,6 +880,10 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
       // The transcript is review-only content. Never expose it in the playable
       // payload, even when the paper allows answers to be reviewed later.
       delete safePart.audioTranscript;
+      if (completeStarterReadingPart1Crops || completeStarterReadingPart3Crops) {
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
       if (content.moduleId === 'flyer' && content.paperId === 'listening' && part.part === 4) {
         delete safePart.imageAssetId;
         delete safePart.imageUrl;
@@ -876,9 +917,13 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         });
       }
       if (Array.isArray(safePart.blocks)) {
-        safePart.blocks = safePart.blocks.map((block: Record<string, any>) => {
+        safePart.blocks = safePart.blocks.map((block: Record<string, any>, blockIndex: number) => {
           const safeBlock = { ...block };
           delete safeBlock.geometryHints;
+          if (blockIndex === 0 && (completeStarterReadingPart1Crops || completeStarterReadingPart3Crops)) {
+            delete safeBlock.imageAssetId;
+            delete safeBlock.imageUrl;
+          }
           if (content.moduleId === 'starter' && content.paperId === 'listening' && part.part === 3 && safeBlock.interaction?.variant === 'image-options') {
             delete safeBlock.imageAssetId;
             delete safeBlock.imageUrl;
