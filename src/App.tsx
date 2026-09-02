@@ -9,6 +9,7 @@ import {
   examModulePath,
   parseListeningLibraryRoute,
 } from './features/listening-library/routes';
+import { parseAppShellRoute } from './appRoutes';
 import { useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -82,27 +83,22 @@ export default function App() {
     pathname: window.location.pathname,
     search: window.location.search
   }));
-  const currentPathname = browserLocation.pathname.replace(/\/+$/, '') || '/';
-  const [studentHistoryOpen, setStudentHistoryOpen] = useState(() => (
-    (window.location.pathname.replace(/\/+$/, '') || '/') === '/history'
-  ));
-  const privateAssignmentToken = React.useMemo(() => {
-    const match = browserLocation.pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
-  }, [browserLocation.pathname]);
-  const privateGrammarToken = React.useMemo(() => {
-    const match = browserLocation.pathname.match(/^\/grammar\/private\/([^/?#]+)/);
-    return match ? decodeURIComponent(match[1]) : '';
-  }, [browserLocation.pathname]);
+  const appShellRoute = React.useMemo(
+    () => parseAppShellRoute(browserLocation.pathname),
+    [browserLocation.pathname]
+  );
+  const currentPathname = appShellRoute.pathname;
+  const studentHistoryOpen = appShellRoute.kind === 'history';
+  const privateAssignmentToken = appShellRoute.kind === 'private-vocabulary'
+    ? appShellRoute.token
+    : '';
+  const privateGrammarToken = appShellRoute.kind === 'private-grammar'
+    ? appShellRoute.token
+    : '';
   const listeningLibraryRoute = React.useMemo(() => (
     parseListeningLibraryRoute(browserLocation.pathname, browserLocation.search)
   ), [browserLocation.pathname, browserLocation.search]);
-  const authRoute = React.useMemo(() => {
-    const pathname = browserLocation.pathname.replace(/\/+$/, '') || '/';
-    if (pathname === '/reg' || pathname === '/register') return 'register';
-    if (pathname === '/login' || pathname === '/admin') return 'login';
-    return '';
-  }, [browserLocation.pathname]);
+  const authRoute = appShellRoute.kind === 'auth' ? appShellRoute.mode : '';
   const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
@@ -141,15 +137,12 @@ export default function App() {
     const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextHref !== currentHref) window.history.pushState({ appNavigation: true }, '', nextHref);
     setBrowserLocation({ pathname: target.pathname, search: target.search });
-    setStudentHistoryOpen((target.pathname.replace(/\/+$/, '') || '/') === '/history');
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, []);
 
   useEffect(() => {
     const syncStudentScreenFromPath = () => {
-      const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
       setBrowserLocation({ pathname: window.location.pathname, search: window.location.search });
-      setStudentHistoryOpen(pathname === '/history');
     };
     window.addEventListener('popstate', syncStudentScreenFromPath);
     return () => window.removeEventListener('popstate', syncStudentScreenFromPath);
@@ -249,53 +242,26 @@ export default function App() {
           .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Listening API unreachable:', error); setListeningSets([]); } }),
         loadJson('/api/vocab-sets')
           .then(data => { if (isCurrent()) setVocabSets(Array.isArray(data) ? data : []); })
-          .catch(async error => {
-            if (isAbortError(error) || !isCurrent()) return;
-            console.warn('Vocab API unreachable; trying Firestore fallback:', error);
-            try {
-              const [{ collection, getDocs }, { db }] = await Promise.all([
-                import('firebase/firestore'), import('./lib/firebaseDb')
-              ]);
-              const snapshot = await getDocs(collection(db, 'vocab_sets'));
-              const list: VocabSet[] = [];
-              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
-              if (isCurrent()) setVocabSets(list);
-            } catch (fallbackError) {
-              if (isCurrent()) console.error('Direct Firestore vocab_sets fetch failed:', fallbackError);
+          .catch(error => {
+            if (!isAbortError(error) && isCurrent()) {
+              console.warn('Vocab API unreachable:', error);
+              setVocabSets([]);
             }
           }),
         loadJson('/api/assignments')
           .then(data => { if (isCurrent()) setAssignments(Array.isArray(data) ? data : []); })
-          .catch(async error => {
-            if (isAbortError(error) || !isCurrent()) return;
-            console.warn('Assignments API unreachable; trying Firestore fallback:', error);
-            try {
-              const [{ collection, getDocs }, { db }] = await Promise.all([
-                import('firebase/firestore'), import('./lib/firebaseDb')
-              ]);
-              const snapshot = await getDocs(collection(db, 'assignments'));
-              const list: Assignment[] = [];
-              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
-              if (isCurrent()) setAssignments(list);
-            } catch (fallbackError) {
-              if (isCurrent()) console.error('Direct Firestore assignments fetch failed:', fallbackError);
+          .catch(error => {
+            if (!isAbortError(error) && isCurrent()) {
+              console.warn('Assignments API unreachable:', error);
+              setAssignments([]);
             }
           }),
         loadJson('/api/classes')
           .then(data => { if (isCurrent()) setClasses(Array.isArray(data) ? data : []); })
-          .catch(async error => {
-            if (isAbortError(error) || !isCurrent()) return;
-            console.warn('Classes API unreachable; trying Firestore fallback:', error);
-            try {
-              const [{ collection, getDocs }, { db }] = await Promise.all([
-                import('firebase/firestore'), import('./lib/firebaseDb')
-              ]);
-              const snapshot = await getDocs(collection(db, 'classes'));
-              const list: Class[] = [];
-              snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() } as any));
-              if (isCurrent()) setClasses(list);
-            } catch (fallbackError) {
-              if (isCurrent()) console.error('Direct Firestore classes fetch failed:', fallbackError);
+          .catch(error => {
+            if (!isAbortError(error) && isCurrent()) {
+              console.warn('Classes API unreachable:', error);
+              setClasses([]);
             }
           }),
         loadJson('/api/leaderboard-results')

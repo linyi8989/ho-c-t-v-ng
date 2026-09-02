@@ -66,7 +66,11 @@ class LocalDbEngine {
   private memoryCache: any = null;
 
   constructor() {
-    this.filePath = process.env.LOCAL_DB_PATH || "/home/qzmivzbj/app-data/vhomework/db.json";
+    const configuredPath = process.env.LOCAL_DB_PATH?.trim();
+    if (process.env.NODE_ENV === "production" && !configuredPath) {
+      throw new StorageUnavailableError("LOCAL_DB_PATH is required for local-json storage in production.");
+    }
+    this.filePath = path.resolve(configuredPath || path.join(process.cwd(), ".data", "db.json"));
     this.ensurePersistentFile();
     this.load();
   }
@@ -80,6 +84,7 @@ class LocalDbEngine {
       }
     } catch (err) {
       console.error("LocalDbEngine failed to prepare persistent database:", err);
+      if (process.env.NODE_ENV === "production") throw err;
       this.filePath = legacyPath;
     }
   }

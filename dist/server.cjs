@@ -63,7 +63,7 @@ var import_path = __toESM(require("path"), 1);
 
 // src/lib/storage/sqliteConfig.ts
 var import_node_path = __toESM(require("node:path"), 1);
-var DEFAULT_SQLITE_PATH = "/home/qzmivzbj/app-data/vhomework/app.sqlite";
+var DEFAULT_SQLITE_PATH = import_node_path.default.join(process.cwd(), ".data", "app.sqlite");
 function parseBoolean(name, fallback) {
   const raw = process.env[name];
   if (raw === void 0 || raw.trim() === "") return fallback;
@@ -3229,10 +3229,11 @@ function migrateActivityReadIndexes() {
   sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
 }
 function getJsonImportCandidates() {
+  const additionalPaths = String(process.env.LEGACY_JSON_IMPORT_PATHS || "").split(import_path.default.delimiter).map((value) => value.trim()).filter(Boolean);
   return [
     process.env.LOCAL_DB_PATH,
     import_path.default.join(process.cwd(), "db.json"),
-    "/home/qzmivzbj/app.msdieu.com/db.json"
+    ...additionalPaths
   ].filter(Boolean);
 }
 function backupJsonFile(sourcePath2) {
@@ -3696,7 +3697,11 @@ function isStorageUnavailableError(err) {
 var LocalDbEngine = class {
   constructor() {
     this.memoryCache = null;
-    this.filePath = process.env.LOCAL_DB_PATH || "/home/qzmivzbj/app-data/vhomework/db.json";
+    const configuredPath = process.env.LOCAL_DB_PATH?.trim();
+    if (process.env.NODE_ENV === "production" && !configuredPath) {
+      throw new StorageUnavailableError("LOCAL_DB_PATH is required for local-json storage in production.");
+    }
+    this.filePath = import_path2.default.resolve(configuredPath || import_path2.default.join(process.cwd(), ".data", "db.json"));
     this.ensurePersistentFile();
     this.load();
   }
@@ -3709,6 +3714,7 @@ var LocalDbEngine = class {
       }
     } catch (err) {
       console.error("LocalDbEngine failed to prepare persistent database:", err);
+      if (process.env.NODE_ENV === "production") throw err;
       this.filePath = legacyPath;
     }
   }
@@ -7379,9 +7385,9 @@ var import_path3 = __toESM(require("path"), 1);
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
-function validateRegion(region, path11, errors) {
+function validateRegion(region, path12, errors) {
   if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
-    errors.push(`${path11}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path12}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
     return;
   }
   for (const [key, value] of Object.entries({
@@ -7391,25 +7397,25 @@ function validateRegion(region, path11, errors) {
     height: region.height
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors.push(`${path11}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+      errors.push(`${path12}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
     }
   }
   if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
-    errors.push(`${path11}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+    errors.push(`${path12}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
   }
   if (region.shape === "polygon") {
     if (!Array.isArray(region.points) || region.points.length < 3) {
-      errors.push(`${path11}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+      errors.push(`${path12}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
     } else {
       region.points.forEach((point, index) => {
         if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-          errors.push(`${path11}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+          errors.push(`${path12}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
         }
       });
     }
   }
   if (region && !isValidListeningRegion(region)) {
-    errors.push(`${path11}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path12}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -7419,12 +7425,12 @@ function regionsOverlap(a, b) {
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   return right - left > 0.01 && bottom - top > 0.01;
 }
-function validateRegionCollection(items, path11, errors) {
-  items.forEach((item, index) => validateRegion(item.region, `${path11}[${index}].region`, errors));
+function validateRegionCollection(items, path12, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path12}[${index}].region`, errors));
   for (let first = 0; first < items.length; first += 1) {
     for (let second = first + 1; second < items.length; second += 1) {
       if (regionsOverlap(items[first].region, items[second].region)) {
-        errors.push(`${path11}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+        errors.push(`${path12}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
       }
     }
   }
@@ -15523,6 +15529,198 @@ async function generateYupVoxAudioUrl(options) {
   throw new Error("YupVox TTS job timed out before audio was ready.");
 }
 
+// src/server/accessPolicy.ts
+var VALID_ROLES = /* @__PURE__ */ new Set(["super_admin", "teacher", "student"]);
+function normalizeAccessEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+function parseBootstrapSuperAdminEmails(value) {
+  return new Set(
+    String(value || "").split(",").map(normalizeAccessEmail).filter(Boolean)
+  );
+}
+function getDefaultRoleForEmail(email, bootstrapEmails) {
+  return bootstrapEmails.has(normalizeAccessEmail(email)) ? "super_admin" : "student";
+}
+function resolveTrustedRole(decodedToken, storedProfile = {}, bootstrapEmails) {
+  const claimRole = String(decodedToken.role || "").trim();
+  if (VALID_ROLES.has(claimRole)) return claimRole;
+  const email = normalizeAccessEmail(decodedToken.email || storedProfile.email);
+  if (bootstrapEmails.has(email)) return "super_admin";
+  const storedRole = String(storedProfile.role || "").trim();
+  return VALID_ROLES.has(storedRole) ? storedRole : "student";
+}
+
+// src/server/httpHardening.ts
+var import_node_crypto9 = __toESM(require("node:crypto"), 1);
+var DEFAULT_JSON_BODY_LIMIT = "100kb";
+function parseTrustedProxyHops(value) {
+  if (value === void 0 || value === null || value === "") return 0;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 10) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer from 0 to 10.");
+  }
+  return parsed;
+}
+function applySecurityHeaders(isProduction) {
+  return (_req, res, next) => {
+    res.setHeader("Content-Security-Policy", "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(self), payment=(), usb=()");
+    res.setHeader("X-DNS-Prefetch-Control", "off");
+    res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+    if (isProduction) {
+      res.setHeader("Strict-Transport-Security", "max-age=15552000");
+    }
+    next();
+  };
+}
+function getRequestNetworkKey(req) {
+  return String(req.ip || req.socket.remoteAddress || "unknown").trim() || "unknown";
+}
+var FixedWindowRateLimitStore = class {
+  constructor(windowMs, maxCost, now = Date.now, maxEntries = 5e4) {
+    this.windowMs = windowMs;
+    this.maxCost = maxCost;
+    this.now = now;
+    this.maxEntries = maxEntries;
+    this.entries = /* @__PURE__ */ new Map();
+    this.operations = 0;
+  }
+  removeExpired(currentTime) {
+    for (const [storedKey, storedEntry] of this.entries) {
+      if (storedEntry.resetAt <= currentTime) this.entries.delete(storedKey);
+    }
+  }
+  ensureCapacity(currentTime) {
+    if (this.entries.size < this.maxEntries) return;
+    this.removeExpired(currentTime);
+    while (this.entries.size >= this.maxEntries) {
+      const oldestKey = this.entries.keys().next().value;
+      if (oldestKey === void 0) break;
+      this.entries.delete(oldestKey);
+    }
+  }
+  consume(key, requestedCost = 1) {
+    const currentTime = this.now();
+    const cost = Math.max(1, Math.floor(Number(requestedCost) || 1));
+    const current = this.entries.get(key);
+    if (!current) this.ensureCapacity(currentTime);
+    const entry = !current || current.resetAt <= currentTime ? { cost: 0, resetAt: currentTime + this.windowMs } : current;
+    const allowed = entry.cost + cost <= this.maxCost;
+    if (allowed) entry.cost += cost;
+    this.entries.set(key, entry);
+    this.operations += 1;
+    if (this.operations % 256 === 0) {
+      this.removeExpired(currentTime);
+    }
+    return {
+      allowed,
+      limit: this.maxCost,
+      remaining: Math.max(0, this.maxCost - entry.cost),
+      resetAt: entry.resetAt,
+      retryAfterSeconds: Math.max(1, Math.ceil((entry.resetAt - currentTime) / 1e3))
+    };
+  }
+};
+function createFixedWindowRateLimiter(options) {
+  const store = new FixedWindowRateLimitStore(
+    options.windowMs,
+    options.maxCost,
+    options.now,
+    options.maxEntries
+  );
+  return (req, res, next) => {
+    const actor = req.user?.id;
+    const rawKey = options.key?.(req) || (actor ? `user:${actor}` : `ip:${getRequestNetworkKey(req)}`);
+    const result = store.consume(`${options.namespace}:${rawKey}`, options.cost?.(req) || 1);
+    res.setHeader("RateLimit-Limit", String(result.limit));
+    res.setHeader("RateLimit-Remaining", String(result.remaining));
+    res.setHeader("RateLimit-Reset", String(Math.ceil(result.resetAt / 1e3)));
+    if (!result.allowed) {
+      res.setHeader("Retry-After", String(result.retryAfterSeconds));
+      return res.status(429).json({
+        error: options.message || "Too many requests. Please wait and try again.",
+        code: "RATE_LIMITED"
+      });
+    }
+    next();
+  };
+}
+function safeEqualSecret(provided, configured) {
+  const left = Buffer.from(String(provided || ""));
+  const right = Buffer.from(String(configured || ""));
+  return left.length > 0 && left.length === right.length && import_node_crypto9.default.timingSafeEqual(left, right);
+}
+
+// src/server/legacySessionAccess.ts
+var DEFAULT_LEGACY_SESSION_MAX_AGE_HOURS = 24;
+function parseLegacySessionMaxAgeMs(value) {
+  const parsed = value === void 0 || value === null || value === "" ? DEFAULT_LEGACY_SESSION_MAX_AGE_HOURS : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 168) {
+    throw new Error("LEGACY_GUEST_SESSION_MAX_AGE_HOURS must be between 0 and 168.");
+  }
+  return Math.floor(parsed * 60 * 60 * 1e3);
+}
+function canUseLegacyGuestSessionUpdate(options) {
+  const { session, suppliedGuestId, maxAgeMs } = options;
+  if (maxAgeMs <= 0 || session.sessionTokenHash) return false;
+  if (!session.guestId || suppliedGuestId !== String(session.guestId)) return false;
+  if (session.status === "completed" || session.submissionStatus === "completed") return false;
+  const sourceTime = session.lastSavedAt || session.updatedAt || session.startedAt || session.createdAt;
+  const timestamp = new Date(String(sourceTime || "")).getTime();
+  const now = options.now ?? Date.now();
+  if (!Number.isFinite(timestamp) || timestamp > now + 6e4) return false;
+  return now - timestamp <= maxAgeMs;
+}
+
+// src/server/runtimeConfig.ts
+var import_node_path6 = __toESM(require("node:path"), 1);
+function resolvePersistentDirectory(options) {
+  const configured = options.env[options.variable]?.trim();
+  if (configured) return import_node_path6.default.resolve(configured);
+  if (options.env.NODE_ENV === "production") {
+    throw new Error(`${options.variable} is required in production.`);
+  }
+  return import_node_path6.default.resolve(options.cwd || process.cwd(), ".data", options.localDirectory);
+}
+function resolveDevQuotaApiKey(env, warn = console.warn) {
+  const configured = env.DEVQUOTA_API_KEY?.trim();
+  if (configured) return configured;
+  const legacy = env.DEVQUOTA_API_KEYk?.trim();
+  if (legacy) {
+    warn("[Config] DEVQUOTA_API_KEYk is deprecated; rename it to DEVQUOTA_API_KEY.");
+    return legacy;
+  }
+  return "";
+}
+
+// src/server/resourceLifecycle.ts
+function isArchivedRecord(record2) {
+  if (!record2) return false;
+  return record2.lifecycleStatus === "archived" || record2.status === "archived" || Boolean(record2.archivedAt);
+}
+function archiveResourceRecord(record2, actorId, now = (/* @__PURE__ */ new Date()).toISOString(), options = {}) {
+  const archived = {
+    ...record2,
+    status: "archived",
+    lifecycleStatus: "archived",
+    archivedAt: record2.archivedAt || now,
+    archivedBy: record2.archivedBy || actorId,
+    updatedAt: now
+  };
+  if (options.forceDraftVisibility || Object.hasOwn(record2, "visibility")) {
+    archived.visibility = "draft";
+  }
+  if (options.revokeShareToken) {
+    delete archived.shareToken;
+    delete archived.assignmentSlug;
+  }
+  return archived;
+}
+
 // server.ts
 import_dotenv.default.config();
 var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
@@ -15533,16 +15731,30 @@ if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
 var app2 = (0, import_express6.default)();
+app2.disable("x-powered-by");
 var PORT = Number(process.env.PORT) || 3e3;
-var AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
+var TRUST_PROXY_HOPS = parseTrustedProxyHops(process.env.TRUST_PROXY_HOPS);
+app2.set("trust proxy", TRUST_PROXY_HOPS > 0 ? TRUST_PROXY_HOPS : false);
+var AUDIO_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "TTS_AUDIO_DIR",
+  localDirectory: "audio"
+});
 var AUDIO_PUBLIC_PREFIX = "/audio";
 var LISTENING_MEDIA_PUBLIC_PREFIX = "/listening-media";
-var LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR || (process.env.NODE_ENV === "production" ? "/home/qzmivzbj/app-data/vhomework/listening-media" : import_path5.default.join(process.cwd(), ".data", "listening-media"));
+var LISTENING_MEDIA_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "LISTENING_MEDIA_DIR",
+  localDirectory: "listening-media"
+});
 var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 var LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
 var LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
 var requestedAttemptDetailRetentionDays = Number(process.env.ATTEMPT_DETAIL_RETENTION_DAYS || 30);
 var ATTEMPT_DETAIL_RETENTION_DAYS = Number.isFinite(requestedAttemptDetailRetentionDays) ? Math.max(1, Math.floor(requestedAttemptDetailRetentionDays)) : 30;
+var LEGACY_GUEST_SESSION_MAX_AGE_MS = parseLegacySessionMaxAgeMs(
+  process.env.LEGACY_GUEST_SESSION_MAX_AGE_HOURS
+);
 var CONFIGURED_PUBLIC_IDENTITY_SECRET = process.env.GUEST_PUBLIC_ID_SECRET?.trim();
 if (process.env.NODE_ENV === "production" && LEARNING_HISTORY_ENABLED && !CONFIGURED_PUBLIC_IDENTITY_SECRET) {
   throw new Error(
@@ -15558,7 +15770,8 @@ var LISTENING_TICKET_SECRET = CONFIGURED_LISTENING_TICKET_SECRET || `${PUBLIC_ID
 if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
-app2.use(import_express6.default.json());
+app2.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
+app2.use(import_express6.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -15574,8 +15787,22 @@ app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express6.default.static(LISTENING
   maxAge: "365d"
 }));
 function sendApiError(res, err) {
-  const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
-  res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
+  const requestedStatus = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
+  const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus <= 599 ? requestedStatus : 500;
+  const serverFailure = status >= 500;
+  if (serverFailure) {
+    console.error("[API] Request failed:", {
+      status,
+      name: String(err?.name || "Error").slice(0, 80),
+      message: String(err?.message || "Internal server error").replace(/(?:sk-|AIza|eyJ)[A-Za-z0-9._-]{8,}/g, "[redacted]").slice(0, 300)
+    });
+  }
+  const exposeInternal = process.env.NODE_ENV !== "production";
+  const message = !serverFailure || exposeInternal ? String(err?.message || "Request failed.").slice(0, 500) : status === 503 ? "Service temporarily unavailable. Please try again." : "Internal server error.";
+  res.status(status).json({
+    error: message,
+    ...(!serverFailure || exposeInternal) && err?.details ? { details: err.details } : {}
+  });
 }
 function createApiTiming(req, label) {
   const requestStartedAt = Number(req.__requestStartedAt || performance.now());
@@ -15632,9 +15859,13 @@ async function logAuditAction(userId, userName, userEmail, action, details) {
     console.error("Error writing audit log:", err);
   }
 }
-var SUPER_ADMIN_EMAILS = /* @__PURE__ */ new Set(["linyi8901@gmail.com", "admin@vocabulary.edu.vn"]);
-var VALID_ROLES = /* @__PURE__ */ new Set(["super_admin", "teacher", "student"]);
+var BOOTSTRAP_SUPER_ADMIN_EMAILS = parseBootstrapSuperAdminEmails(
+  process.env.BOOTSTRAP_SUPER_ADMIN_EMAILS
+);
 var VALID_STATUSES = /* @__PURE__ */ new Set(["active", "pending", "blocked", "deleted"]);
+if (process.env.NODE_ENV === "production" && BOOTSTRAP_SUPER_ADMIN_EMAILS.size === 0) {
+  console.warn("[Auth] BOOTSTRAP_SUPER_ADMIN_EMAILS is empty. Existing backend roles/claims still work; new users default to student.");
+}
 function attachLocalTestUser(req) {
   const authHeader = req.headers.authorization;
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : void 0;
@@ -15678,18 +15909,11 @@ function createHttpError(status, message, details) {
   if (details) err.details = details;
   return err;
 }
-function getDefaultRoleForEmail(email) {
-  return SUPER_ADMIN_EMAILS.has(normalizeEmail(email)) ? "super_admin" : "student";
+function getDefaultRoleForEmail2(email) {
+  return getDefaultRoleForEmail(email, BOOTSTRAP_SUPER_ADMIN_EMAILS);
 }
-function resolveTrustedRole(decodedToken, storedProfile = {}) {
-  const email = normalizeEmail(decodedToken.email || storedProfile.email);
-  const claimRole = String(decodedToken.role || "").trim();
-  if (VALID_ROLES.has(claimRole)) return claimRole;
-  if (SUPER_ADMIN_EMAILS.has(email)) return "super_admin";
-  const storedRole = String(storedProfile.role || "").trim();
-  if (storedRole === "teacher") return "teacher";
-  if (storedRole === "student") return "student";
-  return "student";
+function resolveTrustedRole2(decodedToken, storedProfile = {}) {
+  return resolveTrustedRole(decodedToken, storedProfile, BOOTSTRAP_SUPER_ADMIN_EMAILS);
 }
 function resolveTrustedStatus(storedProfile = {}) {
   const status = String(storedProfile.status || "active").trim();
@@ -15707,7 +15931,7 @@ function buildUserProfileFromToken(decodedToken, storedProfile = {}) {
     email,
     phone: phone || void 0,
     phoneVerified,
-    role: resolveTrustedRole(decodedToken, storedProfile),
+    role: resolveTrustedRole2(decodedToken, storedProfile),
     status: resolveTrustedStatus(storedProfile),
     createdAt: storedProfile.createdAt || (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -15737,7 +15961,7 @@ var authenticateUser = async (req, res, next) => {
     const doc = await userRef.get();
     let userProfile;
     if (!doc.exists) {
-      const defaultRole = getDefaultRoleForEmail(email);
+      const defaultRole = getDefaultRoleForEmail2(email);
       userProfile = buildUserProfileFromToken(decodedToken, {
         role: defaultRole,
         status: "active"
@@ -15796,7 +16020,7 @@ var authenticateOptionalUser = async (req, _res, next) => {
     const doc = await userRef.get();
     let userProfile;
     if (!doc.exists) {
-      const defaultRole = getDefaultRoleForEmail(email);
+      const defaultRole = getDefaultRoleForEmail2(email);
       userProfile = buildUserProfileFromToken(decodedToken, {
         role: defaultRole,
         status: "active"
@@ -15811,7 +16035,11 @@ var authenticateOptionalUser = async (req, _res, next) => {
     } else {
       req.user = userProfile;
     }
-  } catch {
+  } catch (error) {
+    console.warn("[Auth] Optional bearer token was rejected; continuing as guest.", {
+      code: String(error?.code || "unknown").slice(0, 80),
+      name: String(error?.name || "Error").slice(0, 80)
+    });
   }
   next();
 };
@@ -16259,44 +16487,59 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
   };
 }
 var CANONICAL_STUDENT_NAME_CACHE_TTL_MS = 6e4;
-var canonicalStudentNameCache = null;
-var canonicalStudentNameLoadPromise = null;
+var canonicalStudentNameCache = /* @__PURE__ */ new Map();
+var canonicalStudentNameLoadPromises = /* @__PURE__ */ new Map();
 function invalidateCanonicalStudentNameCache() {
-  canonicalStudentNameCache = null;
+  canonicalStudentNameCache.clear();
 }
-async function getCanonicalStudentNameMaps() {
-  if (canonicalStudentNameCache?.expiresAt && canonicalStudentNameCache.expiresAt > Date.now()) {
-    return canonicalStudentNameCache.value;
-  }
-  if (!canonicalStudentNameLoadPromise) {
-    canonicalStudentNameLoadPromise = (async () => {
-      const [usersSnapshot, profilesSnapshot] = await Promise.all([
-        adminDb.collection("users").get(),
-        adminDb.collection("guest_profiles").get()
-      ]);
-      const users = /* @__PURE__ */ new Map();
-      const guests = /* @__PURE__ */ new Map();
-      usersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        const name = safeText(data.name || data.displayName, 120);
-        if (name) users.set(doc.id, name);
-      });
-      profilesSnapshot.forEach((doc) => {
-        const data = doc.data();
-        const name = safeText(data.displayName || data.name, 120);
-        if (name) guests.set(doc.id, name);
-      });
-      const value = { users, guests };
-      canonicalStudentNameCache = {
+async function getCanonicalStudentName(kind, id2) {
+  if (!id2) return "";
+  const key = `${kind}:${id2}`;
+  const cached = canonicalStudentNameCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.name;
+  if (cached) canonicalStudentNameCache.delete(key);
+  let pending = canonicalStudentNameLoadPromises.get(key);
+  if (!pending) {
+    const collectionName = kind === "user" ? "users" : "guest_profiles";
+    pending = adminDb.collection(collectionName).doc(id2).get().then((document) => {
+      const data = document.exists ? document.data() : {};
+      const name = safeText(kind === "user" ? data.name || data.displayName : data.displayName || data.name, 120);
+      canonicalStudentNameCache.set(key, {
         expiresAt: Date.now() + CANONICAL_STUDENT_NAME_CACHE_TTL_MS,
-        value
-      };
-      return value;
-    })().finally(() => {
-      canonicalStudentNameLoadPromise = null;
-    });
+        name
+      });
+      return name;
+    }).finally(() => canonicalStudentNameLoadPromises.delete(key));
+    canonicalStudentNameLoadPromises.set(key, pending);
   }
-  return canonicalStudentNameLoadPromise;
+  return pending;
+}
+async function getCanonicalStudentNameMaps(items) {
+  const userIds = /* @__PURE__ */ new Set();
+  const guestIds = /* @__PURE__ */ new Set();
+  items.forEach((item) => {
+    if (isGuestOwnedRecord(item)) {
+      const guestId = getGuestProfileId(item?.guestId);
+      if (guestId) guestIds.add(guestId);
+    } else {
+      const userId = safeText(item?.userId || item?.studentId, 120);
+      if (userId) userIds.add(userId);
+    }
+  });
+  const lookups = [
+    ...[...userIds].map((id2) => ({ kind: "user", id: id2 })),
+    ...[...guestIds].map((id2) => ({ kind: "guest", id: id2 }))
+  ];
+  const resolved = await runWithConcurrency(lookups, 20, async (lookup) => ({
+    ...lookup,
+    name: await getCanonicalStudentName(lookup.kind, lookup.id)
+  }));
+  const maps = { users: /* @__PURE__ */ new Map(), guests: /* @__PURE__ */ new Map() };
+  resolved.forEach((item) => {
+    if (!item.name) return;
+    (item.kind === "user" ? maps.users : maps.guests).set(item.id, item.name);
+  });
+  return maps;
 }
 function enrichStudentName(data, maps) {
   if (!data) return data;
@@ -16307,7 +16550,8 @@ function enrichStudentName(data, maps) {
   return guestId || userId ? data : { ...data, legacyUnlinked: true };
 }
 async function enrichStudentNames(items) {
-  const maps = await getCanonicalStudentNameMaps();
+  if (items.length === 0) return items;
+  const maps = await getCanonicalStudentNameMaps(items);
   return items.map((item) => enrichStudentName(item, maps));
 }
 function getGameSessionActor(req, payload = {}) {
@@ -16343,9 +16587,11 @@ function canUpdateGameSession(req, existing, payload) {
   if (sessionToken && existing.sessionTokenHash && hashSessionToken(sessionToken) === existing.sessionTokenHash) {
     return true;
   }
-  if (!existing.sessionTokenHash && existing.guestId && safeText(payload.guestId, 120) === existing.guestId) {
-    return true;
-  }
+  if (canUseLegacyGuestSessionUpdate({
+    session: existing,
+    suppliedGuestId: safeText(payload.guestId, 120),
+    maxAgeMs: LEGACY_GUEST_SESSION_MAX_AGE_MS
+  })) return true;
   return false;
 }
 function isSuperAdmin3(user) {
@@ -16359,6 +16605,7 @@ function canManageVocabSet(user, set) {
   return isTeacher(user) && Boolean(set?.createdBy) && set.createdBy === user.id;
 }
 function canViewVocabSet(user, set) {
+  if (isArchivedRecord(set)) return false;
   if (!user) return getVocabVisibility(set) === "public";
   if (isSuperAdmin3(user)) return true;
   if (isTeacher(user)) return canManageVocabSet(user, set) || getVocabVisibility(set) === "public";
@@ -16369,6 +16616,7 @@ function canManageClass(user, classData) {
   return isTeacher(user) && Boolean(classData?.teacherId) && classData.teacherId === user.id;
 }
 function canViewClass(user, classData) {
+  if (isArchivedRecord(classData)) return false;
   if (isSuperAdmin3(user)) return true;
   return canManageClass(user, classData);
 }
@@ -16418,6 +16666,52 @@ async function canManageGuestProfile(user, profile) {
   }
   return false;
 }
+async function getManageableGuestProfileIdsForTeacher(user) {
+  const manageable = /* @__PURE__ */ new Set();
+  if (!isTeacher(user)) return manageable;
+  const [sessions, grammarAttempts, assignments, classes, vocabSets, grammarSets] = await Promise.all([
+    adminDb.collection("game_sessions").get(),
+    adminDb.collection("grammar_attempts").get(),
+    adminDb.collection("assignments").get(),
+    adminDb.collection("classes").get(),
+    adminDb.collection("vocab_sets").get(),
+    adminDb.collection("grammar_sets").get()
+  ]);
+  const managedClassIds = /* @__PURE__ */ new Set();
+  classes.forEach((doc) => {
+    const classData = { id: doc.id, ...doc.data() };
+    if (canManageClass(user, classData)) managedClassIds.add(doc.id);
+  });
+  const managedAssignmentIds = /* @__PURE__ */ new Set();
+  assignments.forEach((doc) => {
+    const assignment = { id: doc.id, ...doc.data() };
+    if (assignment.createdBy === user.id || managedClassIds.has(assignment.classId)) {
+      managedAssignmentIds.add(doc.id);
+      if (assignment.id) managedAssignmentIds.add(assignment.id);
+    }
+  });
+  const managedVocabSetIds = /* @__PURE__ */ new Set();
+  vocabSets.forEach((doc) => {
+    if (canManageVocabSet(user, { id: doc.id, ...doc.data() })) managedVocabSetIds.add(doc.id);
+  });
+  const managedGrammarSetIds = /* @__PURE__ */ new Set();
+  grammarSets.forEach((doc) => {
+    if (canManageGrammarSet(user, { id: doc.id, ...doc.data() })) managedGrammarSetIds.add(doc.id);
+  });
+  sessions.forEach((doc) => {
+    const session = doc.data();
+    if (!managedAssignmentIds.has(safeText(session.assignmentId, 160)) && !managedVocabSetIds.has(safeText(session.vocabSetId, 160))) return;
+    const guestId = getGuestProfileId(session.guestId);
+    if (guestId) manageable.add(guestId);
+  });
+  grammarAttempts.forEach((doc) => {
+    const attempt = doc.data();
+    if (!managedGrammarSetIds.has(safeText(attempt.grammarSetId, 160))) return;
+    const guestId = getGuestProfileId(attempt.guestId);
+    if (guestId) manageable.add(guestId);
+  });
+  return manageable;
+}
 async function canStaffViewLearningAttempt(actor, attempt) {
   const user = actor.userProfile || {
     id: actor.id,
@@ -16452,6 +16746,7 @@ function getAssignmentShareToken(assignment) {
   return String(assignment?.shareToken || assignment?.assignmentSlug || "").trim();
 }
 async function ensureAssignmentShareToken(assignment, docRef) {
+  if (isArchivedRecord(assignment)) return assignment;
   const existingToken = getAssignmentShareToken(assignment);
   if (existingToken) {
     return {
@@ -16473,6 +16768,7 @@ async function ensureAssignmentShareToken(assignment, docRef) {
 }
 function isAssignmentOpenForLearning(assignment, set) {
   if (!assignment || !set) return false;
+  if (isArchivedRecord(assignment) || isArchivedRecord(set)) return false;
   const assignmentStatus = String(assignment.status || "active").toLowerCase();
   if (["draft", "deleted", "inactive", "archived"].includes(assignmentStatus)) return false;
   const visibility = getVocabVisibility(set);
@@ -16503,6 +16799,7 @@ async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", e
     const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
     if (!setDoc.exists) return null;
     const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set)) return null;
     const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
     if (setToken === token && getVocabVisibility(set) === "assignment") {
       return { accessType: "vocab_set", set, assignment: null };
@@ -16523,6 +16820,7 @@ async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", e
   const setsSnapshot = await adminDb.collection("vocab_sets").get();
   for (const doc of setsSnapshot.docs || []) {
     const set = { id: doc.id, ...doc.data() };
+    if (isArchivedRecord(set)) continue;
     const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
     if (setToken !== token || getVocabVisibility(set) !== "assignment") continue;
     if (expectedAssignmentId) return null;
@@ -17244,8 +17542,8 @@ var preSeedDb = async () => {
     if (usersSnapshot.empty) {
       console.log("Seeding default users...");
       const defaultUsers = [
-        { id: "teacher-1", name: "C\xF4 Th\u1EA3o English", email: "thao.teacher@gmail.com", role: "teacher", status: "active", createdAt: (/* @__PURE__ */ new Date()).toISOString() },
-        { id: "admin-1", name: "H\u1EC7 th\u1ED1ng Admin", email: "admin@vocabulary.edu.vn", role: "super_admin", status: "active", createdAt: (/* @__PURE__ */ new Date()).toISOString() }
+        { id: "teacher-1", name: "Gi\xE1o vi\xEAn m\u1EABu", email: "teacher@example.invalid", role: "teacher", status: "active", createdAt: (/* @__PURE__ */ new Date()).toISOString() },
+        { id: "admin-1", name: "Qu\u1EA3n tr\u1ECB vi\xEAn m\u1EABu", email: "admin@example.invalid", role: "super_admin", status: "active", createdAt: (/* @__PURE__ */ new Date()).toISOString() }
       ];
       for (const u of defaultUsers) {
         await adminDb.collection("users").doc(u.id).set(u);
@@ -17370,7 +17668,7 @@ var OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
 var STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
 var STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
 var STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
-var DEVQUOTA_API_KEY = process.env.DEVQUOTA_API_KEY?.trim() || "";
+var DEVQUOTA_API_KEY = resolveDevQuotaApiKey(process.env);
 var DEVQUOTA_BASE_URL = process.env.DEVQUOTA_BASE_URL?.trim() || DEVQUOTA_DEFAULT_BASE_URL;
 var DEVQUOTA_SMART_IMPORT_PROVIDERS = getDevQuotaSmartImportProviders(DEVQUOTA_API_KEY);
 var WRITING_GRADING_CONFIG = {
@@ -17583,56 +17881,72 @@ function getFallbackVocabulary(topic, count) {
     { term: topic.charAt(0).toUpperCase() + topic.slice(1), meaning: `T\u1EEB v\u1EC1 ${topic}`, ipa: "/\u02C8t\u0252p\u026Ak/", pos: "Noun", example: "This is an example.", exampleMeaning: "\u0110\xE2y l\xE0 v\xED d\u1EE5." }
   ];
 }
-app2.get("/api/auth/debug", async (req, res) => {
+function requireDiagnosticAccess(req, res, next) {
+  const configured = process.env.DIAGNOSTIC_SECRET?.trim();
+  if (!configured) return res.status(404).json({ error: "Not found" });
+  if (!safeEqualSecret(req.headers["x-diagnostic-secret"], configured)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+app2.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
   try {
     const testDoc = await adminDb.collection("users").limit(1).get();
     res.json({
       success: true,
-      projectId: adminDb.projectId,
       docsCount: testDoc.size,
-      env: {
-        nodeEnv: process.env.NODE_ENV,
-        firebaseDatabaseId: adminDb.projectId
-      }
+      storageReady: true
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      stack: err.stack
-    });
+    sendApiError(res, err);
   }
 });
-app2.get("/api/diagnostics/storage", async (req, res) => {
-  const secret = process.env.DIAGNOSTIC_SECRET;
-  if (!secret) {
-    return res.status(404).json({ error: "Not found" });
-  }
-  if (req.query.secret !== secret) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+app2.get("/api/diagnostics/storage", requireDiagnosticAccess, async (_req, res) => {
   res.json(await getStorageDiagnostics());
 });
 var PHONE_AUTH_WINDOW_MS = 10 * 60 * 1e3;
 var PHONE_AUTH_MAX_ATTEMPTS = 5;
-var phoneAuthAttempts = /* @__PURE__ */ new Map();
+var phoneAuthRateLimit = new FixedWindowRateLimitStore(PHONE_AUTH_WINDOW_MS, PHONE_AUTH_MAX_ATTEMPTS);
 function getRequestIp(req) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return forwarded || req.socket.remoteAddress || "unknown";
+  return getRequestNetworkKey(req);
 }
 function assertPhoneAuthRateLimit(req, phone) {
   const key = `${getRequestIp(req)}:${phone}`;
-  const now = Date.now();
-  const current = phoneAuthAttempts.get(key);
-  if (!current || current.resetAt <= now) {
-    phoneAuthAttempts.set(key, { count: 1, resetAt: now + PHONE_AUTH_WINDOW_MS });
-    return;
-  }
-  current.count += 1;
-  if (current.count > PHONE_AUTH_MAX_ATTEMPTS) {
-    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.");
+  const result = phoneAuthRateLimit.consume(key);
+  if (!result.allowed) {
+    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.", {
+      retryAfterSeconds: result.retryAfterSeconds
+    });
   }
 }
+var guestIdentityRateLimit = createFixedWindowRateLimiter({
+  namespace: "guest-identity",
+  windowMs: 10 * 60 * 1e3,
+  maxCost: 120,
+  key: (req) => `ip:${getRequestIp(req)}`,
+  message: "Too many identity requests. Please wait and try again."
+});
+var aiRateLimit = createFixedWindowRateLimiter({
+  namespace: "ai-tools",
+  windowMs: 10 * 60 * 1e3,
+  maxCost: 60,
+  message: "Too many AI requests. Please wait and try again."
+});
+var ttsRateLimit = createFixedWindowRateLimiter({
+  namespace: "tts-generation",
+  windowMs: 10 * 60 * 1e3,
+  maxCost: 500,
+  cost: (req) => {
+    if (req.path.includes("batch-preview")) {
+      return Math.min(200, Math.max(1, Array.isArray(req.body?.items) ? req.body.items.length : 1));
+    }
+    if (req.path.includes("generate-missing")) {
+      return Math.min(100, Math.max(20, Array.isArray(req.body?.itemIds) ? req.body.itemIds.length : 20));
+    }
+    return 1;
+  },
+  message: "TTS quota for this account was reached. Please wait and try again."
+});
 async function findUserByPhone(normalizedPhone, rawPhone = "") {
   const candidates = Array.from(new Set([
     normalizedPhone,
@@ -17771,7 +18085,7 @@ app2.post("/api/register", authenticateUser, async (req, res) => {
     sendApiError(res, err);
   }
 });
-app2.post("/api/ai/ipa", authenticateUser, async (req, res) => {
+app2.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
   const { word } = req.body;
   try {
     if (!word || typeof word !== "string") {
@@ -17797,7 +18111,7 @@ app2.post("/api/ai/ipa", authenticateUser, async (req, res) => {
     });
   }
 });
-app2.post("/api/guest-profiles/resolve", async (req, res) => {
+app2.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
   try {
     const profile = await resolveGuestProfile(
       req.body?.guestId,
@@ -17819,7 +18133,7 @@ app2.post("/api/guest-profiles/resolve", async (req, res) => {
     sendApiError(res, err);
   }
 });
-app2.post("/api/guest-profiles/identify", async (req, res) => {
+app2.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
   try {
     const profile = await findExistingGuestIdentity(req.body?.guestId);
     if (!profile) {
@@ -17997,7 +18311,7 @@ function buildFallbackExample(word, meaning) {
   const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates2.length;
   return templates2[index];
 }
-app2.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
+app2.post("/api/ai/vocab-detail", authenticateUser, aiRateLimit, async (req, res) => {
   const { word, meaning, grade } = req.body;
   try {
     if (!word || typeof word !== "string") {
@@ -18075,7 +18389,7 @@ Return ONLY one valid JSON object with:
     });
   }
 });
-app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), aiRateLimit, async (req, res) => {
   const { topic, grade, wordsCount = 5 } = req.body;
   try {
     if (!topic || typeof topic !== "string") {
@@ -18179,6 +18493,7 @@ app2.get("/api/public/vocab-sets", async (req, res) => {
     const list2 = [];
     snapshot.forEach((doc) => {
       const set = doc.data();
+      if (isArchivedRecord(set)) return;
       const normalizedVisibility = getVocabVisibility(set);
       if (normalizedVisibility !== "public") return;
       list2.push(stripPrivateVocabSetFields({
@@ -18334,6 +18649,7 @@ app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
     let list2 = [];
     snapshot.forEach((doc) => {
       const set = doc.data();
+      if (isArchivedRecord(set)) return;
       const normalizedVisibility = getVocabVisibility(set);
       list2.push(stripPrivateVocabSetFields({
         ...set,
@@ -18420,7 +18736,7 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
     sendApiError(res, err);
   }
 });
-app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
     const text6 = String(req.body?.text || "apple").trim();
@@ -18438,7 +18754,7 @@ app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_a
     sendApiError(res, err);
   }
 });
-app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || {});
     const force = Boolean(req.body?.force);
@@ -18519,7 +18835,7 @@ app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "s
     sendApiError(res, err);
   }
 });
-app2.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app2.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const apiKey = getAi33ApiKey();
     if (!apiKey) return res.status(500).json({ error: "AI33_API_KEY/TTS_API_KEY is not configured." });
@@ -18570,7 +18886,7 @@ app2.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["tea
     sendApiError(res, err);
   }
 });
-app2.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app2.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
@@ -18615,20 +18931,26 @@ app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "su
         }
       }
     }
-    await docRef.delete();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
     const batch = adminDb.batch();
+    batch.set(docRef, archiveResourceRecord(setDetails, req.user.id, now, {
+      forceDraftVisibility: true,
+      revokeShareToken: true
+    }));
     relatedAssignmentsForDelete.forEach((doc) => {
-      batch.delete(doc.ref);
+      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user.id, now, {
+        revokeShareToken: true
+      }));
     });
     await batch.commit();
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_VOCAB_SET",
-      `\u0110\xE3 x\xF3a b\u1ED9 t\u1EEB v\u1EF1ng: "${setDetails?.title}"`
+      "ARCHIVE_VOCAB_SET",
+      `\u0110\xE3 l\u01B0u tr\u1EEF b\u1ED9 t\u1EEB v\u1EF1ng v\xE0 thu h\u1ED3i link: "${setDetails?.title}"`
     );
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -18675,6 +18997,7 @@ app2.get("/api/classes", authenticateUser, async (req, res) => {
     const list2 = [];
     snapshot.forEach((doc) => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       if (canViewClass(req.user, classData)) list2.push(classData);
     });
     res.json(list2);
@@ -18721,23 +19044,24 @@ app2.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super
       return res.status(403).json({ error: "Ban khong co quyen xoa lop hoc nay." });
     }
     const classDetails = existing.data();
-    await classRef.delete();
-    const membersSnapshot = await adminDb.collection("class_members").where("classId", "==", id2).get();
-    const batch = adminDb.batch();
-    membersSnapshot.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
     const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id2).get();
-    const batch2 = adminDb.batch();
-    assignmentsSnapshot.forEach((doc) => batch2.delete(doc.ref));
-    await batch2.commit();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const batch = adminDb.batch();
+    batch.set(classRef, archiveResourceRecord(classDetails, req.user.id, now));
+    assignmentsSnapshot.forEach((doc) => {
+      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user.id, now, {
+        revokeShareToken: true
+      }));
+    });
+    await batch.commit();
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_CLASS",
-      `\u0110\xE3 x\xF3a l\u1EDBp h\u1ECDc: "${classDetails?.name}"`
+      "ARCHIVE_CLASS",
+      `\u0110\xE3 l\u01B0u tr\u1EEF l\u1EDBp h\u1ECDc v\xE0 thu h\u1ED3i b\xE0i giao: "${classDetails?.name}"`
     );
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -18748,6 +19072,7 @@ app2.get("/api/class-members", authenticateUser, async (req, res) => {
     const classesById = /* @__PURE__ */ new Map();
     classesSnapshot.forEach((doc) => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       classesById.set(classData.id, classData);
     });
     const snapshot = await adminDb.collection("class_members").get();
@@ -18768,6 +19093,7 @@ app2.post("/api/classes/:classId/members", authenticateUser, requireRole(["teach
     const { studentName } = req.body;
     const classDoc = await adminDb.collection("classes").doc(classId).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
     }
@@ -18789,6 +19115,7 @@ app2.delete("/api/classes/:classId/members/:memberId", authenticateUser, require
     const memberId = req.params.memberId;
     const classDoc = await adminDb.collection("classes").doc(classId).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen xoa hoc sinh khoi lop nay." });
     }
@@ -18808,12 +19135,15 @@ app2.get("/api/assignments", authenticateUser, async (req, res) => {
     const classesById = /* @__PURE__ */ new Map();
     classesSnapshot.forEach((doc) => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       classesById.set(classData.id, classData);
     });
     const snapshot = await adminDb.collection("assignments").get();
     const list2 = [];
     for (const doc of snapshot.docs || []) {
-      const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
+      const rawAssignment = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(rawAssignment)) continue;
+      const assignment = await ensureAssignmentShareToken(rawAssignment, doc.ref);
       const classData = assignment.classId ? classesById.get(assignment.classId) : null;
       if (canManageAssignment(req.user, assignment, classData)) list2.push(assignment);
     }
@@ -18830,6 +19160,7 @@ app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_a
     const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
     const classData = { id: classDoc.id, ...classDoc.data() };
+    if (isArchivedRecord(classData)) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
@@ -18929,15 +19260,17 @@ app2.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "s
     if (!canManageAssignment(req.user, assignDetails, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen xoa bai giao nay." });
     }
-    await docRef.delete();
+    await docRef.set(archiveResourceRecord(assignDetails, req.user.id, (/* @__PURE__ */ new Date()).toISOString(), {
+      revokeShareToken: true
+    }));
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_ASSIGNMENT",
-      `\u0110\xE3 x\xF3a/thu h\u1ED3i b\xE0i t\u1EADp: "${assignDetails?.title}" c\u1EE7a l\u1EDBp: ${assignDetails?.className}`
+      "ARCHIVE_ASSIGNMENT",
+      `\u0110\xE3 l\u01B0u tr\u1EEF/thu h\u1ED3i b\xE0i t\u1EADp: "${assignDetails?.title}" c\u1EE7a l\u1EDBp: ${assignDetails?.className}`
     );
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -18948,6 +19281,7 @@ app2.get("/api/public/grammar-sets", async (req, res) => {
     const list2 = [];
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       if (getGrammarVisibility(set) !== "public") return;
       list2.push(sanitizeGrammarSetForStudent(set));
     });
@@ -18963,6 +19297,7 @@ app2.get("/api/grammar-sets", authenticateUser, async (req, res) => {
     const list2 = [];
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       if (!canViewGrammarSet(req.user, set)) return;
       list2.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
     });
@@ -18982,6 +19317,7 @@ app2.get("/api/grammar-sets/share/:token", async (req, res) => {
     let found = null;
     snapshot.forEach((doc) => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       const setToken = set.shareToken || set.assignmentSlug;
       const legacyGrammarToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
       if (!found && (setToken === token || legacyGrammarToken === token) && getGrammarVisibility(set) === "assignment") {
@@ -19052,15 +19388,20 @@ app2.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teach
     const existing = await getGrammarSetOr404(req.params.id);
     if (!existing) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
     if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n x\xF3a b\xE0i n\xE0y." });
-    await adminDb.collection("grammar_sets").doc(req.params.id).delete();
+    await adminDb.collection("grammar_sets").doc(req.params.id).set(
+      archiveResourceRecord(existing, req.user.id, (/* @__PURE__ */ new Date()).toISOString(), {
+        forceDraftVisibility: true,
+        revokeShareToken: true
+      })
+    );
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_GRAMMAR_SET",
-      `\u0110\xE3 x\xF3a b\xE0i ng\u1EEF ph\xE1p: "${existing.title}"`
+      "ARCHIVE_GRAMMAR_SET",
+      `\u0110\xE3 l\u01B0u tr\u1EEF b\xE0i ng\u1EEF ph\xE1p v\xE0 thu h\u1ED3i link: "${existing.title}"`
     );
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err) {
     sendApiError(res, err);
   }
@@ -20402,6 +20743,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super
         });
       });
     }
+    const manageableGuestIds = isSuperAdmin3(req.user) ? null : await getManageableGuestProfileIdsForTeacher(req.user);
     const guestProfiles = [];
     guestsSnapshot.forEach((doc) => {
       const data = doc.data();
@@ -20412,7 +20754,7 @@ app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super
       });
     });
     for (const data of guestProfiles) {
-      if (!await canManageGuestProfile(req.user, data)) continue;
+      if (manageableGuestIds && !manageableGuestIds.has(getGuestProfileId(data.guestId || data.id))) continue;
       accounts.push({
         ...data,
         name: data.displayName || data.name || "Ch\u01B0a \u0111\u1EB7t t\xEAn",

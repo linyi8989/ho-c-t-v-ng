@@ -73,6 +73,33 @@ import {
   listeningAttemptToActivity,
   resolveListeningActivityDetailForStaff
 } from "./src/server/listening/listeningActivity.js";
+import {
+  getDefaultRoleForEmail as getConfiguredDefaultRoleForEmail,
+  parseBootstrapSuperAdminEmails,
+  resolveTrustedRole as resolveConfiguredTrustedRole,
+  type AppRole,
+} from "./src/server/accessPolicy.js";
+import {
+  applySecurityHeaders,
+  createFixedWindowRateLimiter,
+  DEFAULT_JSON_BODY_LIMIT,
+  FixedWindowRateLimitStore,
+  getRequestNetworkKey,
+  parseTrustedProxyHops,
+  safeEqualSecret,
+} from "./src/server/httpHardening.js";
+import {
+  canUseLegacyGuestSessionUpdate,
+  parseLegacySessionMaxAgeMs,
+} from "./src/server/legacySessionAccess.js";
+import {
+  resolveDevQuotaApiKey,
+  resolvePersistentDirectory,
+} from "./src/server/runtimeConfig.js";
+import {
+  archiveResourceRecord,
+  isArchivedRecord,
+} from "./src/server/resourceLifecycle.js";
 
 // Load environment variables
 dotenv.config();
@@ -86,14 +113,22 @@ if (LOCAL_AUTH_BYPASS_REQUESTED) {
 }
 
 const app = express();
+app.disable("x-powered-by");
 const PORT = Number(process.env.PORT) || 3000;
-const AUDIO_DIR = process.env.TTS_AUDIO_DIR || "/home/qzmivzbj/app-data/vhomework/audio";
+const TRUST_PROXY_HOPS = parseTrustedProxyHops(process.env.TRUST_PROXY_HOPS);
+app.set("trust proxy", TRUST_PROXY_HOPS > 0 ? TRUST_PROXY_HOPS : false);
+const AUDIO_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "TTS_AUDIO_DIR",
+  localDirectory: "audio"
+});
 const AUDIO_PUBLIC_PREFIX = "/audio";
 const LISTENING_MEDIA_PUBLIC_PREFIX = "/listening-media";
-const LISTENING_MEDIA_DIR = process.env.LISTENING_MEDIA_DIR
-  || (process.env.NODE_ENV === "production"
-    ? "/home/qzmivzbj/app-data/vhomework/listening-media"
-    : path.join(process.cwd(), ".data", "listening-media"));
+const LISTENING_MEDIA_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "LISTENING_MEDIA_DIR",
+  localDirectory: "listening-media"
+});
 const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 const LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
 const LEARNING_HISTORY_ENABLED = LEARNING_HISTORY_REQUESTED && process.env.STORAGE_MODE === "sqlite";
@@ -101,6 +136,9 @@ const requestedAttemptDetailRetentionDays = Number(process.env.ATTEMPT_DETAIL_RE
 const ATTEMPT_DETAIL_RETENTION_DAYS = Number.isFinite(requestedAttemptDetailRetentionDays)
   ? Math.max(1, Math.floor(requestedAttemptDetailRetentionDays))
   : 30;
+const LEGACY_GUEST_SESSION_MAX_AGE_MS = parseLegacySessionMaxAgeMs(
+  process.env.LEGACY_GUEST_SESSION_MAX_AGE_HOURS
+);
 const CONFIGURED_PUBLIC_IDENTITY_SECRET = process.env.GUEST_PUBLIC_ID_SECRET?.trim();
 if (
   process.env.NODE_ENV === "production"
@@ -127,7 +165,10 @@ if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
 
-app.use(express.json());
+app.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
+// Keep Express' established 100 KB JSON boundary explicit. Binary media uses
+// separate raw-body routes with their own MIME and size checks.
+app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     (req as any).__requestStartedAt = performance.now();
@@ -144,8 +185,30 @@ app.use(LISTENING_MEDIA_PUBLIC_PREFIX, express.static(LISTENING_MEDIA_DIR, {
 }));
 
 function sendApiError(res: express.Response, err: any) {
-  const status = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
-  res.status(status).json({ error: err?.message || "Internal server error", details: err?.details });
+  const requestedStatus = isStorageUnavailableError(err) ? 503 : Number(err?.status || err?.statusCode || 500);
+  const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus <= 599
+    ? requestedStatus
+    : 500;
+  const serverFailure = status >= 500;
+  if (serverFailure) {
+    console.error("[API] Request failed:", {
+      status,
+      name: String(err?.name || "Error").slice(0, 80),
+      message: String(err?.message || "Internal server error")
+        .replace(/(?:sk-|AIza|eyJ)[A-Za-z0-9._-]{8,}/g, "[redacted]")
+        .slice(0, 300)
+    });
+  }
+  const exposeInternal = process.env.NODE_ENV !== "production";
+  const message = !serverFailure || exposeInternal
+    ? String(err?.message || "Request failed.").slice(0, 500)
+    : status === 503
+      ? "Service temporarily unavailable. Please try again."
+      : "Internal server error.";
+  res.status(status).json({
+    error: message,
+    ...((!serverFailure || exposeInternal) && err?.details ? { details: err.details } : {})
+  });
 }
 
 function createApiTiming(req: express.Request, label: string) {
@@ -237,12 +300,15 @@ declare global {
   }
 }
 
-type AppRole = 'super_admin' | 'teacher' | 'student';
 type AppStatus = 'active' | 'pending' | 'blocked' | 'deleted';
 
-const SUPER_ADMIN_EMAILS = new Set(["linyi8901@gmail.com", "admin@vocabulary.edu.vn"]);
-const VALID_ROLES = new Set<AppRole>(["super_admin", "teacher", "student"]);
+const BOOTSTRAP_SUPER_ADMIN_EMAILS = parseBootstrapSuperAdminEmails(
+  process.env.BOOTSTRAP_SUPER_ADMIN_EMAILS
+);
 const VALID_STATUSES = new Set<AppStatus>(["active", "pending", "blocked", "deleted"]);
+if (process.env.NODE_ENV === "production" && BOOTSTRAP_SUPER_ADMIN_EMAILS.size === 0) {
+  console.warn("[Auth] BOOTSTRAP_SUPER_ADMIN_EMAILS is empty. Existing backend roles/claims still work; new users default to student.");
+}
 
 function attachLocalTestUser(req: express.Request) {
   const authHeader = req.headers.authorization;
@@ -299,22 +365,11 @@ function createHttpError(status: number, message: string, details?: any) {
 }
 
 function getDefaultRoleForEmail(email: string): AppRole {
-  return SUPER_ADMIN_EMAILS.has(normalizeEmail(email)) ? "super_admin" : "student";
+  return getConfiguredDefaultRoleForEmail(email, BOOTSTRAP_SUPER_ADMIN_EMAILS);
 }
 
 function resolveTrustedRole(decodedToken: any, storedProfile: any = {}): AppRole {
-  const email = normalizeEmail(decodedToken.email || storedProfile.email);
-  const claimRole = String(decodedToken.role || "").trim() as AppRole;
-  if (VALID_ROLES.has(claimRole)) return claimRole;
-  if (SUPER_ADMIN_EMAILS.has(email)) return "super_admin";
-
-  const storedRole = String(storedProfile.role || "").trim() as AppRole;
-  if (storedRole === "teacher") return "teacher";
-  if (storedRole === "student") return "student";
-
-  // Do not trust a document-only super_admin role unless it is backed by
-  // a custom claim or a known bootstrap admin email.
-  return "student";
+  return resolveConfiguredTrustedRole(decodedToken, storedProfile, BOOTSTRAP_SUPER_ADMIN_EMAILS);
 }
 
 function resolveTrustedStatus(storedProfile: any = {}): AppStatus {
@@ -379,7 +434,8 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
     let userProfile: any;
 
     if (!doc.exists) {
-      // Determine default role (linyi8901@gmail.com is super_admin, other is student)
+      // Bootstrap privileges are configuration-driven; every other new account
+      // starts as a student until a trusted backend role is assigned.
       const defaultRole = getDefaultRoleForEmail(email);
 
       userProfile = buildUserProfileFromToken(decodedToken, {
@@ -469,8 +525,13 @@ const authenticateOptionalUser = async (req: express.Request, _res: express.Resp
     } else {
       req.user = userProfile;
     }
-  } catch {
-    // Public student grammar flow may use guest identity without Firebase auth.
+  } catch (error: any) {
+    // Public student flows may continue as a guest, but invalid optional bearer
+    // tokens remain observable without logging the token itself.
+    console.warn("[Auth] Optional bearer token was rejected; continuing as guest.", {
+      code: String(error?.code || "unknown").slice(0, 80),
+      name: String(error?.name || "Error").slice(0, 80)
+    });
   }
   next();
 };
@@ -911,46 +972,69 @@ async function resolveGuestProfile(
 
 const CANONICAL_STUDENT_NAME_CACHE_TTL_MS = 60_000;
 type CanonicalStudentNameMaps = { users: Map<string, string>; guests: Map<string, string> };
-let canonicalStudentNameCache: { expiresAt: number; value: CanonicalStudentNameMaps } | null = null;
-let canonicalStudentNameLoadPromise: Promise<CanonicalStudentNameMaps> | null = null;
+type CanonicalStudentNameCacheEntry = { expiresAt: number; name: string };
+const canonicalStudentNameCache = new Map<string, CanonicalStudentNameCacheEntry>();
+const canonicalStudentNameLoadPromises = new Map<string, Promise<string>>();
 
 function invalidateCanonicalStudentNameCache() {
-  canonicalStudentNameCache = null;
+  canonicalStudentNameCache.clear();
 }
 
-async function getCanonicalStudentNameMaps() {
-  if (canonicalStudentNameCache?.expiresAt && canonicalStudentNameCache.expiresAt > Date.now()) {
-    return canonicalStudentNameCache.value;
+async function getCanonicalStudentName(kind: "user" | "guest", id: string) {
+  if (!id) return "";
+  const key = `${kind}:${id}`;
+  const cached = canonicalStudentNameCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.name;
+  if (cached) canonicalStudentNameCache.delete(key);
+
+  let pending = canonicalStudentNameLoadPromises.get(key);
+  if (!pending) {
+    const collectionName = kind === "user" ? "users" : "guest_profiles";
+    pending = adminDb.collection(collectionName).doc(id).get()
+      .then((document: any) => {
+        const data = document.exists ? document.data() : {};
+        const name = safeText(kind === "user"
+          ? data.name || data.displayName
+          : data.displayName || data.name, 120);
+        canonicalStudentNameCache.set(key, {
+          expiresAt: Date.now() + CANONICAL_STUDENT_NAME_CACHE_TTL_MS,
+          name
+        });
+        return name;
+      })
+      .finally(() => canonicalStudentNameLoadPromises.delete(key));
+    canonicalStudentNameLoadPromises.set(key, pending);
   }
-  if (!canonicalStudentNameLoadPromise) {
-    canonicalStudentNameLoadPromise = (async () => {
-      const [usersSnapshot, profilesSnapshot] = await Promise.all([
-        adminDb.collection("users").get(),
-        adminDb.collection("guest_profiles").get()
-      ]);
-      const users = new Map<string, string>();
-      const guests = new Map<string, string>();
-      usersSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const name = safeText(data.name || data.displayName, 120);
-        if (name) users.set(doc.id, name);
-      });
-      profilesSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const name = safeText(data.displayName || data.name, 120);
-        if (name) guests.set(doc.id, name);
-      });
-      const value = { users, guests };
-      canonicalStudentNameCache = {
-        expiresAt: Date.now() + CANONICAL_STUDENT_NAME_CACHE_TTL_MS,
-        value
-      };
-      return value;
-    })().finally(() => {
-      canonicalStudentNameLoadPromise = null;
-    });
-  }
-  return canonicalStudentNameLoadPromise;
+  return pending;
+}
+
+async function getCanonicalStudentNameMaps(items: any[]) {
+  const userIds = new Set<string>();
+  const guestIds = new Set<string>();
+  items.forEach(item => {
+    if (isGuestOwnedRecord(item)) {
+      const guestId = getGuestProfileId(item?.guestId);
+      if (guestId) guestIds.add(guestId);
+    } else {
+      const userId = safeText(item?.userId || item?.studentId, 120);
+      if (userId) userIds.add(userId);
+    }
+  });
+
+  const lookups = [
+    ...[...userIds].map(id => ({ kind: "user" as const, id })),
+    ...[...guestIds].map(id => ({ kind: "guest" as const, id }))
+  ];
+  const resolved = await runWithConcurrency(lookups, 20, async lookup => ({
+    ...lookup,
+    name: await getCanonicalStudentName(lookup.kind, lookup.id)
+  }));
+  const maps: CanonicalStudentNameMaps = { users: new Map(), guests: new Map() };
+  resolved.forEach(item => {
+    if (!item.name) return;
+    (item.kind === "user" ? maps.users : maps.guests).set(item.id, item.name);
+  });
+  return maps;
 }
 
 function enrichStudentName(data: any, maps: Awaited<ReturnType<typeof getCanonicalStudentNameMaps>>) {
@@ -965,7 +1049,8 @@ function enrichStudentName(data: any, maps: Awaited<ReturnType<typeof getCanonic
 }
 
 async function enrichStudentNames<T extends any>(items: T[]) {
-  const maps = await getCanonicalStudentNameMaps();
+  if (items.length === 0) return items;
+  const maps = await getCanonicalStudentNameMaps(items);
   return items.map(item => enrichStudentName(item, maps));
 }
 
@@ -1006,10 +1091,14 @@ function canUpdateGameSession(req: express.Request, existing: any, payload: any)
     return true;
   }
 
-  // Legacy compatibility for sessions started before session tokens existed.
-  if (!existing.sessionTokenHash && existing.guestId && safeText(payload.guestId, 120) === existing.guestId) {
-    return true;
-  }
+  // Tokenless compatibility is deliberately short-lived. It supports an old
+  // in-progress tab after rollout without leaving historical sessions writable
+  // forever by guestId alone.
+  if (canUseLegacyGuestSessionUpdate({
+    session: existing,
+    suppliedGuestId: safeText(payload.guestId, 120),
+    maxAgeMs: LEGACY_GUEST_SESSION_MAX_AGE_MS
+  })) return true;
 
   return false;
 }
@@ -1028,6 +1117,7 @@ function canManageVocabSet(user: any, set: any) {
 }
 
 function canViewVocabSet(user: any, set: any) {
+  if (isArchivedRecord(set)) return false;
   if (!user) return getVocabVisibility(set) === "public";
   if (isSuperAdmin(user)) return true;
   if (isTeacher(user)) return canManageVocabSet(user, set) || getVocabVisibility(set) === "public";
@@ -1040,6 +1130,7 @@ function canManageClass(user: any, classData: any) {
 }
 
 function canViewClass(user: any, classData: any) {
+  if (isArchivedRecord(classData)) return false;
   if (isSuperAdmin(user)) return true;
   return canManageClass(user, classData);
 }
@@ -1098,6 +1189,56 @@ async function canManageGuestProfile(user: any, profile: any) {
   return false;
 }
 
+async function getManageableGuestProfileIdsForTeacher(user: any) {
+  const manageable = new Set<string>();
+  if (!isTeacher(user)) return manageable;
+
+  const [sessions, grammarAttempts, assignments, classes, vocabSets, grammarSets] = await Promise.all([
+    adminDb.collection("game_sessions").get(),
+    adminDb.collection("grammar_attempts").get(),
+    adminDb.collection("assignments").get(),
+    adminDb.collection("classes").get(),
+    adminDb.collection("vocab_sets").get(),
+    adminDb.collection("grammar_sets").get()
+  ]);
+  const managedClassIds = new Set<string>();
+  classes.forEach(doc => {
+    const classData = { id: doc.id, ...doc.data() };
+    if (canManageClass(user, classData)) managedClassIds.add(doc.id);
+  });
+  const managedAssignmentIds = new Set<string>();
+  assignments.forEach(doc => {
+    const assignment = { id: doc.id, ...doc.data() };
+    if (assignment.createdBy === user.id || managedClassIds.has(assignment.classId)) {
+      managedAssignmentIds.add(doc.id);
+      if (assignment.id) managedAssignmentIds.add(assignment.id);
+    }
+  });
+  const managedVocabSetIds = new Set<string>();
+  vocabSets.forEach(doc => {
+    if (canManageVocabSet(user, { id: doc.id, ...doc.data() })) managedVocabSetIds.add(doc.id);
+  });
+  const managedGrammarSetIds = new Set<string>();
+  grammarSets.forEach(doc => {
+    if (canManageGrammarSet(user, { id: doc.id, ...doc.data() })) managedGrammarSetIds.add(doc.id);
+  });
+
+  sessions.forEach(doc => {
+    const session = doc.data();
+    if (!managedAssignmentIds.has(safeText(session.assignmentId, 160))
+      && !managedVocabSetIds.has(safeText(session.vocabSetId, 160))) return;
+    const guestId = getGuestProfileId(session.guestId);
+    if (guestId) manageable.add(guestId);
+  });
+  grammarAttempts.forEach(doc => {
+    const attempt = doc.data();
+    if (!managedGrammarSetIds.has(safeText(attempt.grammarSetId, 160))) return;
+    const guestId = getGuestProfileId(attempt.guestId);
+    if (guestId) manageable.add(guestId);
+  });
+  return manageable;
+}
+
 async function canStaffViewLearningAttempt(
   actor: LearningHistoryActor,
   attempt: LearningHistoryItem
@@ -1147,6 +1288,7 @@ function getAssignmentShareToken(assignment: any) {
 }
 
 async function ensureAssignmentShareToken(assignment: any, docRef?: any) {
+  if (isArchivedRecord(assignment)) return assignment;
   const existingToken = getAssignmentShareToken(assignment);
   if (existingToken) {
     return {
@@ -1172,6 +1314,7 @@ async function ensureAssignmentShareToken(assignment: any, docRef?: any) {
 
 function isAssignmentOpenForLearning(assignment: any, set: any) {
   if (!assignment || !set) return false;
+  if (isArchivedRecord(assignment) || isArchivedRecord(set)) return false;
   const assignmentStatus = String(assignment.status || "active").toLowerCase();
   if (["draft", "deleted", "inactive", "archived"].includes(assignmentStatus)) return false;
   const visibility = getVocabVisibility(set);
@@ -1206,6 +1349,7 @@ async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = 
     const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
     if (!setDoc.exists) return null;
     const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set)) return null;
     const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
     if (setToken === token && getVocabVisibility(set) === "assignment") {
       return { accessType: "vocab_set" as const, set, assignment: null };
@@ -1228,6 +1372,7 @@ async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = 
   const setsSnapshot = await adminDb.collection("vocab_sets").get();
   for (const doc of setsSnapshot.docs || []) {
     const set = { id: doc.id, ...doc.data() };
+    if (isArchivedRecord(set)) continue;
     const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
     if (setToken !== token || getVocabVisibility(set) !== "assignment") continue;
     if (expectedAssignmentId) return null;
@@ -2117,8 +2262,8 @@ const preSeedDb = async () => {
     if (usersSnapshot.empty) {
       console.log("Seeding default users...");
       const defaultUsers = [
-        { id: "teacher-1", name: "Cô Thảo English", email: "thao.teacher@gmail.com", role: "teacher", status: "active", createdAt: new Date().toISOString() },
-        { id: "admin-1", name: "Hệ thống Admin", email: "admin@vocabulary.edu.vn", role: "super_admin", status: "active", createdAt: new Date().toISOString() }
+        { id: "teacher-1", name: "Giáo viên mẫu", email: "teacher@example.invalid", role: "teacher", status: "active", createdAt: new Date().toISOString() },
+        { id: "admin-1", name: "Quản trị viên mẫu", email: "admin@example.invalid", role: "super_admin", status: "active", createdAt: new Date().toISOString() }
       ];
       for (const u of defaultUsers) {
         await adminDb.collection("users").doc(u.id).set(u);
@@ -2256,7 +2401,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
 const STALI_API_KEY = process.env.STALI_API_KEY?.trim() || "";
 const STALI_BASE_URL = process.env.STALI_BASE_URL?.trim() || STALI_DEFAULT_BASE_URL;
 const STALI_SMART_IMPORT_PROVIDERS = getStaliSmartImportProviders(STALI_API_KEY);
-const DEVQUOTA_API_KEY = process.env.DEVQUOTA_API_KEY?.trim() || "";
+const DEVQUOTA_API_KEY = resolveDevQuotaApiKey(process.env);
 const DEVQUOTA_BASE_URL = process.env.DEVQUOTA_BASE_URL?.trim() || DEVQUOTA_DEFAULT_BASE_URL;
 const DEVQUOTA_SMART_IMPORT_PROVIDERS = getDevQuotaSmartImportProviders(DEVQUOTA_API_KEY);
 const WRITING_GRADING_CONFIG = {
@@ -2558,63 +2703,80 @@ function getFallbackVocabulary(topic: string, count: number): any[] {
 // API ROUTES
 // ============================================================================
 
-app.get("/api/auth/debug", async (req, res) => {
+function requireDiagnosticAccess(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const configured = process.env.DIAGNOSTIC_SECRET?.trim();
+  if (!configured) return res.status(404).json({ error: "Not found" });
+  if (!safeEqualSecret(req.headers["x-diagnostic-secret"], configured)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+
+app.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
   try {
     const testDoc = await adminDb.collection("users").limit(1).get();
     res.json({
       success: true,
-      projectId: adminDb.projectId,
       docsCount: testDoc.size,
-      env: {
-        nodeEnv: process.env.NODE_ENV,
-        firebaseDatabaseId: adminDb.projectId
-      }
+      storageReady: true
     });
   } catch (err: any) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      stack: err.stack
-    });
+    sendApiError(res, err);
   }
 });
 
-app.get("/api/diagnostics/storage", async (req, res) => {
-  const secret = process.env.DIAGNOSTIC_SECRET;
-  if (!secret) {
-    return res.status(404).json({ error: "Not found" });
-  }
-
-  if (req.query.secret !== secret) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
+app.get("/api/diagnostics/storage", requireDiagnosticAccess, async (_req, res) => {
   res.json(await getStorageDiagnostics());
 });
 
 const PHONE_AUTH_WINDOW_MS = 10 * 60 * 1000;
 const PHONE_AUTH_MAX_ATTEMPTS = 5;
-const phoneAuthAttempts = new Map<string, { count: number; resetAt: number }>();
+const phoneAuthRateLimit = new FixedWindowRateLimitStore(PHONE_AUTH_WINDOW_MS, PHONE_AUTH_MAX_ATTEMPTS);
 
 function getRequestIp(req: express.Request) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return forwarded || req.socket.remoteAddress || "unknown";
+  return getRequestNetworkKey(req);
 }
 
 function assertPhoneAuthRateLimit(req: express.Request, phone: string) {
   const key = `${getRequestIp(req)}:${phone}`;
-  const now = Date.now();
-  const current = phoneAuthAttempts.get(key);
-  if (!current || current.resetAt <= now) {
-    phoneAuthAttempts.set(key, { count: 1, resetAt: now + PHONE_AUTH_WINDOW_MS });
-    return;
-  }
-
-  current.count += 1;
-  if (current.count > PHONE_AUTH_MAX_ATTEMPTS) {
-    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.");
+  const result = phoneAuthRateLimit.consume(key);
+  if (!result.allowed) {
+    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.", {
+      retryAfterSeconds: result.retryAfterSeconds
+    });
   }
 }
+
+const guestIdentityRateLimit = createFixedWindowRateLimiter({
+  namespace: "guest-identity",
+  windowMs: 10 * 60 * 1000,
+  maxCost: 120,
+  key: req => `ip:${getRequestIp(req)}`,
+  message: "Too many identity requests. Please wait and try again."
+});
+
+const aiRateLimit = createFixedWindowRateLimiter({
+  namespace: "ai-tools",
+  windowMs: 10 * 60 * 1000,
+  maxCost: 60,
+  message: "Too many AI requests. Please wait and try again."
+});
+
+const ttsRateLimit = createFixedWindowRateLimiter({
+  namespace: "tts-generation",
+  windowMs: 10 * 60 * 1000,
+  maxCost: 500,
+  cost: req => {
+    if (req.path.includes("batch-preview")) {
+      return Math.min(200, Math.max(1, Array.isArray(req.body?.items) ? req.body.items.length : 1));
+    }
+    if (req.path.includes("generate-missing")) {
+      return Math.min(100, Math.max(20, Array.isArray(req.body?.itemIds) ? req.body.itemIds.length : 20));
+    }
+    return 1;
+  },
+  message: "TTS quota for this account was reached. Please wait and try again."
+});
 
 async function findUserByPhone(normalizedPhone: string, rawPhone = "") {
   const candidates = Array.from(new Set([
@@ -2779,7 +2941,7 @@ app.post("/api/register", authenticateUser, async (req, res) => {
 });
 
 // 3. AI: Generate IPA phonetic transcription
-app.post("/api/ai/ipa", authenticateUser, async (req, res) => {
+app.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
   const { word } = req.body;
   try {
     if (!word || typeof word !== "string") {
@@ -2809,7 +2971,7 @@ app.post("/api/ai/ipa", authenticateUser, async (req, res) => {
 });
 
 // Name-only student identity. This endpoint never accepts roles or permissions.
-app.post("/api/guest-profiles/resolve", async (req, res) => {
+app.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
   try {
     const profile = await resolveGuestProfile(
       req.body?.guestId,
@@ -2835,7 +2997,7 @@ app.post("/api/guest-profiles/resolve", async (req, res) => {
 });
 
 // Read-only identity check. A browser-stored name is never accepted without a matching guest id.
-app.post("/api/guest-profiles/identify", async (req, res) => {
+app.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
   try {
     const profile = await findExistingGuestIdentity(req.body?.guestId);
     if (!profile) {
@@ -3046,7 +3208,7 @@ function buildFallbackExample(word: string, meaning?: string) {
 }
 
 // 4. AI: Fill missing details for a single vocabulary row
-app.post("/api/ai/vocab-detail", authenticateUser, async (req, res) => {
+app.post("/api/ai/vocab-detail", authenticateUser, aiRateLimit, async (req, res) => {
   const { word, meaning, grade } = req.body;
   try {
     if (!word || typeof word !== "string") {
@@ -3133,7 +3295,7 @@ Return ONLY one valid JSON object with:
 });
 
 // 5. AI: Batch generate full vocab set
-app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), aiRateLimit, async (req, res) => {
   const { topic, grade, wordsCount = 5 } = req.body;
   try {
     if (!topic || typeof topic !== "string") {
@@ -3252,6 +3414,7 @@ app.get("/api/public/vocab-sets", async (req, res) => {
 
     snapshot.forEach(doc => {
       const set = doc.data();
+      if (isArchivedRecord(set)) return;
       const normalizedVisibility = getVocabVisibility(set);
       if (normalizedVisibility !== "public") return;
 
@@ -3433,6 +3596,7 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
     let list: any[] = [];
     snapshot.forEach(doc => {
       const set = doc.data();
+      if (isArchivedRecord(set)) return;
       const normalizedVisibility = getVocabVisibility(set);
       list.push(stripPrivateVocabSetFields({
         ...set,
@@ -3544,7 +3708,7 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
   }
 });
 
-app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
     const text = String(req.body?.text || "apple").trim();
@@ -3564,7 +3728,7 @@ app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_ad
   }
 });
 
-app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const settings = normalizeTtsSettings(req.body?.settings || {});
     const force = Boolean(req.body?.force);
@@ -3653,7 +3817,7 @@ app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "su
   }
 });
 
-app.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const apiKey = getAi33ApiKey();
     if (!apiKey) return res.status(500).json({ error: "AI33_API_KEY/TTS_API_KEY is not configured." });
@@ -3708,7 +3872,7 @@ app.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teac
   }
 });
 
-app.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+app.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
   try {
     const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
@@ -3761,12 +3925,16 @@ app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "sup
       }
     }
 
-    await docRef.delete();
-
-    // Clean up related assignments
+    const now = new Date().toISOString();
     const batch = adminDb.batch();
+    batch.set(docRef, archiveResourceRecord(setDetails, req.user.id, now, {
+      forceDraftVisibility: true,
+      revokeShareToken: true
+    }));
     relatedAssignmentsForDelete.forEach(doc => {
-      batch.delete(doc.ref);
+      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user!.id, now, {
+        revokeShareToken: true
+      }));
     });
     await batch.commit();
 
@@ -3775,11 +3943,11 @@ app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "sup
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_VOCAB_SET",
-      `Đã xóa bộ từ vựng: "${setDetails?.title}"`
+      "ARCHIVE_VOCAB_SET",
+      `Đã lưu trữ bộ từ vựng và thu hồi link: "${setDetails?.title}"`
     );
 
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3836,6 +4004,7 @@ app.get("/api/classes", authenticateUser, async (req, res) => {
     const list: any[] = [];
     snapshot.forEach(doc => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       if (canViewClass(req.user, classData)) list.push(classData);
     });
     res.json(list);
@@ -3893,30 +4062,27 @@ app.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_
     }
 
     const classDetails = existing.data();
-    await classRef.delete();
-
-    // Clean class members
-    const membersSnapshot = await adminDb.collection("class_members").where("classId", "==", id).get();
-    const batch = adminDb.batch();
-    membersSnapshot.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-
-    // Clean assignments
     const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id).get();
-    const batch2 = adminDb.batch();
-    assignmentsSnapshot.forEach(doc => batch2.delete(doc.ref));
-    await batch2.commit();
+    const now = new Date().toISOString();
+    const batch = adminDb.batch();
+    batch.set(classRef, archiveResourceRecord(classDetails, req.user.id, now));
+    assignmentsSnapshot.forEach(doc => {
+      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user!.id, now, {
+        revokeShareToken: true
+      }));
+    });
+    await batch.commit();
 
     // Audit Log
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_CLASS",
-      `Đã xóa lớp học: "${classDetails?.name}"`
+      "ARCHIVE_CLASS",
+      `Đã lưu trữ lớp học và thu hồi bài giao: "${classDetails?.name}"`
     );
 
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -3929,6 +4095,7 @@ app.get("/api/class-members", authenticateUser, async (req, res) => {
     const classesById = new Map<string, any>();
     classesSnapshot.forEach(doc => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       classesById.set(classData.id, classData);
     });
 
@@ -3952,6 +4119,7 @@ app.post("/api/classes/:classId/members", authenticateUser, requireRole(["teache
     const { studentName } = req.body;
     const classDoc = await adminDb.collection("classes").doc(classId).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
     }
@@ -3976,6 +4144,7 @@ app.delete("/api/classes/:classId/members/:memberId", authenticateUser, requireR
     const memberId = req.params.memberId;
     const classDoc = await adminDb.collection("classes").doc(classId).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
+    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen xoa hoc sinh khoi lop nay." });
     }
@@ -3997,13 +4166,16 @@ app.get("/api/assignments", authenticateUser, async (req, res) => {
     const classesById = new Map<string, any>();
     classesSnapshot.forEach(doc => {
       const classData = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(classData)) return;
       classesById.set(classData.id, classData);
     });
 
     const snapshot = await adminDb.collection("assignments").get();
     const list: any[] = [];
     for (const doc of snapshot.docs || []) {
-      const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
+      const rawAssignment = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(rawAssignment)) continue;
+      const assignment = await ensureAssignmentShareToken(rawAssignment, doc.ref);
       const classData = assignment.classId ? classesById.get(assignment.classId) : null;
       if (canManageAssignment(req.user, assignment, classData)) list.push(assignment);
     }
@@ -4022,6 +4194,7 @@ app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_ad
     const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
     if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
     const classData = { id: classDoc.id, ...classDoc.data() };
+    if (isArchivedRecord(classData)) return res.status(409).json({ error: "Class is archived." });
     if (!canManageClass(req.user, classData)) {
       return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
     }
@@ -4143,18 +4316,20 @@ app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "su
       return res.status(403).json({ error: "Ban khong co quyen xoa bai giao nay." });
     }
 
-    await docRef.delete();
+    await docRef.set(archiveResourceRecord(assignDetails, req.user.id, new Date().toISOString(), {
+      revokeShareToken: true
+    }));
 
     // Audit Log
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_ASSIGNMENT",
-      `Đã xóa/thu hồi bài tập: "${assignDetails?.title}" của lớp: ${assignDetails?.className}`
+      "ARCHIVE_ASSIGNMENT",
+      `Đã lưu trữ/thu hồi bài tập: "${assignDetails?.title}" của lớp: ${assignDetails?.className}`
     );
 
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -4167,6 +4342,7 @@ app.get("/api/public/grammar-sets", async (req, res) => {
     const list: any[] = [];
     snapshot.forEach(doc => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       if (getGrammarVisibility(set) !== "public") return;
       list.push(sanitizeGrammarSetForStudent(set));
     });
@@ -4183,6 +4359,7 @@ app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
     const list: any[] = [];
     snapshot.forEach(doc => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       if (!canViewGrammarSet(req.user, set)) return;
       list.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
     });
@@ -4204,6 +4381,7 @@ app.get("/api/grammar-sets/share/:token", async (req, res) => {
     let found: any = null;
     snapshot.forEach(doc => {
       const set = { id: doc.id, ...doc.data() };
+      if (isArchivedRecord(set)) return;
       const setToken = set.shareToken || set.assignmentSlug;
       const legacyGrammarToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
       if (!found && (setToken === token || legacyGrammarToken === token) && getGrammarVisibility(set) === "assignment") {
@@ -4286,16 +4464,21 @@ app.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teache
     if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
     if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "Bạn không có quyền xóa bài này." });
 
-    await adminDb.collection("grammar_sets").doc(req.params.id).delete();
+    await adminDb.collection("grammar_sets").doc(req.params.id).set(
+      archiveResourceRecord(existing, req.user.id, new Date().toISOString(), {
+        forceDraftVisibility: true,
+        revokeShareToken: true
+      })
+    );
     await logAuditAction(
       req.user.id,
       req.user.name,
       req.user.email,
-      "DELETE_GRAMMAR_SET",
-      `Đã xóa bài ngữ pháp: "${existing.title}"`
+      "ARCHIVE_GRAMMAR_SET",
+      `Đã lưu trữ bài ngữ pháp và thu hồi link: "${existing.title}"`
     );
 
-    res.json({ success: true });
+    res.json({ success: true, archived: true });
   } catch (err: any) {
     sendApiError(res, err);
   }
@@ -5790,6 +5973,9 @@ app.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_
       });
     }
 
+    const manageableGuestIds = isSuperAdmin(req.user)
+      ? null
+      : await getManageableGuestProfileIdsForTeacher(req.user);
     const guestProfiles: any[] = [];
     guestsSnapshot.forEach((doc: any) => {
       const data = doc.data();
@@ -5800,7 +5986,7 @@ app.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_
       });
     });
     for (const data of guestProfiles) {
-      if (!(await canManageGuestProfile(req.user, data))) continue;
+      if (manageableGuestIds && !manageableGuestIds.has(getGuestProfileId(data.guestId || data.id))) continue;
       accounts.push({
         ...data,
         name: data.displayName || data.name || "Chưa đặt tên",

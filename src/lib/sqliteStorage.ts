@@ -2983,10 +2983,14 @@ function migrateActivityReadIndexes() {
 }
 
 function getJsonImportCandidates() {
+  const additionalPaths = String(process.env.LEGACY_JSON_IMPORT_PATHS || '')
+    .split(path.delimiter)
+    .map(value => value.trim())
+    .filter(Boolean);
   return [
     process.env.LOCAL_DB_PATH,
     path.join(process.cwd(), 'db.json'),
-    '/home/qzmivzbj/app.msdieu.com/db.json',
+    ...additionalPaths,
   ].filter(Boolean) as string[];
 }
 

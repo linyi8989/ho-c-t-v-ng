@@ -64,14 +64,6 @@ function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
-function getDefaultRole(email: string): UserProfile['role'] {
-  if (email === "linyi8901@gmail.com" || email === "admin@vocabulary.edu.vn") {
-    return "super_admin";
-  }
-
-  return "student";
-}
-
 function normalizePhoneForFirebase(value: string) {
   const raw = value.trim();
   if (!raw) return "";
@@ -81,21 +73,6 @@ function normalizePhoneForFirebase(value: string) {
   if (compact.startsWith("0")) return `+84${compact.slice(1)}`;
   if (compact.startsWith("84")) return `+${compact}`;
   return `+84${compact}`;
-}
-
-function createDefaultProfile(firebaseUserInstance: FirebaseUser, phone?: string): UserProfile {
-  const email = firebaseUserInstance.email || "";
-
-  return {
-    id: firebaseUserInstance.uid,
-    name: firebaseUserInstance.displayName || email.split("@")[0] || "Hoc sinh moi",
-    email,
-    phone,
-    phoneVerified: Boolean(phone),
-    role: getDefaultRole(email),
-    status: "active",
-    createdAt: new Date().toISOString()
-  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

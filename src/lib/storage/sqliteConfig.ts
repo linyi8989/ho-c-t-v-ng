@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { SQLiteDriverName, SQLiteStorageConfig } from './storageTypes';
 
-export const DEFAULT_SQLITE_PATH = '/home/qzmivzbj/app-data/vhomework/app.sqlite';
+export const DEFAULT_SQLITE_PATH = path.join(process.cwd(), '.data', 'app.sqlite');
 
 function parseBoolean(name: string, fallback: boolean) {
   const raw = process.env[name];

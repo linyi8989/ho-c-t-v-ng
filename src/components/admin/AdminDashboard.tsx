@@ -1063,12 +1063,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleDeleteGrammarSet = (set: GrammarSet) => {
-    if (!window.confirm(`Xóa bài ngữ pháp "${set.title}"?`)) return;
-    authFetch(`/api/admin/grammar-sets/${set.id}`, { method: 'DELETE' })
-      .then(async res => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Không xóa được bài.');
-        showNotification('Đã xóa bài ngữ pháp.');
+    if (!window.confirm(`Lưu trữ bài ngữ pháp "${set.title}" và thu hồi link học? Lịch sử làm bài vẫn được giữ lại.`)) return;
+    authFetchJson<{ archived: boolean }>(`/api/admin/grammar-sets/${set.id}`, { method: 'DELETE' })
+      .then(() => {
+        showNotification('Đã lưu trữ bài ngữ pháp và giữ nguyên lịch sử.');
         refreshData();
       })
       .catch(err => showNotification(err.message, 'error'));
@@ -1723,15 +1721,14 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleDeleteSet = (id: string) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bộ từ vựng này? Hành động này cũng sẽ gỡ bỏ tất cả bài giao tương ứng.")) return;
+    if (!window.confirm("Lưu trữ bộ từ vựng và thu hồi các bài giao tương ứng? Lịch sử học sinh vẫn được giữ lại.")) return;
     
-    authFetch(`/api/vocab-sets/${id}`, { method: 'DELETE' })
-      .then(res => res.json())
-      .then(data => {
-        showNotification("Đã xóa bộ từ vựng thành công.");
+    authFetchJson<{ archived: boolean }>(`/api/vocab-sets/${id}`, { method: 'DELETE' })
+      .then(() => {
+        showNotification("Đã lưu trữ bộ từ vựng và giữ nguyên lịch sử.");
         refreshData();
       })
-      .catch(err => console.error(err));
+      .catch(err => showNotification(err.message, 'error'));
   };
 
   // --- CLASSES MANAGER ---
@@ -1790,17 +1787,16 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleDeleteClass = (id: string, className: string) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa lớp "${className}"? Hành động này sẽ gỡ bỏ tất cả học sinh và bài tập đã giao.`)) return;
+    if (!window.confirm(`Lưu trữ lớp "${className}" và thu hồi các bài đã giao? Thành viên và lịch sử học tập vẫn được giữ lại.`)) return;
 
-    authFetch(`/api/classes/${id}`, {
+    authFetchJson<{ archived: boolean }>(`/api/classes/${id}`, {
       method: 'DELETE'
     })
-    .then(res => res.json())
     .then(() => {
-      showNotification(`Đã xóa lớp "${className}" thành công.`);
+      showNotification(`Đã lưu trữ lớp "${className}" và giữ nguyên lịch sử.`);
       refreshData();
     })
-    .catch(err => console.error(err));
+    .catch(err => showNotification(err.message, 'error'));
   };
 
   // --- ASSIGNMENTS SCHEDULER ---
@@ -2508,7 +2504,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             </div>
             <div className="overflow-hidden">
               <p className="text-xs font-bold text-gray-800 truncate">{user?.name || 'Hệ thống Admin'}</p>
-              <p className="text-[10px] text-gray-400 truncate">{user?.email || 'admin@vocabulary.edu.vn'}</p>
+              <p className="text-[10px] text-gray-400 truncate">{user?.email || 'Chưa có email'}</p>
             </div>
           </div>
         </div>

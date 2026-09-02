@@ -28,9 +28,10 @@
     "test:history:cli": "node scripts/test-learning-history-cli.mjs",
     "test:legacy-contracts": "tsx --test src/server/legacyContracts.integration.test.ts",
     "test:performance": "tsx --test src/server/performanceContracts.test.ts src/lib/sqliteActivityIndexes.sqljs.test.ts",
+    "test:security": "tsx --test src/server/securityContracts.test.ts src/appRoutes.test.ts",
     "test:history": "npm run test:storage && npm run test:history:unit && npm run test:history:cli",
     "test:startup": "node scripts/smoke-storage-startup.mjs",
-    "test:phase1": "npm run lint && npm run test:performance && npm run test:identity && npm run test:grammar && npm run test:vocab-games && npm run test:tts && npm run test:runs && npm run test:mover-reading && npm run test:exam-platform && npm run test:storage && npm run build && npm run test:startup",
+    "test:phase1": "npm run lint && npm run test:security && npm run test:performance && npm run test:identity && npm run test:grammar && npm run test:vocab-games && npm run test:tts && npm run test:runs && npm run test:mover-reading && npm run test:exam-platform && npm run test:storage && npm run build && npm run test:startup",
     "test:phase2": "npm run test:phase1 && npm run test:history:unit && npm run test:history:cli && npm run test:legacy-contracts",
     "storage:preflight": "node scripts/sqlite-preflight.mjs",
     "db:preflight": "node scripts/sqlite-preflight.mjs",
@@ -40,7 +41,8 @@
     "db:prepare-sqljs-rollback": "node scripts/sqlite-prepare-sqljs-rollback.mjs",
     "db:backfill-learning-history": "node scripts/db-backfill-learning-history.mjs",
     "db:backfill-hot-read-models": "node scripts/db-backfill-hot-read-models.mjs",
-    "maintenance:activity-prune": "node scripts/activity-prune.mjs"
+    "maintenance:activity-prune": "node scripts/activity-prune.mjs",
+    "maintenance:media-orphans": "node scripts/media-orphan-maintenance.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

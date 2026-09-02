@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02
 
 ## 1. Project Overview
 
@@ -4361,3 +4361,71 @@ Verification:
   canonical production build succeeds with
   `index-C1ElIRTG.js`, `index-CgWDhoKR.css`, `clientRegistry-CQMAA9q3.js` and
   `dist/server.cjs`.
+
+## 80. External audit security, lifecycle and read-performance hardening - 2026-09-02
+
+- The September external audit was rechecked against the current runtime before
+  implementation. Browser API calls are same-origin, authentication uses an
+  explicit Bearer token rather than cookies, and Express does not emit permissive
+  CORS headers by default. For that reason no permissive CORS layer or unrelated
+  CSRF cookie mechanism was added. Cross-origin browser access remains denied by
+  default, while `firestore.rules` now closes the remaining direct client read of
+  `vocab_sets` and the unused client Firestore database module was removed.
+- `src/server/httpHardening.ts` owns explicit browser security headers, bounded
+  trusted-proxy parsing, network-key resolution, timing-safe diagnostic-secret
+  comparison and bounded in-memory fixed-window limits. `server.ts` explicitly
+  retains the established 100 KB JSON boundary and applies targeted limits to
+  guest identity, AI and weighted TTS routes. Phone throttling now uses the same
+  bounded store and Express' trusted `req.ip`, never a raw client-supplied
+  `X-Forwarded-For` value. Production 5xx responses no longer expose internal
+  messages/details, and diagnostic routes require `x-diagnostic-secret` without
+  putting the secret in a URL.
+- `src/server/accessPolicy.ts` removes privileged email allowlists from runtime
+  source. Firebase claims remain first priority; configured comma-separated
+  `BOOTSTRAP_SUPER_ADMIN_EMAILS` are second; backend-only stored roles preserve
+  existing administrators. Development seed identities use `.invalid` example
+  addresses. Real credentials remain outside Git: `.env` is ignored, is not a
+  tracked file and has no commit in repository history. `DEVQUOTA_API_KEYk` is
+  accepted only as a warned transition alias; production operations must rename
+  it and rotate provider credentials outside the repository.
+- `src/server/legacySessionAccess.ts` constrains the old tokenless guest update
+  path to an uncompleted, matching, recent session. Its compatibility window is
+  `LEGACY_GUEST_SESSION_MAX_AGE_HOURS` (24 hours by default, 0 disables it).
+  Optional invalid Bearer tokens remain guest-compatible but now produce bounded
+  diagnostics without logging the token.
+- Vocab sets, grammar sets, classes and assignments now use the shared
+  `resourceLifecycle.ts` archive contract. The existing DELETE URLs remain for
+  client compatibility, but they mark records archived, hide them from active
+  lists, revoke private links and preserve content, members, attempts, learning
+  history, leaderboard facts and published evidence. This deliberately rejects
+  the audit's cascade-delete suggestion because it conflicts with the project's
+  history and published-version invariants.
+- `scripts/media-orphan-maintenance.mjs` provides an explicit Node 22 maintenance
+  boundary for filesystem orphans. The default is read-only dry-run, only
+  hash-named files older than seven days and absent from database references are
+  candidates, and `--execute` first creates a verified SQLite backup before
+  moving files to a recoverable quarantine directory. It deletes neither files
+  nor database/history rows. Use `npm run maintenance:media-orphans -- ...`.
+- Canonical result-name enrichment now point-reads only referenced user/guest IDs
+  with a TTL cache and bounded concurrency rather than scanning both identity
+  collections. The admin account directory computes a teacher's manageable guest
+  IDs from one bulk snapshot set instead of calling the multi-query ownership
+  check once per profile. `src/appRoutes.ts` centralizes stable shell-route parsing
+  and safely rejects malformed encoded tokens, reducing routing state/regexes in
+  `App.tsx` without a breaking router migration.
+- Runtime filesystem locations are configuration-driven. Development defaults
+  remain under `.data`; production fails closed unless the persistent directories
+  and database path are configured. `.env.example` uses generic `/srv/vhomework`
+  examples and documents proxy, bootstrap-role and legacy-session settings.
+- Broad rewrites of `server.ts`, `sqliteStorage.ts`, `index.css`, all APIs or all
+  frontend routing were intentionally not combined with this security release.
+  API versioning/default pagination and further feature-router extraction require
+  separate compatibility contracts and rollout work; the current aliases and
+  storage adapter remain intentional backward compatibility.
+- Regression gates: TypeScript lint passes; selected portable suites pass 297
+  tests in total, including security/routes 14/14, performance 9/9, Listening
+  138/138, exam-platform 72/72 and Mover Reading & Writing 26/26. The canonical
+  production build and bundled artifact checks pass. Native SQLite/history/CLI
+  and startup gates remain environment-blocked because the active workstation
+  shell is Node 24 ABI 137 while the installed production-target driver is Node
+  22 ABI 127; the driver was deliberately not rebuilt under the wrong Node ABI.

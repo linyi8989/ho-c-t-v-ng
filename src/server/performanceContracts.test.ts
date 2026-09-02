@@ -99,10 +99,24 @@ test('hot read routes are timed and summary mode never eagerly joins listening d
 test('request reads do not run guest migration and leaderboard has a durable readiness gate', () => {
   assert.doesNotMatch(serverSource, /ensureLegacyGuestProfiles/);
   assert.match(serverSource, /CANONICAL_STUDENT_NAME_CACHE_TTL_MS/);
-  assert.match(serverSource, /canonicalStudentNameLoadPromise/);
+  assert.match(serverSource, /canonicalStudentNameLoadPromises/);
+  const nameLoaderStart = serverSource.indexOf('async function getCanonicalStudentNameMaps');
+  const nameLoaderEnd = serverSource.indexOf('function enrichStudentName', nameLoaderStart);
+  const nameLoader = serverSource.slice(nameLoaderStart, nameLoaderEnd);
+  assert.doesNotMatch(nameLoader, /collection\("users"\)\.get|collection\("guest_profiles"\)\.get/);
+  assert.match(nameLoader, /runWithConcurrency\(lookups, 20/);
   assert.match(serverSource, /LEADERBOARD_READ_MODEL_SETTING_ID/);
   assert.match(serverSource, /readModelSetting\?\.ready === true/);
   assert.match(serverSource, /Compatibility path for installations that have not run/);
+});
+
+test('teacher account directory computes guest scope in bulk instead of an N+1 loop', () => {
+  assert.match(serverSource, /getManageableGuestProfileIdsForTeacher/);
+  const start = serverSource.indexOf('app.get("/api/admin/accounts"');
+  const end = serverSource.indexOf('app.put("/api/admin/users/:userId/display-name"', start);
+  const route = serverSource.slice(start, end);
+  assert.match(route, /manageableGuestIds/);
+  assert.doesNotMatch(route, /await canManageGuestProfile/);
 });
 
 test('additive index migration and explicit maintenance CLI keep source rows protected', () => {

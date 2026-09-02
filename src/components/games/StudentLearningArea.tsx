@@ -3,7 +3,7 @@ import {
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
 } from 'lucide-react';
-import { Assignment, Class, ClassMember, GameAction, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
+import { GameAction, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
 import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
@@ -95,28 +95,6 @@ function normalizePersonName(value?: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/\s+/g, ' ');
-}
-
-function setUniqueClass(
-  map: Map<string, { classId: string; className: string } | null>,
-  key: string,
-  classInfo: { classId?: string; className?: string }
-) {
-  if (!key || !classInfo.classId) return;
-  const existing = map.get(key);
-  if (!existing) {
-    if (!map.has(key)) {
-      map.set(key, {
-        classId: classInfo.classId,
-        className: classInfo.className || ''
-      });
-    }
-    return;
-  }
-
-  if (existing.classId !== classInfo.classId) {
-    map.set(key, null);
-  }
 }
 
 function formatLeaderboardStudentName(entry: LeaderboardEntry) {
@@ -234,84 +212,8 @@ export default function StudentLearningArea({
         const data = await res.json();
         if (isMounted) setLeaderboardSessions(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.warn('Public leaderboard API unreachable, falling back to direct Firestore query:', err);
-        try {
-          const { collection, getDocs } = await import('firebase/firestore');
-          const { db } = await import('../../lib/firebaseDb');
-          const [querySnapshot, assignmentsSnapshot, classesSnapshot, membersSnapshot] = await Promise.all([
-            getDocs(collection(db, 'game_sessions')),
-            getDocs(collection(db, 'assignments')),
-            getDocs(collection(db, 'classes')),
-            getDocs(collection(db, 'class_members'))
-          ]);
-          const classesById = new Map<string, Class>();
-          classesSnapshot.forEach((docSnap) => {
-            const data = { id: docSnap.id, ...docSnap.data() } as Class;
-            classesById.set(data.id, data);
-          });
-
-          const assignmentsById = new Map<string, Assignment>();
-          const uniqueAssignmentClassByVocabSet = new Map<string, { classId: string; className: string } | null>();
-          assignmentsSnapshot.forEach((docSnap) => {
-            const data = { id: docSnap.id, ...docSnap.data() } as Assignment;
-            assignmentsById.set(docSnap.id, data);
-            if (data.id) assignmentsById.set(data.id, data);
-            setUniqueClass(uniqueAssignmentClassByVocabSet, data.vocabSetId, {
-              classId: data.classId,
-              className: data.className || classesById.get(data.classId)?.name || ''
-            });
-          });
-
-          const uniqueMemberClassByName = new Map<string, { classId: string; className: string } | null>();
-          membersSnapshot.forEach((docSnap) => {
-            const data = { id: docSnap.id, ...docSnap.data() } as ClassMember;
-            setUniqueClass(uniqueMemberClassByName, normalizePersonName(data.studentName), {
-              classId: data.classId,
-              className: classesById.get(data.classId)?.name || ''
-            });
-          });
-
-          const list: GameSession[] = [];
-          querySnapshot.forEach((docSnap) => {
-            const data = docSnap.data() as any;
-            if (data.completedAt) {
-              const assignment = data.assignmentId ? assignmentsById.get(data.assignmentId) : null;
-              const assignmentClass = assignment ? {
-                classId: assignment.classId,
-                className: assignment.className || classesById.get(assignment.classId)?.name || ''
-              } : null;
-              const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
-              const currentLessonClass = data.vocabSetId === vocabSet.id && vocabSet.gradeLevel
-                ? { classId: getLessonGradeClassId(vocabSet) || '', className: vocabSet.gradeLevel }
-                : null;
-              const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
-              const resolvedClass = data.classId
-                ? {
-                    classId: data.classId,
-                    className: data.className || classesById.get(data.classId)?.name || ''
-                  }
-                : assignmentClass?.classId
-                  ? assignmentClass
-                  : vocabSetClass?.classId
-                    ? vocabSetClass
-                    : currentLessonClass?.classId
-                      ? currentLessonClass
-                      : memberClass?.classId
-                        ? memberClass
-                        : { classId: '', className: '' };
-
-              list.push({
-                id: docSnap.id,
-                ...data,
-                classId: resolvedClass.classId,
-                className: resolvedClass.className
-              } as GameSession);
-            }
-          });
-          if (isMounted) setLeaderboardSessions(list);
-        } catch (firestoreErr) {
-          console.error('Direct Firestore public leaderboard fetch failed:', firestoreErr);
-        }
+        console.warn('Public leaderboard API unreachable:', err);
+        if (isMounted) setLeaderboardSessions([]);
       }
     };
 

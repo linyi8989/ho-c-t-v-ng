@@ -12,6 +12,10 @@ export interface Class {
   name: string;
   code: string;
   teacherId: string;
+  status?: 'active' | 'archived';
+  lifecycleStatus?: 'active' | 'archived';
+  archivedAt?: string;
+  archivedBy?: string;
 }
 
 export interface ClassMember {
@@ -64,7 +68,7 @@ export interface VocabSet {
   createdAt: string;
   createdBy: string; // User ID or "system"
   creatorName: string;
-  status: 'draft' | 'public' | 'private';
+  status: 'draft' | 'public' | 'private' | 'archived';
   visibility?: 'public' | 'assignment' | 'draft';
   shareToken?: string;
   assignmentSlug?: string;
@@ -76,6 +80,9 @@ export interface VocabSet {
   accessType?: 'assignment' | 'vocab_set';
   ttsSettings?: TtsSettings;
   items: VocabItem[];
+  lifecycleStatus?: 'active' | 'archived';
+  archivedAt?: string;
+  archivedBy?: string;
 }
 
 export interface Assignment {
@@ -101,6 +108,10 @@ export interface Assignment {
   createdAt: string;
   createdBy: string;
   title: string;
+  status?: 'active' | 'archived';
+  lifecycleStatus?: 'active' | 'archived';
+  archivedAt?: string;
+  archivedBy?: string;
 }
 
 export type GrammarVisibility = 'public' | 'assignment' | 'draft';
@@ -137,7 +148,7 @@ export interface GrammarSet {
   tags: string[];
   visibility: GrammarVisibility;
   questionType?: GrammarQuestionType;
-  status?: 'draft' | 'public' | 'private';
+  status?: 'draft' | 'public' | 'private' | 'archived';
   shareToken?: string;
   assignmentSlug?: string;
   timeLimitMinutes: number;
@@ -151,6 +162,9 @@ export interface GrammarSet {
   createdAt: string;
   updatedAt: string;
   questions: GrammarQuestion[];
+  lifecycleStatus?: 'active' | 'archived';
+  archivedAt?: string;
+  archivedBy?: string;
 }
 
 export interface GrammarAttemptQuestion {

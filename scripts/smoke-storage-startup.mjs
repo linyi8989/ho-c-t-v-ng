@@ -22,6 +22,8 @@ function commonEnvironment(databasePath, allowCreate, port) {
     SQLITE_SYNCHRONOUS: 'NORMAL',
     SEED_DATA_ENABLED: 'false',
     DIAGNOSTIC_SECRET: 'startup-smoke-secret',
+    TTS_AUDIO_DIR: path.join(temporaryDirectory, 'audio'),
+    LISTENING_MEDIA_DIR: path.join(temporaryDirectory, 'listening-media'),
     PORT: String(port),
   };
 }
@@ -42,9 +44,9 @@ async function waitForDiagnostics(port) {
   let lastError;
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      const response = await fetch(
-        `http://127.0.0.1:${port}/api/diagnostics/storage?secret=startup-smoke-secret`
-      );
+      const response = await fetch(`http://127.0.0.1:${port}/api/diagnostics/storage`, {
+        headers: { 'x-diagnostic-secret': 'startup-smoke-secret' },
+      });
       if (response.ok) return response.json();
       lastError = new Error(`Diagnostics returned HTTP ${response.status}.`);
     } catch (error) {

@@ -146,3 +146,34 @@ Phase 1 carry-over reconciliation:
 - Vocabulary save validates item/audio metadata server-side and strips private `audioPath` before saving or returning client data.
 - TTS generation now has fetch timeout, audio byte cap, atomic cache write, in-flight hash dedupe, and AI33-only provider restriction.
 - Game/editor pronunciation now uses a shared managed audio player.
+
+## Phase 6 - September 2026 external audit reconciliation
+
+| Audit item | Rechecked result | Resolution | Status |
+| --- | --- | --- | --- |
+| Keys in `.env` | Important operational risk, but `.env` is ignored, untracked and absent from Git history. | Rotate real provider keys outside Git; keep only empty names in `.env.example`. | code verified / operator action required |
+| CORS / CSRF / cookies | The browser uses same-origin APIs and explicit Bearer tokens; no auth cookie exists and Express emits no permissive CORS header. | Do not add unrelated permissive CORS or cookie-CSRF middleware. | not applicable to current boundary |
+| HTTP headers and JSON size | Headers were incomplete; Express' implicit JSON default was not documented. | Explicit security headers and the existing 100 KB boundary. | verified |
+| Rate limiting | Phone only, with a hand-written unbounded map and raw forwarded IP handling. | Shared bounded limiter for phone, guest identity, AI and weighted TTS; trusted proxy hops are explicit. | verified |
+| Hard-coded admin identities | Privileged email allowlists existed in backend/frontend source and local seed code. | Claims/config/backend roles are authoritative; source seed identities are non-routable examples. | verified |
+| Diagnostic and 5xx details | Debug output/query secret could leak through URLs/logs; production failures exposed internal text. | Header secret with timing-safe comparison and generic production 5xx output. | verified |
+| Guest compatibility | Old tokenless sessions were writable indefinitely with a matching guest ID. | Only recent, unfinished sessions in a bounded compatibility window; `0` disables it. | verified |
+| Direct client Firestore fallback | Read fallback bypassed the API boundary and duplicated query logic. | API-only application data reads and deny rules for the client collection. | verified |
+| Cascade delete | The audit's proposed deletion would destroy published/history evidence. | Archive parents, hide them from active lists, revoke links and preserve all attempts/history/versions. | verified with corrected design |
+| Orphan media | Files can remain if a write is interrupted before its database record. | Explicit dry-run scanner; execute requires verified DB backup and moves only old unreferenced hash files into quarantine. | verified locally; production run is operator-controlled |
+| Hard-coded filesystem defaults | Production username/path was embedded in runtime source. | Development uses `.data`; production requires configured persistent paths. | verified |
+| Identity and account-list query cost | Full identity scans and per-guest N+1 authorization queries existed. | Point reads with TTL/concurrency and one bulk authorization snapshot. | verified |
+| Large server/storage/UI files | Correct observation, but a broad rewrite is high-regression and not an emergency patch. | New security/lifecycle/runtime/route concerns are isolated in modules; continue feature-by-feature extraction under dedicated tests. | partially addressed / deferred |
+| API versioning and pagination | Valid maintainability concern; changing response shapes would break released clients. | Design a compatibility release before changing defaults. | deferred |
+
+Phase 6 local verification is recorded in `CHANGELOG.md` and CODEMAP section 80.
+Production rollout still requires a verified database backup, provider-key
+rotation, correct `TRUST_PROXY_HOPS`, deployment of `firestore.rules`, rebuilding
+the source artifact, restarting Node/Passenger and checking real API/browser
+responses. The media command must be reviewed in dry-run mode before execute.
+
+Verification snapshot (2026-09-02): TypeScript, 297 portable feature/security
+tests, the production build and bundled artifact checks pass. Native SQLite
+gates must be rerun with Node 22: the workstation shell is Node 24 ABI 137 while
+the installed `better-sqlite3` binary correctly targets production Node 22 ABI
+127. The native dependency was not rebuilt under Node 24.
