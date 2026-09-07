@@ -213,10 +213,16 @@ history_attempts AS (
     COALESCE(json_extract(data_json, '$.setTitle'), set_id) AS lesson_title_snapshot,
     'exam_set' AS lesson_type,
     'exam:' || module_id || ':' || paper_id AS game_id,
-    UPPER(module_id) || ' · ' || paper_id AS game_title_snapshot,
+    CASE WHEN module_id = 'writing' AND paper_id = 'writing'
+      THEN 'Writing · AI chấm'
+      ELSE UPPER(module_id) || ' · ' || paper_id
+    END AS game_title_snapshot,
     score,
-    score AS raw_score,
-    100 AS max_score,
+    CASE WHEN module_id = 'writing' AND paper_id = 'writing'
+      THEN COALESCE(json_extract(data_json, '$.writingScore'), ROUND(score / 10.0))
+      ELSE score
+    END AS raw_score,
+    CASE WHEN module_id = 'writing' AND paper_id = 'writing' THEN 10 ELSE 100 END AS max_score,
     correct_count,
     incorrect_count,
     unanswered_count,

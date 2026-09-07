@@ -14,18 +14,19 @@ import {
   examPaperPath,
   listeningExamPath,
   parseListeningLibraryRoute,
+  writingExamPath,
 } from './routes';
 
-test('registry exposes all seven active exam modules with paper-specific manifests', () => {
+test('registry exposes seven exam-directory modules plus the hidden standalone Writing module', () => {
   assert.deepEqual(LISTENING_MODULES.map(module => module.id), [
-    'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
+    'writing', 'starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts',
   ]);
   assert.deepEqual(
     LISTENING_MODULES.filter(module => module.status === 'active').map(module => module.id),
     ['starter', 'mover', 'flyer', 'ket', 'pet', 'fce', 'ielts']
   );
   assert.deepEqual(
-    LISTENING_MODULES.slice(0, 3).map(module => module.displayName),
+    LISTENING_MODULES.filter(module => module.status !== 'hidden').slice(0, 3).map(module => module.displayName),
     ['Starters', 'Movers', 'Flyers'],
   );
   const mover = getListeningModule('mover');
@@ -37,7 +38,9 @@ test('registry exposes all seven active exam modules with paper-specific manifes
   assert.equal(getListeningPaper('mover', 'listening')?.partCount, 5);
   assert.equal(getListeningPaper('mover', 'reading-writing')?.partCount, 6);
   assert.deepEqual(getListeningPaper('mover', 'reading-writing')?.questionsPerPart, [6, 6, 6, 7, 10, 5]);
-  for (const module of LISTENING_MODULES.filter(item => item.id !== 'mover')) {
+  assert.equal(getListeningModule('writing')?.status, 'hidden');
+  assert.deepEqual(getListeningModule('writing')?.papers.map(paper => paper.id), ['writing']);
+  for (const module of LISTENING_MODULES.filter(item => item.id !== 'mover' && item.id !== 'writing')) {
     assert.equal(module.status, 'active');
     assert.equal(module.parts.length, 0);
     assert.equal(module.capabilities.scoring, true);
@@ -122,4 +125,13 @@ test('route parser emits short exam URLs and preserves every legacy Mover URL', 
     legacy: false,
   });
   assert.equal(parseListeningLibraryRoute('/exams/unknown/listening/nope'), null);
+  const writing = writingExamPath('writing-set', 'writing-token');
+  assert.equal(writing, '/writing/writing-set?accessToken=writing-token');
+  assert.deepEqual(parseListeningLibraryRoute(...writing.split('?') as [string, string]), {
+    kind: 'paper-exam',
+    moduleId: 'writing',
+    paperId: 'writing',
+    examId: 'writing-set',
+    accessToken: 'writing-token',
+  });
 });

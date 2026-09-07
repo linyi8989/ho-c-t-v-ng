@@ -53,6 +53,14 @@ const listeningPartViewsSource = readFileSync(new URL('../listening/student/List
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
+const standaloneWritingAuthoringSource = readFileSync(new URL('../writing-library/admin/StandaloneWritingAuthoring.tsx', import.meta.url), 'utf8');
+const standaloneWritingPlayerSource = readFileSync(new URL('../writing-library/student/StandaloneWritingViews.tsx', import.meta.url), 'utf8');
+const writingWordPolicySource = readFileSync(new URL('../writing-library/writingWordPolicy.ts', import.meta.url), 'utf8');
+const historyRepositorySource = readFileSync(new URL('../../server/learning-history/learningHistoryRepository.ts', import.meta.url), 'utf8');
+const historyRowSource = readFileSync(new URL('../../components/history/HistoryRow.tsx', import.meta.url), 'utf8');
+const historyDetailSource = readFileSync(new URL('../../components/history/HistoryDetailModal.tsx', import.meta.url), 'utf8');
+const modulePageSource = readFileSync(new URL('../listening-library/student/ListeningModulePage.tsx', import.meta.url), 'utf8');
+const examPageSource = readFileSync(new URL('../listening-library/student/ListeningExamPage.tsx', import.meta.url), 'utf8');
 
 const hexToRgb = (hex: string) => {
   const value = Number.parseInt(hex.replace('#', ''), 16);
@@ -293,6 +301,47 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.match(genericPlayerSource, /hideStarterPart2DuplicateExample = starterListening && part\.part === 2 && special/);
   assert.match(listeningPartViewsSource, /data-starter-part2-example-lines/);
   assert.match(listeningPartViewsSource, /Example \{index \+ 1\}/);
+});
+
+test('standalone Writing is a separate admin library with flexible AI grading and 0–10 history', () => {
+  assert.ok(adminSource.indexOf('tab-writing-library') > adminSource.indexOf('tab-listening-library'));
+  for (const contract of ['WritingLibraryAdmin', 'Kho đề Writing', "activeTab === 'writing-library'"]) {
+    assert.ok(adminSource.includes(contract), `Standalone Writing menu is missing: ${contract}`);
+  }
+  for (const column of ['STT', 'Bộ đề Writing', 'Lớp', 'Chủ đề', 'Số lượng', 'Trạng thái', 'Ngày tạo', 'Link', 'Thao tác']) {
+    assert.ok(genericAdminSource.includes(column), `Standalone Writing column is missing: ${column}`);
+  }
+  for (const contract of ['writingSearchQuery', 'writingGradeFilter', 'writingGradeSort', 'LibraryRowActions', '1 bài viết']) {
+    assert.ok(genericAdminSource.includes(contract), `Standalone Writing directory is missing: ${contract}`);
+  }
+  for (const contract of ['data-writing-single-task', 'AI chấm 0–10', 'Quy tắc chấm cho AI', 'data-writing-word-policy']) {
+    assert.ok(standaloneWritingAuthoringSource.includes(contract), `Standalone Writing authoring is missing: ${contract}`);
+  }
+  for (const contract of ['data-no-hard-word-limit="true"', 'hệ thống không khóa số từ', 'writingScore', '/10', 'aiFeedback', 'grammarErrors', 'vocabularyErrors', 'Xem Nhận Xét']) {
+    assert.ok(standaloneWritingPlayerSource.includes(contract), `Standalone Writing player/result is missing: ${contract}`);
+  }
+  assert.doesNotMatch(standaloneWritingPlayerSource, /Xem nhận xét AI/);
+  assert.doesNotMatch(standaloneWritingPlayerSource, /maxLength=/);
+  assert.match(writingWordPolicySource, /Math\.floor\(recommendedMin \/ 4\)/);
+  assert.match(writingWordPolicySource, /Math\.ceil\(recommendedMax \* 7 \/ 3\)/);
+  assert.match(writingGradingProviderSource, /word count alone must never determine the score/);
+  assert.match(writingGradingProviderSource, /If a longer response is relevant, coherent/);
+  assert.match(writingGradingProviderSource, /If it is long but repetitive, off-topic/);
+  assert.match(historyRepositorySource, /Writing · AI chấm/);
+  assert.match(historyRepositorySource, /writingScore/);
+  assert.match(historyRowSource, /exam:writing:writing/);
+  assert.match(historyRowSource, /\/10/);
+  assert.match(historyDetailSource, /exam:writing:writing/);
+  assert.match(historyDetailSource, /1 bài Writing/);
+  assert.match(globalCssSource, /data-standalone-writing-player/);
+  assert.match(globalCssSource, /writing-lined-textarea/);
+  assert.match(globalCssSource, /background-position: 0 10px/);
+  assert.match(globalCssSource, /button\.writing-result-review:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.writing-result-retry:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.writing-result-home:not\(:disabled\)/);
+  assert.match(modulePageSource, /manifest\?\.status === 'active' \|\| standaloneWriting/);
+  assert.match(modulePageSource, /writingExamPath\(exam\.examId\)/);
+  assert.match(examPageSource, /manifest\.status !== 'active' && !standaloneWriting/);
 });
 
 test('Starter Listening Parts 1, 3 and 4 use compact task frames while interactive scenes grow as one stage', () => {

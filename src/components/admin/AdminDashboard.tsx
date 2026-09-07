@@ -16,7 +16,7 @@ import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
 } from '../../features/listening/reviewPresentation';
-import { examPaperExamPath } from '../../features/listening-library/routes';
+import { examPaperExamPath, writingExamPath } from '../../features/listening-library/routes';
 import {
   buildMultipleChoiceGrammarBulkImportPrompt,
   buildRewriteGrammarBulkImportPrompt,
@@ -24,13 +24,14 @@ import {
 } from '../../lib/adminBulkImportPrompts';
 
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
+const WritingLibraryAdmin = React.lazy(() => import('../../features/writing-library/admin/WritingLibraryAdmin'));
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
   onViewGrammarAsStudent?: (set: GrammarSet) => void;
 }
 
-type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'listening-library' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
+type AdminTab = 'dashboard' | 'vocab-sets' | 'editor' | 'grammar-sets' | 'grammar-editor' | 'listening-library' | 'writing-library' | 'classes' | 'assignments' | 'results' | 'users' | 'audit-logs';
 type VocabVisibility = 'public' | 'assignment' | 'draft';
 type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | null;
 
@@ -66,7 +67,7 @@ const getAssignmentRecordLink = (assignment: Assignment) => {
   if (assignment.resourceType === 'exam') {
     const setId = assignment.resourceId || assignment.examSetId;
     return setId && assignment.examModuleId && assignment.examPaperId
-      ? `${window.location.origin}${examPaperExamPath(assignment.examModuleId, assignment.examPaperId, setId, token)}`
+      ? `${window.location.origin}${assignment.examModuleId === 'writing' ? writingExamPath(setId, token) : examPaperExamPath(assignment.examModuleId, assignment.examPaperId, setId, token)}`
       : '';
   }
   return `${window.location.origin}/assignment/${token}`;
@@ -2447,6 +2448,17 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           </button>
 
           <button
+            onClick={() => setActiveTab('writing-library')}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              activeTab === 'writing-library' ? 'bg-violet-50 text-violet-700' : 'text-gray-500 hover:bg-gray-50'
+            }`}
+            id="tab-writing-library"
+          >
+            <Edit3 size={18} />
+            <span>Kho đề Writing</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('classes')}
             className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all cursor-pointer ${
               activeTab === 'classes' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'
@@ -3182,6 +3194,16 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             </div>
           )}>
             <ListeningLibraryAdmin token={token} />
+          </React.Suspense>
+        )}
+
+        {activeTab === 'writing-library' && token && (
+          <React.Suspense fallback={(
+            <div className="rounded-3xl border border-violet-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">
+              Đang tải kho đề Writing...
+            </div>
+          )}>
+            <WritingLibraryAdmin token={token} />
           </React.Suspense>
         )}
 
@@ -4494,7 +4516,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       <option value="vocabulary">Từ vựng</option>
                       <option value="listening">Bộ đề nghe 5 Part</option>
                       <option value="mover_reading_writing">Movers Reading &amp; Writing 6 Part</option>
-                      <option value="exam">Starters / Flyers / KET / PET / FCE / IELTS Academic</option>
+                      <option value="exam">Cambridge / IELTS / Kho đề Writing</option>
                     </select>
                   </div>
 
@@ -4505,7 +4527,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         : assignResourceType === 'mover_reading_writing'
                           ? 'Chọn bộ đề Reading & Writing *'
                           : assignResourceType === 'exam'
-                            ? 'Chọn bộ đề Cambridge / IELTS *'
+                            ? 'Chọn bộ đề Cambridge / IELTS / Writing *'
                           : 'Chọn bộ từ vựng *'}
                     </label>
                     <select
@@ -4520,7 +4542,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                         : assignResourceType === 'mover_reading_writing'
                           ? moverReadingWritingSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)
                         : assignResourceType === 'exam'
-                          ? examSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.level || s.moduleId} · {s.paperId} · {s.title}</option>)
+                          ? examSets.filter(s => s.status === 'published' && s.visibility !== 'draft').map(s => <option key={s.id} value={s.id}>{s.moduleId === 'writing' ? 'Writing' : s.level || s.moduleId} · {s.title}</option>)
                         : vocabSets.filter(s => getSetVisibility(s) !== 'draft').map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>

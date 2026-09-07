@@ -58,3 +58,4 @@ export const ketClientModule = createGenericClientModule('ket');
 export const petClientModule = createGenericClientModule('pet');
 export const fceClientModule = createGenericClientModule('fce');
 export const ieltsClientModule = createGenericClientModule('ielts');
+export const writingClientModule = createGenericClientModule('writing');

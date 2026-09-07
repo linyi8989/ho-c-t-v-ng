@@ -26,7 +26,7 @@ function signedTicket(payload: Record<string, any>) {
   return `${encoded}.${signature}`;
 }
 
-function completeContent(moduleId: 'starter' | 'pet' | 'ket', paperId: 'reading-writing' | 'writing') {
+function completeContent(moduleId: 'starter' | 'pet' | 'ket' | 'writing', paperId: 'reading-writing' | 'writing') {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
   const content = createDefaultExamContent(definition);
   content.title = `${definition.level} integration fixture`;
@@ -145,6 +145,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
       grade: async request => {
         assert.equal(request.providerId, 'stali:gpt-5.6-sol');
         assert.match(request.taskContext, /writing task|task/i);
+        assert.match(request.gradingInstructions, /Rubric:\s*Teacher rubric/i);
         return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['verb form'], vocabularyErrors: [], feedback: 'The task is complete. Three sentences are used. One verb form needs correction. Vocabulary is appropriate.' };
       },
     },
@@ -475,6 +476,45 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(ketWriting.writingScore, 8);
   assert.deepEqual(ketWriting.grammarErrors, ['verb form']);
   assert.match(ketWriting.aiFeedback, /task is complete/i);
+
+  const standaloneContent = completeContent('writing', 'writing');
+  standaloneContent.title = 'My first flexible Writing task';
+  standaloneContent.level = 'Lớp 4';
+  standaloneContent.topic = 'My weekend';
+  const standaloneCreatedResponse = await fetch(`${baseUrl}/admin/modules/writing/papers/writing/sets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: standaloneContent }),
+  });
+  const standaloneCreated = await standaloneCreatedResponse.json() as any;
+  assert.equal(standaloneCreatedResponse.status, 201, JSON.stringify(standaloneCreated));
+  assert.equal(standaloneCreated.topic, 'My weekend');
+  assert.deepEqual(standaloneCreated.validationErrors, []);
+  const standaloneUpdated = await fetch(`${baseUrl}/admin/modules/writing/papers/writing/sets/${standaloneCreated.id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: standaloneContent, visibility: 'public', baseRevision: standaloneCreated.draftRevision }),
+  });
+  assert.equal(standaloneUpdated.status, 200);
+  assert.equal((await fetch(`${baseUrl}/admin/modules/writing/papers/writing/sets/${standaloneCreated.id}/publish`, { method: 'POST' })).status, 200);
+  const standalonePrepare = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, clientRunId: 'standalone-writing-client-run', runSecret: 'standalone-writing-secret-12345678' }),
+  });
+  const standaloneTicket = await standalonePrepare.json() as any;
+  const longEssay = Array.from({ length: 80 }, (_, index) => `word${index + 1}`).join(' ');
+  const standaloneQuestionId = standaloneContent.parts[0].questions[0].id;
+  const standaloneSubmit = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, ticket: standaloneTicket.ticket, runSecret: 'standalone-writing-secret-12345678', answers: { [standaloneQuestionId]: longEssay } }),
+  });
+  const standaloneAttempt = await standaloneSubmit.json() as any;
+  assert.equal(standaloneSubmit.status, 201, JSON.stringify(standaloneAttempt));
+  assert.equal(standaloneAttempt.status, 'completed');
+  assert.equal(standaloneAttempt.writingScore, 8);
+  assert.equal(standaloneAttempt.writingWordCount, 80);
+  const standaloneReviewResponse = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${standaloneAttempt.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } });
+  const standaloneReview = await standaloneReviewResponse.json() as any;
+  assert.equal(standaloneReview.questions[0].writingScore, 8);
+  assert.equal(standaloneReview.questions[0].userAnswer, longEssay);
+  const historyWithWriting = await getLearningHistory(historyActor, historyFilters);
+  const standaloneHistory = historyWithWriting.items.find(item => item.gameId === 'exam:writing:writing');
+  assert.equal(standaloneHistory?.rawScore, 8);
+  assert.equal(standaloneHistory?.maxScore, 10);
 
   const drawCurrent = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
   const drawContent = importUniversalExamBundle(drawCurrent, JSON.stringify({

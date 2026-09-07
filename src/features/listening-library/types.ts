@@ -1,4 +1,4 @@
-export type ExamModuleId = 'starter' | 'mover' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts';
+export type ExamModuleId = 'starter' | 'mover' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts' | 'writing';
 // Compatibility alias: the library began as Listening-only, while public routes
 // and manifests now describe the broader Cambridge & IELTS exam directory.
 export type ListeningModuleId = ExamModuleId;

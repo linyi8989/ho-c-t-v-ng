@@ -475,7 +475,7 @@ export default function App() {
         paperId={listeningLibraryRoute.paperId}
         examId={listeningLibraryRoute.examId}
         accessToken={listeningLibraryRoute.accessToken}
-        onBack={() => navigateInternal(examModulePath(listeningLibraryRoute.moduleId))}
+        onBack={() => navigateInternal(listeningLibraryRoute.moduleId === 'writing' ? '/' : examModulePath(listeningLibraryRoute.moduleId))}
       />
     );
   }

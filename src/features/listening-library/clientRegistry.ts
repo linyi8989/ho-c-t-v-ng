@@ -8,9 +8,11 @@ import {
   ketClientModule,
   petClientModule,
   starterClientModule,
+  writingClientModule,
 } from '../exam-platform/module';
 
 const clientModules = new Map<ListeningModuleId, ListeningClientModule>([
+  [writingClientModule.id, writingClientModule],
   [starterClientModule.id, starterClientModule],
   [moverClientModule.id, moverClientModule],
   [flyerClientModule.id, flyerClientModule],

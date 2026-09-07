@@ -135,7 +135,8 @@ function completeDraft(content: ExamPaperContent) {
 }
 
 test('paper definitions activate the six requested modules and IELTS Academic only', () => {
-  assert.equal(EXAM_PAPER_DEFINITIONS.length, 15);
+  assert.equal(EXAM_PAPER_DEFINITIONS.length, 16);
+  assert.deepEqual(getModuleExamPaperDefinitions('writing').map(item => item.paperId), ['writing']);
   assert.deepEqual(getModuleExamPaperDefinitions('starter').map(item => item.paperId), ['listening', 'reading-writing']);
   assert.deepEqual(getModuleExamPaperDefinitions('pet').map(item => item.paperId), ['reading', 'writing', 'listening']);
   assert.deepEqual(getModuleExamPaperDefinitions('fce').map(item => item.paperId), ['reading-use-of-english', 'writing', 'listening']);
@@ -149,6 +150,22 @@ test('every default paper validates after teacher supplies media and official an
     const content = completeDraft(createDefaultExamContent(definition));
     assert.deepEqual(validateExamPaperContent(content), [], `${definition.moduleId}/${definition.paperId}`);
   }
+});
+
+test('standalone Writing keeps one ten-point task and flexible 25–30 to 6–70 guidance', () => {
+  const definition = EXAM_PAPER_DEFINITIONS.find(item => item.moduleId === 'writing' && item.paperId === 'writing')!;
+  const content = createDefaultExamContent(definition);
+  assert.equal(content.templateVersion, 'standalone-writing-v1');
+  assert.equal(content.parts.length, 1);
+  assert.equal(content.parts[0].questions.length, 1);
+  const writing = content.parts[0].questions[0];
+  assert.equal(writing.points, 10);
+  assert.equal(writing.minWords, 25);
+  assert.equal(writing.maxWords, 30);
+  assert.match(writing.writingGrading?.gradingInstructions || '', /dài hơn khoảng mục tiêu/);
+  assert.deepEqual(validateExamPaperContent(content), []);
+  content.parts[0].questions.push(structuredClone(writing));
+  assert.ok(validateExamPaperContent(content).some(error => error.includes('đúng một bài viết')));
 });
 
 test('Starters Listening Part 2 requires two separate unscored example lines', () => {

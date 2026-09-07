@@ -31,6 +31,7 @@ import {
   starterMatchingResponseKey,
 } from '../../features/exam-platform/starterMatching.js';
 import { splitStarterPart2ExampleLines } from '../../features/exam-platform/starterListeningPart2.js';
+import { STANDALONE_WRITING_TEMPLATE_VERSION } from '../../features/writing-library/writingWordPolicy.js';
 
 const text = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max);
 const objectiveTypes = new Set<ExamQuestionType>([
@@ -634,6 +635,40 @@ function validateKetListeningPart(part: ExamPartContent, partIndex: number, erro
   }
 }
 
+function validateStandaloneWriting(content: ExamPaperContent, errors: string[]) {
+  const part = content.parts?.[0];
+  const question = part?.questions?.[0];
+  if (content.templateVersion !== STANDALONE_WRITING_TEMPLATE_VERSION) {
+    errors.push('Kho đề Writing phải dùng đúng cấu trúc Writing độc lập hiện hành.');
+  }
+  if (content.parts.length !== 1 || part?.part !== 1 || part?.questions?.length !== 1) {
+    errors.push('Mỗi bộ đề Writing phải có đúng một bài viết.');
+    return;
+  }
+  if (!text(content.topic, 240)) errors.push('Kho đề Writing: thiếu chủ đề.');
+  if (!text(content.level, 120)) errors.push('Kho đề Writing: thiếu lớp.');
+  if (!text(part.passage, 20_000)) errors.push('Kho đề Writing: thiếu nội dung đề/gợi ý hiển thị cho học sinh.');
+  if (part.interaction?.family !== 'writing' || part.interaction?.variant !== 'standalone-ai-writing') {
+    errors.push('Kho đề Writing: dạng bài phải là Writing có AI chấm.');
+  }
+  if (question?.type !== 'long-writing' || question?.points !== 10 || !text(question?.prompt, 8_000)) {
+    errors.push('Kho đề Writing: bài viết phải có yêu cầu rõ ràng và đúng 10 điểm.');
+    return;
+  }
+  if (!Number.isInteger(question.minWords) || !Number.isInteger(question.maxWords)
+    || Number(question.minWords) < 1 || Number(question.maxWords) < Number(question.minWords)) {
+    errors.push('Kho đề Writing: khoảng từ mục tiêu phải là hai số nguyên hợp lệ.');
+  }
+  const config = question.writingGrading;
+  if (!config?.enabled
+    || !['stali:gpt-5.6-sol', 'devquota:gpt-5.6-sol'].includes(config.providerId)
+    || config.scoreScale !== 10
+    || !text(config.taskContext, 8_000)
+    || !text(config.gradingInstructions, 8_000)) {
+    errors.push('Kho đề Writing: thiếu cấu hình AI, ngữ cảnh hoặc quy tắc chấm hợp lệ.');
+  }
+}
+
 export function validateExamPaperContent(content: ExamPaperContent) {
   content = normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))));
   const errors: string[] = [];
@@ -644,6 +679,9 @@ export function validateExamPaperContent(content: ExamPaperContent) {
   if (!text(content.title, 240)) errors.push('Thiếu tên bộ đề.');
   const dynamic = content.schemaVersion >= 2 && content.structureMode === 'dynamic';
   if (!Array.isArray(content.parts) || content.parts.length < 1 || content.parts.length > 20) return [...errors, 'Đề thi phải có từ 1 đến 20 Part/Section.'];
+  if (content.moduleId === 'writing' && content.paperId === 'writing') {
+    validateStandaloneWriting(content, errors);
+  }
   if (content.moduleId === 'starter' && content.paperId === 'listening' && (content.parts.length !== 4 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== 5))) {
     errors.push('Starters Listening phải có đúng 4 Part theo thứ tự và mỗi Part đúng 5 câu.');
   }

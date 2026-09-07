@@ -34,6 +34,19 @@ function genericPapers(moduleId: Exclude<ListeningModuleId, 'mover'>) {
 
 export const LISTENING_MODULES = [
   {
+    id: 'writing',
+    displayName: 'Writing',
+    levelLabel: 'Theo lớp',
+    description: 'Kho đề Writing độc lập với một bài viết và AI chấm điểm 0–10.',
+    status: 'hidden',
+    schemaVersion: 1,
+    partCount: 1,
+    questionsPerPart: 1,
+    parts: [],
+    capabilities: activeCapabilities,
+    papers: genericPapers('writing'),
+  },
+  {
     id: 'starter',
     displayName: 'Starters',
     levelLabel: 'Pre A1',

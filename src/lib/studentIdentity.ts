@@ -32,11 +32,11 @@ export function validateStudentDisplayName(value: unknown): StudentNameValidatio
     };
   }
 
-  if (!/^[\p{L}\p{M}]+(?:[ '\u2019-][\p{L}\p{M}]+)*$/u.test(normalized)) {
+  if (!/^[\p{L}\p{M}\p{N}]+(?:[ '\u2019-][\p{L}\p{M}\p{N}]+)*$/u.test(normalized)) {
     return {
       valid: false,
       value: normalized,
-      error: 'Tên chỉ được chứa chữ cái, khoảng trắng, dấu nháy hoặc dấu gạch nối.'
+      error: 'Tên chỉ được chứa chữ cái, chữ số, khoảng trắng, dấu nháy hoặc dấu gạch nối.'
     };
   }
 

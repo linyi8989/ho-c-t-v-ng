@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { listExamModuleEntries, type ExamModuleListItem } from '../moduleExamList';
 import { getListeningModule } from '../registry';
-import { examPaperExamPath } from '../routes';
+import { examPaperExamPath, writingExamPath } from '../routes';
 import ComingSoonModule from '../shared/ComingSoonModule';
 import type { ListeningModuleId, ListeningPaperId } from '../types';
 
@@ -31,9 +31,11 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
   const [paperFilter, setPaperFilter] = useState<PaperFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const standaloneWriting = moduleId === 'writing';
+  const moduleAvailable = manifest?.status === 'active' || standaloneWriting;
 
   useEffect(() => {
-    if (authLoading || !manifest || manifest.status !== 'active') {
+    if (authLoading || !manifest || !moduleAvailable) {
       setLoading(false);
       return;
     }
@@ -52,7 +54,7 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [authLoading, manifest, moduleId, token]);
+  }, [authLoading, manifest, moduleAvailable, moduleId, token]);
 
   const visibleExams = useMemo(() => (
     paperFilter === 'all' ? exams : exams.filter(exam => exam.paperId === paperFilter)
@@ -61,7 +63,7 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
   if (!manifest) {
     return <div className="flex min-h-screen items-center justify-center bg-slate-50 font-black text-rose-700">Module không tồn tại.</div>;
   }
-  if (manifest.status !== 'active') return <ComingSoonModule module={manifest} onBack={onBack} />;
+  if (!moduleAvailable) return <ComingSoonModule module={manifest} onBack={onBack} />;
   const activePapers = manifest.papers.filter(paper => paper.status === 'active' && paper.capabilities.student);
 
   return (
@@ -75,7 +77,7 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
           <div className="flex items-center gap-4">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-sky-600 text-white"><Layers3 size={27} aria-hidden="true" /></span>
             <div>
-              <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">Cambridge &amp; IELTS</p>
+              <p className="text-xs font-black uppercase tracking-[.18em] text-sky-600">{standaloneWriting ? 'Kho đề Writing' : 'Cambridge & IELTS'}</p>
               <h1 className="text-3xl font-black text-slate-900">{manifest.displayName} <span className="text-lg text-sky-700">· {manifest.levelLabel}</span></h1>
               <p className="mt-1 text-sm font-semibold text-slate-500">Chọn trực tiếp một bộ đề; mỗi dòng đã ghi rõ loại bài thi.</p>
             </div>
@@ -119,7 +121,9 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
           <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" data-exam-list>
             {visibleExams.map((exam, index) => {
               const listening = exam.paperId === 'listening';
-              const href = examPaperExamPath(moduleId, exam.paperId, exam.examId);
+              const href = standaloneWriting
+                ? writingExamPath(exam.examId)
+                : examPaperExamPath(moduleId, exam.paperId, exam.examId);
               return (
                 <article key={`${exam.paperId}:${exam.examId}`} className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center ${index > 0 ? 'border-t border-slate-200' : ''}`}>
                   {exam.coverUrl ? (
@@ -142,7 +146,7 @@ export default function ListeningModulePage({ moduleId, onBack, onNavigate }: Li
                     </h2>
                     {exam.description && <p className="mt-1 text-sm font-semibold leading-5 text-slate-500">{exam.description}</p>}
                     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-500">
-                      <span>{exam.partCount} Part · {exam.questionCount} câu</span>
+                      <span>{standaloneWriting ? '1 bài viết · AI chấm 0–10' : `${exam.partCount} Part · ${exam.questionCount} câu`}</span>
                       <span className="inline-flex items-center gap-1"><Clock3 size={14} aria-hidden="true" />{exam.timeLimitMinutes ? `${exam.timeLimitMinutes} phút` : 'Không giới hạn thời gian'}</span>
                     </div>
                   </div>

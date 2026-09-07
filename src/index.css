@@ -4124,3 +4124,121 @@ textarea::placeholder {
     max-width: 108px;
   }
 }
+
+/* Standalone Writing library: isolate it from legacy admin/player overrides. */
+#writing-library-admin,
+#writing-library-admin *,
+#standalone-writing-result,
+#standalone-writing-result * {
+  box-sizing: border-box;
+}
+
+#writing-library-admin input,
+#writing-library-admin select,
+#writing-library-admin textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  opacity: 1 !important;
+}
+
+#writing-library-admin input::placeholder,
+#writing-library-admin textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+
+#writing-library-admin button:not(:disabled),
+#standalone-writing-result button:not(:disabled) {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#writing-library-admin button.bg-indigo-600:not(:disabled),
+#writing-library-admin button.bg-emerald-600:not(:disabled),
+#writing-library-admin button.bg-violet-800:not(:disabled),
+#standalone-writing-result .writing-result-retry:not(:disabled) {
+  color: #ffffff !important;
+}
+
+#writing-library-admin .writing-library-table th,
+#writing-library-admin .writing-library-table td {
+  vertical-align: middle;
+}
+
+#generic-exam-player [data-standalone-writing-player] .writing-lined-textarea {
+  background-color: #ffffff !important;
+  background-image: linear-gradient(to bottom, transparent 31px, #bfdbfe 31px, #bfdbfe 32px) !important;
+  background-size: 100% 32px !important;
+  background-position: 0 10px !important;
+  background-attachment: local !important;
+  color: #0f172a !important;
+  caret-color: #4f46e5 !important;
+  border-color: #94a3b8 !important;
+  line-height: 32px !important;
+  padding: 20px !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#standalone-writing-result button.writing-result-review:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #6d28d9 !important;
+  color: #5b21b6 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 6px 14px rgba(91, 33, 182, 0.14) !important;
+}
+
+#standalone-writing-result button.writing-result-retry:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 7px 16px rgba(4, 120, 87, 0.22) !important;
+}
+
+#standalone-writing-result button.writing-result-home:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 7px 16px rgba(29, 78, 216, 0.22) !important;
+}
+
+#standalone-writing-result button.writing-result-review:disabled {
+  background: #e2e8f0 !important;
+  border: 2px solid #64748b !important;
+  color: #334155 !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#standalone-writing-result button * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#generic-exam-player [data-standalone-writing-player] .writing-lined-textarea:focus-visible,
+#writing-library-admin input:focus-visible,
+#writing-library-admin select:focus-visible,
+#writing-library-admin textarea:focus-visible,
+#standalone-writing-result button:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+@media (max-width: 639px) {
+  #writing-library-admin .writing-library-toolbar {
+    padding: 0.75rem;
+  }
+
+  #generic-exam-player [data-standalone-writing-player] .writing-lined-textarea {
+    min-height: 18rem;
+  }
+}

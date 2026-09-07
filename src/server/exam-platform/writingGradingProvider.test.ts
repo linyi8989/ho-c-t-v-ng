@@ -19,6 +19,15 @@ test('Writing prompt treats the student essay as untrusted data and contains no 
   assert.doesNotMatch(prompt, /studentName|email|guestId/);
 });
 
+test('Writing prompt treats the authored word range as flexible quality guidance', () => {
+  const prompt = buildWritingGradingPrompt({ ...input, minWords: 25, maxWords: 30 });
+  assert.match(prompt, /RECOMMENDED WORD RANGE: 25–30 words/);
+  assert.match(prompt, /FLEXIBLE LEARNER RANGE: approximately 6–70 words/);
+  assert.match(prompt, /word count alone must never determine the score/);
+  assert.match(prompt, /longer response is relevant, coherent/);
+  assert.match(prompt, /long but repetitive, off-topic/);
+});
+
 test('Stali Writing grading returns a strict integer score and structured feedback', async () => {
   let calls = 0;
   const result = await gradeWritingWithProvider(input, {

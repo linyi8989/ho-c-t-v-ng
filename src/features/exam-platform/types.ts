@@ -277,6 +277,8 @@ export interface ExamPaperContent {
   title: string;
   description: string;
   level: string;
+  /** Teacher-authored category used by standalone libraries such as Writing. */
+  topic?: string;
   coverAssetId?: string;
   coverUrl?: string;
   timeLimitMinutes?: number;
@@ -295,6 +297,7 @@ export interface ExamSetSummary {
   title: string;
   description: string;
   level: string;
+  topic?: string;
   visibility: ExamVisibility;
   status: ExamSetStatus;
   coverUrl?: string;
@@ -352,6 +355,9 @@ export interface ExamCompletedAttempt {
   pendingManualCount: number;
   aiGradingStatus?: 'queued' | 'processing' | 'completed' | 'failed';
   aiGradingMessage?: string;
+  /** Standalone Writing reports the pedagogical score directly on a 0–10 scale. */
+  writingScore?: number;
+  writingWordCount?: number;
   completedAt: string;
   durationSeconds: number;
   /** True when the answer snapshot was submitted at or after the configured deadline. */

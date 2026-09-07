@@ -20,6 +20,18 @@ export function parseListeningLibraryRoute(
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
   if (normalizedPath === '/exams' || normalizedPath === '/listening') return { kind: 'library' };
 
+  const standaloneWritingExam = normalizedPath.match(/^\/writing\/([^/?#]+)$/);
+  if (standaloneWritingExam) {
+    const params = new URLSearchParams(search);
+    return {
+      kind: 'paper-exam',
+      moduleId: 'writing',
+      paperId: 'writing',
+      examId: decodeSegment(standaloneWritingExam[1]),
+      accessToken: params.get('accessToken') || params.get('shareToken') || '',
+    };
+  }
+
   const examPaperExam = normalizedPath.match(/^\/exams\/([^/?#]+)\/([^/?#]+)\/([^/?#]+)$/);
   if (examPaperExam) {
     const moduleId = decodeSegment(examPaperExam[1]);
@@ -121,6 +133,11 @@ export const examPaperExamPath = (
   accessToken = '',
 ) => {
   const base = `${examPaperPath(moduleId, paperId)}/${encodeURIComponent(examId)}`;
+  return accessToken ? `${base}?accessToken=${encodeURIComponent(accessToken)}` : base;
+};
+
+export const writingExamPath = (examId: string, accessToken = '') => {
+  const base = `/writing/${encodeURIComponent(examId)}`;
   return accessToken ? `${base}?accessToken=${encodeURIComponent(accessToken)}` : base;
 };
 

@@ -14,7 +14,7 @@
     "start": "node app.js",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:identity": "tsx --test src/lib/guestIdentity.test.ts",
+    "test:identity": "tsx --test src/lib/guestIdentity.test.ts src/components/games/StudentLearningArea.contract.test.ts",
     "test:local-auth": "tsx --test src/lib/localAuthBypass.test.ts",
     "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts src/lib/adminBulkImportPrompts.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts",
     "test:vocab-games": "tsx --test src/lib/game-engine/quizContracts.test.ts src/lib/game-engine/speech.test.ts",

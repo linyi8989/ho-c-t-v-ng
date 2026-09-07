@@ -11,6 +11,11 @@ import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from './flyerListen
 import { normalizeFixedFlyerReadingWritingContent } from './flyerReadingWritingMigration';
 import { normalizeFixedKetReadingWritingContent } from './ketReadingWritingMigration';
 import { KET_LISTENING_TEMPLATE_VERSION, normalizeFixedKetListeningContent } from './ketListeningMigration';
+import {
+  DEFAULT_WRITING_GRADING_INSTRUCTIONS,
+  DEFAULT_WRITING_RUBRIC,
+  STANDALONE_WRITING_TEMPLATE_VERSION,
+} from '../writing-library/writingWordPolicy';
 
 const choiceTypes = ['single-choice', 'matching'] as const;
 const readingTypes = [
@@ -72,6 +77,9 @@ function paper(
 }
 
 export const EXAM_PAPER_DEFINITIONS = [
+  paper('writing', 'writing', 'Writing', 'Lớp 3', 0, [
+    part(1, 'Guided writing', 'long-writing', ['long-writing'], { longWriting: true, minWords: 25, pointsPerQuestion: 10 }),
+  ], { description: 'Kho đề Writing · một bài viết · AI chấm điểm 0–10' }),
   paper('starter', 'listening', 'Listening', 'Pre A1 Starters', 20, [
     part(5, 'Listen and draw lines', 'matching', choiceTypes, { requiresAudio: true }),
     part(5, 'Listen and write a name or number', 'short-answer', ['short-answer'], { requiresAudio: true }),
@@ -250,6 +258,43 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
       }),
     })),
   };
+  if (definition.moduleId === 'writing' && definition.paperId === 'writing') {
+    const writing = content.parts[0].questions[0];
+    content.templateVersion = STANDALONE_WRITING_TEMPLATE_VERSION;
+    content.topic = 'General English';
+    content.title = 'Bộ đề Writing mới';
+    content.description = 'Bài luyện viết có AI nhận xét và chấm điểm.';
+    content.timeLimitMinutes = undefined;
+    content.parts[0] = {
+      ...content.parts[0],
+      title: 'Writing task',
+      instruction: 'Read the task and write your answer.',
+      passage: 'Write a short message. Answer all the points in the task.',
+      interaction: {
+        family: 'writing',
+        subtype: 'guided',
+        variant: 'standalone-ai-writing',
+        schemaVersion: 1,
+        importReadiness: 'content-ready',
+      },
+      questions: [{
+        ...writing,
+        prompt: 'Write your answer using all the points above.',
+        context: 'Read the task and answer every requested point.',
+        points: 10,
+        minWords: 25,
+        maxWords: 30,
+        rubric: DEFAULT_WRITING_RUBRIC,
+        writingGrading: {
+          enabled: true,
+          providerId: 'stali:gpt-5.6-sol',
+          taskContext: 'Read the visible writing task and answer every requested point.',
+          gradingInstructions: DEFAULT_WRITING_GRADING_INSTRUCTIONS,
+          scoreScale: 10,
+        },
+      }],
+    };
+  }
   if (definition.moduleId === 'starter' && definition.paperId === 'listening') {
     const part1 = content.parts[0];
     const targetNodes = Array.from({ length: 7 }, (_, index) => ({

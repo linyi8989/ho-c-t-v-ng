@@ -4429,3 +4429,54 @@ Verification:
   and startup gates remain environment-blocked because the active workstation
   shell is Node 24 ABI 137 while the installed production-target driver is Node
   22 ABI 127; the driver was deliberately not rebuilt under the wrong Node ABI.
+
+## 81. Standalone Writing library and flexible AI word policy - 2026-09-07
+
+- `src/features/writing-library/` owns the separate Writing-library shell,
+  focused one-task authoring view, student writing/result presentation and the
+  shared word-range policy. The administrator menu exposes `Kho đề Writing`
+  immediately below `Kho đề luyện thi`; the Cambridge/IELTS exam directory
+  keeps the supporting `writing` module hidden so the feature is not duplicated.
+- The directory reuses the immutable shared exam-set/version/attempt platform,
+  archive-safe delete behavior, assignment resource contract and the standard
+  Play -> Sửa -> Sao chép -> Kết quả -> Xóa row actions. Its dedicated table
+  shows STT, set title, school grade, topic, one-writing count, status, creation
+  date, link and actions, with title search plus grade/status filters and numeric
+  grade sorting. Student links use `/writing/:setId`; existing canonical exam
+  URLs remain compatible. Although the supporting manifest stays `hidden` from
+  the Cambridge/IELTS directory, both the direct `/exams/writing` list and the
+  `/writing/:setId` player explicitly remain active; the hidden flag must never
+  send a standalone Writing link to the generic coming-soon screen.
+- A set validates as exactly one long-writing question worth 10 points and
+  persists the teacher-selected grade/topic, task context, rubric, grading
+  provider and grading instructions with every immutable published version.
+  AI output keeps the existing strict structured score/feedback boundary and
+  provider-failure recovery, while standalone result and history surfaces show
+  the pedagogical score directly as 0-10 rather than only the normalized 0-100
+  score.
+- Authored word counts are learning targets, not submission gates. The shared
+  policy maps the common 25-30 target to an approximately 6-70-word guidance
+  range, never adds a textarea `maxLength`, and accepts answers outside either
+  range. The server-owned AI prompt explicitly rewards a longer response when
+  it is relevant, coherent and linguistically strong, but criticizes repetition,
+  off-topic content, weak clarity or excessive errors when a long response is
+  poor. Word count alone must never determine the score.
+- Writing-specific CSS is scoped to stable feature hooks for opaque controls,
+  keyboard focus, responsive tables and a lined student textarea, without
+  changing the established Cambridge, Movers, vocabulary or grammar screens.
+  The textarea uses an exact 32px text line-height and 32px ruled-paper repeat
+  with a baseline offset, so typed text remains seated on the rule at every
+  wrapped line. Result actions have explicit opaque violet/green/blue states;
+  the student-facing review action is labelled `Xem Nhận Xét`.
+
+## 82. Student alias digits and stable vocabulary name prompt - 2026-09-07
+
+- The shared student display-name contract continues to normalize Unicode and
+  whitespace, enforce the existing 2-20 character boundary and reject arbitrary
+  punctuation, while allowing Unicode digits used in classroom aliases such as
+  `trang 2a`. Client and backend use the same validator, so the accepted value
+  cannot be rejected again when the guest profile is persisted.
+- The vocabulary name prompt keeps its validation message inside the input
+  field column, with an accessible error relationship. The message therefore
+  renders below the input instead of becoming a narrow flex column between the
+  input and `Bắt đầu chơi`; mobile keeps a full-width action.

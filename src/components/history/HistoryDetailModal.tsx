@@ -381,6 +381,7 @@ export default function HistoryDetailModal({
   if (!open || !item) return null;
 
   const attempt = response?.attempt || item;
+  const standaloneWriting = attempt.gameId === 'exam:writing:writing';
   const detailStatus = response?.detailStatus || item.detailStatus;
   const entries = normalizeHistoryDetailEntries(response?.detail || null);
   const warnings = Array.isArray(response?.detail?.warnings)
@@ -449,12 +450,12 @@ export default function HistoryDetailModal({
           <dl className="mb-5 grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-xs font-bold text-slate-500">Điểm</dt>
-              <dd className="mt-1 text-lg font-black text-indigo-700">{Math.round(attempt.score)}/100</dd>
+              <dd className="mt-1 text-lg font-black text-indigo-700">{standaloneWriting ? `${Math.round(attempt.rawScore ?? attempt.score / 10)}/10` : `${Math.round(attempt.score)}/100`}</dd>
             </div>
             <div>
               <dt className="text-xs font-bold text-slate-500">Kết quả</dt>
               <dd className="mt-1 font-black text-slate-900">
-                {attempt.correctCount} đúng · {attempt.incorrectCount} sai
+                {standaloneWriting ? '1 bài Writing' : `${attempt.correctCount} đúng · ${attempt.incorrectCount} sai`}
               </dd>
             </div>
             <div>

@@ -778,24 +778,35 @@ export default function StudentLearningArea({
                 </p>
               </div>
 
-              <div className="max-w-sm mx-auto flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  placeholder="Nhập họ và tên của em..."
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  maxLength={STUDENT_NAME_MAX_LENGTH}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSubmitName();
-                  }}
-                  className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-center text-lg"
-                  id="student-name-input"
-                />
-                {nameError && <p className="text-sm font-bold text-rose-600">{nameError}</p>}
+              <div className="max-w-sm mx-auto flex flex-col sm:flex-row sm:items-start gap-3">
+                <div className="min-w-0 flex-1 space-y-2" id="student-name-field">
+                  <input
+                    type="text"
+                    placeholder="Nhập họ và tên của em..."
+                    value={studentName}
+                    onChange={(e) => {
+                      setStudentName(e.target.value);
+                      if (nameError) setNameError('');
+                    }}
+                    maxLength={STUDENT_NAME_MAX_LENGTH}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSubmitName();
+                    }}
+                    aria-invalid={Boolean(nameError)}
+                    aria-describedby={nameError ? 'student-name-error' : undefined}
+                    className="w-full p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-center text-lg"
+                    id="student-name-input"
+                  />
+                  {nameError && (
+                    <p className="text-left text-sm font-bold leading-5 text-rose-600" id="student-name-error" role="alert">
+                      {nameError}
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={handleSubmitName}
                   disabled={!studentName.trim()}
-                  className="py-4 px-8 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
+                  className="w-full sm:w-auto py-4 px-8 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
                   id="submit-name-btn"
                 >
                   Bắt đầu chơi

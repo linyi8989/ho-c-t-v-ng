@@ -46,6 +46,7 @@ function StatusBadges({ item }: { item: LearningHistoryItem }) {
 }
 
 function LessonInfo({ item }: { item: LearningHistoryItem }) {
+  const standaloneWriting = item.gameId === 'exam:writing:writing';
   const Icon = item.sourceType === 'grammar'
     ? FileText
     : item.sourceType === 'exam'
@@ -58,7 +59,7 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
   const sourceLabel = item.sourceType === 'grammar'
     ? 'Ngữ pháp'
     : item.sourceType === 'exam'
-      ? 'Cambridge & IELTS'
+      ? standaloneWriting ? 'Writing' : 'Cambridge & IELTS'
     : item.sourceType === 'listening'
       ? 'Nghe 5 Part'
       : item.sourceType === 'reading_writing'
@@ -85,14 +86,15 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
 }
 
 function ResultInfo({ item }: { item: LearningHistoryItem }) {
+  const standaloneWriting = item.gameId === 'exam:writing:writing';
   return (
     <div>
-      <p className="text-xl font-black text-indigo-700">{Math.round(item.score)}/100</p>
-      <p className="mt-1 text-[11px] font-semibold text-slate-500">
+      <p className="text-xl font-black text-indigo-700">{standaloneWriting ? `${Math.round(item.rawScore ?? item.score / 10)}/10` : `${Math.round(item.score)}/100`}</p>
+      {standaloneWriting ? <p className="mt-1 text-[11px] font-semibold text-slate-500">1 bài viết · AI/giáo viên chấm</p> : <p className="mt-1 text-[11px] font-semibold text-slate-500">
         Đúng {item.correctCount} · Sai {item.incorrectCount} · Chưa trả lời {item.unansweredCount}
-      </p>
+      </p>}
       <p className="text-[11px] font-semibold text-slate-500">
-        Tổng {item.totalQuestions} câu · {formatHistoryDuration(item.durationSeconds)}
+        {standaloneWriting ? 'Thời gian: ' : `Tổng ${item.totalQuestions} câu · `}{formatHistoryDuration(item.durationSeconds)}
       </p>
     </div>
   );

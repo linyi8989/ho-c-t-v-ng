@@ -57,6 +57,14 @@ test('unknown guest identity returns null and new names still use the 2-20 rule'
   }
 });
 
+test('student display names accept class-style digits without accepting punctuation', () => {
+  const classStyleName = validateStudentDisplayName('trang 2a');
+  assert.equal(classStyleName.valid, true);
+  assert.equal(classStyleName.value, 'trang 2a');
+  assert.equal(validateStudentDisplayName('Trang_2a').valid, false);
+  assert.equal(validateStudentDisplayName('Trang<script>').valid, false);
+});
+
 function installLocalStorage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
   let writes = 0;

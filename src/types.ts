@@ -101,7 +101,7 @@ export interface Assignment {
   moverReadingWritingSetId?: string;
   moverReadingWritingSetTitle?: string;
   examSetId?: string;
-  examModuleId?: 'starter' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts';
+  examModuleId?: 'starter' | 'flyer' | 'ket' | 'pet' | 'fce' | 'ielts' | 'writing';
   examPaperId?: 'listening' | 'reading-writing' | 'reading' | 'writing' | 'reading-use-of-english' | 'academic-reading' | 'academic-writing';
   gameId: string;
   dueDate: string;

@@ -20,7 +20,8 @@ export default function ListeningExamPage({
 }: ListeningExamPageProps) {
   const manifest = getListeningModule(moduleId);
   if (!manifest) return <div className="flex min-h-screen items-center justify-center font-black text-rose-700">Module không tồn tại.</div>;
-  if (manifest.status !== 'active') return <ComingSoonModule module={manifest} onBack={onBack} />;
+  const standaloneWriting = moduleId === 'writing' && paperId === 'writing';
+  if (manifest.status !== 'active' && !standaloneWriting) return <ComingSoonModule module={manifest} onBack={onBack} />;
   const paperManifest = paperId ? getListeningPaper(moduleId, paperId) : undefined;
   if (paperId && (!paperManifest || paperManifest.status !== 'active')) return <div className="flex min-h-screen items-center justify-center font-black text-rose-700">Loại bài thi chưa hoạt động.</div>;
   const clientModule = getListeningClientModule(moduleId);
