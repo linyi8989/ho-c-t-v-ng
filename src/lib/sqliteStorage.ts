@@ -28,6 +28,7 @@ const LISTENING_SCHEMA_MIGRATION_ID = 'listening-five-part-schema-v1';
 const MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = 'mover-reading-writing-schema-v1';
 const EXAM_PLATFORM_SCHEMA_MIGRATION_ID = 'exam-platform-schema-v1';
 const ACTIVITY_READ_INDEX_MIGRATION_ID = 'activity-read-indexes-v1';
+const STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = 'student-entry-hot-path-v1';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -146,7 +147,17 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     resourceType: 'resource_type',
     resourceId: 'resource_id',
     resourceTitle: 'resource_title',
+    shareToken: 'share_token',
+    assignmentSlug: 'share_token',
     dueDate: 'due_date',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  vocab_sets: {
+    id: 'id',
+    ownerId: 'owner_id',
+    shareToken: 'share_token',
+    assignmentSlug: 'share_token',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   },
@@ -1597,12 +1608,13 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
   if (table === 'vocab_sets') {
     withTransaction(() => {
       run(
-        `INSERT INTO vocab_sets (id, title, description, owner_id, created_at, updated_at, data_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO vocab_sets (id, title, description, owner_id, share_token, created_at, updated_at, data_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           description = excluded.description,
           owner_id = excluded.owner_id,
+          share_token = excluded.share_token,
           updated_at = excluded.updated_at,
           data_json = excluded.data_json`,
         [
@@ -1610,6 +1622,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
           data.title || null,
           data.description || null,
           data.owner_id || data.ownerId || data.createdBy || null,
+          data.shareToken || data.assignmentSlug || null,
           createdAt,
           updatedAt,
           dataJson,
@@ -1695,9 +1708,9 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     run(
       `INSERT INTO assignments (
         id, class_id, user_id, vocab_set_id, game_id, resource_type, resource_id,
-        resource_title, due_date, created_at, updated_at, data_json
+        resource_title, share_token, due_date, created_at, updated_at, data_json
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         class_id = excluded.class_id,
         user_id = excluded.user_id,
@@ -1706,6 +1719,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         resource_type = excluded.resource_type,
         resource_id = excluded.resource_id,
         resource_title = excluded.resource_title,
+        share_token = excluded.share_token,
         due_date = excluded.due_date,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
@@ -1718,6 +1732,7 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
         data.resource_type || data.resourceType || 'vocabulary',
         data.resource_id || data.resourceId || data.vocab_set_id || data.vocabSetId || null,
         data.resource_title || data.resourceTitle || data.vocabSetTitle || null,
+        data.shareToken || data.assignmentSlug || null,
         data.due_date || data.dueDate || null,
         createdAt,
         updatedAt,
@@ -1974,6 +1989,7 @@ function runSchemaMigration() {
       title TEXT,
       description TEXT,
       owner_id TEXT,
+      share_token TEXT,
       created_at TEXT,
       updated_at TEXT,
       data_json TEXT NOT NULL
@@ -2016,6 +2032,7 @@ function runSchemaMigration() {
       user_id TEXT,
       vocab_set_id TEXT,
       game_id TEXT,
+      share_token TEXT,
       due_date TEXT,
       created_at TEXT,
       updated_at TEXT,
@@ -2982,6 +2999,46 @@ function migrateActivityReadIndexes() {
   sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
 }
 
+function migrateStudentEntryHotPath() {
+  if (hasMigration(STUDENT_ENTRY_HOT_PATH_MIGRATION_ID)) {
+    sqliteLastMigration = STUDENT_ENTRY_HOT_PATH_MIGRATION_ID;
+    return;
+  }
+
+  for (const table of ['assignments', 'vocab_sets']) {
+    if (!tableHasColumn(table, 'share_token')) {
+      run(`ALTER TABLE ${table} ADD COLUMN share_token TEXT`, [], false);
+    }
+
+    const rows = all(
+      `SELECT id, data_json FROM ${table}
+       WHERE share_token IS NULL OR share_token = ''`
+    );
+    for (const row of rows) {
+      const data = parseJson(row.data_json);
+      const shareToken = optionalText(data.shareToken || data.assignmentSlug);
+      if (shareToken) {
+        run(`UPDATE ${table} SET share_token = ? WHERE id = ?`, [shareToken, row.id], false);
+      }
+    }
+  }
+
+  // These are lookup indexes rather than unique indexes so an unexpected
+  // duplicate in legacy data cannot make startup fail. The resolver rejects
+  // ambiguous matches and newly generated tokens remain cryptographically random.
+  getDb().run(`
+    CREATE INDEX IF NOT EXISTS idx_assignments_share_token
+      ON assignments(share_token);
+    CREATE INDEX IF NOT EXISTS idx_vocab_sets_share_token
+      ON vocab_sets(share_token);
+  `);
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [STUDENT_ENTRY_HOT_PATH_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = STUDENT_ENTRY_HOT_PATH_MIGRATION_ID;
+}
+
 function getJsonImportCandidates() {
   const additionalPaths = String(process.env.LEGACY_JSON_IMPORT_PATHS || '')
     .split(path.delimiter)
@@ -3087,6 +3144,7 @@ export async function initializeSQLiteStorage() {
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();
+        migrateStudentEntryHotPath();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, 'immediate');
       configureSQLiteConnection(sqliteConfig);

@@ -44,6 +44,14 @@ test('SQL.js startup applies standalone completed_at indexes used by bounded act
         assert.equal(indexes.has(indexName), true, `missing ${indexName}`);
       }
 
+      const shareIndexRows = db.exec(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'index' AND name IN ('idx_assignments_share_token', 'idx_vocab_sets_share_token')`
+      )[0]?.values || [];
+      const shareIndexes = new Set(shareIndexRows.map((row: any[]) => String(row[0])));
+      assert.equal(shareIndexes.has('idx_assignments_share_token'), true);
+      assert.equal(shareIndexes.has('idx_vocab_sets_share_token'), true);
+
       for (const [tableName, indexName] of [
         ['game_results', 'idx_game_results_completed_at'],
         ['grammar_attempts', 'idx_grammar_attempts_completed_at'],
@@ -56,6 +64,21 @@ test('SQL.js startup applies standalone completed_at indexes used by bounded act
            WHERE completed_at >= '2026-01-01T00:00:00.000Z'
            ORDER BY completed_at DESC
            LIMIT 100`
+        )[0]?.values || [];
+        const plan = planRows.map((row: any[]) => String(row[3])).join(' ');
+        assert.match(plan, new RegExp(indexName));
+      }
+
+
+      for (const [tableName, indexName] of [
+        ['assignments', 'idx_assignments_share_token'],
+        ['vocab_sets', 'idx_vocab_sets_share_token'],
+      ]) {
+        const planRows = db.exec(
+          `EXPLAIN QUERY PLAN
+           SELECT id FROM ${tableName}
+           WHERE share_token = 'share-token-test'
+           LIMIT 2`
         )[0]?.values || [];
         const plan = planRows.map((row: any[]) => String(row[3])).join(' ');
         assert.match(plan, new RegExp(indexName));

@@ -6,7 +6,7 @@ import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/s
 import {
   GUEST_ID_STORAGE_KEY,
   STUDENT_NAME_STORAGE_KEY,
-  getOrCreateGuestId,
+  getOrCreateLearningGuest,
   identifyExistingGuest,
   storeGuestAccessCredential
 } from '../../lib/guestIdentity';
@@ -85,7 +85,7 @@ function formatGradeLabel(value?: string) {
 }
 
 export default function GrammarLearningArea({ grammarSet, accessToken, onBack }: GrammarLearningAreaProps) {
-  const { token, user, loading: authLoading } = useAuth();
+  const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
   const [attempts, setAttempts] = useState<GrammarAttempt[]>([]);
   const [attempt, setAttempt] = useState<GrammarAttempt | null>(null);
   const [review, setReview] = useState<GrammarAttempt | null>(null);
@@ -100,8 +100,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   const startAttemptInFlightRef = useRef(false);
   const clientRunRef = useRef<ClientLearningRun>(createClientLearningRun());
   const [loading, setLoading] = useState(false);
+  const [nameSaving, setNameSaving] = useState(false);
   const [error, setError] = useState('');
-  const [guestId] = useState(() => getOrCreateGuestId());
+  const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
+  const { guestId, isNew: isNewGuest } = guestBootstrap;
   const [studentName, setStudentName] = useState(() => user?.name || '');
   const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => user?.name ? 'ready' : 'checking');
   const nameSubmitted = identityStatus === 'ready';
@@ -134,14 +136,27 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   };
 
   useEffect(() => {
-    if (authLoading) {
+    if (!authSessionKnown) {
       setIdentityStatus('checking');
       return;
     }
-    if (user?.name) {
-      setStudentName(user.name);
+    const authenticatedName = user?.name || firebaseUser?.displayName || '';
+    if (firebaseUser && authLoading) {
+      if (authenticatedName) setStudentName(authenticatedName);
+      setIdentityStatus('checking');
+      return;
+    }
+    if (authenticatedName) {
+      setStudentName(authenticatedName);
       setIdentityStatus('ready');
       setError('');
+      return;
+    }
+
+    if (isNewGuest) {
+      const storedValidation = validateStudentDisplayName(getStoredStudentName());
+      setStudentName(storedValidation.valid ? storedValidation.value : '');
+      setIdentityStatus('needs_name');
       return;
     }
 
@@ -174,9 +189,10 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
       });
 
     return () => controller.abort();
-  }, [authLoading, guestId, user?.id, user?.name]);
+  }, [authLoading, authSessionKnown, firebaseUser, guestId, isNewGuest, user?.id, user?.name]);
 
   const persistStudentName = async (value: string) => {
+    if (nameSaving) return;
     const validation = validateStudentDisplayName(value);
     if (!validation.valid) {
       setError(validation.error);
@@ -184,6 +200,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     }
 
     let normalizedName = validation.value;
+    setNameSaving(true);
     if (!token) {
       try {
         const res = await grammarFetch('/api/guest-profiles/resolve', {
@@ -207,6 +224,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         }
       } catch (err: any) {
         setError(err.message || 'Không thể lưu hồ sơ học sinh.');
+        setNameSaving(false);
         return;
       }
     }
@@ -221,6 +239,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setStudentName(normalizedName);
     setIdentityStatus('ready');
     setError('');
+    setNameSaving(false);
   };
 
   const loadAttempts = async (force = false) => {
@@ -538,22 +557,23 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
               <input
                 type="text"
                 placeholder="Nhập họ và tên của em..."
+                  disabled={nameSaving}
                   value={studentName}
                   onChange={(event) => setStudentName(event.target.value)}
                   maxLength={STUDENT_NAME_MAX_LENGTH}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') persistStudentName(studentName);
+                  if (event.key === 'Enter' && !nameSaving) persistStudentName(studentName);
                 }}
                 className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-center text-lg"
                 id="grammar-student-name-input"
               />
               <button
                 onClick={() => persistStudentName(studentName)}
-                disabled={!studentName.trim()}
+                disabled={!studentName.trim() || nameSaving}
                 className="py-4 px-8 !bg-blue-600 hover:!bg-blue-700 disabled:!bg-gray-200 disabled:!text-gray-500 !text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
                 id="grammar-submit-name-btn"
               >
-                Bắt đầu học
+                {nameSaving ? 'Đang lưu...' : 'Bắt đầu học'}
               </button>
             </div>
           </div>

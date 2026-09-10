@@ -4,6 +4,7 @@ import {
   GUEST_ACCESS_CREDENTIAL_STORAGE_KEY,
   GUEST_ID_STORAGE_KEY,
   getOrCreateGuestId,
+  getOrCreateLearningGuest,
   getStoredGuestAccessCredential,
   getStoredGuestId,
   identifyExistingGuest,
@@ -128,6 +129,20 @@ test('learning flow creates one stable guest id while history remains read-only'
     assert.equal(storage.writes, 1);
     assert.equal(getStoredGuestId(), created);
     assert.equal(getOrCreateGuestId(), created);
+    assert.equal(storage.writes, 1);
+  } finally {
+    storage.restore();
+  }
+});
+
+test('learning bootstrap distinguishes a brand-new browser from a returning guest', () => {
+  const storage = installLocalStorage();
+  try {
+    const first = getOrCreateLearningGuest();
+    const second = getOrCreateLearningGuest();
+    assert.equal(first.isNew, true);
+    assert.equal(second.isNew, false);
+    assert.equal(second.guestId, first.guestId);
     assert.equal(storage.writes, 1);
   } finally {
     storage.restore();

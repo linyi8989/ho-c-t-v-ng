@@ -99,6 +99,12 @@ export default function App() {
     parseListeningLibraryRoute(browserLocation.pathname, browserLocation.search)
   ), [browserLocation.pathname, browserLocation.search]);
   const authRoute = appShellRoute.kind === 'auth' ? appShellRoute.mode : '';
+  const isDirectStudentExerciseRoute = Boolean(
+    privateAssignmentToken
+    || privateGrammarToken
+    || listeningLibraryRoute?.kind === 'paper-exam'
+    || listeningLibraryRoute?.kind === 'exam'
+  );
   const isStaff = user?.role === 'teacher' || user?.role === 'super_admin';
 
   const [vocabSets, setVocabSets] = useState<VocabSet[]>([]);
@@ -416,7 +422,7 @@ export default function App() {
   // --- SCREEN RENDERS ---
 
   // 1. Loading Screen
-  if (loading) {
+  if (loading && !isDirectStudentExerciseRoute) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>

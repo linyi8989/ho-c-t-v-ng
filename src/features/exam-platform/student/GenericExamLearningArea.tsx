@@ -18,7 +18,7 @@ import { useAuth } from '../../../context/AuthContext';
 import {
   GUEST_ID_STORAGE_KEY,
   STUDENT_NAME_STORAGE_KEY,
-  getOrCreateGuestId,
+  getOrCreateLearningGuest,
   identifyExistingGuest,
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
@@ -150,8 +150,9 @@ function PartView({ moduleId, paperId, part, answers, onAnswer, standaloneWritin
 
 export default function GenericExamLearningArea({ moduleId, paperId, setId, accessToken = '', onBack }: Props) {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
-  const { token, user, loading: authLoading } = useAuth();
-  const [guestId] = useState(() => getOrCreateGuestId());
+  const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
+  const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
+  const { guestId, isNew: isNewGuest } = guestBootstrap;
   const [studentName, setStudentName] = useState(() => user?.name || storedName());
   const [identityReady, setIdentityReady] = useState(Boolean(user?.name));
   const [playable, setPlayable] = useState<ExamPlayableSet | null>(null);
@@ -165,6 +166,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [nameSaving, setNameSaving] = useState(false);
   const [error, setError] = useState('');
   const submitGuard = useRef(false);
   const automaticSubmitStarted = useRef(false);
@@ -172,21 +174,28 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   const activeStorageKey = playable ? storageKey(ownerKey, moduleId, paperId, playable.id, playable.versionId, accessToken) : '';
 
   useEffect(() => {
-    if (authLoading) return;
-    if (user?.name) { setStudentName(user.name); setIdentityReady(true); return; }
+    if (!authSessionKnown) return;
+    const authenticatedName = user?.name || firebaseUser?.displayName || '';
+    if (authenticatedName) { setStudentName(authenticatedName); setIdentityReady(true); return; }
+    if (firebaseUser && authLoading) return;
+    if (isNewGuest) { setIdentityReady(false); return; }
     const controller = new AbortController();
     identifyExistingGuest(guestId, controller.signal).then(profile => { if (profile) { setStudentName(profile.displayName); setIdentityReady(true); } else setIdentityReady(false); }).catch(() => setIdentityReady(false));
     return () => controller.abort();
-  }, [authLoading, guestId, user?.id, user?.name]);
+  }, [authLoading, authSessionKnown, firebaseUser, guestId, isNewGuest, user?.id, user?.name]);
 
   useEffect(() => {
-    if (authLoading) return;
+    let active = true;
     setLoading(true);
-    examPlatformApi.getPlayable(moduleId, paperId, setId, token, accessToken).then(value => { setPlayable(value); setError(''); }).catch(reason => setError(reason.message)).finally(() => setLoading(false));
-  }, [accessToken, authLoading, moduleId, paperId, setId, token]);
+    examPlatformApi.getPlayable(moduleId, paperId, setId, token, accessToken)
+      .then(value => { if (active) { setPlayable(value); setError(''); } })
+      .catch(reason => { if (active) setError(reason.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [accessToken, moduleId, paperId, setId, token]);
 
   useEffect(() => {
-    if (!playable || !identityReady) return;
+    if (!playable || !identityReady || authLoading) return;
     try {
       const raw = window.localStorage.getItem(storageKey(ownerKey, moduleId, paperId, playable.id, playable.versionId, accessToken));
       if (!raw) return;
@@ -194,26 +203,34 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       if (saved.setId !== playable.id || saved.versionId !== playable.versionId || !saved.ticket || !saved.runSecret) return;
       setRun(saved); setAnswers(saved.answers || {}); setCurrentPart(Math.max(0, Math.min(playable.content.parts.length - 1, Number(saved.currentPart || 0))));
     } catch { /* ignore invalid local state */ }
-  }, [accessToken, identityReady, moduleId, ownerKey, paperId, playable?.id, playable?.versionId]);
+  }, [accessToken, authLoading, identityReady, moduleId, ownerKey, paperId, playable?.id, playable?.versionId]);
   useEffect(() => { if (!run || !activeStorageKey || result) return; try { window.localStorage.setItem(activeStorageKey, JSON.stringify({ ...run, answers, currentPart })); } catch { /* in-memory still works */ } }, [activeStorageKey, answers, currentPart, result, run]);
 
   const persistName = async () => {
+    if (nameSaving) return;
     const validation = validateStudentDisplayName(studentName);
     if (!validation.valid) return setError(validation.error);
-    let displayName = validation.value;
-    if (!token) {
-      const response = await fetch('/api/guest-profiles/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guestId, displayName }) });
-      const data = await response.json();
-      if (!response.ok) return setError(data.error || 'Không thể lưu tên học sinh.');
-      displayName = data.displayName || displayName;
-      if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
+    setNameSaving(true);
+    try {
+      let displayName = validation.value;
+      if (!token) {
+        const response = await fetch('/api/guest-profiles/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guestId, displayName }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Không thể lưu tên học sinh.');
+        displayName = data.displayName || displayName;
+        if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
+      }
+      try { window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName); window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId); } catch { /* continue */ }
+      setStudentName(displayName); setIdentityReady(true); setError('');
+    } catch (reason: any) {
+      setError(reason.message || 'Không thể lưu tên học sinh.');
+    } finally {
+      setNameSaving(false);
     }
-    try { window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName); window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId); } catch { /* continue */ }
-    setStudentName(displayName); setIdentityReady(true); setError('');
   };
 
   const start = async (replaceResult = false) => {
-    if (!playable || !identityReady) return;
+    if (!playable || !identityReady || authLoading) return;
     setLoading(true); setError('');
     try {
       const credentials = createClientLearningRun();
@@ -290,9 +307,10 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   }, [run?.deadlineAt, result, answers, currentPart]);
   useEffect(() => { if (run?.submissionPending && !submitting && !result) void submit(); }, [run?.clientRunId]);
 
-  if (loading || authLoading) return <div id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={38} /></div>;
+  if (loading || (!playable && (!authSessionKnown || authLoading))) return <div id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={38} /></div>;
   if (!playable) return <div id="generic-exam-player" className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center"><p className="font-black text-rose-700">{error || 'Không tìm thấy bộ đề.'}</p><button type="button" onClick={onBack} className="exam-platform-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black">Quay lại</button></div>;
-  if (!identityReady) return <main id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 to-sky-50 p-5"><div className="w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-xl"><BookOpenText className="text-indigo-600" size={34} /><h1 className="mt-4 text-2xl font-black text-slate-900">Nhập tên để bắt đầu</h1><p className="mt-2 text-sm font-semibold text-slate-500">Tên được dùng để lưu kết quả học tập.</p><input value={studentName} onChange={event => setStudentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void persistName(); }} className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 font-bold" placeholder="Tên học sinh" />{error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}<button type="button" onClick={() => void persistName()} className="exam-platform-primary-action mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 font-black text-white">Tiếp tục</button></div></main>;
+  if (!authSessionKnown || (firebaseUser && authLoading && !identityReady)) return <div id="generic-exam-player" className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={34} /><p className="text-sm font-bold text-slate-500">Đang kiểm tra hồ sơ học sinh...</p></div>;
+  if (!identityReady) return <main id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 to-sky-50 p-5"><div className="w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-xl"><BookOpenText className="text-indigo-600" size={34} /><h1 className="mt-4 text-2xl font-black text-slate-900">Nhập tên để bắt đầu</h1><p className="mt-2 text-sm font-semibold text-slate-500">Tên được dùng để lưu kết quả học tập.</p><input disabled={nameSaving} value={studentName} onChange={event => setStudentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void persistName(); }} className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 font-bold disabled:opacity-60" placeholder="Tên học sinh" />{error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}<button type="button" disabled={nameSaving} onClick={() => void persistName()} className="exam-platform-primary-action mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{nameSaving ? 'Đang lưu tên...' : 'Tiếp tục'}</button></div></main>;
 
   if (result && moduleId === 'starter' && paperId === 'listening') return <StarterListeningResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
   if (result && moduleId === 'flyer' && paperId === 'listening') return <StarterListeningResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
@@ -303,7 +321,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   if (result && moduleId === 'writing' && paperId === 'writing') return <StandaloneWritingResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
   if (result) return <main id="generic-exam-player" className="min-h-screen bg-gradient-to-b from-indigo-100 via-white to-sky-50 p-4 sm:p-8"><div className="mx-auto max-w-6xl space-y-6"><section className="rounded-3xl border border-white bg-white p-7 text-center shadow-xl">{result.status === 'pending_review' ? <FileClock className="mx-auto text-violet-600" size={54} /> : <Trophy className="mx-auto text-amber-500" size={54} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">{result.status === 'pending_review' ? 'Đã nộp · Chờ giáo viên chấm Writing' : 'Hoàn thành'}</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1>{result.status === 'pending_review' ? <><p className="mt-5 text-4xl font-black text-violet-700">Điểm khách quan: {result.objectiveScore}</p><p className="mt-2 text-sm font-bold text-slate-500">{result.pendingManualCount} bài viết đang chờ chấm. Điểm tổng sẽ có sau khi giáo viên xác nhận.</p></> : <><p className="mt-5 text-6xl font-black text-indigo-700">{result.score}</p><p className="mt-2 text-sm font-bold text-slate-500">Đúng {result.correctCount} · Sai {result.incorrectCount} · Bỏ trống {result.unansweredCount}</p></>}<div className="mt-6 flex flex-wrap justify-center gap-3">{result.status === 'completed' && playable.content.showReviewAfterSubmit && <button type="button" disabled={reviewLoading} onClick={() => void loadReview()} className="exam-platform-result-review inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 font-black text-indigo-700"><Eye size={17} />{reviewLoading ? 'Đang tải…' : 'Xem đáp án'}</button>}<button type="button" onClick={() => void start(true)} className="exam-platform-result-retry inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-black text-white"><RotateCcw size={17} />Làm lại</button><button type="button" onClick={onBack} className="exam-platform-result-home rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Quay lại</button></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}</section>{review && <section className="rounded-3xl border border-slate-200 bg-white p-5"><h2 className="mb-4 text-xl font-black text-slate-900">Chi tiết kết quả</h2><div className="grid gap-3 md:grid-cols-2">{review.questions.map(question => <article key={question.questionId} className={`rounded-2xl border p-4 text-sm ${question.correct ? 'border-emerald-200 bg-emerald-50' : question.unanswered ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><p className="text-xs font-black uppercase text-slate-600">Part {question.part} · Câu {question.number}</p><p className="mt-2 font-bold text-slate-900">{question.prompt}</p><p className="mt-2 text-slate-700">Bạn trả lời: <b>{Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</b></p>{!question.correct && <p className="mt-1 text-emerald-800">Đáp án đúng: <b>{Array.isArray(question.correctAnswer) ? question.correctAnswer.join(', ') : question.correctAnswer}</b></p>}</article>)}</div>{review.transcripts?.length ? <div className="mt-5 space-y-3">{review.transcripts.map(item => <details key={item.part} className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-left"><summary className="cursor-pointer text-sm font-black text-sky-900">Nội dung bài nghe · Part {item.part}</summary><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{item.text}</p></details>)}</div> : null}</section>}</div></main>;
 
-  if (!run) return <main id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5"><section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <div className="mb-6"><ExamImageViewer src={playable.coverUrl} alt={`Ảnh bìa ${playable.title}`} profile="cover" /></div> : paperId === 'listening' ? <Headphones className="mx-auto text-sky-600" size={52} /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">{moduleId === 'writing' ? '1 bài viết' : `${playable.content.parts.length} Part/Section`}</span>{moduleId !== 'writing' && <span className="rounded-full bg-indigo-50 px-3 py-2">{totalQuestions} câu/task</span>}<span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="exam-platform-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" onClick={() => void start()} className="exam-platform-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white">Bắt đầu</button></div></section></main>;
+  if (!run) return <main id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5"><section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <div className="mb-6"><ExamImageViewer src={playable.coverUrl} alt={`Ảnh bìa ${playable.title}`} profile="cover" /></div> : paperId === 'listening' ? <Headphones className="mx-auto text-sky-600" size={52} /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">{moduleId === 'writing' ? '1 bài viết' : `${playable.content.parts.length} Part/Section`}</span>{moduleId !== 'writing' && <span className="rounded-full bg-indigo-50 px-3 py-2">{totalQuestions} câu/task</span>}<span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="exam-platform-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" disabled={authLoading} onClick={() => void start()} className="exam-platform-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{authLoading ? 'Đang xác minh...' : 'Bắt đầu'}</button></div></section></main>;
 
   const activePart = playable.content.parts[currentPart];
   const ketListening = isFixedKetListeningContent(playable.content);

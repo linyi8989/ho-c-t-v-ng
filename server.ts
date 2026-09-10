@@ -100,6 +100,7 @@ import {
   archiveResourceRecord,
   isArchivedRecord,
 } from "./src/server/resourceLifecycle.js";
+import { buildLeaderboard, type LeaderboardPeriod } from "./src/lib/leaderboard.js";
 
 // Load environment variables
 dotenv.config();
@@ -544,6 +545,25 @@ const ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1000;
 const LEADERBOARD_RETENTION_DAYS = 62;
 const LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const LEADERBOARD_READ_MODEL_SETTING_ID = "leaderboard-read-model-v1";
+const PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS = 30_000;
+const PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES = 100;
+const publicLeaderboardSummaryCache = new Map<string, { expiresAt: number; value: any }>();
+
+function cachePublicLeaderboardSummary(key: string, value: any) {
+  const now = Date.now();
+  for (const [cachedKey, cached] of publicLeaderboardSummaryCache) {
+    if (cached.expiresAt <= now) publicLeaderboardSummaryCache.delete(cachedKey);
+  }
+  while (publicLeaderboardSummaryCache.size >= PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES) {
+    const oldestKey = publicLeaderboardSummaryCache.keys().next().value;
+    if (!oldestKey) break;
+    publicLeaderboardSummaryCache.delete(oldestKey);
+  }
+  publicLeaderboardSummaryCache.set(key, {
+    expiresAt: now + PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS,
+    value
+  });
+}
 
 function addDaysIso(baseIso: string, days: number) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -800,50 +820,15 @@ function isGuestOwnedRecord(data: any) {
   return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
 }
 
-function getGuestActivityTime(data: any) {
-  return data?.completedAt || data?.endedAt || data?.lastSavedAt || data?.updatedAt || data?.startedAt || data?.createdAt || "";
-}
-
-async function findLegacyGuestIdentity(guestIdValue: any) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) return null;
-
-  const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
-    adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
-    adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
-  ]);
-  let latest: any = null;
-  const collect = (data: any) => {
-    if (!isGuestOwnedRecord(data) || getGuestProfileId(data.guestId) !== guestId) return;
-    const displayName = safeText(data.studentName, 120);
-    if (!displayName) return;
-    const activityAt = getGuestActivityTime(data);
-    if (!latest || new Date(activityAt || 0).getTime() >= new Date(latest.activityAt || 0).getTime()) {
-      latest = { displayName, activityAt };
-    }
-  };
-  sessionsSnapshot.forEach((doc: any) => collect({ id: doc.id, ...doc.data() }));
-  attemptsSnapshot.forEach((doc: any) => collect({ id: doc.id, ...doc.data() }));
-  if (!latest) return null;
-
-  return {
-    id: guestId,
-    guestId,
-    accountType: "guest",
-    displayName: latest.displayName,
-    name: latest.displayName,
-    role: "student",
-    status: "active",
-    legacy: true,
-    activityAt: latest.activityAt
-  };
-}
-
-async function findExistingGuestIdentity(guestIdValue: any) {
+async function findExistingGuestIdentity(
+  guestIdValue: any,
+  timing?: ReturnType<typeof createApiTiming>
+) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) return null;
 
   const profileDoc = await adminDb.collection("guest_profiles").doc(guestId).get();
+  timing?.mark("guest_profile");
   if (profileDoc.exists) {
     const profile = { id: profileDoc.id, guestId, ...profileDoc.data() } as any;
     if (profile.status === "blocked") {
@@ -861,7 +846,7 @@ async function findExistingGuestIdentity(guestIdValue: any) {
     }
   }
 
-  return findLegacyGuestIdentity(guestId);
+  return null;
 }
 
 const GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
@@ -873,13 +858,15 @@ async function resolveGuestProfile(
   guestIdValue: any,
   studentNameValue: any,
   touchActivity = true,
-  classInfo: { classId?: any; className?: any; verified?: boolean } = {}
+  classInfo: { classId?: any; className?: any; verified?: boolean } = {},
+  timing?: ReturnType<typeof createApiTiming>
 ) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) throw createHttpError(400, "Thiếu mã nhận diện học sinh.");
 
   const profileRef = adminDb.collection("guest_profiles").doc(guestId);
   const profileDoc = await profileRef.get();
+  timing?.mark("guest_profile");
   const now = new Date().toISOString();
 
   if (profileDoc.exists) {
@@ -890,9 +877,6 @@ async function resolveGuestProfile(
 
     const displayName = safeText(existing.displayName || existing.name, 120);
     if (!displayName) {
-      const legacyIdentity = await findLegacyGuestIdentity(guestId);
-      if (legacyIdentity) return legacyIdentity;
-
       const validation = validateStudentDisplayName(studentNameValue);
       if (!validation.valid) throw createHttpError(400, validation.error);
       const repaired = {
@@ -905,6 +889,7 @@ async function resolveGuestProfile(
         needsReview: false
       };
       await profileRef.set(repaired);
+      timing?.mark("profile_write");
       invalidateCanonicalStudentNameCache();
       return repaired;
     }
@@ -924,6 +909,7 @@ async function resolveGuestProfile(
         ...(shouldUpdateClassId ? { classId } : {}),
         ...(shouldUpdateClassName ? { className } : {})
       });
+      timing?.mark("profile_write");
     }
     return {
       ...existing,
@@ -934,9 +920,6 @@ async function resolveGuestProfile(
       className: className || existing.className
     };
   }
-
-  const legacyIdentity = await findLegacyGuestIdentity(guestId);
-  if (legacyIdentity) return legacyIdentity;
 
   const validation = validateStudentDisplayName(studentNameValue);
   if (!validation.valid) throw createHttpError(400, validation.error);
@@ -962,6 +945,7 @@ async function resolveGuestProfile(
     accessTokenCreatedAt: now
   };
   await profileRef.set(profile);
+  timing?.mark("profile_write");
   invalidateCanonicalStudentNameCache();
   return {
     ...omitGuestCapabilitySecrets(profile),
@@ -1325,20 +1309,45 @@ function getRequestVocabShareToken(req: express.Request) {
   return safeText(req.body?.accessToken || req.headers["x-vocab-share-token"], 200);
 }
 
-async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = "", expectedAssignmentId = "") {
+async function findDocumentByShareToken(collectionName: "assignments" | "vocab_sets", token: string) {
+  let snapshot = await adminDb.collection(collectionName)
+    .where("shareToken", "==", token)
+    .limit(2)
+    .get();
+  let docs = snapshot.docs || [];
+
+  // Firestore installations may still carry the historical assignmentSlug
+  // field. SQLite maps both field names to the same indexed physical column.
+  if (docs.length === 0) {
+    snapshot = await adminDb.collection(collectionName)
+      .where("assignmentSlug", "==", token)
+      .limit(2)
+      .get();
+    docs = snapshot.docs || [];
+  }
+
+  // Never choose an arbitrary resource if legacy data contains a collision.
+  return docs.length === 1 ? docs[0] : null;
+}
+
+async function resolveVocabLearningAccess(
+  tokenValue: any,
+  expectedVocabSetId = "",
+  expectedAssignmentId = "",
+  timing?: ReturnType<typeof createApiTiming>
+) {
   const token = safeText(tokenValue, 200);
   if (!token) return null;
 
   if (expectedAssignmentId) {
     const assignmentDoc = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
+    timing?.mark("assignment_point_read");
     if (!assignmentDoc.exists) return null;
-    const assignment = await ensureAssignmentShareToken(
-      { id: assignmentDoc.id, ...assignmentDoc.data() },
-      assignmentDoc.ref
-    );
+    const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
     if (getAssignmentShareToken(assignment) !== token) return null;
     if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
     const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    timing?.mark("vocab_point_read");
     if (!setDoc.exists) return null;
     const set = { id: setDoc.id, ...setDoc.data() };
     if (!isAssignmentOpenForLearning(assignment, set)) return null;
@@ -1347,6 +1356,7 @@ async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = 
 
   if (expectedVocabSetId) {
     const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
+    timing?.mark("vocab_point_read");
     if (!setDoc.exists) return null;
     const set = { id: setDoc.id, ...setDoc.data() };
     if (isArchivedRecord(set)) return null;
@@ -1356,27 +1366,23 @@ async function resolveVocabLearningAccess(tokenValue: any, expectedVocabSetId = 
     }
   }
 
-  const assignmentsSnapshot = await adminDb.collection("assignments").get();
-  for (const doc of assignmentsSnapshot.docs || []) {
-    const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
-    if (getAssignmentShareToken(assignment) !== token) continue;
-    if (expectedAssignmentId && assignment.id !== expectedAssignmentId) return null;
-    if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
+  const assignmentDoc = await findDocumentByShareToken("assignments", token);
+  timing?.mark("assignment_token_lookup");
+  if (assignmentDoc) {
+    const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
     const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    timing?.mark("vocab_point_read");
     if (!setDoc.exists) return null;
     const set = { id: setDoc.id, ...setDoc.data() };
     if (!isAssignmentOpenForLearning(assignment, set)) return null;
     return { accessType: "assignment" as const, set, assignment };
   }
 
-  const setsSnapshot = await adminDb.collection("vocab_sets").get();
-  for (const doc of setsSnapshot.docs || []) {
-    const set = { id: doc.id, ...doc.data() };
-    if (isArchivedRecord(set)) continue;
-    const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
-    if (setToken !== token || getVocabVisibility(set) !== "assignment") continue;
-    if (expectedAssignmentId) return null;
-    if (expectedVocabSetId && set.id !== expectedVocabSetId) return null;
+  const setDoc = await findDocumentByShareToken("vocab_sets", token);
+  timing?.mark("vocab_token_lookup");
+  if (setDoc) {
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set) || getVocabVisibility(set) !== "assignment") return null;
     return { accessType: "vocab_set" as const, set, assignment: null };
   }
 
@@ -1600,6 +1606,7 @@ async function persistLeaderboardEvent(event: any) {
   if (!event?.completedAt) return;
   const safeEvent = sanitizeLeaderboardEvent(event);
   await adminDb.collection("leaderboard_events").doc(safeEvent.id).set(safeEvent);
+  publicLeaderboardSummaryCache.clear();
 }
 
 function mergeLeaderboardEvents(events: any[]) {
@@ -2712,6 +2719,29 @@ function requireDiagnosticAccess(req: express.Request, res: express.Response, ne
   next();
 }
 
+async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTiming>) {
+  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const [storedSnapshot, readModelSettingDoc] = await Promise.all([
+    adminDb.collection("leaderboard_events")
+      .where("completedAt", ">=", leaderboardCutoff)
+      .get(),
+    adminDb.collection("settings").doc(LEADERBOARD_READ_MODEL_SETTING_ID).get()
+  ]);
+  timing?.mark("read_model");
+
+  const readModelSetting = readModelSettingDoc.exists ? readModelSettingDoc.data()?.value : null;
+  if (readModelSetting?.ready !== true || Number(readModelSetting?.version) !== 1) {
+    return null;
+  }
+
+  const events: any[] = [];
+  storedSnapshot.forEach(doc => {
+    const data = sanitizeLeaderboardEvent({ id: doc.id, ...doc.data() });
+    if (!isExpiredStoredLeaderboardEvent(data)) events.push(data);
+  });
+  return mergeLeaderboardEvents(events);
+}
+
 app.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
   try {
     const testDoc = await adminDb.collection("users").limit(1).get();
@@ -2972,13 +3002,16 @@ app.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
 
 // Name-only student identity. This endpoint never accepts roles or permissions.
 app.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/guest-profiles/resolve");
   try {
     const profile = await resolveGuestProfile(
       req.body?.guestId,
       req.body?.displayName || req.body?.studentName,
       true,
-      { classId: req.body?.classId, className: req.body?.className }
+      { classId: req.body?.classId, className: req.body?.className },
+      timing
     );
+    timing.finish(res);
     res.json({
       id: profile.id,
       guestId: profile.guestId || profile.id,
@@ -2992,20 +3025,24 @@ app.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res)
         : {})
     });
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 
 // Read-only identity check. A browser-stored name is never accepted without a matching guest id.
 app.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/guest-profiles/identify");
   try {
-    const profile = await findExistingGuestIdentity(req.body?.guestId);
+    const profile = await findExistingGuestIdentity(req.body?.guestId, timing);
     if (!profile) {
+      timing.finish(res);
       return res.status(404).json({
         error: "Không tìm thấy hồ sơ học sinh đã đăng ký.",
         code: "GUEST_PROFILE_NOT_FOUND"
       });
     }
+    timing.finish(res);
     res.json({
       id: profile.id,
       guestId: profile.guestId || profile.id,
@@ -3014,6 +3051,7 @@ app.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res
       legacy: Boolean(profile.legacy)
     });
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -3376,14 +3414,17 @@ app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_ad
 
 // 5. VOCAB SETS: Open an assignment/private set by share token
 app.get("/api/vocab-sets/share/:token", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/vocab-sets/share/:token");
   try {
     const token = String(req.params.token || "").trim();
     if (!token) {
+      timing.finish(res);
       return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
     }
 
-    const access = await resolveVocabLearningAccess(token);
+    const access = await resolveVocabLearningAccess(token, "", "", timing);
     if (!access) {
+      timing.finish(res);
       return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
     }
 
@@ -3400,8 +3441,11 @@ app.get("/api/vocab-sets/share/:token", async (req, res) => {
       accessType: access.accessType
     };
 
+    timing.mark("shape");
+    timing.finish(res);
     res.json(stripPrivateVocabSetFields(found));
   } catch (err: any) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -3582,6 +3626,65 @@ app.get("/api/public/leaderboard-results", async (req, res) => {
     const list = await loadLeaderboardEventsFromSources(timing);
     timing.finish(res);
     res.json(list.map(sanitizePublicStudentRecord));
+  } catch (err: any) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
+
+app.get("/api/public/leaderboard-summary", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/public/leaderboard-summary");
+  try {
+    const period: LeaderboardPeriod = req.query.period === "month" ? "month" : "week";
+    const classId = safeText(req.query.classId, 180);
+    const requestedLimit = Number(req.query.limit || 8);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(20, Math.floor(requestedLimit)))
+      : 8;
+    const cacheKey = `${period}:${classId}:${limit}`;
+    const cached = publicLeaderboardSummaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      timing.mark("memory_cache");
+      timing.finish(res);
+      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+      return res.json(cached.value);
+    }
+
+    const events = await loadReadyLeaderboardEvents(timing);
+    if (!events) {
+      timing.finish(res);
+      return res.status(503).json({
+        error: "Bảng vàng đang được chuẩn bị.",
+        code: "LEADERBOARD_NOT_READY"
+      });
+    }
+
+    // Pseudonymize each source event before aggregation. This prevents raw
+    // account/guest identifiers from reaching either the response or cache.
+    const publicEvents = events.map(sanitizePublicStudentRecord);
+    const classesById = new Map<string, string>();
+    for (const event of publicEvents) {
+      const eventClassId = safeText(event.classId, 180);
+      if (!eventClassId) continue;
+      const eventClassName = safeText(event.className, 180) || eventClassId;
+      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
+    }
+    const entries = buildLeaderboard(publicEvents as any, [], {
+      period,
+      ...(classId ? { classId } : {})
+    }).gold.slice(0, limit);
+    const value = {
+      entries,
+      classes: [...classesById.entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, "vi")),
+      period
+    };
+    cachePublicLeaderboardSummary(cacheKey, value);
+    timing.mark("aggregate");
+    timing.finish(res);
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+    res.json(value);
   } catch (err: any) {
     timing.finish(res);
     sendApiError(res, err);
@@ -4905,6 +5008,7 @@ app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, as
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
@@ -5009,7 +5113,7 @@ async function resolveGameSessionStartContext(req: express.Request, payload: any
     const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
       classId: payload.classId,
       className: payload.className
-    });
+    }, timing);
     actor = { ...actor, studentName: profile.displayName || profile.name };
   }
   timing?.mark("identity");
@@ -5023,7 +5127,7 @@ async function resolveGameSessionStartContext(req: express.Request, payload: any
   let access: Awaited<ReturnType<typeof resolveVocabLearningAccess>> = null;
   const accessToken = getRequestVocabShareToken(req);
   if (accessToken) {
-    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
     if (!access) throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
     assignment = access.assignment;
   } else if (payload.assignmentId) {
@@ -5268,6 +5372,7 @@ app.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (re
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));
@@ -5288,7 +5393,7 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
         classId: payload.classId,
         className: payload.className
-      });
+      }, timing);
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
     timing.mark("identity");
@@ -5307,7 +5412,7 @@ app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     let access: Awaited<ReturnType<typeof resolveVocabLearningAccess>> = null;
     const accessToken = getRequestVocabShareToken(req);
     if (accessToken) {
-      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
       if (!access) return res.status(403).json({ error: "Link không có quyền tạo lượt học này." });
       assignment = access.assignment;
     } else if (payload.assignmentId) {
@@ -5481,6 +5586,7 @@ app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => 
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err: any) {
     sendApiError(res, err);
@@ -5591,6 +5697,7 @@ app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, 
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));

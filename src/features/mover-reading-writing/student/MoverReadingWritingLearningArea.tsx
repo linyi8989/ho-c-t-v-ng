@@ -17,7 +17,7 @@ import { getExamImageProfile } from '../../exam-media/imageProfiles';
 import {
   GUEST_ID_STORAGE_KEY,
   STUDENT_NAME_STORAGE_KEY,
-  getOrCreateGuestId,
+  getOrCreateLearningGuest,
   identifyExistingGuest,
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
@@ -74,8 +74,9 @@ const answeredCount = (answers: MoverReadingWritingAnswers) => [
 ].filter(value => String(value || '').trim()).length;
 
 export default function MoverReadingWritingLearningArea({ setId, accessToken = '', onBack }: Props) {
-  const { token, user, loading: authLoading } = useAuth();
-  const [guestId] = useState(() => getOrCreateGuestId());
+  const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
+  const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
+  const { guestId, isNew: isNewGuest } = guestBootstrap;
   const [studentName, setStudentName] = useState(() => user?.name || storedName());
   const [identityReady, setIdentityReady] = useState(Boolean(user?.name));
   const [playable, setPlayable] = useState<MoverReadingWritingPlayableSet | null>(null);
@@ -87,6 +88,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   const [review, setReview] = useState<MoverReadingWritingAttemptReview | null>(null);
   const [reviewRunSecret, setReviewRunSecret] = useState('');
   const [loading, setLoading] = useState(true);
+  const [nameSaving, setNameSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [error, setError] = useState('');
@@ -96,23 +98,30 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   const activeStorageKey = playable ? storageKey(ownerKey, playable.id, playable.versionId, accessToken) : '';
 
   useEffect(() => {
-    if (authLoading) return;
-    if (user?.name) { setStudentName(user.name); setIdentityReady(true); return; }
+    if (!authSessionKnown) return;
+    const authenticatedName = user?.name || firebaseUser?.displayName || '';
+    if (firebaseUser && authLoading) {
+      if (authenticatedName) setStudentName(authenticatedName);
+      return;
+    }
+    if (authenticatedName) { setStudentName(authenticatedName); setIdentityReady(true); return; }
+    if (isNewGuest) { setIdentityReady(false); return; }
     const controller = new AbortController();
     identifyExistingGuest(guestId, controller.signal)
       .then(profile => { if (profile) { setStudentName(profile.displayName); setIdentityReady(true); } else setIdentityReady(false); })
       .catch(() => setIdentityReady(false));
     return () => controller.abort();
-  }, [authLoading, guestId, user?.id, user?.name]);
+  }, [authLoading, authSessionKnown, firebaseUser, guestId, isNewGuest, user?.id, user?.name]);
 
   useEffect(() => {
-    if (authLoading) return;
+    let active = true;
     setLoading(true);
     moverReadingWritingApi.getPlayable(setId, token, accessToken)
-      .then(value => { setPlayable(value); setError(''); })
-      .catch(reason => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [accessToken, authLoading, setId, token]);
+      .then(value => { if (active) { setPlayable(value); setError(''); } })
+      .catch(reason => { if (active) setError(reason.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [accessToken, setId, token]);
 
   useEffect(() => {
     if (!playable || !identityReady) return;
@@ -133,25 +142,33 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   }, [activeStorageKey, answers, currentPart, result, run]);
 
   const persistName = async () => {
+    if (nameSaving) return;
     const validation = validateStudentDisplayName(studentName);
     if (!validation.valid) return setError(validation.error);
-    let displayName = validation.value;
-    if (!token) {
-      const response = await fetch('/api/guest-profiles/resolve', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guestId, displayName }),
-      });
-      const data = await response.json();
-      if (!response.ok) return setError(data.error || 'Không thể lưu tên học sinh.');
-      displayName = data.displayName || displayName;
-      if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
-    }
+    setNameSaving(true);
     try {
-      window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName);
-      window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId);
-    } catch { /* continue in memory */ }
-    setStudentName(displayName);
-    setIdentityReady(true);
-    setError('');
+      let displayName = validation.value;
+      if (!token) {
+        const response = await fetch('/api/guest-profiles/resolve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guestId, displayName }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Không thể lưu tên học sinh.');
+        displayName = data.displayName || displayName;
+        if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
+      }
+      try {
+        window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName);
+        window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId);
+      } catch { /* continue in memory */ }
+      setStudentName(displayName);
+      setIdentityReady(true);
+      setError('');
+    } catch (reason: any) {
+      setError(reason.message || 'Không thể lưu tên học sinh.');
+    } finally {
+      setNameSaving(false);
+    }
   };
 
   const start = async (replaceResult = false) => {
@@ -249,12 +266,14 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
     <ReadingPart6View part={playable.content.parts[5]} answers={answers} onAnswers={setAnswers} />,
   ] : [], [answers, playable]);
 
-  if (loading || authLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={38} /></div>;
+  if (loading || (!playable && (!authSessionKnown || authLoading))) return <div className="flex min-h-screen items-center justify-center bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={38} /></div>;
   if (!playable) return <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center" id="mover-reading-writing-player"><p className="font-black text-rose-700">{error || 'Không tìm thấy bộ đề.'}</p><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black">Quay lại</button></div>;
+
+  if (!authSessionKnown || (firebaseUser && authLoading && !identityReady)) return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={34} /><p className="text-sm font-bold text-slate-500">Đang kiểm tra hồ sơ học sinh...</p></div>;
 
   if (!identityReady) return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 to-sky-50 p-5" id="mover-reading-writing-player">
-      <div className="w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-xl"><BookOpenText className="text-indigo-600" size={34} /><h1 className="mt-4 text-2xl font-black text-slate-900">Nhập tên để bắt đầu</h1><p className="mt-2 text-sm font-semibold text-slate-500">Tên được dùng để lưu kết quả học tập.</p><input value={studentName} onChange={event => setStudentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void persistName(); }} className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 font-bold" placeholder="Tên học sinh" />{error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}<button type="button" onClick={() => void persistName()} className="mover-reading-primary-action mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 font-black text-white">Tiếp tục</button></div>
+      <div className="w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-xl"><BookOpenText className="text-indigo-600" size={34} /><h1 className="mt-4 text-2xl font-black text-slate-900">Nhập tên để bắt đầu</h1><p className="mt-2 text-sm font-semibold text-slate-500">Tên được dùng để lưu kết quả học tập.</p><input disabled={nameSaving} value={studentName} onChange={event => setStudentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !nameSaving) void persistName(); }} className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 font-bold disabled:opacity-60" placeholder="Tên học sinh" />{error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}<button type="button" disabled={nameSaving} onClick={() => void persistName()} className="mover-reading-primary-action mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{nameSaving ? 'Đang lưu tên...' : 'Tiếp tục'}</button></div>
     </main>
   );
 

@@ -35,6 +35,7 @@ interface UserProfile {
 interface AuthContextType {
   user: UserProfile | null;
   firebaseUser: FirebaseUser | null;
+  authSessionKnown: boolean;
   loading: boolean;
   token: string | null;
   registerWithEmail: (email: string, pass: string, name: string, phone?: string, otpCode?: string) => Promise<void>;
@@ -80,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     LOCAL_AUTH_BYPASS_ENABLED ? LOCAL_AUTH_USER : null
   ));
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authSessionKnown, setAuthSessionKnown] = useState(LOCAL_AUTH_BYPASS_ENABLED);
   const [loading, setLoading] = useState(!LOCAL_AUTH_BYPASS_ENABLED);
   const [token, setToken] = useState<string | null>(() => (
     LOCAL_AUTH_BYPASS_ENABLED ? LOCAL_AUTH_BYPASS_TOKEN : null
@@ -137,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (LOCAL_AUTH_BYPASS_ENABLED) return;
     const unsubscribe = onIdTokenChanged(auth, async (fUser) => {
       const initialAuthEvent = !authLifecycleReadyRef.current;
+      setAuthSessionKnown(true);
       if (initialAuthEvent) setLoading(true);
       try {
         if (fUser) {
@@ -170,6 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, (err) => {
       console.error("Firebase ID token listener failed:", err);
       authLifecycleReadyRef.current = true;
+      setAuthSessionKnown(true);
       setFirebaseUser(null);
       setUser(null);
       setToken(null);
@@ -355,6 +359,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user,
       firebaseUser,
+      authSessionKnown,
       loading,
       token,
       registerWithEmail,

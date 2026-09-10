@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, HelpCircle, Trophy, Timer } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface MemoryGameProps {
@@ -55,6 +55,10 @@ export default function MemoryGame({
   const flipBackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failedAttemptsRef = useRef(0);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
+  const vocabItemById = useMemo(
+    () => new Map(items.map(item => [item.id, item])),
+    [items]
+  );
 
   // Determine active item count (usually 6 items = 12 cards for small screen, 8 items = 16 cards max)
   const activeItemsCount = Math.min(items.length, 6);
@@ -149,7 +153,7 @@ export default function MemoryGame({
 
     // Pronounce word if term is flipped and sound is on
     if (card.type === 'term' && !isMuted) {
-      speakEnglish(card.text);
+      playVocabAudio(vocabItemById.get(card.itemId), card.text);
     }
 
     // Flip card

@@ -13,6 +13,11 @@ export interface GuestAccessCredential {
   version?: number;
 }
 
+export interface LearningGuestBootstrap {
+  guestId: string;
+  isNew: boolean;
+}
+
 export const GUEST_ID_STORAGE_KEY = 'msdieu_guest_id';
 export const STUDENT_NAME_STORAGE_KEY = 'msdieu_student_name';
 export const GUEST_ACCESS_CREDENTIAL_STORAGE_KEY = 'msdieu_guest_history_access';
@@ -51,8 +56,17 @@ export function getStoredGuestId() {
  * History flows must never call this function.
  */
 export function getOrCreateGuestId() {
+  return getOrCreateLearningGuest().guestId;
+}
+
+/**
+ * Learning screens need to know whether the identifier existed before this
+ * page load. A brand-new browser cannot have a server profile yet, so it can
+ * show the name form without spending a request on an expected 404 lookup.
+ */
+export function getOrCreateLearningGuest(): LearningGuestBootstrap {
   const existing = getStoredGuestId();
-  if (existing) return existing;
+  if (existing) return { guestId: existing, isNew: false };
 
   const guestId = createGuestId();
   try {
@@ -60,7 +74,7 @@ export function getOrCreateGuestId() {
   } catch {
     // The in-memory id remains usable for the current learning session.
   }
-  return guestId;
+  return { guestId, isNew: true };
 }
 
 export function getStoredGuestAccessCredential(

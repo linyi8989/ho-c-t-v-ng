@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play, RotateCcw, Timer, Zap, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
-import { speakEnglish } from '../../lib/game-engine/speech';
+import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 
 interface MatchingGameProps {
@@ -52,6 +52,10 @@ export default function MatchingGame({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const failedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
+  const vocabItemById = useMemo(
+    () => new Map(items.map(item => [item.id, item])),
+    [items]
+  );
 
   const clearPendingTimers = () => {
     if (timerRef.current) {
@@ -156,7 +160,7 @@ export default function MatchingGame({
 
     // Play English pronunciation if term clicked and sound is on
     if (card.type === 'term' && !isMuted) {
-      speakEnglish(card.text);
+      playVocabAudio(vocabItemById.get(card.itemId), card.text);
     }
 
     if (!selectedCard) {
@@ -256,7 +260,7 @@ export default function MatchingGame({
               let borderStyle = "border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md text-gray-800";
               
               if (isSelected) {
-                borderStyle = "border-indigo-500 bg-indigo-50 ring-4 ring-indigo-100 text-indigo-900 font-bold scale-102";
+                borderStyle = "border-amber-400 bg-amber-50 ring-4 ring-amber-100 text-amber-900 font-bold scale-102";
               } else if (isFailed) {
                 borderStyle = "border-rose-400 bg-rose-50 text-rose-800 animate-shake";
               } else if (isMatched) {

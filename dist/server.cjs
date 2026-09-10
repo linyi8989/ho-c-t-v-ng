@@ -466,6 +466,7 @@ var LISTENING_SCHEMA_MIGRATION_ID = "listening-five-part-schema-v1";
 var MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = "mover-reading-writing-schema-v1";
 var EXAM_PLATFORM_SCHEMA_MIGRATION_ID = "exam-platform-schema-v1";
 var ACTIVITY_READ_INDEX_MIGRATION_ID = "activity-read-indexes-v1";
+var STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = "student-entry-hot-path-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -581,7 +582,17 @@ var sqlQueryFieldMap = {
     resourceType: "resource_type",
     resourceId: "resource_id",
     resourceTitle: "resource_title",
+    shareToken: "share_token",
+    assignmentSlug: "share_token",
     dueDate: "due_date",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  vocab_sets: {
+    id: "id",
+    ownerId: "owner_id",
+    shareToken: "share_token",
+    assignmentSlug: "share_token",
     createdAt: "created_at",
     updatedAt: "updated_at"
   },
@@ -1904,12 +1915,13 @@ function upsertDoc(collectionName, id2, inputData) {
   if (table === "vocab_sets") {
     withTransaction(() => {
       run(
-        `INSERT INTO vocab_sets (id, title, description, owner_id, created_at, updated_at, data_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO vocab_sets (id, title, description, owner_id, share_token, created_at, updated_at, data_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           description = excluded.description,
           owner_id = excluded.owner_id,
+          share_token = excluded.share_token,
           updated_at = excluded.updated_at,
           data_json = excluded.data_json`,
         [
@@ -1917,6 +1929,7 @@ function upsertDoc(collectionName, id2, inputData) {
           data.title || null,
           data.description || null,
           data.owner_id || data.ownerId || data.createdBy || null,
+          data.shareToken || data.assignmentSlug || null,
           createdAt,
           updatedAt,
           dataJson
@@ -1997,9 +2010,9 @@ function upsertDoc(collectionName, id2, inputData) {
     run(
       `INSERT INTO assignments (
         id, class_id, user_id, vocab_set_id, game_id, resource_type, resource_id,
-        resource_title, due_date, created_at, updated_at, data_json
+        resource_title, share_token, due_date, created_at, updated_at, data_json
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
         class_id = excluded.class_id,
         user_id = excluded.user_id,
@@ -2008,6 +2021,7 @@ function upsertDoc(collectionName, id2, inputData) {
         resource_type = excluded.resource_type,
         resource_id = excluded.resource_id,
         resource_title = excluded.resource_title,
+        share_token = excluded.share_token,
         due_date = excluded.due_date,
         updated_at = excluded.updated_at,
         data_json = excluded.data_json`,
@@ -2020,6 +2034,7 @@ function upsertDoc(collectionName, id2, inputData) {
         data.resource_type || data.resourceType || "vocabulary",
         data.resource_id || data.resourceId || data.vocab_set_id || data.vocabSetId || null,
         data.resource_title || data.resourceTitle || data.vocabSetTitle || null,
+        data.shareToken || data.assignmentSlug || null,
         data.due_date || data.dueDate || null,
         createdAt,
         updatedAt,
@@ -2265,6 +2280,7 @@ function runSchemaMigration() {
       title TEXT,
       description TEXT,
       owner_id TEXT,
+      share_token TEXT,
       created_at TEXT,
       updated_at TEXT,
       data_json TEXT NOT NULL
@@ -2307,6 +2323,7 @@ function runSchemaMigration() {
       user_id TEXT,
       vocab_set_id TEXT,
       game_id TEXT,
+      share_token TEXT,
       due_date TEXT,
       created_at TEXT,
       updated_at TEXT,
@@ -3228,6 +3245,39 @@ function migrateActivityReadIndexes() {
   );
   sqliteLastMigration = ACTIVITY_READ_INDEX_MIGRATION_ID;
 }
+function migrateStudentEntryHotPath() {
+  if (hasMigration(STUDENT_ENTRY_HOT_PATH_MIGRATION_ID)) {
+    sqliteLastMigration = STUDENT_ENTRY_HOT_PATH_MIGRATION_ID;
+    return;
+  }
+  for (const table of ["assignments", "vocab_sets"]) {
+    if (!tableHasColumn(table, "share_token")) {
+      run(`ALTER TABLE ${table} ADD COLUMN share_token TEXT`, [], false);
+    }
+    const rows = all(
+      `SELECT id, data_json FROM ${table}
+       WHERE share_token IS NULL OR share_token = ''`
+    );
+    for (const row of rows) {
+      const data = parseJson(row.data_json);
+      const shareToken = optionalText(data.shareToken || data.assignmentSlug);
+      if (shareToken) {
+        run(`UPDATE ${table} SET share_token = ? WHERE id = ?`, [shareToken, row.id], false);
+      }
+    }
+  }
+  getDb().run(`
+    CREATE INDEX IF NOT EXISTS idx_assignments_share_token
+      ON assignments(share_token);
+    CREATE INDEX IF NOT EXISTS idx_vocab_sets_share_token
+      ON vocab_sets(share_token);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [STUDENT_ENTRY_HOT_PATH_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = STUDENT_ENTRY_HOT_PATH_MIGRATION_ID;
+}
 function getJsonImportCandidates() {
   const additionalPaths = String(process.env.LEGACY_JSON_IMPORT_PATHS || "").split(import_path.default.delimiter).map((value) => value.trim()).filter(Boolean);
   return [
@@ -3320,6 +3370,7 @@ async function initializeSQLiteStorage() {
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();
+        migrateStudentEntryHotPath();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
@@ -15821,6 +15872,167 @@ function archiveResourceRecord(record2, actorId, now = (/* @__PURE__ */ new Date
   return archived;
 }
 
+// src/lib/leaderboard.ts
+var MS_PER_DAY = 24 * 60 * 60 * 1e3;
+function normalizeStudentName(name) {
+  return (name || "H\u1ECDc sinh").trim().toLowerCase();
+}
+function getStudentIdentity(session) {
+  const source = session;
+  if (source.publicStudentKey) return String(source.publicStudentKey);
+  if (source.studentKey) return String(source.studentKey);
+  if (source.userId) return `user:${source.userId}`;
+  if (source.ownerKey) return source.ownerKey;
+  if (source.guestId) return `guest:${source.guestId}`;
+  if (source.studentId) return `student:${source.studentId}`;
+  return `name:${normalizeStudentName(session.studentName)}`;
+}
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+function getPeriodStart(period, now = /* @__PURE__ */ new Date()) {
+  if (period === "month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  const today = startOfDay(now);
+  const day = today.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return new Date(today.getTime() + mondayOffset * MS_PER_DAY);
+}
+function getPreviousPeriodStart(period, periodStart) {
+  if (period === "month") {
+    return new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);
+  }
+  return new Date(periodStart.getTime() - 7 * MS_PER_DAY);
+}
+function getPreviousPeriodEnd(period, periodStart) {
+  if (period === "month") {
+    return new Date(periodStart.getTime() - 1);
+  }
+  return new Date(periodStart.getTime() - 1);
+}
+function sessionCompletedAt(session) {
+  return session.completedAt ? new Date(session.completedAt) : null;
+}
+function getSessionClassId(session, assignments) {
+  if (session.classId) return session.classId;
+  if (!session.assignmentId) return "";
+  return assignments.find((assign) => assign.id === session.assignmentId)?.classId || "";
+}
+function getSessionClassName(session, assignments) {
+  if (session.className) return session.className;
+  if (!session.assignmentId) return "";
+  return assignments.find((assign) => assign.id === session.assignmentId)?.className || "";
+}
+function getLeaderboardStudentKey(session, assignments) {
+  const classId = getSessionClassId(session, assignments);
+  return [getStudentIdentity(session), classId || "no-class"].join("|");
+}
+function isBetterSession(candidate, current) {
+  if (!current) return true;
+  const candidateTotal = Math.max(1, candidate.correctAnswers + candidate.incorrectAnswers || candidate.totalQuestions || 0);
+  const currentTotal = Math.max(1, current.correctAnswers + current.incorrectAnswers || current.totalQuestions || 0);
+  const candidateAccuracy = candidate.correctAnswers / candidateTotal;
+  const currentAccuracy = current.correctAnswers / currentTotal;
+  if (candidateAccuracy !== currentAccuracy) return candidateAccuracy > currentAccuracy;
+  if ((candidate.score || 0) !== (current.score || 0)) return (candidate.score || 0) > (current.score || 0);
+  return (sessionCompletedAt(candidate)?.getTime() || 0) > (sessionCompletedAt(current)?.getTime() || 0);
+}
+function getBestSessions(sessions, assignments, filters, rangeStart, rangeEnd) {
+  const bestByKey = /* @__PURE__ */ new Map();
+  for (const session of sessions) {
+    const completedAt = sessionCompletedAt(session);
+    if (!completedAt) continue;
+    if (completedAt < rangeStart) continue;
+    if (rangeEnd && completedAt > rangeEnd) continue;
+    if (filters.vocabSetId && session.vocabSetId !== filters.vocabSetId) continue;
+    if (filters.classId && getSessionClassId(session, assignments) !== filters.classId) continue;
+    const key = [
+      getStudentIdentity(session),
+      getSessionClassId(session, assignments) || "no-class",
+      session.vocabSetId || "unknown-set",
+      session.gameId || "unknown-game"
+    ].join("|");
+    if (isBetterSession(session, bestByKey.get(key))) {
+      bestByKey.set(key, session);
+    }
+  }
+  return [...bestByKey.values()];
+}
+function summarizeSessions(bestSessions, assignments) {
+  const byStudent = /* @__PURE__ */ new Map();
+  for (const session of bestSessions) {
+    const key = getLeaderboardStudentKey(session, assignments);
+    const classId = getSessionClassId(session, assignments);
+    const completedAt = sessionCompletedAt(session);
+    const entry = byStudent.get(key) || {
+      studentName: session.studentName || "H\u1ECDc sinh",
+      classId,
+      completedLessons: 0,
+      correctAnswers: 0,
+      incorrectAnswers: 0,
+      totalQuestions: 0,
+      averageAccuracy: 0,
+      studyDays: 0,
+      honorScore: 0,
+      improvementPoints: 0,
+      badges: [],
+      className: getSessionClassName(session, assignments)
+    };
+    entry.studentKey = key;
+    entry.completedLessons += 1;
+    entry.correctAnswers += session.correctAnswers || 0;
+    entry.incorrectAnswers += session.incorrectAnswers || 0;
+    entry.totalQuestions += session.totalQuestions || session.correctAnswers + session.incorrectAnswers || 0;
+    if (!entry.className) entry.className = getSessionClassName(session, assignments);
+    const dayKey = completedAt?.toISOString().slice(0, 10);
+    const days = new Set(entry._days || []);
+    if (dayKey) days.add(dayKey);
+    entry._days = days;
+    byStudent.set(key, entry);
+  }
+  return [...byStudent.values()].map((entry) => {
+    entry.studyDays = entry._days?.size || 0;
+    entry.averageAccuracy = entry.totalQuestions > 0 ? Math.round(entry.correctAnswers / entry.totalQuestions * 100) : 0;
+    delete entry._days;
+    return entry;
+  });
+}
+function assignBadges(entry) {
+  const badges = [];
+  if (entry.studyDays >= 5) badges.push("H\u1ECDc \u0111\u1EC1u m\u1ED7i ng\xE0y");
+  if (entry.studyDays >= 3) badges.push("Ng\xF4i sao ch\u0103m ch\u1EC9");
+  if (entry.averageAccuracy >= 90 && (entry.completedLessons >= 3 || entry.totalQuestions >= 60)) badges.push("Tr\u1EA3 l\u1EDDi si\xEAu chu\u1EA9n");
+  if (entry.improvementPoints >= 30) badges.push("Ti\u1EBFn b\u1ED9 v\u01B0\u1EE3t b\u1EADc");
+  if (entry.honorScore >= 500) badges.push("B\u1EADc th\u1EA7y t\u1EEB v\u1EF1ng");
+  return badges.length ? badges : ["\u0110ang t\u1ECFa s\xE1ng"];
+}
+function buildLeaderboard(sessions, assignments, filters) {
+  const periodStart = getPeriodStart(filters.period);
+  const previousStart = getPreviousPeriodStart(filters.period, periodStart);
+  const previousEnd = getPreviousPeriodEnd(filters.period, periodStart);
+  const currentBest = getBestSessions(sessions, assignments, filters, periodStart);
+  const previousBest = getBestSessions(sessions, assignments, filters, previousStart, previousEnd);
+  const currentSummary = summarizeSessions(currentBest, assignments);
+  const previousSummary = summarizeSessions(previousBest, assignments);
+  const previousByStudent = new Map(previousSummary.map((entry) => [entry.studentKey || normalizeStudentName(entry.studentName), entry]));
+  const entries = currentSummary.map((entry) => {
+    const previous = previousByStudent.get(entry.studentKey || normalizeStudentName(entry.studentName));
+    const baseScore = entry.completedLessons * 50 + entry.averageAccuracy * 3 + entry.studyDays * 20;
+    const previousBaseScore = previous ? previous.completedLessons * 50 + previous.averageAccuracy * 3 + previous.studyDays * 20 : 0;
+    entry.isNewcomer = !previous;
+    entry.improvementPoints = previous ? Math.max(0, Math.round(baseScore - previousBaseScore)) : 0;
+    entry.honorScore = Math.round(baseScore + entry.improvementPoints);
+    entry.badges = assignBadges(entry);
+    return entry;
+  });
+  const gold = [...entries].sort((a, b) => b.honorScore - a.honorScore || b.averageAccuracy - a.averageAccuracy);
+  const diligent = [...entries].sort((a, b) => b.studyDays - a.studyDays || b.completedLessons - a.completedLessons || b.honorScore - a.honorScore);
+  const accurate = [...entries].filter((entry) => entry.completedLessons >= 3 || entry.totalQuestions >= 60).sort((a, b) => b.averageAccuracy - a.averageAccuracy || b.totalQuestions - a.totalQuestions);
+  const improved = [...entries].sort((a, b) => b.improvementPoints - a.improvementPoints || b.honorScore - a.honorScore);
+  return { gold, diligent, accurate, improved };
+}
+
 // server.ts
 import_dotenv.default.config();
 var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
@@ -16149,6 +16361,24 @@ var ACTIVITY_TTL_MS = ACTIVITY_TTL_DAYS * 24 * 60 * 60 * 1e3;
 var LEADERBOARD_RETENTION_DAYS = 62;
 var LEADERBOARD_RETENTION_MS = LEADERBOARD_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
 var LEADERBOARD_READ_MODEL_SETTING_ID = "leaderboard-read-model-v1";
+var PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS = 3e4;
+var PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES = 100;
+var publicLeaderboardSummaryCache = /* @__PURE__ */ new Map();
+function cachePublicLeaderboardSummary(key, value) {
+  const now = Date.now();
+  for (const [cachedKey, cached] of publicLeaderboardSummaryCache) {
+    if (cached.expiresAt <= now) publicLeaderboardSummaryCache.delete(cachedKey);
+  }
+  while (publicLeaderboardSummaryCache.size >= PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES) {
+    const oldestKey = publicLeaderboardSummaryCache.keys().next().value;
+    if (!oldestKey) break;
+    publicLeaderboardSummaryCache.delete(oldestKey);
+  }
+  publicLeaderboardSummaryCache.set(key, {
+    expiresAt: now + PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS,
+    value
+  });
+}
 function addDaysIso2(baseIso, days) {
   return new Date(new Date(baseIso).getTime() + days * 24 * 60 * 60 * 1e3).toISOString();
 }
@@ -16438,45 +16668,11 @@ function isGuestOwnedRecord(data) {
   const userId = safeText(data?.userId, 120);
   return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
 }
-function getGuestActivityTime(data) {
-  return data?.completedAt || data?.endedAt || data?.lastSavedAt || data?.updatedAt || data?.startedAt || data?.createdAt || "";
-}
-async function findLegacyGuestIdentity(guestIdValue) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) return null;
-  const [sessionsSnapshot, attemptsSnapshot] = await Promise.all([
-    adminDb.collection("game_sessions").where("guestId", "==", guestId).get(),
-    adminDb.collection("grammar_attempts").where("guestId", "==", guestId).get()
-  ]);
-  let latest = null;
-  const collect = (data) => {
-    if (!isGuestOwnedRecord(data) || getGuestProfileId(data.guestId) !== guestId) return;
-    const displayName = safeText(data.studentName, 120);
-    if (!displayName) return;
-    const activityAt = getGuestActivityTime(data);
-    if (!latest || new Date(activityAt || 0).getTime() >= new Date(latest.activityAt || 0).getTime()) {
-      latest = { displayName, activityAt };
-    }
-  };
-  sessionsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
-  attemptsSnapshot.forEach((doc) => collect({ id: doc.id, ...doc.data() }));
-  if (!latest) return null;
-  return {
-    id: guestId,
-    guestId,
-    accountType: "guest",
-    displayName: latest.displayName,
-    name: latest.displayName,
-    role: "student",
-    status: "active",
-    legacy: true,
-    activityAt: latest.activityAt
-  };
-}
-async function findExistingGuestIdentity(guestIdValue) {
+async function findExistingGuestIdentity(guestIdValue, timing) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) return null;
   const profileDoc = await adminDb.collection("guest_profiles").doc(guestId).get();
+  timing?.mark("guest_profile");
   if (profileDoc.exists) {
     const profile = { id: profileDoc.id, guestId, ...profileDoc.data() };
     if (profile.status === "blocked") {
@@ -16493,17 +16689,18 @@ async function findExistingGuestIdentity(guestIdValue) {
       };
     }
   }
-  return findLegacyGuestIdentity(guestId);
+  return null;
 }
 var GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
   6e4,
   Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 6e4)
 );
-async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}) {
+async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}, timing) {
   const guestId = getGuestProfileId(guestIdValue);
   if (!guestId) throw createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
   const profileRef = adminDb.collection("guest_profiles").doc(guestId);
   const profileDoc = await profileRef.get();
+  timing?.mark("guest_profile");
   const now = (/* @__PURE__ */ new Date()).toISOString();
   if (profileDoc.exists) {
     const existing = { id: profileDoc.id, ...profileDoc.data() };
@@ -16512,8 +16709,6 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     }
     const displayName = safeText(existing.displayName || existing.name, 120);
     if (!displayName) {
-      const legacyIdentity2 = await findLegacyGuestIdentity(guestId);
-      if (legacyIdentity2) return legacyIdentity2;
       const validation2 = validateStudentDisplayName(studentNameValue);
       if (!validation2.valid) throw createHttpError(400, validation2.error);
       const repaired = {
@@ -16526,6 +16721,7 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
         needsReview: false
       };
       await profileRef.set(repaired);
+      timing?.mark("profile_write");
       invalidateCanonicalStudentNameCache();
       return repaired;
     }
@@ -16543,6 +16739,7 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
         ...shouldUpdateClassId ? { classId } : {},
         ...shouldUpdateClassName ? { className } : {}
       });
+      timing?.mark("profile_write");
     }
     return {
       ...existing,
@@ -16553,8 +16750,6 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
       className: className || existing.className
     };
   }
-  const legacyIdentity = await findLegacyGuestIdentity(guestId);
-  if (legacyIdentity) return legacyIdentity;
   const validation = validateStudentDisplayName(studentNameValue);
   if (!validation.valid) throw createHttpError(400, validation.error);
   const guestAccessToken = createSessionToken();
@@ -16579,6 +16774,7 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     accessTokenCreatedAt: now
   };
   await profileRef.set(profile);
+  timing?.mark("profile_write");
   invalidateCanonicalStudentNameCache();
   return {
     ...omitGuestCapabilitySecrets(profile),
@@ -16877,54 +17073,59 @@ function isAssignmentOpenForLearning(assignment, set) {
 function getRequestVocabShareToken(req) {
   return safeText(req.body?.accessToken || req.headers["x-vocab-share-token"], 200);
 }
-async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", expectedAssignmentId = "") {
+async function findDocumentByShareToken(collectionName, token) {
+  let snapshot = await adminDb.collection(collectionName).where("shareToken", "==", token).limit(2).get();
+  let docs = snapshot.docs || [];
+  if (docs.length === 0) {
+    snapshot = await adminDb.collection(collectionName).where("assignmentSlug", "==", token).limit(2).get();
+    docs = snapshot.docs || [];
+  }
+  return docs.length === 1 ? docs[0] : null;
+}
+async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", expectedAssignmentId = "", timing) {
   const token = safeText(tokenValue, 200);
   if (!token) return null;
   if (expectedAssignmentId) {
-    const assignmentDoc = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
-    if (!assignmentDoc.exists) return null;
-    const assignment = await ensureAssignmentShareToken(
-      { id: assignmentDoc.id, ...assignmentDoc.data() },
-      assignmentDoc.ref
-    );
+    const assignmentDoc2 = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
+    timing?.mark("assignment_point_read");
+    if (!assignmentDoc2.exists) return null;
+    const assignment = { id: assignmentDoc2.id, ...assignmentDoc2.data() };
     if (getAssignmentShareToken(assignment) !== token) return null;
     if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
-    const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
-    if (!setDoc.exists) return null;
-    const set = { id: setDoc.id, ...setDoc.data() };
+    const setDoc2 = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    timing?.mark("vocab_point_read");
+    if (!setDoc2.exists) return null;
+    const set = { id: setDoc2.id, ...setDoc2.data() };
     if (!isAssignmentOpenForLearning(assignment, set)) return null;
     return { accessType: "assignment", set, assignment };
   }
   if (expectedVocabSetId) {
-    const setDoc = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
-    if (!setDoc.exists) return null;
-    const set = { id: setDoc.id, ...setDoc.data() };
+    const setDoc2 = await adminDb.collection("vocab_sets").doc(expectedVocabSetId).get();
+    timing?.mark("vocab_point_read");
+    if (!setDoc2.exists) return null;
+    const set = { id: setDoc2.id, ...setDoc2.data() };
     if (isArchivedRecord(set)) return null;
     const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
     if (setToken === token && getVocabVisibility(set) === "assignment") {
       return { accessType: "vocab_set", set, assignment: null };
     }
   }
-  const assignmentsSnapshot = await adminDb.collection("assignments").get();
-  for (const doc of assignmentsSnapshot.docs || []) {
-    const assignment = await ensureAssignmentShareToken({ id: doc.id, ...doc.data() }, doc.ref);
-    if (getAssignmentShareToken(assignment) !== token) continue;
-    if (expectedAssignmentId && assignment.id !== expectedAssignmentId) return null;
-    if (expectedVocabSetId && assignment.vocabSetId !== expectedVocabSetId) return null;
-    const setDoc = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
-    if (!setDoc.exists) return null;
-    const set = { id: setDoc.id, ...setDoc.data() };
+  const assignmentDoc = await findDocumentByShareToken("assignments", token);
+  timing?.mark("assignment_token_lookup");
+  if (assignmentDoc) {
+    const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
+    const setDoc2 = await adminDb.collection("vocab_sets").doc(assignment.vocabSetId).get();
+    timing?.mark("vocab_point_read");
+    if (!setDoc2.exists) return null;
+    const set = { id: setDoc2.id, ...setDoc2.data() };
     if (!isAssignmentOpenForLearning(assignment, set)) return null;
     return { accessType: "assignment", set, assignment };
   }
-  const setsSnapshot = await adminDb.collection("vocab_sets").get();
-  for (const doc of setsSnapshot.docs || []) {
-    const set = { id: doc.id, ...doc.data() };
-    if (isArchivedRecord(set)) continue;
-    const setToken = String(set.shareToken || set.assignmentSlug || "").trim();
-    if (setToken !== token || getVocabVisibility(set) !== "assignment") continue;
-    if (expectedAssignmentId) return null;
-    if (expectedVocabSetId && set.id !== expectedVocabSetId) return null;
+  const setDoc = await findDocumentByShareToken("vocab_sets", token);
+  timing?.mark("vocab_token_lookup");
+  if (setDoc) {
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set) || getVocabVisibility(set) !== "assignment") return null;
     return { accessType: "vocab_set", set, assignment: null };
   }
   return null;
@@ -17989,6 +18190,24 @@ function requireDiagnosticAccess(req, res, next) {
   }
   next();
 }
+async function loadReadyLeaderboardEvents(timing) {
+  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const [storedSnapshot, readModelSettingDoc] = await Promise.all([
+    adminDb.collection("leaderboard_events").where("completedAt", ">=", leaderboardCutoff).get(),
+    adminDb.collection("settings").doc(LEADERBOARD_READ_MODEL_SETTING_ID).get()
+  ]);
+  timing?.mark("read_model");
+  const readModelSetting = readModelSettingDoc.exists ? readModelSettingDoc.data()?.value : null;
+  if (readModelSetting?.ready !== true || Number(readModelSetting?.version) !== 1) {
+    return null;
+  }
+  const events = [];
+  storedSnapshot.forEach((doc) => {
+    const data = sanitizeLeaderboardEvent({ id: doc.id, ...doc.data() });
+    if (!isExpiredStoredLeaderboardEvent(data)) events.push(data);
+  });
+  return mergeLeaderboardEvents(events);
+}
 app2.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
   try {
     const testDoc = await adminDb.collection("users").limit(1).get();
@@ -18212,13 +18431,16 @@ app2.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
   }
 });
 app2.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/guest-profiles/resolve");
   try {
     const profile = await resolveGuestProfile(
       req.body?.guestId,
       req.body?.displayName || req.body?.studentName,
       true,
-      { classId: req.body?.classId, className: req.body?.className }
+      { classId: req.body?.classId, className: req.body?.className },
+      timing
     );
+    timing.finish(res);
     res.json({
       id: profile.id,
       guestId: profile.guestId || profile.id,
@@ -18230,18 +18452,22 @@ app2.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res
       } : {}
     });
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
 app2.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
+  const timing = createApiTiming(req, "POST /api/guest-profiles/identify");
   try {
-    const profile = await findExistingGuestIdentity(req.body?.guestId);
+    const profile = await findExistingGuestIdentity(req.body?.guestId, timing);
     if (!profile) {
+      timing.finish(res);
       return res.status(404).json({
         error: "Kh\xF4ng t\xECm th\u1EA5y h\u1ED3 s\u01A1 h\u1ECDc sinh \u0111\xE3 \u0111\u0103ng k\xFD.",
         code: "GUEST_PROFILE_NOT_FOUND"
       });
     }
+    timing.finish(res);
     res.json({
       id: profile.id,
       guestId: profile.guestId || profile.id,
@@ -18250,6 +18476,7 @@ app2.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, re
       legacy: Boolean(profile.legacy)
     });
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -18561,13 +18788,16 @@ app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_a
   }
 });
 app2.get("/api/vocab-sets/share/:token", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/vocab-sets/share/:token");
   try {
     const token = String(req.params.token || "").trim();
     if (!token) {
+      timing.finish(res);
       return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
     }
-    const access = await resolveVocabLearningAccess(token);
+    const access = await resolveVocabLearningAccess(token, "", "", timing);
     if (!access) {
+      timing.finish(res);
       return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
     }
     const found = access.assignment ? {
@@ -18582,8 +18812,11 @@ app2.get("/api/vocab-sets/share/:token", async (req, res) => {
       ...normalizeVocabSetForRead(access.set),
       accessType: access.accessType
     };
+    timing.mark("shape");
+    timing.finish(res);
     res.json(stripPrivateVocabSetFields(found));
   } catch (err) {
+    timing.finish(res);
     sendApiError(res, err);
   }
 });
@@ -18737,6 +18970,56 @@ app2.get("/api/public/leaderboard-results", async (req, res) => {
     const list2 = await loadLeaderboardEventsFromSources(timing);
     timing.finish(res);
     res.json(list2.map(sanitizePublicStudentRecord2));
+  } catch (err) {
+    timing.finish(res);
+    sendApiError(res, err);
+  }
+});
+app2.get("/api/public/leaderboard-summary", async (req, res) => {
+  const timing = createApiTiming(req, "GET /api/public/leaderboard-summary");
+  try {
+    const period = req.query.period === "month" ? "month" : "week";
+    const classId = safeText(req.query.classId, 180);
+    const requestedLimit = Number(req.query.limit || 8);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
+    const cacheKey = `${period}:${classId}:${limit}`;
+    const cached = publicLeaderboardSummaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      timing.mark("memory_cache");
+      timing.finish(res);
+      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+      return res.json(cached.value);
+    }
+    const events = await loadReadyLeaderboardEvents(timing);
+    if (!events) {
+      timing.finish(res);
+      return res.status(503).json({
+        error: "B\u1EA3ng v\xE0ng \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
+        code: "LEADERBOARD_NOT_READY"
+      });
+    }
+    const publicEvents = events.map(sanitizePublicStudentRecord2);
+    const classesById = /* @__PURE__ */ new Map();
+    for (const event of publicEvents) {
+      const eventClassId = safeText(event.classId, 180);
+      if (!eventClassId) continue;
+      const eventClassName = safeText(event.className, 180) || eventClassId;
+      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
+    }
+    const entries = buildLeaderboard(publicEvents, [], {
+      period,
+      ...classId ? { classId } : {}
+    }).gold.slice(0, limit);
+    const value = {
+      entries,
+      classes: [...classesById.entries()].map(([id2, name]) => ({ id: id2, name })).sort((a, b) => a.name.localeCompare(b.name, "vi")),
+      period
+    };
+    cachePublicLeaderboardSummary(cacheKey, value);
+    timing.mark("aggregate");
+    timing.finish(res);
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
+    res.json(value);
   } catch (err) {
     timing.finish(res);
     sendApiError(res, err);
@@ -19884,6 +20167,7 @@ app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, a
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
@@ -19974,7 +20258,7 @@ async function resolveGameSessionStartContext(req, payload, timing) {
     const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
       classId: payload.classId,
       className: payload.className
-    });
+    }, timing);
     actor = { ...actor, studentName: profile.displayName || profile.name };
   }
   timing?.mark("identity");
@@ -19986,7 +20270,7 @@ async function resolveGameSessionStartContext(req, payload, timing) {
   let access = null;
   const accessToken = getRequestVocabShareToken(req);
   if (accessToken) {
-    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
     if (!access) throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
     assignment = access.assignment;
   } else if (payload.assignmentId) {
@@ -20206,6 +20490,7 @@ app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (r
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));
@@ -20224,7 +20509,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
         classId: payload.classId,
         className: payload.className
-      });
+      }, timing);
       actor = { ...actor, studentName: profile.displayName || profile.name };
     }
     timing.mark("identity");
@@ -20243,7 +20528,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     let access = null;
     const accessToken = getRequestVocabShareToken(req);
     if (accessToken) {
-      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160));
+      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
       if (!access) return res.status(403).json({ error: "Link kh\xF4ng c\xF3 quy\u1EC1n t\u1EA1o l\u01B0\u1EE3t h\u1ECDc n\xE0y." });
       assignment = access.assignment;
     } else if (payload.assignmentId) {
@@ -20403,6 +20688,7 @@ app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) =>
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     res.json(omitSensitiveSessionFields(updatedSession));
   } catch (err) {
     sendApiError(res, err);
@@ -20508,6 +20794,7 @@ app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req,
       })
     );
     await batch.commit();
+    publicLeaderboardSummaryCache.clear();
     timing.mark("persist");
     timing.finish(res);
     res.json(omitSensitiveSessionFields(completed));

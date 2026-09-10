@@ -29,6 +29,13 @@ function normalizeAnswerText(value: string) {
     .replace(/\s+/g, ' ');
 }
 
+const BLOCKED_ANSWER_INSERT_TYPES = new Set([
+  'insertFromPaste',
+  'insertFromPasteAsQuotation',
+  'insertFromDrop',
+  'insertFromYank'
+]);
+
 export default function FillBlankGame({
   items,
   config,
@@ -49,9 +56,11 @@ export default function FillBlankGame({
   const [isCorrect, setIsCorrect] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
+  const [inputRestrictionMessage, setInputRestrictionMessage] = useState('');
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
   const currentItem = items[currentIndex];
 
   const isSoundOn = !isMuted;
@@ -65,18 +74,48 @@ export default function FillBlankGame({
     setIsSubmitted(false);
     setShowHint(false);
     setIsFinished(false);
+    setInputRestrictionMessage('');
     answerDetailsRef.current = [];
   }, [items, config]);
 
   useEffect(() => {
-    // Focus the input box on question transition
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
+    // Reset the answer state before the next question receives focus.
     setUserInput('');
     setIsSubmitted(false);
     setShowHint(false);
+    setInputRestrictionMessage('');
   }, [currentIndex]);
+
+  useEffect(() => {
+    if (isFinished) return;
+    if (isSubmitted) {
+      continueButtonRef.current?.focus();
+      return;
+    }
+    inputRef.current?.focus();
+  }, [currentIndex, isFinished, isSubmitted, items]);
+
+  const showTypedOnlyMessage = () => {
+    setInputRestrictionMessage('Không thể dán đáp án. Em hãy tự gõ câu trả lời nhé.');
+    inputRef.current?.focus();
+  };
+
+  const handleBlockedAnswerPaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    showTypedOnlyMessage();
+  };
+
+  const handleBlockedAnswerDrop = (event: React.DragEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    showTypedOnlyMessage();
+  };
+
+  const handleAnswerBeforeInput = (event: React.FormEvent<HTMLInputElement>) => {
+    const inputType = (event.nativeEvent as InputEvent).inputType;
+    if (!BLOCKED_ANSWER_INSERT_TYPES.has(inputType)) return;
+    event.preventDefault();
+    showTypedOnlyMessage();
+  };
 
   if (!items || items.length === 0) {
     return (
@@ -275,7 +314,14 @@ export default function FillBlankGame({
             ref={inputRef}
             type="text"
             value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
+            onChange={(e) => {
+              setInputRestrictionMessage('');
+              setUserInput(e.target.value);
+            }}
+            onBeforeInput={handleAnswerBeforeInput}
+            onPaste={handleBlockedAnswerPaste}
+            onDrop={handleBlockedAnswerDrop}
+            onDragOver={(event) => event.preventDefault()}
             disabled={isSubmitted}
             placeholder={
               config.mode === 'missing_letters' 
@@ -290,6 +336,7 @@ export default function FillBlankGame({
                 : "border-gray-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
             }`}
             id="fill-blank-input-box"
+            aria-describedby={inputRestrictionMessage ? 'fill-input-restriction-message' : undefined}
             autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
@@ -308,6 +355,16 @@ export default function FillBlankGame({
             </button>
           )}
         </div>
+
+        {inputRestrictionMessage && (
+          <p
+            id="fill-input-restriction-message"
+            role="alert"
+            className="px-1 text-sm font-semibold text-amber-700"
+          >
+            {inputRestrictionMessage}
+          </p>
+        )}
 
         {/* Dynamic Hints */}
         <AnimatePresence>
@@ -384,6 +441,7 @@ export default function FillBlankGame({
 
             <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
               <button
+                type="button"
                 onClick={handlePlaySound}
                 className="p-3 bg-indigo-50 hover:bg-blue-50 text-blue-600 rounded-xl transition-all cursor-pointer border border-blue-300"
                 title="Nghe phát âm"
@@ -392,6 +450,8 @@ export default function FillBlankGame({
                 <Volume2 size={20} />
               </button>
               <button
+                ref={continueButtonRef}
+                type="button"
                 onClick={handleNext}
                 className={`py-3 px-6 rounded-xl font-bold tracking-wide shadow-md transition-all text-white cursor-pointer active:scale-95 ${
                   isCorrect

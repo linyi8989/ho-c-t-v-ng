@@ -19,7 +19,7 @@ import { useAuth } from '../../../context/AuthContext';
 import {
   GUEST_ID_STORAGE_KEY,
   STUDENT_NAME_STORAGE_KEY,
-  getOrCreateGuestId,
+  getOrCreateLearningGuest,
   identifyExistingGuest,
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
@@ -76,8 +76,9 @@ const answeredCount = (answers: ListeningAnswers) =>
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 
 export default function ListeningLearningArea({ setId, accessToken = '', onBack }: ListeningLearningAreaProps) {
-  const { token, user, loading: authLoading } = useAuth();
-  const [guestId] = useState(() => getOrCreateGuestId());
+  const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
+  const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
+  const { guestId, isNew: isNewGuest } = guestBootstrap;
   const [studentName, setStudentName] = useState(() => user?.name || getStoredName());
   const [identityReady, setIdentityReady] = useState(Boolean(user?.name));
   const [playable, setPlayable] = useState<ListeningPlayableSet | null>(null);
@@ -91,6 +92,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const [showReview, setShowReview] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [nameSaving, setNameSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const submitGuard = useRef(false);
@@ -100,10 +102,19 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const activeStorageKey = playable ? storageKey(ownerKey, playable.id, playable.versionId, accessToken) : '';
 
   useEffect(() => {
-    if (authLoading) return;
-    if (user?.name) {
-      setStudentName(user.name);
+    if (!authSessionKnown) return;
+    const authenticatedName = user?.name || firebaseUser?.displayName || '';
+    if (firebaseUser && authLoading) {
+      if (authenticatedName) setStudentName(authenticatedName);
+      return;
+    }
+    if (authenticatedName) {
+      setStudentName(authenticatedName);
       setIdentityReady(true);
+      return;
+    }
+    if (isNewGuest) {
+      setIdentityReady(false);
       return;
     }
     const controller = new AbortController();
@@ -115,19 +126,21 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
       })
       .catch(() => setIdentityReady(false));
     return () => controller.abort();
-  }, [authLoading, guestId, user?.id, user?.name]);
+  }, [authLoading, authSessionKnown, firebaseUser, guestId, isNewGuest, user?.id, user?.name]);
 
   useEffect(() => {
-    if (authLoading) return;
+    let active = true;
     setLoading(true);
     listeningApi.getPlayable(setId, token, accessToken)
       .then(set => {
+        if (!active) return;
         setPlayable(set);
         setError('');
       })
-      .catch(error => setError(error.message))
-      .finally(() => setLoading(false));
-  }, [accessToken, authLoading, setId, token]);
+      .catch(error => { if (active) setError(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [accessToken, setId, token]);
 
   useEffect(() => {
     if (!playable || !identityReady) return;
@@ -152,27 +165,35 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }, [activeStorageKey, answers, currentPart, result, run]);
 
   const persistName = async () => {
+    if (nameSaving) return;
     const validation = validateStudentDisplayName(studentName);
     if (!validation.valid) return setError(validation.error);
-    let displayName = validation.value;
-    if (!token) {
-      const response = await fetch('/api/guest-profiles/resolve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ guestId, displayName }),
-      });
-      const data = await response.json();
-      if (!response.ok) return setError(data.error || 'Không thể lưu tên học sinh.');
-      displayName = data.displayName || displayName;
-      if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
-    }
+    setNameSaving(true);
     try {
-      window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName);
-      window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId);
-    } catch { /* continue in memory */ }
-    setStudentName(displayName);
-    setIdentityReady(true);
-    setError('');
+      let displayName = validation.value;
+      if (!token) {
+        const response = await fetch('/api/guest-profiles/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guestId, displayName }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Không thể lưu tên học sinh.');
+        displayName = data.displayName || displayName;
+        if (data.guestAccessToken) storeGuestAccessCredential(data.guestId || guestId, data.guestAccessToken, data.guestAccessTokenVersion);
+      }
+      try {
+        window.localStorage.setItem(STUDENT_NAME_STORAGE_KEY, displayName);
+        window.localStorage.setItem(GUEST_ID_STORAGE_KEY, guestId);
+      } catch { /* continue in memory */ }
+      setStudentName(displayName);
+      setIdentityReady(true);
+      setError('');
+    } catch (reason: any) {
+      setError(reason.message || 'Không thể lưu tên học sinh.');
+    } finally {
+      setNameSaving(false);
+    }
   };
 
   const start = async (replaceCompletedAttempt = false) => {
@@ -309,11 +330,14 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     backgroundPosition: 'center',
   } : {}, [playable?.content.backgroundUrl]);
 
-  if (loading || authLoading) {
+  if (loading || (!playable && (!authSessionKnown || authLoading))) {
     return <div className="flex min-h-screen items-center justify-center bg-sky-100"><LoaderCircle className="animate-spin text-blue-600" size={42} /></div>;
   }
   if (!playable) {
     return <div id="listening-error-screen" className="flex min-h-screen flex-col items-center justify-center gap-4 bg-sky-100 p-6 text-center"><Headphones size={50} className="text-rose-500" /><h1 className="text-2xl font-black text-slate-900">Không thể mở bộ đề nghe</h1><p className="text-sm font-bold text-rose-600">{error}</p><button id="listening-error-home-btn" onClick={onBack} className="listening-primary-action rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">Về trang chủ</button></div>;
+  }
+  if (!authSessionKnown || (firebaseUser && authLoading && !identityReady)) {
+    return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-sky-100"><LoaderCircle className="animate-spin text-blue-600" size={36} /><p className="text-sm font-bold text-slate-500">Đang kiểm tra hồ sơ học sinh...</p></div>;
   }
   if (!identityReady) {
     return (
@@ -322,9 +346,9 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
           <Headphones className="mx-auto text-blue-600" size={44} />
           <h1 className="mt-3 text-2xl font-black text-slate-900">{playable.title}</h1>
           <p className="mt-1 text-sm font-semibold text-slate-500">Nhập tên để bắt đầu và lưu lịch sử học.</p>
-          <input value={studentName} onChange={event => setStudentName(event.target.value)} maxLength={STUDENT_NAME_MAX_LENGTH} className="mt-5 w-full rounded-2xl border-2 border-sky-200 px-4 py-3 text-center font-black outline-none focus:border-blue-600" placeholder="Tên học sinh" />
+          <input disabled={nameSaving} value={studentName} onChange={event => setStudentName(event.target.value)} maxLength={STUDENT_NAME_MAX_LENGTH} className="mt-5 w-full rounded-2xl border-2 border-sky-200 px-4 py-3 text-center font-black outline-none focus:border-blue-600 disabled:opacity-60" placeholder="Tên học sinh" />
           {error && <p className="mt-2 text-xs font-bold text-rose-600">{error}</p>}
-          <button id="listening-confirm-name-btn" onClick={() => void persistName()} className="listening-primary-action mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white">Xác nhận tên</button>
+          <button id="listening-confirm-name-btn" disabled={nameSaving} onClick={() => void persistName()} className="listening-primary-action mt-4 w-full rounded-2xl bg-blue-600 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{nameSaving ? 'Đang lưu tên...' : 'Xác nhận tên'}</button>
         </div>
       </div>
     );

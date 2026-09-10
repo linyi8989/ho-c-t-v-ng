@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
   HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
@@ -6,13 +6,13 @@ import {
 import { GameAction, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { speakEnglish } from '../../lib/game-engine/speech';
-import { buildLeaderboard, LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
+import { LeaderboardPeriod, LeaderboardEntry } from '../../lib/leaderboard';
 
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import {
   STUDENT_NAME_STORAGE_KEY,
-  getOrCreateGuestId,
+  getOrCreateLearningGuest,
   identifyExistingGuest,
   storeGuestAccessCredential
 } from '../../lib/guestIdentity';
@@ -117,12 +117,14 @@ export default function StudentLearningArea({
   initialGameId, 
   onBack 
 }: StudentLearningAreaProps) {
-  const { token, user, loading: authLoading } = useAuth();
-  const [guestId] = useState(() => getOrCreateGuestId());
+  const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
+  const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
+  const { guestId, isNew: isNewGuest } = guestBootstrap;
   const [studentName, setStudentName] = useState(() => propStudentName || user?.name || '');
   const [identityStatus, setIdentityStatus] = useState<StudentIdentityStatus>(() => (propStudentName || user?.name) ? 'ready' : 'checking');
   const nameSubmitted = identityStatus === 'ready';
   const [nameError, setNameError] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
   const [activeItems, setActiveItems] = useState<VocabItem[]>([...vocabSet.items]);
   const [isRandomized, setIsRandomized] = useState(false);
@@ -133,7 +135,12 @@ export default function StudentLearningArea({
   const [gameRunId, setGameRunId] = useState(0);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
-  const [leaderboardSessions, setLeaderboardSessions] = useState<GameSession[]>([]);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [learningLeaderboard, setLearningLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardClassOptions, setLeaderboardClassOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [leaderboardStatus, setLeaderboardStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [leaderboardError, setLeaderboardError] = useState('');
+  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const sessionGenerationRef = useRef(0);
   const completedSessionIdsRef = useRef<Set<string>>(new Set());
   const actionSequenceRef = useRef(0);
@@ -159,15 +166,26 @@ export default function StudentLearningArea({
   }, [initialGameId]);
 
   useEffect(() => {
-    if (authLoading) {
+    if (!authSessionKnown) {
       setIdentityStatus('checking');
       return;
     }
-    const authenticatedName = propStudentName || user?.name || '';
+    const authenticatedName = propStudentName || user?.name || firebaseUser?.displayName || '';
+    if (firebaseUser && authLoading) {
+      if (authenticatedName) setStudentName(authenticatedName);
+      setIdentityStatus('checking');
+      return;
+    }
     if (authenticatedName) {
       setStudentName(authenticatedName);
       setIdentityStatus('ready');
       setNameError('');
+      return;
+    }
+    if (isNewGuest) {
+      const storedValidation = validateStudentDisplayName(getStoredStudentName());
+      setStudentName(storedValidation.valid ? storedValidation.value : '');
+      setIdentityStatus('needs_name');
       return;
     }
 
@@ -200,31 +218,43 @@ export default function StudentLearningArea({
       });
 
     return () => controller.abort();
-  }, [authLoading, guestId, propStudentName, user?.id, user?.name]);
+  }, [authLoading, authSessionKnown, firebaseUser, guestId, isNewGuest, propStudentName, user?.id, user?.name]);
 
   useEffect(() => {
-    let isMounted = true;
+    if (!leaderboardOpen) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ period: leaderboardPeriod, limit: '8' });
+    if (leaderboardClassId) params.set('classId', leaderboardClassId);
+    setLeaderboardStatus('loading');
+    setLeaderboardError('');
 
-    const loadLeaderboard = async () => {
-      try {
-        const res = await fetch('/api/public/leaderboard-results');
-        if (!res.ok) throw new Error('Public leaderboard API failed');
-        const data = await res.json();
-        if (isMounted) setLeaderboardSessions(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn('Public leaderboard API unreachable:', err);
-        if (isMounted) setLeaderboardSessions([]);
-      }
-    };
+    fetch(`/api/public/leaderboard-summary?${params.toString()}`, { signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Không thể tải bảng vàng.');
+        setLearningLeaderboard(Array.isArray(data.entries) ? data.entries : []);
+        setLeaderboardClassOptions(
+          Array.isArray(data.classes)
+            ? data.classes.map((option: any) => ({
+                id: String(option.id || ''),
+                name: compactClassName(String(option.name || option.id || ''))
+              })).filter((option: { id: string }) => option.id)
+            : []
+        );
+        setLeaderboardStatus('ready');
+      })
+      .catch((err: any) => {
+        if (controller.signal.aborted) return;
+        setLearningLeaderboard([]);
+        setLeaderboardStatus('error');
+        setLeaderboardError(err.message || 'Không thể tải bảng vàng.');
+      });
 
-    loadLeaderboard();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    return () => controller.abort();
+  }, [leaderboardClassId, leaderboardOpen, leaderboardPeriod, leaderboardRefreshKey]);
 
   const handleSubmitName = async () => {
+    if (isSavingName) return;
     const validation = validateStudentDisplayName(studentName);
     if (!validation.valid) {
       setNameError(validation.error);
@@ -232,6 +262,7 @@ export default function StudentLearningArea({
     }
 
     let normalizedName = validation.value;
+    setIsSavingName(true);
     if (!token) {
       try {
         const res = await fetch('/api/guest-profiles/resolve', {
@@ -256,6 +287,7 @@ export default function StudentLearningArea({
         }
       } catch (err: any) {
         setNameError(err.message || 'Không thể lưu hồ sơ học sinh.');
+        setIsSavingName(false);
         return;
       }
     }
@@ -270,6 +302,7 @@ export default function StudentLearningArea({
       }
     }
     setIdentityStatus('ready');
+    setIsSavingName(false);
   };
 
   // Set up student session on game select
@@ -516,7 +549,7 @@ export default function StudentLearningArea({
     completedSessionIdsRef.current.add(data.id);
     setSession(data);
     setGameResult({ score: data.score, correct: data.correctAnswers, incorrect: data.incorrectAnswers });
-    setLeaderboardSessions(prev => [data, ...prev.filter(item => item.id !== data.id)]);
+    setLeaderboardRefreshKey(value => value + 1);
     setSessionStatus('saved');
   };
 
@@ -576,7 +609,7 @@ export default function StudentLearningArea({
       completedSessionIdsRef.current.add(currentSession.id);
       setSession(data);
       setGameResult({ score: data.score, correct: data.correctAnswers, incorrect: data.incorrectAnswers });
-      setLeaderboardSessions(prev => [data, ...prev.filter(item => item.id !== data.id)]);
+      setLeaderboardRefreshKey(value => value + 1);
       setSessionStatus('saved');
     } catch (err: any) {
       setSaveError(err.message || 'Không lưu được kết quả.');
@@ -623,24 +656,6 @@ export default function StudentLearningArea({
     setSelectedGame(game);
     setGameRunId(prev => prev + 1);
   };
-
-  const learningLeaderboard = useMemo<LeaderboardEntry[]>(() => {
-    return buildLeaderboard(leaderboardSessions, [], {
-      period: leaderboardPeriod,
-      classId: leaderboardClassId || undefined
-    }).gold.slice(0, 8);
-  }, [leaderboardSessions, leaderboardPeriod, leaderboardClassId]);
-
-  const leaderboardClassOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    leaderboardSessions.forEach(session => {
-      if (!session.classId || !session.className) return;
-      byId.set(session.classId, compactClassName(session.className));
-    });
-    return [...byId.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-  }, [leaderboardSessions]);
 
   useEffect(() => {
     if (!leaderboardClassId) return;
@@ -784,13 +799,14 @@ export default function StudentLearningArea({
                     type="text"
                     placeholder="Nhập họ và tên của em..."
                     value={studentName}
+                    disabled={isSavingName}
                     onChange={(e) => {
                       setStudentName(e.target.value);
                       if (nameError) setNameError('');
                     }}
                     maxLength={STUDENT_NAME_MAX_LENGTH}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSubmitName();
+                      if (e.key === 'Enter' && !isSavingName) handleSubmitName();
                     }}
                     aria-invalid={Boolean(nameError)}
                     aria-describedby={nameError ? 'student-name-error' : undefined}
@@ -805,11 +821,11 @@ export default function StudentLearningArea({
                 </div>
                 <button
                   onClick={handleSubmitName}
-                  disabled={!studentName.trim()}
+                  disabled={!studentName.trim() || isSavingName}
                   className="w-full sm:w-auto py-4 px-8 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
                   id="submit-name-btn"
                 >
-                  Bắt đầu chơi
+                  {isSavingName ? 'Đang lưu...' : 'Bắt đầu chơi'}
                 </button>
               </div>
             </div>
@@ -976,30 +992,64 @@ export default function StudentLearningArea({
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                  <select
-                    value={leaderboardPeriod}
-                    onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
-                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
-                    id="learning-golden-period"
-                  >
-                    <option value="week">Tuần này</option>
-                    <option value="month">Tháng này</option>
-                  </select>
-                  <select
-                    value={leaderboardClassId}
-                    onChange={(e) => setLeaderboardClassId(e.target.value)}
-                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
-                    id="learning-golden-class-filter"
-                  >
-                    <option value="">T&#7845;t c&#7843; l&#7899;p</option>
-                    {leaderboardClassOptions.map(option => (
-                      <option key={option.id} value={option.id}>{option.name}</option>
-                    ))}
-                  </select>
+                    <button
+                      type="button"
+                      onClick={() => setLeaderboardOpen(open => !open)}
+                      className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-200"
+                      id="learning-golden-toggle"
+                    >
+                      {leaderboardOpen ? 'Ẩn bảng vàng' : 'Xem bảng vàng'}
+                    </button>
+                    {leaderboardOpen && (
+                      <>
+                        <select
+                          value={leaderboardPeriod}
+                          onChange={(e) => setLeaderboardPeriod(e.target.value as LeaderboardPeriod)}
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
+                          id="learning-golden-period"
+                        >
+                          <option value="week">Tuần này</option>
+                          <option value="month">Tháng này</option>
+                        </select>
+                        <select
+                          value={leaderboardClassId}
+                          onChange={(e) => setLeaderboardClassId(e.target.value)}
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
+                          id="learning-golden-class-filter"
+                        >
+                          <option value="">T&#7845;t c&#7843; l&#7899;p</option>
+                          {leaderboardClassOptions.map(option => (
+                            <option key={option.id} value={option.id}>{option.name}</option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {learningLeaderboard.length === 0 ? (
+                {!leaderboardOpen ? (
+                  <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-6 text-center text-sm font-semibold text-gray-600">
+                    Bảng vàng chỉ được tải khi em muốn xem, để bài học mở nhanh hơn.
+                  </div>
+                ) : leaderboardStatus === 'loading' ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-8 text-center text-sm font-bold text-amber-800">
+                    Đang tải bảng vàng...
+                  </div>
+                ) : leaderboardStatus === 'error' ? (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-8 text-center">
+                    <p className="text-sm font-bold text-rose-700">{leaderboardError}</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLeaderboardOpen(false);
+                        window.setTimeout(() => setLeaderboardOpen(true), 0);
+                      }}
+                      className="mt-3 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white"
+                    >
+                      Thử lại
+                    </button>
+                  </div>
+                ) : learningLeaderboard.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-8 text-center">
                     <Award className="mx-auto text-amber-500" size={30} />
                     <p className="mt-3 text-sm font-bold text-gray-700">

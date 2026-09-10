@@ -7,6 +7,10 @@ const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 const authSource = readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const storageSource = readFileSync(new URL('../lib/sqliteStorage.ts', import.meta.url), 'utf8');
+const studentLearningSource = readFileSync(
+  new URL('../components/games/StudentLearningArea.tsx', import.meta.url),
+  'utf8'
+);
 const examHomeSource = readFileSync(
   new URL('../features/listening-library/student/ListeningLibraryHome.tsx', import.meta.url),
   'utf8'
@@ -40,6 +44,7 @@ test('auth and App release one route-scoped, abortable home-data generation', ()
   assert.match(authSource, /fetchProfile\(fUser, undefined, false, true\)/);
   assert.match(authSource, /if \(initialAuthEvent\) setLoading\(true\)/);
   assert.match(authSource, /if \(initialAuthEvent\) setLoading\(false\)/);
+  assert.match(authSource, /authSessionKnown/);
   assert.match(appSource, /if \(loading \|\| !isHomeDataView\) return/);
   assert.match(appSource, /currentPathname === '\/'/);
   assert.match(appSource, /\(!isStaff \|\| adminMode\)/);
@@ -108,6 +113,35 @@ test('request reads do not run guest migration and leaderboard has a durable rea
   assert.match(serverSource, /LEADERBOARD_READ_MODEL_SETTING_ID/);
   assert.match(serverSource, /readModelSetting\?\.ready === true/);
   assert.match(serverSource, /Compatibility path for installations that have not run/);
+});
+
+test('student entry hot path uses indexed token lookup and lazy summary data', () => {
+  const resolverStart = serverSource.indexOf('async function resolveVocabLearningAccess');
+  const resolverEnd = serverSource.indexOf('function canViewResultSession', resolverStart);
+  const resolver = serverSource.slice(resolverStart, resolverEnd);
+  assert.match(serverSource, /findDocumentByShareToken/);
+  assert.match(resolver, /findDocumentByShareToken\("assignments", token\)/);
+  assert.match(resolver, /findDocumentByShareToken\("vocab_sets", token\)/);
+  assert.doesNotMatch(resolver, /collection\("assignments"\)\.get\(\)/);
+  assert.doesNotMatch(resolver, /collection\("vocab_sets"\)\.get\(\)/);
+  assert.doesNotMatch(resolver, /ensureAssignmentShareToken/);
+  assert.match(storageSource, /student-entry-hot-path-v1/);
+  assert.match(storageSource, /idx_assignments_share_token/);
+  assert.match(storageSource, /idx_vocab_sets_share_token/);
+
+  assert.doesNotMatch(studentLearningSource, /\/api\/public\/leaderboard-results/);
+  assert.match(studentLearningSource, /\/api\/public\/leaderboard-summary/);
+  assert.match(studentLearningSource, /leaderboardOpen/);
+  assert.match(serverSource, /LEADERBOARD_NOT_READY/);
+});
+
+test('guest identity normal path is one profile point-read without legacy activity scans', () => {
+  const start = serverSource.indexOf('async function findExistingGuestIdentity');
+  const end = serverSource.indexOf('const GUEST_ACTIVITY_TOUCH_INTERVAL_MS', start);
+  const identify = serverSource.slice(start, end);
+  assert.match(identify, /collection\("guest_profiles"\)\.doc\(guestId\)\.get\(\)/);
+  assert.doesNotMatch(identify, /game_sessions|grammar_attempts/);
+  assert.doesNotMatch(serverSource, /findLegacyGuestIdentity/);
 });
 
 test('teacher account directory computes guest scope in bulk instead of an N+1 loop', () => {

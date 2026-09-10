@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-09-02
+Last updated: 2026-09-10
 
 ## 1. Project Overview
 
@@ -266,7 +266,10 @@ Phase 2 authorization hardening:
 - Teacher write actions now go through ownership helpers for vocab sets, classes, class members, assignments, grammar sets, and TTS actions.
 - Assignment private links must use random `shareToken`/`assignmentSlug`; the server no longer treats a predictable assignment id as a valid share token.
 - Vocabulary private links have two explicit access contexts: an assignment token binds the session to that assignment/game/class, while a direct vocab-set token opens the private set without guessing an assignment and uses the set/grade class metadata. `GET /api/vocab-sets/share/:token` and `POST /api/game-sessions` share the same token resolver, and guest session creation revalidates the token.
-- Legacy assignments missing share tokens are backfilled with random tokens when assignment lists/share links are read.
+- New assignment/private-set share tokens are created only by the owning write
+  flows. Student GET/read paths never generate or persist a token. Existing
+  stored `shareToken`/`assignmentSlug` values are projected into indexed SQLite
+  columns by the additive startup migration described in section 83.
 - Starting a vocabulary game rejects draft or unavailable vocab sets unless a valid assignment context makes the lesson eligible.
 
 ### Backend Auth
@@ -799,6 +802,14 @@ Shared props pattern:
 - Score: correct / total.
 - Answer details are replaced by `wordId`; returning to a previous question cannot duplicate score rows.
 - Final result builds one row per item so unanswered questions are counted as incorrect.
+- Native form Enter checks the current answer. After feedback appears, focus
+  moves to the existing `TIẾP THEO`/`XEM KẾT QUẢ` button so Enter invokes the
+  same `handleNext` path as a click; the next question returns focus to its text
+  input. No global keyboard listener or duplicate index mutation is used.
+- The student answer input rejects clipboard paste, paste-style `beforeinput`
+  insertion, and dragged text while retaining normal typed/composition input.
+  A blocked attempt leaves the existing answer unchanged and displays an
+  accessible typed-only message below the field.
 
 `MatchingGame.tsx`:
 
@@ -807,6 +818,9 @@ Shared props pattern:
 - Timer counts elapsed seconds.
 - Score: `max(50, 100 - mistakes * 5)`.
 - Interval and short-lived failed-card timeout are stored in refs and cleared on restart/unmount.
+- The first selected card uses a light amber selected state. A correct pair keeps
+  the established emerald matched state; an incorrect pair keeps the established
+  temporary rose failed state before returning to neutral.
 
 `MemoryGame.tsx`:
 
@@ -1330,7 +1344,11 @@ provider + lang + voice + generationSpeed + normalizedText
 - `src/lib/game-engine/speech.ts` is the playback authority. `playVocabAudio`
   applies saved YupVox `ttsSpeed`; AI33 audio plays at `1.0` because AI33 already
   renders its requested speed. Admin preview, Flashcard, Quiz, Fill Blank,
-  Millionaire and Speaking AI use the same rule.
+  Matching, Memory, Millionaire and Speaking AI use the same rule. Matching and
+  Memory resolve the original `VocabItem` from each card's stable `itemId`, so a
+  term-card click retains `audioUrl`, `ttsProvider`, and `ttsSpeed`; direct
+  `speakEnglish(card.text)` calls are forbidden because they bypass generated
+  audio completely.
 - Changing the English term in the editor clears stale audio metadata for that row so old files are not reused for new text.
 - Vocab item metadata stores only lightweight public references:
   - `audioUrl`
@@ -1374,6 +1392,11 @@ TTS_MAX_AUDIO_BYTES=3145728
 ```
 
 Keep Web Speech as the final fallback only when cached audio is missing or browser playback fails.
+
+Regression gate: `npm run test:vocab-games` includes
+`VocabBoardAudio.contract.test.ts`, which prevents the Matching and Memory board
+games from reverting to direct Web Speech and verifies that they pass the
+original vocabulary item into `playVocabAudio`.
 
 ### Earlier Recommended TTS Audio Architecture
 
@@ -4480,3 +4503,170 @@ Verification:
   field column, with an accessible error relationship. The message therefore
   renders below the input instead of becoming a narrow flex column between the
   input and `Bắt đầu chơi`; mobile keeps a full-width action.
+
+## 83. Student exercise entry hot path - 2026-09-08
+
+Scope and observed cause:
+
+- Production tracing showed that the vocabulary player eagerly downloaded the
+  complete public leaderboard feed (about 17 MB in the measured database) even
+  though the student had not opened the leaderboard. That response also entered
+  the read-only legacy aggregation branch when the durable read-model marker was
+  absent. This request was independent of lesson content but competed for the
+  same network/process/SQLite resources and made the exercise appear stuck.
+- Vocabulary share-token resolution also scanned every assignment and then every
+  vocabulary set. During that GET it could generate and persist a missing token,
+  coupling a read path to writes. Guest identity misses additionally scanned
+  historical activity tables, and direct exam players waited for the complete
+  Firebase token plus `/api/me` profile lifecycle before requesting playable
+  content. These serial/global dependencies explain why delay varied by database
+  size, host cold state, browser session and network.
+
+Storage and token resolution:
+
+- Additive/idempotent SQLite migration `student-entry-hot-path-v1` adds physical
+  `share_token` columns to `assignments` and `vocab_sets`, copies only existing
+  `shareToken`/`assignmentSlug` values from each record's `data_json`, and creates
+  `idx_assignments_share_token` plus `idx_vocab_sets_share_token`. It neither
+  invents tokens nor updates/deletes source JSON/history records. Non-unique
+  indexes keep startup fail-safe for unexpected legacy collisions; the resolver
+  rejects an ambiguous two-row match instead of selecting arbitrary content.
+- The SQLite query map projects both `shareToken` and the legacy
+  `assignmentSlug` alias onto the indexed column. Firestore keeps a bounded
+  canonical query with one legacy-field fallback. Known assignment/set IDs still
+  use point reads. `resolveVocabLearningAccess` no longer performs collection
+  scans or calls `ensureAssignmentShareToken`, and `GET
+  /api/vocab-sets/share/:token` now emits phase-level `Server-Timing`.
+- Resource writes keep the physical token column synchronized. Archiving already
+  removes token fields through the shared lifecycle contract, so the normalized
+  column becomes NULL on the same upsert and revoked links cannot resolve.
+
+Guest identity and auth/content concurrency:
+
+- `guest_profiles/{guestId}` is the only normal identity lookup. Legacy
+  `game_sessions`/`grammar_attempts` scans were removed from request paths; the
+  existing explicit hot-read-model maintenance command remains the migration
+  boundary. A freshly generated browser guest ID is marked locally as new, so
+  the first exercise skips an expected identify 404 and opens the name form
+  immediately. Resolve/identify routes emit `Server-Timing`.
+- `AuthContext` exposes `authSessionKnown` separately from its full profile
+  `loading` state. `App` releases direct private vocabulary/grammar and direct
+  exam routes from the global `/api/me` render boundary. Generic Writing/exam,
+  Listening and Movers players request playable content immediately and resolve
+  identity in parallel; signed-in users still wait for verified auth before a
+  run can start. Firebase display name may render the pre-start view while the
+  canonical backend profile finishes. Name-submit buttons have an explicit
+  in-flight state where implemented, preventing duplicate profile requests.
+
+Leaderboard boundary:
+
+- `StudentLearningArea` no longer requests `/api/public/leaderboard-results` on
+  mount. The collapsed `Xem bảng vàng` control calls the new bounded endpoint
+  `GET /api/public/leaderboard-summary?period=week|month&classId=...&limit=8`
+  only on demand. The server pseudonymizes retained read-model events before
+  aggregation and returns only ranked entries plus class filter options, with a
+  30-second in-process/browser cache capped at 100 filter keys. Result writes
+  invalidate the process cache.
+- The summary endpoint is deliberately read-model-only. If
+  `settings/leaderboard-read-model-v1` is not `ready=true, version=1`, it returns
+  `503 LEADERBOARD_NOT_READY`; it never falls back to multi-table legacy scans.
+  The lesson itself remains usable and only the optional leaderboard displays
+  the preparation message. Existing full leaderboard endpoints remain for
+  backward-compatible Home/Admin consumers and are not on the player critical
+  path.
+
+Rollout and verification:
+
+- Production sequence remains mandatory: stop/quiesce writers; create and verify
+  a backup; run storage preflight and `npm run db:backfill-hot-read-models --
+  --db <path>` in dry-run mode; start the new bundle once to apply the additive
+  `student-entry-hot-path-v1` schema migration; execute the explicit hot-read
+  backfill against the quiesced database; verify zero missing rows and the
+  readiness marker; restart; then inspect share/identity/summary
+  `Server-Timing` plus slow-query logs. Never set the marker manually or run the
+  execute backfill against active writers.
+- Local gates after implementation: TypeScript lint passes; performance tests
+  pass 11/11 including real SQL.js query plans for both new token indexes;
+  identity tests pass 8/8; exam-platform tests pass 75/75; and the canonical Vite
+  plus bundled-server build succeeds. The generated entry artifacts are
+  `index-B-CCdwS-.js`, `index-BoFC8M7w.css`,
+  `StudentLearningArea-D9AtPiMs.js`, `clientRegistry-BHEIhvot.js` and
+  `dist/server.cjs`.
+- The expanded `test:phase1` run passed every portable suite through the full
+  75/75 exam-platform group, then stopped at native storage for the already
+  documented environment mismatch: active Node 24 uses ABI 137 while the pinned
+  production-target `better-sqlite3` binary uses Node 22 ABI 127. The native
+  module was deliberately not rebuilt under Node 24. Run the remaining native
+  storage/startup gates under release Node 22 before deployment. No production
+  database, host process, commit or push was changed by this implementation pass.
+
+## 84. Vocabulary board-game generated-audio routing - 2026-09-08
+
+- `MemoryGame.tsx` and `MatchingGame.tsx` previously called
+  `speakEnglish(card.text)` directly when an English term card was selected.
+  That legacy call always entered browser Web Speech and therefore ignored a
+  teacher-generated `VocabItem.audioUrl` even though the student vocabulary
+  payload already retained `audioUrl`, `ttsProvider`, and `ttsSpeed`.
+- Both games now build a memoized lookup from stable item ID to the original
+  `VocabItem` and call `playVocabAudio(item, card.text)`. Generated AI33/YupVox
+  audio is the primary path, saved YupVox playback speed is respected, and the
+  existing Web Speech behavior remains the final fallback when the item/audio
+  URL is missing or browser playback rejects the MP3.
+- This is a client call-site correction only. It changes no vocabulary schema,
+  persistence, student API, TTS generation endpoint, scoring rule, game order,
+  mute behavior, or production audio storage.
+- `VocabBoardAudio.contract.test.ts` covers both board games and is part of
+  `npm run test:vocab-games`. Verification for this pass: TypeScript lint passes;
+  vocabulary game tests pass 12/12; YupVox tests pass 5/5; the canonical build
+  succeeds; and generated chunks `MatchingGame-CWvY_qsD.js` plus
+  `MemoryGame-Cfm5OuFj.js` import and invoke the shared player from
+  `speech-C25ltOH8.js` with the original item resolved by `card.itemId`.
+
+## 85. Vocabulary fill keyboard flow and matching selection state - 2026-09-08
+
+- `FillBlankGame.tsx` keeps its existing form submit and `handleNext` authorities.
+  Enter in the active input checks an answer through `handleCheckAnswer`; once
+  feedback is rendered, focus moves to the existing continue/result button so
+  the browser's native Enter activation calls `handleNext`. On a non-final
+  question, answer state resets and focus returns to the newly enabled input.
+- This focus-driven implementation deliberately avoids a `window` keydown
+  listener. Enter therefore cannot silently advance a question while focus is
+  intentionally on the pronunciation button, game controls, or another
+  interactive element. The feedback pronunciation and continue buttons also
+  have explicit `type="button"` semantics.
+- `MatchingGame.tsx` changes only the first-card presentation from indigo to
+  light amber (`amber-50` with `amber-400` border/ring). Existing state priority
+  remains selected, failed, then matched; successful/failed selection code clears
+  `selectedCard` before the emerald/rose state is rendered, so correct pairs stay
+  green and incorrect pairs stay temporarily red exactly as before.
+- No scoring, answer persistence, session action, navigation, audio, API or data
+  contract changed. `VocabGameInteraction.contract.test.ts` is included in
+  `npm run test:vocab-games` and protects the keyboard-focus boundary plus all
+  three matching colors. Verification: TypeScript lint passes, vocabulary game
+  tests pass 12/12, the canonical build succeeds, and generated chunks
+  `FillBlankGame-D5dwMZNs.js` and `MatchingGame-CWvY_qsD.js` contain the expected
+  focus and amber/rose/emerald presentation paths.
+
+## 86. Fill Blank typed-only answer entry - 2026-09-10
+
+- Scope is limited to the student answer input in `FillBlankGame.tsx`; Writing,
+  grammar, Listening and exam-platform answer controls are unchanged.
+- Normal typing continues through the controlled input `onChange`, including
+  browser composition used by physical keyboards, software keyboards and input
+  methods. Clipboard paste is canceled with `onPaste`; dragged text is canceled
+  with `onDrop`; and `beforeinput` also rejects the browser insertion types
+  `insertFromPaste`, `insertFromPasteAsQuotation`, `insertFromDrop`, and
+  `insertFromYank`. The implementation does not block all `beforeinput` events,
+  because doing so would also break legitimate typing/composition.
+- A blocked insertion does not clear text already typed. The input is refocused
+  and an accessible `role="alert"` message asks the learner to type the answer;
+  the message clears on the next genuine typed change or question transition.
+- This is a browser interaction restriction, not a server-verifiable anti-cheat
+  guarantee: a learner with developer tooling can still alter client state. No
+  answer normalization, grading, session action, history, API, storage or schema
+  contract changed.
+- `VocabGameInteraction.contract.test.ts` protects the paste/drop/beforeinput
+  handlers, the preserved typed `onChange` path and the visible alert. Local
+  verification: TypeScript lint passes, vocabulary game tests pass 13/13, and
+  the canonical build succeeds with `FillBlankGame-D5dwMZNs.js` containing the
+  typed-only interaction boundary.
