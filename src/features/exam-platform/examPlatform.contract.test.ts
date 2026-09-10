@@ -317,9 +317,18 @@ test('standalone Writing is a separate admin library with flexible AI grading an
   for (const contract of ['data-writing-single-task', 'AI chấm 0–10', 'Quy tắc chấm cho AI', 'data-writing-word-policy']) {
     assert.ok(standaloneWritingAuthoringSource.includes(contract), `Standalone Writing authoring is missing: ${contract}`);
   }
-  for (const contract of ['data-no-hard-word-limit="true"', 'hệ thống không khóa số từ', 'writingScore', '/10', 'aiFeedback', 'grammarErrors', 'vocabularyErrors', 'Xem Nhận Xét']) {
+  for (const contract of ['data-no-hard-word-limit="true"', 'data-typed-only-answer="true"', 'hệ thống không khóa số từ', 'writingScore', '/10', 'aiFeedback', 'grammarErrors', 'vocabularyErrors', 'Xem Nhận Xét']) {
     assert.ok(standaloneWritingPlayerSource.includes(contract), `Standalone Writing player/result is missing: ${contract}`);
   }
+  assert.match(standaloneWritingPlayerSource, /onPaste=\{blockExternalInsertion\}/);
+  assert.match(standaloneWritingPlayerSource, /onDrop=\{blockExternalInsertion\}/);
+  assert.match(standaloneWritingPlayerSource, /onBeforeInput=\{guardBeforeInput\}/);
+  for (const inputType of ['insertFromPaste', 'insertFromPasteAsQuotation', 'insertFromDrop', 'insertFromYank']) {
+    assert.ok(standaloneWritingPlayerSource.includes(inputType), `Standalone Writing must reject ${inputType}`);
+  }
+  assert.match(standaloneWritingPlayerSource, /event\.preventDefault\(\)/);
+  assert.match(standaloneWritingPlayerSource, /Không thể dán hoặc kéo thả nội dung/);
+  assert.match(standaloneWritingPlayerSource, /role="alert"/);
   assert.doesNotMatch(standaloneWritingPlayerSource, /Xem nhận xét AI/);
   assert.doesNotMatch(standaloneWritingPlayerSource, /maxLength=/);
   assert.match(writingWordPolicySource, /Math\.floor\(recommendedMin \/ 4\)/);

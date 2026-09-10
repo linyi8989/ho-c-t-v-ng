@@ -134,4 +134,12 @@ test('route parser emits short exam URLs and preserves every legacy Mover URL', 
     examId: 'writing-set',
     accessToken: 'writing-token',
   });
+  const privateWriting = writingExamPath('examset-private', 'token-with-trailing-');
+  assert.deepEqual(parseListeningLibraryRoute(...privateWriting.split('?') as [string, string]), {
+    kind: 'paper-exam',
+    moduleId: 'writing',
+    paperId: 'writing',
+    examId: 'examset-private',
+    accessToken: 'token-with-trailing-',
+  });
 });

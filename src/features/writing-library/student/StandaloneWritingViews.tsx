@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Eye, FileClock, RotateCcw, Sparkles } from 'lucide-react';
+import { useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import type {
   ExamAnswers,
   ExamAttemptReview,
@@ -8,6 +9,13 @@ import type {
 } from '../../exam-platform/types';
 import { countWritingWords, getFlexibleWritingWordPolicy } from '../writingWordPolicy';
 
+const BLOCKED_EXTERNAL_INSERT_TYPES = new Set([
+  'insertFromPaste',
+  'insertFromPasteAsQuotation',
+  'insertFromDrop',
+  'insertFromYank',
+]);
+
 interface PartProps {
   part: ExamPartContent;
   answers: ExamAnswers;
@@ -16,12 +24,28 @@ interface PartProps {
 
 export function StandaloneWritingPartView({ part, answers, onAnswer }: PartProps) {
   const question = part.questions[0];
+  const [externalInsertBlocked, setExternalInsertBlocked] = useState(false);
   if (!question) return null;
   const answer = typeof answers[question.id] === 'string' ? String(answers[question.id]) : '';
   const wordCount = countWritingWords(answer);
   const policy = getFlexibleWritingWordPolicy(question.minWords, question.maxWords);
   const belowFlexibleRange = wordCount > 0 && wordCount < policy.flexibleMin;
   const aboveFlexibleRange = wordCount > policy.flexibleMax;
+  const blockExternalInsertion = (event: ClipboardEvent<HTMLTextAreaElement> | DragEvent<HTMLTextAreaElement>) => {
+    event.preventDefault();
+    setExternalInsertBlocked(true);
+    event.currentTarget.focus();
+  };
+  const guardBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
+    const inputType = (event.nativeEvent as InputEvent).inputType;
+    if (!BLOCKED_EXTERNAL_INSERT_TYPES.has(inputType)) return;
+    event.preventDefault();
+    setExternalInsertBlocked(true);
+  };
+  const updateTypedAnswer = (value: string) => {
+    setExternalInsertBlocked(false);
+    onAnswer(question.id, value);
+  };
 
   return (
     <section id="standalone-writing-player" data-standalone-writing-player className="space-y-5">
@@ -37,13 +61,19 @@ export function StandaloneWritingPartView({ part, answers, onAnswer }: PartProps
         <textarea
           id={`writing-answer-${question.id}`}
           value={answer}
-          onChange={event => onAnswer(question.id, event.target.value)}
+          onChange={event => updateTypedAnswer(event.target.value)}
+          onPaste={blockExternalInsertion}
+          onDrop={blockExternalInsertion}
+          onBeforeInput={guardBeforeInput}
           className="writing-lined-textarea mt-4 min-h-80 w-full resize-y rounded-2xl border border-slate-300 bg-white p-5 text-base font-semibold leading-8 text-slate-900 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
           placeholder="Viết bài của bạn tại đây…"
           spellCheck
           autoCapitalize="sentences"
+          aria-describedby={externalInsertBlocked ? `writing-input-warning-${question.id}` : undefined}
           data-no-hard-word-limit="true"
+          data-typed-only-answer="true"
         />
+        {externalInsertBlocked && <p id={`writing-input-warning-${question.id}`} role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900"><AlertTriangle size={16} className="mt-0.5 shrink-0" />Không thể dán hoặc kéo thả nội dung. Em hãy tự gõ bài viết bằng bàn phím.</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-bold text-slate-500">Vùng linh hoạt tham khảo: {policy.flexibleMin}–{policy.flexibleMax} từ</p>
           <p className={`rounded-full px-3 py-1.5 text-sm font-black ${belowFlexibleRange ? 'bg-amber-100 text-amber-900' : aboveFlexibleRange ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-800'}`}>{wordCount} từ</p>

@@ -4670,3 +4670,30 @@ Rollout and verification:
   verification: TypeScript lint passes, vocabulary game tests pass 13/13, and
   the canonical build succeeds with `FillBlankGame-D5dwMZNs.js` containing the
   typed-only interaction boundary.
+
+## 87. Standalone Writing typed-only answer entry - 2026-09-10
+
+- The typed-only boundary now applies to the actual standalone Writing student
+  textarea in `StandaloneWritingViews.tsx`. The earlier Fill Blank boundary did
+  not cover `/writing/:setId`, which is why pasted text was still accepted in a
+  private Writing assignment after that change.
+- Normal keyboard typing and composition continue through the controlled
+  `onChange` path. Clipboard paste, dragged text, paste-as-quotation and yank
+  insertion are canceled through `paste`, `drop` and narrowly scoped
+  `beforeinput` handlers. Existing typed text is preserved, focus remains in the
+  answer field, and an accessible warning explains that the learner must type.
+- This changes no word-count flexibility, autosaved answer state, submission,
+  AI grading, attempt/history data, API or storage schema. It is a browser-side
+  deterrent rather than a server-verifiable anti-cheat guarantee; developer
+  tools can still alter client state.
+- Private links keep the canonical `/writing/:setId?accessToken=...` form. The
+  route parser already forwards the complete token to playable and prepare
+  requests; a regression case now explicitly protects URL-safe tokens ending in
+  `-` without recording a real assignment token.
+- `examPlatform.contract.test.ts` protects the Writing-only input handlers and
+  visible alert. `registry.test.ts` protects the private Writing route/token
+  round trip. Local verification: TypeScript lint passes; the complete
+  exam-platform suite passes 75/75; the canonical production build succeeds;
+  the generated Writing player is in `clientRegistry-BjjsMsoi.js`; and the
+  restarted `dev:local` server returns HTTP 200 while serving the new typed-only
+  source boundary.
