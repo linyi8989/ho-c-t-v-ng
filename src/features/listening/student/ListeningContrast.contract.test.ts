@@ -143,7 +143,7 @@ test('Part 5 supports both click-to-colour and drag-and-drop play modes', () => 
   assert.match(part5Source, /getData\('text\/listening-colour'\)/);
   assert.match(part5Source, /onDragOver=\{event =>/);
   assert.match(part5Source, /onDrop=\{event =>/);
-  assert.match(part5Source, /onClick=\{\(\) => selectedColour \? assign\(target\.id, selectedColour\) : answer \? clear\(target\.id\) : undefined\}/);
+  assert.match(part5Source, /onClick=\{\(\) => \{[\s\S]*if \(selectedColour\) assign\(target\.id, selectedColour\);[\s\S]*else if \(answer\) clear\(target\.id\);/);
   assert.match(part5Source, /filter\(colour => availableColourIds\.includes\(colour\.id\)\)/);
   assert.match(part5Source, /compactRegionHeightStyle\(target\.region\)/);
   assert.match(part5Source, />\{index \+ 1\}<\/span>/);

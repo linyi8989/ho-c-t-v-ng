@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2, Eye, FileClock, RotateCcw, Sparkles } from 'lucide-react';
-import { useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
+import { AlertTriangle, CheckCircle2, Eye, FileClock, LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
+import { useEffect, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import type {
   ExamAnswers,
   ExamAttemptReview,
@@ -91,32 +91,46 @@ interface ResultProps {
   playable: ExamPlayableSet;
   answers: ExamAnswers;
   reviewLoading: boolean;
+  gradeRetrying: boolean;
   error: string;
   onReview: () => void;
+  onRetryGrade: () => void;
   onRetry: () => void;
   onBack: () => void;
 }
 
-export function StandaloneWritingResult({ result, review, playable, answers, reviewLoading, error, onReview, onRetry, onBack }: ResultProps) {
+export function StandaloneWritingResult({ result, review, playable, answers, reviewLoading, gradeRetrying, error, onReview, onRetryGrade, onRetry, onBack }: ResultProps) {
   const question = playable.content.parts[0]?.questions[0];
   const essay = question && typeof answers[question.id] === 'string' ? String(answers[question.id]) : '';
   const wordCount = result.writingWordCount ?? countWritingWords(essay);
   const reviewQuestion = review?.questions.find(item => item.questionId === question?.id) || review?.questions[0];
   const writingScore = result.writingScore ?? reviewQuestion?.writingScore ?? Math.round(Number(result.score || 0) / 10);
   const completed = result.status === 'completed';
+  const grading = ['queued', 'processing', 'retrying'].includes(String(result.aiGradingStatus || ''));
+  const failed = result.aiGradingStatus === 'failed';
+  const [clock, setClock] = useState(Date.now());
+  const retryAt = new Date(result.aiGradingNextRetryAt || 0).getTime();
+  const retrySeconds = Number.isFinite(retryAt) ? Math.max(0, Math.ceil((retryAt - clock) / 1_000)) : 0;
+  useEffect(() => {
+    if (!failed || !result.aiGradingRetryable || retrySeconds <= 0) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [failed, result.aiGradingRetryable, result.aiGradingNextRetryAt, retrySeconds > 0]);
+  const retryCountdown = `${Math.floor(retrySeconds / 60).toString().padStart(2, '0')}:${(retrySeconds % 60).toString().padStart(2, '0')}`;
 
   return (
     <main id="standalone-writing-result" className="min-h-screen bg-gradient-to-b from-violet-100 via-white to-sky-50 p-4 sm:p-8" data-writing-score-scale="10">
       <div className="mx-auto max-w-4xl space-y-5">
         <section className="rounded-3xl border border-white bg-white p-6 text-center shadow-xl sm:p-8">
-          {completed ? <CheckCircle2 className="mx-auto text-emerald-600" size={56} /> : <FileClock className="mx-auto text-violet-600" size={56} />}
-          <p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-violet-700">{completed ? 'AI đã chấm bài' : 'Đã lưu bài · đang chờ chấm'}</p>
+          {completed ? <CheckCircle2 className="mx-auto text-emerald-600" size={56} /> : grading ? <LoaderCircle className="mx-auto animate-spin text-violet-600" size={56} /> : <FileClock className="mx-auto text-violet-600" size={56} />}
+          <p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-violet-700">{completed ? 'AI đã chấm bài' : failed ? 'Chấm bài chưa thành công' : 'Đã lưu bài · đang chấm'}</p>
           <h1 className="mt-2 text-3xl font-black text-slate-950">{playable.title}</h1>
-          {completed ? <p className="mt-5 text-6xl font-black text-violet-800">{writingScore}<span className="text-3xl text-violet-500">/10</span></p> : <p className="mt-5 text-xl font-black text-violet-800">Bài viết đang được giữ an toàn để AI hoặc giáo viên chấm lại.</p>}
+          {completed ? <p className="mt-5 text-6xl font-black text-violet-800">{writingScore}<span className="text-3xl text-violet-500">/10</span></p> : <p className="mt-5 text-xl font-black text-violet-800">{failed ? 'Bài viết vẫn được lưu an toàn.' : 'Đang gửi bài đến dịch vụ chấm, rất nhanh thôi, em đợi chút nhé!!'}</p>}
           <p className="mt-2 text-sm font-bold text-slate-600">{wordCount} từ · {result.durationSeconds || 0} giây</p>
-          {result.aiGradingMessage && <p className="mx-auto mt-4 max-w-2xl rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-700">{result.aiGradingMessage}</p>}
+          {!grading && result.aiGradingMessage && <p className="mx-auto mt-4 max-w-2xl rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-700">{result.aiGradingMessage}</p>}
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             {completed && playable.content.showReviewAfterSubmit && !review && <button type="button" disabled={reviewLoading} onClick={onReview} className="writing-result-review inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-violet-50 px-5 py-3 font-black text-violet-800"><Eye size={17} />{reviewLoading ? 'Đang tải…' : 'Xem Nhận Xét'}</button>}
+            {failed && result.aiGradingRetryable && <button type="button" disabled={gradeRetrying || retrySeconds > 0} onClick={onRetryGrade} className="writing-grade-retry inline-flex items-center gap-2 rounded-xl border border-amber-400 bg-amber-50 px-5 py-3 font-black text-amber-900 disabled:cursor-not-allowed"><RotateCcw size={17} />{gradeRetrying ? 'Đang gửi…' : retrySeconds > 0 ? `Chấm lại sau ${retryCountdown}` : 'Chấm lại'}</button>}
             <button type="button" onClick={onRetry} className="writing-result-retry inline-flex items-center gap-2 rounded-xl bg-violet-700 px-5 py-3 font-black text-white"><RotateCcw size={17} />Viết lại</button>
             <button type="button" onClick={onBack} className="writing-result-home rounded-xl border border-slate-300 bg-white px-5 py-3 font-black text-slate-800">Quay lại</button>
           </div>
@@ -129,7 +143,7 @@ export function StandaloneWritingResult({ result, review, playable, answers, rev
             <div className="rounded-2xl bg-sky-50 p-4"><p className="text-xs font-black uppercase text-sky-700">Số câu</p><p className="mt-1 text-3xl font-black text-sky-950">{reviewQuestion.sentenceCount ?? 0}</p></div>
             <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase text-emerald-700">Số từ</p><p className="mt-1 text-3xl font-black text-emerald-950">{wordCount}</p></div>
           </div>
-          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-5"><h2 className="font-black text-violet-950">Nhận xét của AI</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-800">{reviewQuestion.aiFeedback || 'Chưa có nhận xét chi tiết.'}</p></div>
+          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-5"><h2 className="font-black text-violet-950">Nhận Xét Chung</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-800">{reviewQuestion.aiFeedback || 'Chưa có nhận xét chi tiết.'}</p></div>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-rose-200 p-4"><h3 className="font-black text-rose-800">Ngữ pháp cần lưu ý</h3>{reviewQuestion.grammarErrors?.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold text-slate-700">{reviewQuestion.grammarErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="mt-2 text-sm font-semibold text-slate-600">Không phát hiện lỗi nổi bật.</p>}</div>
             <div className="rounded-2xl border border-amber-200 p-4"><h3 className="font-black text-amber-800">Từ vựng cần lưu ý</h3>{reviewQuestion.vocabularyErrors?.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold text-slate-700">{reviewQuestion.vocabularyErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="mt-2 text-sm font-semibold text-slate-600">Không phát hiện lỗi nổi bật.</p>}</div>

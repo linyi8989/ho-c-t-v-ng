@@ -333,7 +333,7 @@ export interface ExamQuestionResult {
   pointsAwarded: number;
   maxPoints: number;
   pendingManualReview: boolean;
-  aiGradingStatus?: 'queued' | 'processing' | 'completed' | 'failed';
+  aiGradingStatus?: 'queued' | 'processing' | 'retrying' | 'completed' | 'failed';
   writingScore?: number;
   sentenceCount?: number;
   grammarErrors?: string[];
@@ -353,8 +353,17 @@ export interface ExamCompletedAttempt {
   unansweredCount: number;
   totalCount: number;
   pendingManualCount: number;
-  aiGradingStatus?: 'queued' | 'processing' | 'completed' | 'failed';
+  aiGradingStatus?: 'queued' | 'processing' | 'retrying' | 'completed' | 'failed';
   aiGradingMessage?: string;
+  /** Current grading cycle. A learner retry reuses this attempt and increments the cycle. */
+  aiGradingCycle?: number;
+  /** Provider request number within the current cycle. */
+  aiGradingAttempt?: number;
+  aiGradingMaxAttempts?: number;
+  /** True only for transient/provider-contract failures that a learner may submit again. */
+  aiGradingRetryable?: boolean;
+  /** Server-enforced earliest instant for the learner's next grading cycle. */
+  aiGradingNextRetryAt?: string;
   /** Standalone Writing reports the pedagogical score directly on a 0–10 scale. */
   writingScore?: number;
   writingWordCount?: number;

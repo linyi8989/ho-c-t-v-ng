@@ -8,6 +8,7 @@ import {
   resolveListeningModuleId,
 } from './registry';
 import {
+  absoluteExamUrl,
   examLibraryPath,
   examModulePath,
   examPaperExamPath,
@@ -135,6 +136,10 @@ test('route parser emits short exam URLs and preserves every legacy Mover URL', 
     accessToken: 'writing-token',
   });
   const privateWriting = writingExamPath('examset-private', 'token-with-trailing-');
+  assert.equal(
+    absoluteExamUrl(privateWriting, 'https://app.msdieu.com'),
+    'https://app.msdieu.com/writing/examset-private?accessToken=token-with-trailing-',
+  );
   assert.deepEqual(parseListeningLibraryRoute(...privateWriting.split('?') as [string, string]), {
     kind: 'paper-exam',
     moduleId: 'writing',

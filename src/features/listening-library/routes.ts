@@ -141,6 +141,8 @@ export const writingExamPath = (examId: string, accessToken = '') => {
   return accessToken ? `${base}?accessToken=${encodeURIComponent(accessToken)}` : base;
 };
 
+export const absoluteExamUrl = (path: string, origin: string) => new URL(path, origin).toString();
+
 // Existing imports keep working, but every newly generated URL is canonical.
 export const listeningLibraryPath = examLibraryPath;
 export const listeningModulePath = examModulePath;

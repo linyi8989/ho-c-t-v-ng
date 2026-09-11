@@ -23,6 +23,7 @@ const ListeningModulePage = React.lazy(() => import('./features/listening-librar
 const ListeningPaperPage = React.lazy(() => import('./features/listening-library/student/ListeningPaperPage'));
 const ListeningExamPage = React.lazy(() => import('./features/listening-library/student/ListeningExamPage'));
 const StudentHistoryPage = React.lazy(() => import('./components/history/StudentHistoryPage'));
+const TeacherLibraryPreview = React.lazy(() => import('./components/admin/TeacherLibraryPreview'));
 
 const DEFAULT_GRADE_OPTIONS = ['Lớp 3', 'Lớp 6', 'Lớp 10'];
 function formatGradeLabel(value?: string) {
@@ -95,6 +96,9 @@ export default function App() {
   const privateGrammarToken = appShellRoute.kind === 'private-grammar'
     ? appShellRoute.token
     : '';
+  const teacherPreviewRoute = appShellRoute.kind === 'teacher-preview'
+    ? appShellRoute
+    : null;
   const listeningLibraryRoute = React.useMemo(() => (
     parseListeningLibraryRoute(browserLocation.pathname, browserLocation.search)
   ), [browserLocation.pathname, browserLocation.search]);
@@ -445,6 +449,30 @@ export default function App() {
       <Login
         onNavigateToRegister={() => navigateInternal('/reg')}
         onNavigateToHome={() => navigateInternal('/')}
+      />
+    );
+  }
+
+  if (teacherPreviewRoute) {
+    if (!user || !isStaff || !token) {
+      return (
+        <main id="teacher-library-preview-denied" className="min-h-screen bg-slate-50 p-6 flex items-center justify-center">
+          <section className="w-full max-w-lg rounded-3xl border border-rose-200 bg-white p-8 text-center shadow-sm">
+            <ShieldAlert className="mx-auto text-rose-600" size={42} aria-hidden="true" />
+            <h1 className="mt-4 text-xl font-black text-slate-950">Cần tài khoản giáo viên</h1>
+            <p role="alert" className="mt-2 text-sm font-semibold text-slate-600">Vui lòng đăng nhập đúng tài khoản giáo viên đã tạo bộ bài này.</p>
+            <button type="button" onClick={() => navigateInternal('/admin')} className="mt-6 rounded-xl border border-blue-700 bg-blue-700 px-5 py-3 font-black text-white">Đến trang đăng nhập</button>
+          </section>
+        </main>
+      );
+    }
+    return (
+      <TeacherLibraryPreview
+        resourceType={teacherPreviewRoute.resourceType}
+        setId={teacherPreviewRoute.setId}
+        token={token}
+        teacherName={user.name}
+        onBack={() => navigateInternal('/admin')}
       />
     );
   }

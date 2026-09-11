@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import ExamImageViewer from '../../exam-media/ExamImageViewer';
+import { normalizedPointFromExamImage } from '../../exam-media/imageCoordinates';
 import type {
   ListeningAnswers,
   ListeningPart1,
@@ -127,7 +128,7 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
         </div>
       </div>
       <div className="listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-2xl p-1">
-        <ExamImageViewer src={part.sceneUrl} alt="Part 1" profile="interactive-scene" className="border border-slate-200/80 bg-white shadow-sm">
+        <ExamImageViewer src={part.sceneUrl} alt="Part 1" profile="interactive-scene" interactionMode="answer-surface" className="border border-slate-200/80 bg-white shadow-sm">
           {part.targets.map((target, index) => {
             const answer = answers.part1[target.id];
             return (
@@ -143,7 +144,10 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
                   event.preventDefault();
                   assign(target.id, event.dataTransfer.getData('text/listening-choice'));
                 }}
-                onClick={() => selectedChoice ? assign(target.id, selectedChoice) : answer ? clear(target.id) : undefined}
+                onClick={() => {
+                  if (selectedChoice) assign(target.id, selectedChoice);
+                  else if (answer) clear(target.id);
+                }}
                 aria-label={answer ? `Vùng trả lời ${index + 1}: ${labels.get(answer)}. Nhấn để gỡ.` : `Vùng trả lời ${index + 1}`}
                 className="listening-part1-target absolute flex items-center justify-center border-0 bg-transparent text-xs font-black transition"
               >
@@ -224,6 +228,7 @@ function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<Liste
   const [previewPoint, setPreviewPoint] = useState<{ x: number; y: number }>();
   const [boardIntrinsic, setBoardIntrinsic] = useState<{ src?: string; width: number }>();
   const boardRef = useRef<HTMLDivElement>(null);
+  const boardImageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{
     pointerId: number;
     source: Part3ConnectionSource;
@@ -238,14 +243,7 @@ function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<Liste
     ? Math.min(boardNaturalWidth * 1.5, 480)
     : boardNaturalWidth;
   const assignedPictureIds = new Set(Object.values(answers.part3));
-  const pointFromClient = (clientX: number, clientY: number) => {
-    const bounds = boardRef.current?.getBoundingClientRect();
-    if (!bounds?.width || !bounds.height) return undefined;
-    return {
-      x: Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width)),
-      y: Math.max(0, Math.min(1, (clientY - bounds.top) / bounds.height)),
-    };
-  };
+  const pointFromClient = (clientX: number, clientY: number) => normalizedPointFromExamImage(clientX, clientY, boardImageRef.current);
   const assign = (pictureId: string, source = selected) => {
     if (!source || pictureId === examplePictureId) return;
     const picture = part.pictures.find(item => item.id === pictureId);
@@ -338,9 +336,11 @@ function ListeningPart3ConnectView({ part, answers, onAnswers }: PartProps<Liste
     <div className="space-y-3" onKeyDown={event => { if (event.key === 'Escape') { setSelected(undefined); setPreviewPoint(undefined); } }}>
       <ExamImageViewer
         frameRef={boardRef}
+        imageRef={boardImageRef}
         src={part.boardUrl}
         alt="Part 3"
         profile="interactive-scene"
+        interactionMode="answer-surface"
         maxWidth="100%"
         maxHeight="max(220px, calc(100dvh - 390px))"
         className="listening-part3-board isolate border border-slate-200/80 bg-white"
@@ -476,6 +476,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imag
   const [selectedColour, setSelectedColour] = useState('');
   const [selectedPaletteItem, setSelectedPaletteItem] = useState('');
   const [keyboardAnchor, setKeyboardAnchor] = useState({ x: 0.5, y: 0.5 });
+  const sceneImageRef = useRef<HTMLImageElement>(null);
   const colours = new Map(part.colours.map(colour => [colour.id, colour]));
   const visibleColours = part.interactionSchemaVersion >= 2
     ? (part.colourPaletteIds || []).flatMap(id => {
@@ -582,9 +583,11 @@ function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imag
       </div>
       <div className="listening-part5-image-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
         <ExamImageViewer
+          imageRef={sceneImageRef}
           src={part.sceneUrl}
           alt="Part 5"
           profile="interactive-scene"
+          interactionMode="answer-surface"
           maxWidth={imageMaxWidth}
           maxHeight={imageMaxHeight}
           preferredScale={imageScale}
@@ -615,13 +618,13 @@ function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imag
               const paletteItemId = event.dataTransfer.getData('text/listening-palette');
               if (!paletteItemId) return;
               event.preventDefault();
-              const bounds = event.currentTarget.getBoundingClientRect();
-              placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height, paletteItemId);
+              const point = normalizedPointFromExamImage(event.clientX, event.clientY, sceneImageRef.current);
+              if (point) placeAt(point.x, point.y, paletteItemId);
             },
             onClick: event => {
               if (!selectedPaletteItem) return;
-              const bounds = event.currentTarget.getBoundingClientRect();
-              placeAt((event.clientX - bounds.left) / bounds.width, (event.clientY - bounds.top) / bounds.height);
+              const point = normalizedPointFromExamImage(event.clientX, event.clientY, sceneImageRef.current);
+              if (point) placeAt(point.x, point.y);
             },
           }}
         >
@@ -715,14 +718,17 @@ export function ListeningPart5View({ part, answers, onAnswers, imageMaxWidth, im
           </button>
         ))}
       </div>
-      <ExamImageViewer src={part.sceneUrl} alt="Part 5" profile="interactive-scene" maxWidth={imageMaxWidth} maxHeight={imageMaxHeight} preferredScale={imageScale} imageClassName="listening-interactive-scene" className="border border-slate-200/80 bg-white">
+      <ExamImageViewer src={part.sceneUrl} alt="Part 5" profile="interactive-scene" interactionMode="answer-surface" maxWidth={imageMaxWidth} maxHeight={imageMaxHeight} preferredScale={imageScale} imageClassName="listening-interactive-scene" className="border border-slate-200/80 bg-white">
         {part.targets.map((target, index) => {
           const answer = legacyAnswers[target.id];
           const colour = colours.get(answer);
           return (
             <button
               key={target.id}
-              onClick={() => selectedColour ? assign(target.id, selectedColour) : answer ? clear(target.id) : undefined}
+              onClick={() => {
+                if (selectedColour) assign(target.id, selectedColour);
+                else if (answer) clear(target.id);
+              }}
               onDragOver={event => {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';

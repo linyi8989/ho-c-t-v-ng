@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { LibraryLinkStatus } from '../../../components/admin/LibraryRowControls';
+import {
+  LibraryLinkStatus,
+  LibraryPlayAction,
+  LibraryRowActions,
+} from '../../../components/admin/LibraryRowControls';
 
 const controlsSource = readFileSync(
   new URL('../../../components/admin/LibraryRowControls.tsx', import.meta.url),
@@ -19,6 +23,14 @@ const grammarAdminSource = readFileSync(
 );
 const listeningApiSource = readFileSync(
   new URL('../../listening/api.ts', import.meta.url),
+  'utf8',
+);
+const moverAdminSource = readFileSync(
+  new URL('../../mover-reading-writing/admin/MoverReadingWritingAdmin.tsx', import.meta.url),
+  'utf8',
+);
+const genericExamAdminSource = readFileSync(
+  new URL('../../exam-platform/admin/GenericExamAdmin.tsx', import.meta.url),
   'utf8',
 );
 
@@ -40,10 +52,45 @@ test('Grammar and Listening libraries share the canonical row actions in the req
     assert.ok(controlsSource.includes(label), `Missing shared action label: ${label}`);
   }
 
-  assert.match(grammarAdminSource, /import \{ LibraryLinkStatus, LibraryRowActions \} from '\.\/LibraryRowControls'/);
+  assert.match(grammarAdminSource, /import \{ LibraryLinkStatus, LibraryPlayAction, LibraryRowActions \} from '\.\/LibraryRowControls'/);
   assert.match(listeningAdminSource, /import \{ LibraryLinkStatus, LibraryRowActions \} from '\.\.\/\.\.\/\.\.\/components\/admin\/LibraryRowControls'/);
   assert.match(grammarAdminSource, /<LibraryRowActions/);
   assert.match(listeningAdminSource, /<LibraryRowActions/);
+});
+
+test('only library Play actions open their preview URL in a new tab', () => {
+  const playMarkup = renderToStaticMarkup(React.createElement(LibraryPlayAction, {
+    href: '/teacher-preview/vocabulary/set-1',
+  }));
+  assert.match(playMarkup, /<a[^>]+data-library-action="play"/);
+  assert.match(playMarkup, /href="\/teacher-preview\/vocabulary\/set-1"/);
+  assert.match(playMarkup, /target="_blank"/);
+  assert.match(playMarkup, /rel="noopener noreferrer"/);
+
+  const disabledMarkup = renderToStaticMarkup(React.createElement(LibraryPlayAction, {
+    href: '/teacher-preview/vocabulary/set-1',
+    disabled: true,
+  }));
+  assert.match(disabledMarkup, /<button[^>]+data-library-action="play"[^>]+disabled/);
+  assert.doesNotMatch(disabledMarkup, /target="_blank"/);
+
+  const rowMarkup = renderToStaticMarkup(React.createElement(LibraryRowActions, {
+    playHref: '/preview/set-1',
+    onEdit: () => undefined,
+    onClone: () => undefined,
+    onResults: () => undefined,
+    onDelete: () => undefined,
+  }));
+  assert.equal((rowMarkup.match(/<a\b/g) || []).length, 1);
+  for (const action of ['edit', 'clone', 'results', 'delete']) {
+    assert.match(rowMarkup, new RegExp(`<button[^>]+data-library-action="${action}"`));
+  }
+
+  assert.match(grammarAdminSource, /teacherLibraryPreviewPath\('vocabulary', set\.id\)/);
+  assert.match(grammarAdminSource, /playHref=\{teacherLibraryPreviewPath\('grammar', set\.id\)\}/);
+  assert.match(listeningAdminSource, /playHref=\{previewUrl\(set\)\}/);
+  assert.match(moverAdminSource, /playHref=\{previewUrl\(set\)\}/);
+  assert.match(genericExamAdminSource, /playHref=\{shareUrl\(set\)\}/);
 });
 
 test('Listening link column distinguishes private, public, and unpublished records', () => {

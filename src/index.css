@@ -4219,6 +4219,39 @@ textarea::placeholder {
   filter: none !important;
 }
 
+#standalone-writing-result button.writing-grade-retry:not(:disabled) {
+  background: #b45309 !important;
+  background-image: none !important;
+  border: 2px solid #92400e !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 7px 16px rgba(146, 64, 14, 0.24) !important;
+}
+
+#standalone-writing-result button.writing-grade-retry:not(:disabled):hover {
+  background: #92400e !important;
+  border-color: #78350f !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+#standalone-writing-result button.writing-grade-retry:disabled {
+  background: #fef3c7 !important;
+  background-image: none !important;
+  border: 2px solid #b45309 !important;
+  color: #78350f !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 5px 12px rgba(180, 83, 9, 0.14) !important;
+}
+
 #standalone-writing-result button * {
   color: currentColor !important;
   opacity: 1 !important;

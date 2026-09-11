@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Check, Circle, MousePointer2, Pentagon, RotateCcw, Square } from 'lucide-react';
+import { normalizedPointFromExamImage } from '../../exam-media/imageCoordinates';
 import type { ListeningRegion, ListeningRegionShape } from '../types';
 import { regionFromPolygon } from '../geometry';
 import { edgeSnapPolygon, type EdgeSnapMode } from './edgeSnapPolygon';
@@ -19,8 +20,6 @@ interface ListeningRegionEditorProps {
   rectangleOnly?: boolean;
 }
 
-const clamp = (value: number) => Math.max(0, Math.min(1, value));
-
 const convexHull = (points: Array<{ x: number; y: number }>) => {
   const unique = [...new Map(points.map(item => [`${item.x.toFixed(5)}:${item.y.toFixed(5)}`, item])).values()]
     .sort((first, second) => first.x - second.x || first.y - second.y);
@@ -34,7 +33,6 @@ const convexHull = (points: Array<{ x: number; y: number }>) => {
 };
 
 export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = false, freehandOnly = false, rectangleOnly = false }: ListeningRegionEditorProps) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [activeId, setActiveId] = useState(items[0]?.id || '');
   const [shape, setShape] = useState<ListeningRegionShape>(edgeSnap ? 'polygon' : 'rect');
@@ -48,13 +46,12 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
   const vertexDragRef = useRef<{ itemId: string; pointIndex: number } | null>(null);
 
   const active = useMemo(() => items.find(item => item.id === activeId), [activeId, items]);
-  const point = (event: React.PointerEvent) => {
-    const rect = surfaceRef.current!.getBoundingClientRect();
-    return {
-      x: clamp((event.clientX - rect.left) / rect.width),
-      y: clamp((event.clientY - rect.top) / rect.height),
-    };
-  };
+  const point = (event: React.PointerEvent) => normalizedPointFromExamImage(
+    event.clientX,
+    event.clientY,
+    imageRef.current,
+    { clamp: true },
+  );
   const commit = (next: RegionItem[]) => {
     setHistory(previous => [...previous.slice(-19), structuredClone(items)]);
     onChange(next);
@@ -67,16 +64,20 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
     if (!activeId) return;
     if (freehandOnly) {
       const start = point(event);
+      if (!start) return;
       setFreehandPoints([start]);
       setFreehandDrawing(true);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
     if (shape === 'polygon') {
-      setPolygonPoints(previous => [...previous, point(event)]);
+      const next = point(event);
+      if (next) setPolygonPoints(previous => [...previous, next]);
       return;
     }
-    setDragStart(point(event));
+    const start = point(event);
+    if (!start) return;
+    setDragStart(start);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const commitPolygonPoints = (inputPoints: Array<{ x: number; y: number }>) => {
@@ -111,6 +112,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
   const moveDraw = (event: React.PointerEvent) => {
     if (!freehandOnly || !freehandDrawing) return;
     const next = point(event);
+    if (!next) return;
     setFreehandPoints(previous => {
       const last = previous.at(-1);
       return !last || Math.hypot(next.x - last.x, next.y - last.y) >= .004 ? [...previous, next] : previous;
@@ -120,6 +122,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
     if (freehandOnly) {
       if (!freehandDrawing) return;
       const end = point(event);
+      if (!end) return;
       const points = [...freehandPoints, end];
       setFreehandDrawing(false);
       setFreehandPoints([]);
@@ -128,6 +131,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
     }
     if (!dragStart || !activeId || shape === 'polygon') return;
     const end = point(event);
+    if (!end) return;
     const x = Math.min(dragStart.x, end.x);
     const y = Math.min(dragStart.y, end.y);
     const width = Math.abs(end.x - dragStart.x);
@@ -161,6 +165,7 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
     event.preventDefault();
     event.stopPropagation();
     const nextPoint = point(event);
+    if (!nextPoint) return;
     onChange(items.map(item => {
       if (item.id !== dragging.itemId || item.region.shape !== 'polygon' || !item.region.points) return item;
       const points = item.region.points.map((current, index) => index === dragging.pointIndex ? nextPoint : current);
@@ -216,7 +221,6 @@ export function ListeningRegionEditor({ imageUrl, items, onChange, edgeSnap = fa
         </div>
       ) : (
         <div
-          ref={surfaceRef}
           onPointerDown={startDraw}
           onPointerMove={moveDraw}
           onPointerUp={finishDraw}

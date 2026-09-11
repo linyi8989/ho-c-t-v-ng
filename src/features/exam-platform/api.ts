@@ -109,6 +109,19 @@ export const examPlatformApi = {
       method: 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
   },
+  gradingStatus(moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, attemptId: string, token: string | null, identity: { guestId?: string; studentName?: string; runSecret?: string }) {
+    const query = token ? '' : `?${new URLSearchParams({ guestId: identity.guestId || '', studentName: identity.studentName || '' })}`;
+    return requestJson<ExamCompletedAttempt>(`${paperBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/${encodeURIComponent(attemptId)}/status${query}`, {
+      headers: token ? headers(token, false) : { 'X-Exam-Run-Secret': identity.runSecret || '' },
+    });
+  },
+  retryWritingGradeAsLearner(moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, attemptId: string, token: string | null, identity: { guestId?: string; studentName?: string; runSecret?: string }) {
+    return requestJson<ExamCompletedAttempt>(`${paperBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/${encodeURIComponent(attemptId)}/retry-writing-grade`, {
+      method: 'POST',
+      headers: { ...(token ? headers(token) : { 'Content-Type': 'application/json', 'X-Exam-Run-Secret': identity.runSecret || '' }) },
+      body: JSON.stringify({ guestId: identity.guestId || '', studentName: identity.studentName || '' }),
+    });
+  },
   review(moduleId: ExamModuleId, paperId: ExamPaperId, setId: string, attemptId: string, token: string | null, identity: { guestId?: string; studentName?: string; runSecret?: string }) {
     const query = token ? '' : `?${new URLSearchParams({ guestId: identity.guestId || '', studentName: identity.studentName || '' })}`;
     return requestJson<ExamAttemptReview>(`${paperBase(moduleId, paperId)}/sets/${encodeURIComponent(setId)}/attempts/${encodeURIComponent(attemptId)}/review${query}`, {

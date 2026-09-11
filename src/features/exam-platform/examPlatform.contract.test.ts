@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { containedExamImageRect, normalizedExamImagePoint } from '../exam-media/imageCoordinates';
 import { EXAM_IMAGE_PROFILES } from '../exam-media/imageProfiles';
 import {
   normalizeStarterPart2PromptForMover,
@@ -46,10 +47,13 @@ const ketListeningMigrationSource = readFileSync(new URL('./ketListeningMigratio
 const ketListeningCropSource = readFileSync(new URL('./ketListeningCrops.ts', import.meta.url), 'utf8');
 const writingGradingProviderSource = readFileSync(new URL('../../server/exam-platform/writingGradingProvider.ts', import.meta.url), 'utf8');
 const imageViewerSource = readFileSync(new URL('../exam-media/ExamImageViewer.tsx', import.meta.url), 'utf8');
+const imageCoordinatesSource = readFileSync(new URL('../exam-media/imageCoordinates.ts', import.meta.url), 'utf8');
 const imageProfileSource = readFileSync(new URL('../exam-media/imageProfiles.ts', import.meta.url), 'utf8');
 const splitLayoutSource = readFileSync(new URL('../exam-media/ExamSplitTaskLayout.tsx', import.meta.url), 'utf8');
 const moverReadingPlayerSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
 const listeningPartViewsSource = readFileSync(new URL('../listening/student/ListeningPartViews.tsx', import.meta.url), 'utf8');
+const listeningRegionEditorSource = readFileSync(new URL('../listening/admin/ListeningRegionEditor.tsx', import.meta.url), 'utf8');
+const fixedRegionEditorSource = readFileSync(new URL('../listening-editor/regions/FixedRegionEditor.tsx', import.meta.url), 'utf8');
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
@@ -198,6 +202,12 @@ test('student exam images use shared viewport-aware profiles and overflow-safe s
   assert.match(imageViewerSource, /data-exam-image-double-click/);
   assert.match(imageViewerSource, /showExpandButton = false/);
   assert.match(imageViewerSource, /expandOnDoubleClick = true/);
+  assert.match(imageViewerSource, /interactionMode = 'view'/);
+  assert.match(imageViewerSource, /expandFromStage = expandable && expandOnDoubleClick && !answerSurface/);
+  assert.match(imageViewerSource, /showSeparateExpandControl/);
+  assert.match(imageViewerSource, /fillInlineFrame = fillFrame && !answerSurface/);
+  assert.match(imageViewerSource, /data-exam-image-actions/);
+  assert.match(imageViewerSource, /data-exam-image-inline/);
   assert.match(imageViewerSource, /onDoubleClick=/);
   assert.match(imageViewerSource, /\['Enter', ' '\]\.includes\(event\.key\)/);
   assert.match(imageViewerSource, /resolvedMaxWidth/);
@@ -218,6 +228,14 @@ test('student exam images use shared viewport-aware profiles and overflow-safe s
   assert.match(listeningPartViewsSource, /maxWidth="100%"/);
   assert.match(listeningPartViewsSource, /maxHeight="max\(220px, calc\(100dvh - 390px\)\)"/);
   assert.match(listeningPartViewsSource, /stageProps=\{\{/);
+  assert.equal(listeningPartViewsSource.match(/interactionMode="answer-surface"/g)?.length, 4);
+  assert.equal(starterPlayerSource.match(/interactionMode="answer-surface"/g)?.length, 4);
+  assert.match(listeningPartViewsSource, /normalizedPointFromExamImage/);
+  assert.match(starterPlayerSource, /normalizedPointFromExamImage/);
+  assert.match(listeningRegionEditorSource, /normalizedPointFromExamImage/);
+  assert.match(fixedRegionEditorSource, /normalizedPointFromExamImage/);
+  assert.doesNotMatch(listeningPartViewsSource, /event\.detail > 1/);
+  assert.doesNotMatch(starterPlayerSource, /event\.detail > 1/);
   assert.match(splitLayoutSource, /47fr/);
   assert.match(splitLayoutSource, /53fr/);
   assert.doesNotMatch(splitLayoutSource, /grid-cols-\[minmax\(0,44%\)|grid-cols-\[minmax\(0,56%\)/);
@@ -303,6 +321,30 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.match(listeningPartViewsSource, /Example \{index \+ 1\}/);
 });
 
+test('answer coordinates follow the rendered image pixels instead of letterboxed frame space', () => {
+  const rendered = containedExamImageRect(
+    { left: 100, top: 40, width: 600, height: 400 },
+    1200,
+    600,
+  );
+  assert.deepEqual(rendered, { left: 100, top: 90, width: 600, height: 300 });
+  assert.deepEqual(
+    normalizedExamImagePoint(400, 240, { left: 100, top: 40, width: 600, height: 400 }, 1200, 600),
+    { x: 0.5, y: 0.5 },
+  );
+  assert.equal(
+    normalizedExamImagePoint(400, 60, { left: 100, top: 40, width: 600, height: 400 }, 1200, 600),
+    undefined,
+  );
+  assert.deepEqual(
+    normalizedExamImagePoint(400, 60, { left: 100, top: 40, width: 600, height: 400 }, 1200, 600, { clamp: true }),
+    { x: 0.5, y: 0 },
+  );
+  assert.match(imageCoordinatesSource, /image\.getBoundingClientRect\(\)/);
+  assert.match(imageCoordinatesSource, /image\.naturalWidth/);
+  assert.match(imageCoordinatesSource, /image\.naturalHeight/);
+});
+
 test('standalone Writing is a separate admin library with flexible AI grading and 0–10 history', () => {
   assert.ok(adminSource.indexOf('tab-writing-library') > adminSource.indexOf('tab-listening-library'));
   for (const contract of ['WritingLibraryAdmin', 'Kho đề Writing', "activeTab === 'writing-library'"]) {
@@ -329,6 +371,17 @@ test('standalone Writing is a separate admin library with flexible AI grading an
   assert.match(standaloneWritingPlayerSource, /event\.preventDefault\(\)/);
   assert.match(standaloneWritingPlayerSource, /Không thể dán hoặc kéo thả nội dung/);
   assert.match(standaloneWritingPlayerSource, /role="alert"/);
+  assert.match(standaloneWritingPlayerSource, /Nhận Xét Chung/);
+  assert.match(standaloneWritingPlayerSource, /Chấm lại sau/);
+  assert.match(standaloneWritingPlayerSource, /Đang gửi bài đến dịch vụ chấm, rất nhanh thôi, em đợi chút nhé!!/);
+  assert.match(standaloneWritingPlayerSource, /!grading && result\.aiGradingMessage/);
+  assert.doesNotMatch(standaloneWritingPlayerSource, /Lần \{Math\.max/);
+  assert.match(standaloneWritingPlayerSource, /writing-grade-retry/);
+  assert.match(standaloneWritingPlayerSource, /aiGradingNextRetryAt/);
+  assert.match(genericPlayerSource, /examPlatformApi\.gradingStatus/);
+  assert.match(genericPlayerSource, /examPlatformApi\.retryWritingGradeAsLearner/);
+  assert.match(genericPlayerSource, /submittedAttempt/);
+  assert.doesNotMatch(standaloneWritingPlayerSource, /Nhận xét của AI/);
   assert.doesNotMatch(standaloneWritingPlayerSource, /Xem nhận xét AI/);
   assert.doesNotMatch(standaloneWritingPlayerSource, /maxLength=/);
   assert.match(writingWordPolicySource, /Math\.floor\(recommendedMin \/ 4\)/);
@@ -336,6 +389,8 @@ test('standalone Writing is a separate admin library with flexible AI grading an
   assert.match(writingGradingProviderSource, /word count alone must never determine the score/);
   assert.match(writingGradingProviderSource, /If a longer response is relevant, coherent/);
   assert.match(writingGradingProviderSource, /If it is long but repetitive, off-topic/);
+  assert.match(writingGradingProviderSource, /OUTPUT LANGUAGE \(MANDATORY\)/);
+  assert.match(writingGradingProviderSource, /assertVietnameseExplanation/);
   assert.match(historyRepositorySource, /Writing · AI chấm/);
   assert.match(historyRepositorySource, /writingScore/);
   assert.match(historyRowSource, /exam:writing:writing/);
@@ -348,9 +403,33 @@ test('standalone Writing is a separate admin library with flexible AI grading an
   assert.match(globalCssSource, /button\.writing-result-review:not\(:disabled\)/);
   assert.match(globalCssSource, /button\.writing-result-retry:not\(:disabled\)/);
   assert.match(globalCssSource, /button\.writing-result-home:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.writing-grade-retry:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.writing-grade-retry:not\(:disabled\):hover/);
+  assert.match(globalCssSource, /button\.writing-grade-retry:disabled/);
   assert.match(modulePageSource, /manifest\?\.status === 'active' \|\| standaloneWriting/);
   assert.match(modulePageSource, /writingExamPath\(exam\.examId\)/);
   assert.match(examPageSource, /manifest\.status !== 'active' && !standaloneWriting/);
+  assert.match(genericAdminSource, /absoluteExamUrl\(previewUrl\(set\), window\.location\.origin\)/);
+  assert.match(genericAdminSource, /navigator\.clipboard\.writeText\(shareUrl\(set\)\)/);
+  assert.match(genericAdminSource, /playHref=\{shareUrl\(set\)\}/);
+  assert.match(genericPlayerSource, /authTokenForExamRun\(pending\.ticket, token\)/);
+  assert.match(genericPlayerSource, /authTokenForExamRun\(activePending\.ticket, token\)/);
+  assert.match(genericPlayerSource, /examPlatformApi\.review\(moduleId, paperId, setId, result\.id, reviewActorType === 'guest' \? null : token/);
+  assert.match(genericPlayerSource, /Hãy giữ nguyên trang, đăng nhập lại đúng tài khoản/);
+  assert.doesNotMatch(genericPlayerSource, /Vui lòng bắt đầu lượt mới khi cần/);
+});
+
+test('standalone Writing retry states meet WCAG AA text contrast', () => {
+  for (const [foreground, background] of [
+    ['#ffffff', '#b45309'], // enabled retry
+    ['#ffffff', '#92400e'], // enabled retry hover
+    ['#78350f', '#fef3c7'], // cooldown/loading
+  ]) {
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${foreground} on ${background} must meet a 4.5:1 contrast ratio`,
+    );
+  }
 });
 
 test('Starter Listening Parts 1, 3 and 4 use compact task frames while interactive scenes grow as one stage', () => {
@@ -369,8 +448,10 @@ test('Starter Listening Parts 1, 3 and 4 use compact task frames while interacti
   assert.match(starterPlayerSource, /preferredScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
   assert.match(starterPlayerSource, /imageScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
   assert.match(listeningPartViewsSource, /maxWidth=\{imageMaxWidth\}/);
-  assert.match(starterPlayerSource, /\(clientX - bounds\.left\) \/ bounds\.width/);
-  assert.match(listeningPartViewsSource, /\(event\.clientX - bounds\.left\) \/ bounds\.width/);
+  assert.match(starterPlayerSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
+  assert.match(listeningPartViewsSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
+  assert.doesNotMatch(starterPlayerSource, /\(event\.clientX - bounds\.left\) \/ Math\.max\(bounds\.width/);
+  assert.doesNotMatch(listeningPartViewsSource, /\(event\.clientX - bounds\.left\) \/ bounds\.width/);
 });
 
 test('Starter Listening Part 3 uses Movers image options and keeps manual crop collapsed', () => {
@@ -609,10 +690,12 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   assert.match(examRouterSource, /retry-writing-grade/);
   assert.match(examRouterSource, /aiGradingStatus: 'queued'/);
   assert.match(examRouterSource, /aiGradingStatus: 'processing'/);
+  assert.match(examRouterSource, /providerAttempt > 1 \? 'retrying' : 'processing'/);
   assert.match(examRouterSource, /aiGradingStatus: 'failed'/);
   assert.match(examRouterSource, /describeWritingGradingFailure\(error/);
-  assert.match(examRouterSource, /aiGradingMessage: `\$\{failureReason\} Giáo viên có thể thử lại hoặc chấm tay\.`/);
-  assert.match(writingGradingProviderSource, /Uses only the explicitly selected provider/);
+  assert.match(examRouterSource, /Dịch vụ chấm đang quá tải hoặc phản hồi chậm/);
+  assert.match(examRouterSource, /WRITING_GRADING_COOLDOWN/);
+  assert.match(writingGradingProviderSource, /never exceeds two provider requests/);
   assert.match(writingGradingProviderSource, /UNTRUSTED STUDENT ESSAY/);
   assert.match(writingGradingProviderSource, /Number\.isInteger\(score\)/);
   assert.match(writingGradingProviderSource, /describeWritingGradingFailure/);

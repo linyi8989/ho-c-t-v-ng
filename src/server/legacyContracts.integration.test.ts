@@ -103,6 +103,10 @@ function startAuthEmulator() {
       email: 'teacher@example.test',
       displayName: 'Teacher One',
     },
+    'teacher-2': {
+      email: 'teacher-two@example.test',
+      displayName: 'Teacher Two',
+    },
     'student-1': {
       email: 'student@example.test',
       displayName: 'Student One',
@@ -175,6 +179,14 @@ async function seedDatabase() {
       id: 'teacher-1',
       name: 'Teacher One',
       email: 'teacher@example.test',
+      role: 'teacher',
+      status: 'active',
+      createdAt: new Date(now - day).toISOString(),
+    },
+    {
+      id: 'teacher-2',
+      name: 'Teacher Two',
+      email: 'teacher-two@example.test',
       role: 'teacher',
       status: 'active',
       createdAt: new Date(now - day).toISOString(),
@@ -785,6 +797,35 @@ test('admin vocab and grammar result contracts enforce role/ownership and preser
   );
   assert.equal(grammar.body.attempts[0].studentName, 'Canonical Student One');
   assert.equal(grammar.body.attempts[1].studentName, 'Canonical Student Two');
+});
+
+test('teacher preview endpoints require staff ownership and return only the requested set', async () => {
+  const ownerToken = authToken('teacher-1', 'teacher@example.test');
+  const otherTeacherToken = authToken('teacher-2', 'teacher-two@example.test');
+  const studentToken = authToken('student-1', 'student@example.test');
+
+  for (const endpoint of [
+    '/api/admin/vocab-sets/vocab-1/preview',
+    '/api/admin/grammar-sets/grammar-1/preview',
+  ]) {
+    assert.equal((await apiRequest(endpoint)).status, 401);
+    assert.equal((await apiRequest(endpoint, studentToken)).status, 403);
+    assert.equal((await apiRequest(endpoint, otherTeacherToken)).status, 404);
+  }
+
+  const vocabulary = await apiRequest('/api/admin/vocab-sets/vocab-1/preview', ownerToken);
+  assert.equal(vocabulary.status, 200);
+  assert.equal(vocabulary.body.id, 'vocab-1');
+  assert.equal(vocabulary.body.items[0].term, 'apple');
+  assert.equal('audioPath' in vocabulary.body.items[0], false);
+
+  const grammar = await apiRequest('/api/admin/grammar-sets/grammar-1/preview', ownerToken);
+  assert.equal(grammar.status, 200);
+  assert.equal(grammar.body.id, 'grammar-1');
+  assert.equal(grammar.body.questions[0].correctOptionId, 'option-a');
+
+  assert.equal((await apiRequest('/api/admin/vocab-sets/missing/preview', ownerToken)).status, 404);
+  assert.equal((await apiRequest('/api/admin/grammar-sets/missing/preview', ownerToken)).status, 404);
 });
 
 test('grammar review and my-attempts contracts keep ownership and answer-review policy intact', async () => {

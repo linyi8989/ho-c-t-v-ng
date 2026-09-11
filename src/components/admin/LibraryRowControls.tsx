@@ -4,7 +4,7 @@ import { Copy, Play } from 'lucide-react';
 export type LibraryVisibility = 'draft' | 'public' | 'assignment';
 
 interface LibraryRowActionsProps {
-  onPlay: () => void;
+  playHref: string;
   onEdit: () => void;
   onClone: () => void;
   onResults: () => void;
@@ -17,8 +17,36 @@ interface LibraryRowActionsProps {
 
 const actionBase = 'rounded-lg border px-2.5 py-1.5 text-[11px] font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60';
 
+interface LibraryPlayActionProps {
+  href: string;
+  disabled?: boolean;
+  title?: string;
+}
+
+export function LibraryPlayAction({ href, disabled = false, title = 'Play' }: LibraryPlayActionProps) {
+  const className = `inline-flex items-center gap-1 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 ${actionBase}`;
+  const content = <><Play size={13} aria-hidden="true" />Play</>;
+
+  if (disabled || !href) {
+    return <button type="button" data-library-action="play" disabled title={title} className={className}>{content}</button>;
+  }
+
+  return (
+    <a
+      data-library-action="play"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className={className}
+    >
+      {content}
+    </a>
+  );
+}
+
 export function LibraryRowActions({
-  onPlay,
+  playHref,
   onEdit,
   onClone,
   onResults,
@@ -30,17 +58,7 @@ export function LibraryRowActions({
 }: LibraryRowActionsProps) {
   return (
     <div className="flex flex-wrap gap-1.5" data-library-row-actions>
-      <button
-        type="button"
-        data-library-action="play"
-        onClick={onPlay}
-        disabled={disabled || playDisabled}
-        title={playTitle}
-        className={`inline-flex items-center gap-1 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 ${actionBase}`}
-      >
-        <Play size={13} />
-        Play
-      </button>
+      <LibraryPlayAction href={playHref} disabled={disabled || playDisabled} title={playTitle} />
       <button
         type="button"
         data-library-action="edit"

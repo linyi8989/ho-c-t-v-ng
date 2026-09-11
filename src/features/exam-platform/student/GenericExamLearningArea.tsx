@@ -47,6 +47,7 @@ import ExamImageViewer from './ExamImageViewer';
 import StarterReadingWritingPartView from './StarterReadingWritingViews';
 import StarterReadingWritingResult from './StarterReadingWritingResult';
 import { resolveExamImageProfile, resolveExamTaskLayout } from './examPresentation';
+import { authTokenForExamRun, examRunActorTypeFromTicket, type ExamRunActorType } from './examRunIdentity';
 import FlyerListeningPartView from './FlyerListeningViews';
 import FlyerReadingWritingPartView from './FlyerReadingWritingViews';
 import FlyerReadingWritingResult from './FlyerReadingWritingResult';
@@ -74,6 +75,7 @@ interface SavedRun {
   answers: ExamAnswers;
   currentPart: number;
   submissionPending?: boolean;
+  submittedAttempt?: ExamCompletedAttempt;
 }
 
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
@@ -161,11 +163,14 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   const [currentPart, setCurrentPart] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [result, setResult] = useState<ExamCompletedAttempt | null>(null);
+  const [submittedRunAccess, setSubmittedRunAccess] = useState<SavedRun | null>(null);
   const [review, setReview] = useState<ExamAttemptReview | null>(null);
   const [reviewRunSecret, setReviewRunSecret] = useState('');
+  const [reviewActorType, setReviewActorType] = useState<ExamRunActorType>();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [gradeRetrying, setGradeRetrying] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
   const [error, setError] = useState('');
   const submitGuard = useRef(false);
@@ -201,6 +206,15 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       if (!raw) return;
       const saved = JSON.parse(raw) as SavedRun;
       if (saved.setId !== playable.id || saved.versionId !== playable.versionId || !saved.ticket || !saved.runSecret) return;
+      if (saved.submittedAttempt) {
+        setAnswers(saved.answers || {});
+        setSubmittedRunAccess(saved);
+        setReviewRunSecret(saved.runSecret);
+        setReviewActorType(examRunActorTypeFromTicket(saved.ticket));
+        setResult(saved.submittedAttempt);
+        setRun(null);
+        return;
+      }
       setRun(saved); setAnswers(saved.answers || {}); setCurrentPart(Math.max(0, Math.min(playable.content.parts.length - 1, Number(saved.currentPart || 0))));
     } catch { /* ignore invalid local state */ }
   }, [accessToken, authLoading, identityReady, moduleId, ownerKey, paperId, playable?.id, playable?.versionId]);
@@ -237,7 +251,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       const prepared = await examPlatformApi.prepare(moduleId, paperId, setId, token, { shareToken: accessToken, guestId, studentName, clientRunId: credentials.clientRunId, runSecret: credentials.runSecret });
       const next: SavedRun = { setId: playable.id, versionId: playable.versionId, ticket: prepared.ticket, clientRunId: credentials.clientRunId, runSecret: credentials.runSecret, startedAt: prepared.startedAt, deadlineAt: prepared.deadlineAt, answers: {}, currentPart: 0 };
       automaticSubmitStarted.current = false;
-      setRun(next); setAnswers({}); setCurrentPart(0); setReview(null); setReviewRunSecret(''); if (replaceResult) setResult(null);
+      setRun(next); setSubmittedRunAccess(null); setAnswers({}); setCurrentPart(0); setReview(null); setReviewRunSecret(''); setReviewActorType(undefined); if (replaceResult) setResult(null);
     } catch (reason: any) { setError(reason.message); }
     finally { setLoading(false); }
   };
@@ -255,10 +269,10 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(pending));
       let completed: ExamCompletedAttempt;
       try {
-        completed = await examPlatformApi.submit(moduleId, paperId, setId, token, { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers });
+        completed = await examPlatformApi.submit(moduleId, paperId, setId, authTokenForExamRun(pending.ticket, token), { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers });
       } catch (reason: any) {
         if (Number(reason?.status) !== 410) throw reason;
-        const renewed = await examPlatformApi.renewAttempt(moduleId, paperId, setId, token, { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName });
+        const renewed = await examPlatformApi.renewAttempt(moduleId, paperId, setId, authTokenForExamRun(pending.ticket, token), { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName });
         if (renewed.clientRunId !== pending.clientRunId || renewed.versionId !== pending.versionId) {
           throw Object.assign(new Error('Phiếu khôi phục không khớp lượt làm bài đã lưu.'), { status: 409 });
         }
@@ -270,16 +284,24 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
         };
         setRun(activePending);
         if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(activePending));
-        completed = await examPlatformApi.submit(moduleId, paperId, setId, token, { ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers });
+        completed = await examPlatformApi.submit(moduleId, paperId, setId, authTokenForExamRun(activePending.ticket, token), { ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers });
       }
-      setReviewRunSecret(activePending.runSecret); setResult(completed); setRun(null); if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
+      const submittedAccess = { ...activePending, submissionPending: false, submittedAttempt: completed };
+      setReviewRunSecret(activePending.runSecret); setReviewActorType(examRunActorTypeFromTicket(activePending.ticket)); setSubmittedRunAccess(submittedAccess); setResult(completed); setRun(null);
+      if (activeStorageKey) {
+        if (completed.status === 'completed') window.localStorage.removeItem(activeStorageKey);
+        else window.localStorage.setItem(activeStorageKey, JSON.stringify(submittedAccess));
+      }
     } catch (reason: any) {
       const status = Number(reason?.status);
       const retryable = !Number.isFinite(status) || status >= 500 || [408, 425, 429].includes(status);
+      const identityMismatch = [401, 403].includes(status);
       const retained = { ...activePending, submissionPending: retryable };
       const suffix = retryable
         ? 'Câu trả lời đã được lưu; bạn có thể nộp lại với cùng lượt làm bài.'
-        : 'Câu trả lời vẫn được lưu trên thiết bị, nhưng lượt này không thể tự nộp lại. Vui lòng bắt đầu lượt mới khi cần.';
+        : identityMismatch
+          ? 'Câu trả lời vẫn được lưu trên thiết bị. Hãy giữ nguyên trang, đăng nhập lại đúng tài khoản đã bắt đầu bài (nếu có), rồi bấm Nộp bài lần nữa.'
+          : 'Câu trả lời vẫn được lưu trên thiết bị. Hãy giữ nguyên trang và báo giáo viên trước khi bắt đầu lượt mới.';
       setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} ${suffix}`);
       setRun(retained);
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(retained));
@@ -289,10 +311,63 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   const loadReview = async () => {
     if (!result || reviewLoading) return;
     setReviewLoading(true);
-    try { setReview(await examPlatformApi.review(moduleId, paperId, setId, result.id, token, { guestId, studentName, runSecret: reviewRunSecret })); }
+    try { setReview(await examPlatformApi.review(moduleId, paperId, setId, result.id, reviewActorType === 'guest' ? null : token, { guestId, studentName, runSecret: reviewRunSecret })); }
     catch (reason: any) { setError(reason.message); }
     finally { setReviewLoading(false); }
   };
+  const retryWritingGrade = async () => {
+    if (!result || gradeRetrying) return;
+    setGradeRetrying(true); setError(''); setReview(null);
+    try {
+      const next = await examPlatformApi.retryWritingGradeAsLearner(moduleId, paperId, setId, result.id, reviewActorType === 'guest' ? null : token, { guestId, studentName, runSecret: reviewRunSecret });
+      setResult(next);
+    } catch (reason: any) {
+      setError(reason.message || 'Chưa thể gửi chấm lại Writing.');
+    } finally {
+      setGradeRetrying(false);
+    }
+  };
+  useEffect(() => {
+    if (!result || !['queued', 'processing', 'retrying'].includes(String(result.aiGradingStatus || ''))) return;
+    let active = true;
+    let timer = 0;
+    let consecutiveFailures = 0;
+    const poll = async () => {
+      try {
+        const next = await examPlatformApi.gradingStatus(moduleId, paperId, setId, result.id, reviewActorType === 'guest' ? null : token, { guestId, studentName, runSecret: reviewRunSecret });
+        if (!active) return;
+        consecutiveFailures = 0;
+        setResult(next);
+        if (['queued', 'processing', 'retrying'].includes(String(next.aiGradingStatus || ''))) timer = window.setTimeout(poll, 2_000);
+      } catch {
+        if (!active) return;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) setError('Kết nối cập nhật trạng thái chấm đang chậm. Hệ thống vẫn giữ an toàn bài viết và sẽ tiếp tục kiểm tra.');
+        timer = window.setTimeout(poll, Math.min(10_000, 2_000 * consecutiveFailures));
+      }
+    };
+    timer = window.setTimeout(poll, 800);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [guestId, moduleId, paperId, result?.aiGradingStatus, result?.id, reviewActorType, reviewRunSecret, setId, studentName, token]);
+  useEffect(() => {
+    if (!result || !submittedRunAccess || !activeStorageKey) return;
+    try {
+      if (result.status === 'completed') {
+        window.localStorage.removeItem(activeStorageKey);
+        setSubmittedRunAccess(null);
+      } else {
+        const next = { ...submittedRunAccess, answers, submittedAttempt: result };
+        window.localStorage.setItem(activeStorageKey, JSON.stringify(next));
+      }
+    } catch { /* result remains available in memory */ }
+  }, [activeStorageKey, answers, result, submittedRunAccess]);
+  const automaticReviewAttempt = useRef('');
+  useEffect(() => {
+    if (moduleId !== 'writing' || !result || result.status !== 'completed' || !playable?.content.showReviewAfterSubmit || review || reviewLoading || !reviewRunSecret) return;
+    if (automaticReviewAttempt.current === result.id) return;
+    automaticReviewAttempt.current = result.id;
+    void loadReview();
+  }, [moduleId, playable?.content.showReviewAfterSubmit, result?.id, result?.status, review, reviewLoading, reviewRunSecret]);
   useEffect(() => {
     if (!run?.deadlineAt || result) { setRemainingSeconds(null); return; }
     const tick = () => {
@@ -318,7 +393,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   if (result && moduleId === 'starter' && paperId === 'reading-writing') return <StarterReadingWritingResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
   if (result && moduleId === 'flyer' && paperId === 'reading-writing') return <FlyerReadingWritingResult result={result} review={review} playable={playable} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
   if (result && moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9) return <KetReadingWritingResult result={result} review={review} playable={playable} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
-  if (result && moduleId === 'writing' && paperId === 'writing') return <StandaloneWritingResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} error={error} onReview={() => void loadReview()} onRetry={() => void start(true)} onBack={onBack} />;
+  if (result && moduleId === 'writing' && paperId === 'writing') return <StandaloneWritingResult result={result} review={review} playable={playable} answers={answers} reviewLoading={reviewLoading} gradeRetrying={gradeRetrying} error={error} onReview={() => void loadReview()} onRetryGrade={() => void retryWritingGrade()} onRetry={() => void start(true)} onBack={onBack} />;
   if (result) return <main id="generic-exam-player" className="min-h-screen bg-gradient-to-b from-indigo-100 via-white to-sky-50 p-4 sm:p-8"><div className="mx-auto max-w-6xl space-y-6"><section className="rounded-3xl border border-white bg-white p-7 text-center shadow-xl">{result.status === 'pending_review' ? <FileClock className="mx-auto text-violet-600" size={54} /> : <Trophy className="mx-auto text-amber-500" size={54} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">{result.status === 'pending_review' ? 'Đã nộp · Chờ giáo viên chấm Writing' : 'Hoàn thành'}</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1>{result.status === 'pending_review' ? <><p className="mt-5 text-4xl font-black text-violet-700">Điểm khách quan: {result.objectiveScore}</p><p className="mt-2 text-sm font-bold text-slate-500">{result.pendingManualCount} bài viết đang chờ chấm. Điểm tổng sẽ có sau khi giáo viên xác nhận.</p></> : <><p className="mt-5 text-6xl font-black text-indigo-700">{result.score}</p><p className="mt-2 text-sm font-bold text-slate-500">Đúng {result.correctCount} · Sai {result.incorrectCount} · Bỏ trống {result.unansweredCount}</p></>}<div className="mt-6 flex flex-wrap justify-center gap-3">{result.status === 'completed' && playable.content.showReviewAfterSubmit && <button type="button" disabled={reviewLoading} onClick={() => void loadReview()} className="exam-platform-result-review inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 font-black text-indigo-700"><Eye size={17} />{reviewLoading ? 'Đang tải…' : 'Xem đáp án'}</button>}<button type="button" onClick={() => void start(true)} className="exam-platform-result-retry inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-black text-white"><RotateCcw size={17} />Làm lại</button><button type="button" onClick={onBack} className="exam-platform-result-home rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Quay lại</button></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}</section>{review && <section className="rounded-3xl border border-slate-200 bg-white p-5"><h2 className="mb-4 text-xl font-black text-slate-900">Chi tiết kết quả</h2><div className="grid gap-3 md:grid-cols-2">{review.questions.map(question => <article key={question.questionId} className={`rounded-2xl border p-4 text-sm ${question.correct ? 'border-emerald-200 bg-emerald-50' : question.unanswered ? 'border-amber-200 bg-amber-50' : 'border-rose-200 bg-rose-50'}`}><p className="text-xs font-black uppercase text-slate-600">Part {question.part} · Câu {question.number}</p><p className="mt-2 font-bold text-slate-900">{question.prompt}</p><p className="mt-2 text-slate-700">Bạn trả lời: <b>{Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</b></p>{!question.correct && <p className="mt-1 text-emerald-800">Đáp án đúng: <b>{Array.isArray(question.correctAnswer) ? question.correctAnswer.join(', ') : question.correctAnswer}</b></p>}</article>)}</div>{review.transcripts?.length ? <div className="mt-5 space-y-3">{review.transcripts.map(item => <details key={item.part} className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-left"><summary className="cursor-pointer text-sm font-black text-sky-900">Nội dung bài nghe · Part {item.part}</summary><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">{item.text}</p></details>)}</div> : null}</section>}</div></main>;
 
   if (!run) return <main id="generic-exam-player" className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5"><section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <div className="mb-6"><ExamImageViewer src={playable.coverUrl} alt={`Ảnh bìa ${playable.title}`} profile="cover" /></div> : paperId === 'listening' ? <Headphones className="mx-auto text-sky-600" size={52} /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">{moduleId === 'writing' ? '1 bài viết' : `${playable.content.parts.length} Part/Section`}</span>{moduleId !== 'writing' && <span className="rounded-full bg-indigo-50 px-3 py-2">{totalQuestions} câu/task</span>}<span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="exam-platform-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" disabled={authLoading} onClick={() => void start()} className="exam-platform-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{authLoading ? 'Đang xác minh...' : 'Bắt đầu'}</button></div></section></main>;

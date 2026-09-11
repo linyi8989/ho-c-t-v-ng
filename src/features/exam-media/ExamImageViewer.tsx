@@ -16,6 +16,7 @@ export interface ExamImageViewerProps {
   alt: string;
   children?: ReactNode;
   frameRef?: RefObject<HTMLDivElement | null>;
+  imageRef?: RefObject<HTMLImageElement | null>;
   className?: string;
   stageClassName?: string;
   stageProps?: Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'className' | 'style'>;
@@ -32,6 +33,8 @@ export interface ExamImageViewerProps {
   showExpandButton?: boolean;
   /** Open the shared fullscreen viewer by double-clicking the inline image. */
   expandOnDoubleClick?: boolean;
+  /** Answer surfaces reserve pointer actions for the exercise and use a separate expand control. */
+  interactionMode?: 'view' | 'answer-surface';
   triggerOnly?: boolean;
   fillFrame?: boolean;
 }
@@ -43,6 +46,7 @@ export default function ExamImageViewer({
   alt,
   children,
   frameRef,
+  imageRef,
   className = '',
   stageClassName = '',
   stageProps,
@@ -56,6 +60,7 @@ export default function ExamImageViewer({
   expandable = true,
   showExpandButton = false,
   expandOnDoubleClick = true,
+  interactionMode = 'view',
   triggerOnly = false,
   fillFrame = false,
 }: ExamImageViewerProps) {
@@ -70,6 +75,10 @@ export default function ExamImageViewer({
   const resolvedMaxWidth = maxWidth || profileConfig.maxWidth;
   const resolvedMaxHeight = maxHeight || profileConfig.maxHeight;
   const safePreferredScale = Number.isFinite(preferredScale) ? Math.max(1, preferredScale) : 1;
+  const answerSurface = interactionMode === 'answer-surface';
+  const expandFromStage = expandable && expandOnDoubleClick && !answerSurface;
+  const showSeparateExpandControl = expandable && (showExpandButton || answerSurface);
+  const fillInlineFrame = fillFrame && !answerSurface;
   const { className: _stageClassName, style: _stageStyle, ...safeStageProps } = stageProps || {};
 
   const openViewer = () => {
@@ -139,32 +148,35 @@ export default function ExamImageViewer({
   return <>
     {triggerOnly
       ? <button type="button" onClick={event => { event.stopPropagation(); openViewer(); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} />Phóng to ảnh</button>
-      : <div data-exam-image-profile={profile} className={`exam-platform-image-viewer relative mx-auto max-w-full overflow-visible rounded-2xl ${fillFrame ? 'h-full w-full' : 'w-fit'} ${className}`} style={fillFrame ? undefined : { maxWidth: resolvedMaxWidth }}>
+      : <div data-exam-image-profile={profile} className={`exam-platform-image-viewer relative mx-auto max-w-full overflow-visible rounded-2xl ${fillInlineFrame ? 'h-full w-full' : 'w-fit'} ${className}`} style={fillInlineFrame ? undefined : { maxWidth: resolvedMaxWidth }}>
           <div
             {...safeStageProps}
             ref={frameRef}
             data-exam-image-stage
-            data-exam-image-double-click={expandable && expandOnDoubleClick ? 'true' : undefined}
-            role={expandable && expandOnDoubleClick ? (safeStageProps.role || 'group') : safeStageProps.role}
-            tabIndex={expandable && expandOnDoubleClick ? (safeStageProps.tabIndex ?? 0) : safeStageProps.tabIndex}
-            aria-label={expandable && expandOnDoubleClick ? (safeStageProps['aria-label'] || `${alt}. Nhấp đúp hoặc nhấn Enter để phóng to ảnh.`) : safeStageProps['aria-label']}
-            title={expandable && expandOnDoubleClick ? (safeStageProps.title || 'Nhấp đúp để phóng to ảnh') : safeStageProps.title}
+            data-exam-image-interaction={interactionMode}
+            data-exam-image-double-click={expandFromStage ? 'true' : undefined}
+            role={expandFromStage ? (safeStageProps.role || 'group') : safeStageProps.role}
+            tabIndex={expandFromStage ? (safeStageProps.tabIndex ?? 0) : safeStageProps.tabIndex}
+            aria-label={expandFromStage ? (safeStageProps['aria-label'] || `${alt}. Nhấp đúp hoặc nhấn Enter để phóng to ảnh.`) : safeStageProps['aria-label']}
+            title={expandFromStage ? (safeStageProps.title || 'Nhấp đúp để phóng to ảnh') : safeStageProps.title}
             onDoubleClick={event => {
               safeStageProps.onDoubleClick?.(event);
-              if (!expandable || !expandOnDoubleClick || event.defaultPrevented) return;
+              if (!expandFromStage || event.defaultPrevented) return;
               event.stopPropagation();
               openViewer();
             }}
             onKeyDown={event => {
               safeStageProps.onKeyDown?.(event);
-              if (!expandable || !expandOnDoubleClick || event.defaultPrevented || event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+              if (!expandFromStage || event.defaultPrevented || event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
               event.preventDefault();
               event.stopPropagation();
               openViewer();
             }}
-            className={`relative mx-auto max-w-full overflow-hidden rounded-[inherit] ${expandable && expandOnDoubleClick ? 'cursor-zoom-in focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-400' : ''} ${fillFrame ? 'h-full w-full' : 'w-fit'} ${stageClassName}`}
+            className={`relative mx-auto max-w-full overflow-hidden rounded-[inherit] ${expandFromStage ? 'cursor-zoom-in focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-400' : ''} ${fillInlineFrame ? 'h-full w-full' : 'w-fit'} ${stageClassName}`}
           >
             <img
+              ref={imageRef}
+              data-exam-image-inline
               src={src}
               alt={alt}
               draggable={false}
@@ -172,8 +184,8 @@ export default function ExamImageViewer({
                 setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
                 onImageLoad?.(event);
               }}
-              className={`block object-contain ${fillFrame ? 'h-full w-full max-w-none' : 'h-auto w-auto max-w-full'} ${imageClassName}`}
-              style={fillFrame ? imageStyle : {
+              className={`block object-contain ${fillInlineFrame ? 'h-full w-full max-w-none' : 'h-auto w-auto max-w-full'} ${imageClassName}`}
+              style={fillInlineFrame ? imageStyle : {
                 maxHeight: resolvedMaxHeight,
                 maxWidth: '100%',
                 ...(safePreferredScale > 1 && naturalSize?.width ? { width: `${naturalSize.width * safePreferredScale}px` } : {}),
@@ -182,7 +194,7 @@ export default function ExamImageViewer({
             />
             {children}
           </div>
-          {expandable && showExpandButton && <button type="button" onClick={event => { event.stopPropagation(); openViewer(); }} className="exam-platform-image-expand absolute right-2 top-2 z-50 inline-flex h-10 w-10 items-center justify-center rounded-xl" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={20} /></button>}
+          {showSeparateExpandControl && <div data-exam-image-actions className="mt-2 flex justify-end"><button type="button" onClick={event => { event.stopPropagation(); openViewer(); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} /><span>Phóng to ảnh</span></button></div>}
         </div>}
 
     {expandable && open && <div id="exam-platform-image-dialog" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`Xem ảnh toàn màn hình: ${alt}`} onClick={event => event.stopPropagation()} className="exam-platform-image-dialog fixed inset-0 z-[1000] flex flex-col bg-slate-950/95 p-3 outline-none sm:p-5">

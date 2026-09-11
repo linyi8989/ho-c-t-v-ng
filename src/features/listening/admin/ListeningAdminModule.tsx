@@ -497,7 +497,7 @@ export default function ListeningAdminModule({
                   </td>
                   <td className="p-4">
                     <LibraryRowActions
-                      onPlay={() => window.open(previewUrl(set), '_blank', 'noopener,noreferrer')}
+                      playHref={previewUrl(set)}
                       onEdit={() => editSet(set.id)}
                       onClone={() => cloneSet(set)}
                       onResults={() => showResults(set)}

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { normalizedPointFromExamImage } from '../../exam-media/imageCoordinates';
 import { ListeningPart2View, ListeningPart4View, ListeningPart5View } from '../../listening/student/ListeningPartViews';
 import type { ListeningAnswers, ListeningPart2, ListeningPart4, ListeningPart5SceneColourDraw } from '../../listening/types';
 import type { ExamAnswerValue, ExamAnswers, ExamInteractionRegion, ExamMatchingConnection, ExamPartContent, ExamScenePlacement } from '../types';
@@ -235,6 +236,7 @@ function MatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answ
   const [activeSourceId, setActiveSourceId] = useState('');
   const [previewPoint, setPreviewPoint] = useState<{ x: number; y: number }>();
   const boardRef = useRef<HTMLDivElement>(null);
+  const boardImageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ pointerId: number; sourceNodeId: string; startX: number; startY: number; moved: boolean }>();
   const suppressClickRef = useRef(false);
   if (!rawLayout || (rawLayout.kind !== 'starter-image-matching-v1' && rawLayout.kind !== 'starter-image-matching-v2') || !part.imageUrl) return <p className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-800">Part nối hình chưa có ảnh hoặc điểm neo tương tác.</p>;
@@ -246,14 +248,7 @@ function MatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answ
   const targetById = new Map(layout.targetNodes.map(node => [node.id, node]));
   const exampleSourceId = layout.exampleConnection?.sourceNodeId;
   const exampleTargetId = layout.exampleConnection?.targetNodeId;
-  const pointFromClient = (clientX: number, clientY: number) => {
-    const bounds = boardRef.current?.getBoundingClientRect();
-    if (!bounds?.width || !bounds.height) return undefined;
-    return {
-      x: Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width)),
-      y: Math.max(0, Math.min(1, (clientY - bounds.top) / bounds.height)),
-    };
-  };
+  const pointFromClient = (clientX: number, clientY: number) => normalizedPointFromExamImage(clientX, clientY, boardImageRef.current);
   const updateConnections = (next: ExamMatchingConnection[]) => onAnswer(responseKey, next);
   const assign = (sourceNodeId: string, targetNodeId: string) => {
     if (!sourceNodeId || !targetNodeId || sourceNodeId === exampleSourceId || targetNodeId === exampleTargetId) return;
@@ -298,7 +293,7 @@ function MatchingView({ part, answers, onAnswer }: { part: ExamPartContent; answ
   const activeSource = sourceById.get(activeSourceId);
   return <div className="space-y-3" id="starter-interaction" data-starter-interaction="image-matching" onKeyDown={event => { if (event.key === 'Escape') { setActiveSourceId(''); setPreviewPoint(undefined); } }}>
     <p className="text-xs font-bold text-slate-600">Chạm một hình nguồn rồi chạm hình đích, hoặc giữ và kéo để nối. Chạm đường đã nối để xóa. Đường example in sẵn được khóa.</p>
-    <ExamImageViewer frameRef={boardRef} src={part.imageUrl} alt="Starters matching scene" profile="interactive-scene" maxWidth={STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH} maxHeight={STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT} preferredScale={STARTER_LISTENING_LARGE_IMAGE_SCALE} className="isolate border border-slate-200 bg-white">
+    <ExamImageViewer frameRef={boardRef} imageRef={boardImageRef} src={part.imageUrl} alt="Starters matching scene" profile="interactive-scene" interactionMode="answer-surface" maxWidth={STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH} maxHeight={STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT} preferredScale={STARTER_LISTENING_LARGE_IMAGE_SCALE} className="isolate border border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" focusable="false" className="starter-matching-lines pointer-events-none absolute inset-0 z-30 h-full w-full" aria-label="Các đường nối Starters Part 1">
         {connections.map(connection => {
           const source = sourceById.get(connection.sourceNodeId);
@@ -334,7 +329,7 @@ function SceneColourView({ part, answers, onAnswer }: { part: ExamPartContent; a
   return <div className="space-y-3" id="starter-interaction" data-starter-interaction="scene-colour">
     <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">{palette.map(option => <button key={option.id} type="button" aria-pressed={selectedColourId === option.id} data-starter-action="select-colour" onClick={() => setSelectedColourId(option.id)} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black ${selectedColourId === option.id ? 'border-indigo-600 ring-2 ring-indigo-200' : 'border-slate-200'}`}><span className="h-5 w-5 rounded-full border border-slate-300" aria-hidden="true" style={{ backgroundColor: starterColourValue(option.text) }} />{option.text}</button>)}</div>
     <p className="text-xs font-bold text-slate-600">Chọn màu, sau đó chạm vào đối tượng tương ứng trên tranh.</p>
-    <ExamImageViewer src={part.imageUrl} alt="Starters colour scene" profile="interactive-scene" className="border border-slate-200 bg-white">
+    <ExamImageViewer src={part.imageUrl} alt="Starters colour scene" profile="interactive-scene" interactionMode="answer-surface" className="border border-slate-200 bg-white">
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
         {layout.targets.map(target => {
           const raw = answers[target.questionId];
@@ -360,6 +355,7 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
   const layout = part.interactionLayout?.kind === 'scene-draw-v1' ? part.interactionLayout : undefined;
   const [activeTargetId, setActiveTargetId] = useState(layout?.targets[0]?.id || '');
   const [keyboardAnchor, setKeyboardAnchor] = useState({ x: .5, y: .5 });
+  const sceneImageRef = useRef<HTMLImageElement>(null);
   if (!layout || !part.imageUrl) return <p className="rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-800">Dạng Draw chưa có ảnh scene.</p>;
   const active = layout.targets.find(target => target.id === activeTargetId);
   const questionById = new Map(part.questions.map(question => [question.id, question]));
@@ -392,9 +388,11 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
     >{target.tokenUrl ? <img src={target.tokenUrl} alt="" draggable={false} className="h-12 w-12 shrink-0 object-contain" /> : <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-black">{target.object}</span>}<span><b className="text-indigo-700">{index + 1}.</b> {questionById.get(target.questionId)?.prompt || target.label}</span></button>)}</div>
     <p className="text-xs font-bold text-slate-600">Kéo hình vào đúng vị trí trên tranh, hoặc chọn hình rồi chạm vị trí cần đặt. Nhấn hình đã đặt để gỡ.</p>
     <ExamImageViewer
+      imageRef={sceneImageRef}
       src={part.imageUrl}
       alt="Scene để vẽ thêm vật"
       profile="interactive-scene"
+      interactionMode="answer-surface"
       className="border border-slate-200/80 bg-white"
       stageProps={{
         tabIndex: active ? 0 : undefined,
@@ -417,13 +415,13 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
           const target = layout.targets.find(item => item.id === event.dataTransfer.getData('text/exam-scene-draw'));
           if (!target) return;
           event.preventDefault();
-          const bounds = event.currentTarget.getBoundingClientRect();
-          placeAt(target, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
+          const point = normalizedPointFromExamImage(event.clientX, event.clientY, sceneImageRef.current);
+          if (point) placeAt(target, point.x, point.y);
         },
         onClick: event => {
           if (!active) return;
-          const bounds = event.currentTarget.getBoundingClientRect();
-          placeAt(active, (event.clientX - bounds.left) / Math.max(bounds.width, 1), (event.clientY - bounds.top) / Math.max(bounds.height, 1));
+          const point = normalizedPointFromExamImage(event.clientX, event.clientY, sceneImageRef.current);
+          if (point) placeAt(active, point.x, point.y);
         },
       }}
     >
@@ -441,7 +439,7 @@ export default function StarterInteractionView(props: { part: ExamPartContent; a
   if (props.part.interactionLayout?.kind === 'image-text-entry-v1') {
     const layout = props.part.interactionLayout;
     return <div className="space-y-3" data-exam-interaction="image-text-entry">
-      {props.part.imageUrl ? <ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" profile="interactive-scene" className="border border-slate-200/80 bg-white">{layout.targets.map((target, index) => {
+      {props.part.imageUrl ? <ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" profile="interactive-scene" interactionMode="answer-surface" className="border border-slate-200/80 bg-white">{layout.targets.map((target, index) => {
         const raw = props.answers[target.questionId];
         const value = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : '';
         return <label key={target.id} className="absolute" style={{ left: `${target.region.x * 100}%`, top: `${target.region.y * 100}%`, width: `${target.region.width * 100}%`, height: `${target.region.height * 100}%` }}><span className="sr-only">{target.label || `Câu ${index + 1}`}</span><input value={value} onChange={event => props.onAnswer(target.questionId, event.target.value)} className="h-full w-full rounded-md border-2 border-indigo-400 bg-white/95 px-2 text-center text-sm font-black text-slate-900 shadow-sm outline-none focus:border-indigo-600" /></label>;

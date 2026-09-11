@@ -104,6 +104,18 @@ function correctAnswers(content: ExamPaperContent): ExamAnswers {
   ])));
 }
 
+async function waitForAttempt(url: string, headers: Record<string, string>, predicate: (attempt: any) => boolean) {
+  let latest: any;
+  for (let index = 0; index < 100; index += 1) {
+    const response = await fetch(url, { headers });
+    latest = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(latest));
+    if (predicate(latest)) return latest;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail(`Timed out waiting for Writing grading: ${JSON.stringify(latest)}`);
+}
+
 test('generic exam API preserves immutable publish, private grading and manual Writing workflow', async t => {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vhomework-exam-platform-'));
   process.env.NODE_ENV = 'test';
@@ -131,6 +143,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
     next();
   };
   const pass: express.RequestHandler = (_req, _res, next) => next();
+  let failWritingGrade = false;
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use('/api/exam-platform', createExamRouter({
@@ -142,11 +155,15 @@ test('generic exam API preserves immutable publish, private grading and manual W
     resolveGuestProfile: async (guestId, studentName) => ({ id: String(guestId), displayName: String(studentName), status: 'active' }),
     writingGrading: {
       providers: [{ id: 'stali:gpt-5.6-sol', label: 'Stali test', enabled: true }],
-      grade: async request => {
+      recoveryIntervalMs: 0,
+      retryCooldownMs: 1_000,
+      grade: async (request, options) => {
+        await options?.onAttempt?.(1, 2);
+        if (failWritingGrade) throw new TypeError('fetch failed');
         assert.equal(request.providerId, 'stali:gpt-5.6-sol');
         assert.match(request.taskContext, /writing task|task/i);
         assert.match(request.gradingInstructions, /Rubric:\s*Teacher rubric/i);
-        return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['verb form'], vocabularyErrors: [], feedback: 'The task is complete. Three sentences are used. One verb form needs correction. Vocabulary is appropriate.' };
+        return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['Cần sửa dạng động từ trong câu đầu tiên.'], vocabularyErrors: [], feedback: 'Bài viết đã hoàn thành đúng yêu cầu với ba câu. Em cần sửa một dạng động từ; từ vựng nhìn chung phù hợp.' };
       },
     },
   }));
@@ -252,6 +269,32 @@ test('generic exam API preserves immutable publish, private grading and manual W
     runSecret: 'objective-run-secret-123456',
     answers: correctAnswers(objectiveContent),
   };
+  const guestAuthDriftIdentity = { guestId: 'guest-exam-auth-drift', studentName: 'Mai Anh' };
+  const guestAuthDriftPrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...guestAuthDriftIdentity, shareToken: 'exam-assignment-token', clientRunId: 'guest-auth-drift-run', runSecret: 'guest-auth-drift-secret-123456' }),
+  });
+  const guestAuthDriftPrepared = await guestAuthDriftPrepareResponse.json() as any;
+  assert.equal(guestAuthDriftPrepareResponse.status, 200, JSON.stringify(guestAuthDriftPrepared));
+  const guestAuthDriftSubmit = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-teacher': 'owner' },
+    body: JSON.stringify({ ...guestAuthDriftIdentity, ticket: guestAuthDriftPrepared.ticket, runSecret: 'guest-auth-drift-secret-123456', answers: correctAnswers(objectiveContent) }),
+  });
+  assert.equal(guestAuthDriftSubmit.status, 201, JSON.stringify(await guestAuthDriftSubmit.json()));
+
+  const authenticatedPrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-teacher': 'owner' },
+    body: JSON.stringify({ clientRunId: 'authenticated-owner-run', runSecret: 'authenticated-owner-secret-123456' }),
+  });
+  const authenticatedPrepared = await authenticatedPrepareResponse.json() as any;
+  assert.equal(authenticatedPrepareResponse.status, 200, JSON.stringify(authenticatedPrepared));
+  const wrongAuthenticatedOwnerSubmit = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-teacher': 'other' },
+    body: JSON.stringify({ ticket: authenticatedPrepared.ticket, runSecret: 'authenticated-owner-secret-123456', answers: correctAnswers(objectiveContent) }),
+  });
+  assert.equal(wrongAuthenticatedOwnerSubmit.status, 401);
+  assert.equal((await wrongAuthenticatedOwnerSubmit.json() as any).error, 'Không có quyền nộp lượt làm bài này.');
+
   assert.ok(prepared.deadlineAt, 'timed practice fixture must have a deadline');
   const realDateNow = Date.now;
   Date.now = () => new Date(prepared.deadlineAt).getTime() + 3 * 60_000;
@@ -466,16 +509,22 @@ test('generic exam API preserves immutable publish, private grading and manual W
   });
   const ketAttempt = await ketSubmit.json() as any;
   assert.equal(ketSubmit.status, 201, JSON.stringify(ketAttempt));
-  assert.equal(ketAttempt.status, 'completed');
-  assert.equal(ketAttempt.aiGradingStatus, 'completed');
-  assert.equal(ketAttempt.score, 97);
+  assert.equal(ketAttempt.status, 'pending_review');
+  assert.equal(ketAttempt.aiGradingStatus, 'queued');
+  const ketCompletedAttempt = await waitForAttempt(
+    `${baseUrl}/modules/ket/papers/reading-writing/sets/${ketCreated.id}/attempts/${ketAttempt.id}/status?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`,
+    { 'X-Exam-Run-Secret': 'ket-writing-run-secret-12345678' },
+    value => value.aiGradingStatus === 'completed',
+  );
+  assert.equal(ketCompletedAttempt.status, 'completed');
+  assert.equal(ketCompletedAttempt.score, 97);
   const ketReviewResponse = await fetch(`${baseUrl}/modules/ket/papers/reading-writing/sets/${ketCreated.id}/attempts/${ketAttempt.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } });
   const ketReview = await ketReviewResponse.json() as any;
   assert.equal(ketReviewResponse.status, 200);
   const ketWriting = ketReview.questions.find((question: any) => question.part === 9);
   assert.equal(ketWriting.writingScore, 8);
-  assert.deepEqual(ketWriting.grammarErrors, ['verb form']);
-  assert.match(ketWriting.aiFeedback, /task is complete/i);
+  assert.deepEqual(ketWriting.grammarErrors, ['Cần sửa dạng động từ trong câu đầu tiên.']);
+  assert.match(ketWriting.aiFeedback, /Bài viết đã hoàn thành đúng yêu cầu/);
 
   const standaloneContent = completeContent('writing', 'writing');
   standaloneContent.title = 'My first flexible Writing task';
@@ -504,9 +553,16 @@ test('generic exam API preserves immutable publish, private grading and manual W
   });
   const standaloneAttempt = await standaloneSubmit.json() as any;
   assert.equal(standaloneSubmit.status, 201, JSON.stringify(standaloneAttempt));
-  assert.equal(standaloneAttempt.status, 'completed');
-  assert.equal(standaloneAttempt.writingScore, 8);
-  assert.equal(standaloneAttempt.writingWordCount, 80);
+  assert.equal(standaloneAttempt.status, 'pending_review');
+  assert.equal(standaloneAttempt.aiGradingStatus, 'queued');
+  const standaloneCompletedAttempt = await waitForAttempt(
+    `${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${standaloneAttempt.id}/status?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`,
+    { 'X-Exam-Run-Secret': 'standalone-writing-secret-12345678' },
+    value => value.aiGradingStatus === 'completed',
+  );
+  assert.equal(standaloneCompletedAttempt.status, 'completed');
+  assert.equal(standaloneCompletedAttempt.writingScore, 8);
+  assert.equal(standaloneCompletedAttempt.writingWordCount, 80);
   const standaloneReviewResponse = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${standaloneAttempt.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } });
   const standaloneReview = await standaloneReviewResponse.json() as any;
   assert.equal(standaloneReview.questions[0].writingScore, 8);
@@ -515,6 +571,41 @@ test('generic exam API preserves immutable publish, private grading and manual W
   const standaloneHistory = historyWithWriting.items.find(item => item.gameId === 'exam:writing:writing');
   assert.equal(standaloneHistory?.rawScore, 8);
   assert.equal(standaloneHistory?.maxScore, 10);
+
+  failWritingGrade = true;
+  const failedPrepareResponse = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, clientRunId: 'standalone-writing-failed-run', runSecret: 'standalone-failed-secret-12345678' }),
+  });
+  const failedTicket = await failedPrepareResponse.json() as any;
+  assert.equal(failedPrepareResponse.status, 200, JSON.stringify(failedTicket));
+  const failedSubmitResponse = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, ticket: failedTicket.ticket, runSecret: 'standalone-failed-secret-12345678', answers: { [standaloneQuestionId]: 'A safe essay that will be graded again after the temporary provider failure.' } }),
+  });
+  const failedQueuedAttempt = await failedSubmitResponse.json() as any;
+  assert.equal(failedSubmitResponse.status, 201, JSON.stringify(failedQueuedAttempt));
+  assert.equal(failedQueuedAttempt.aiGradingStatus, 'queued');
+  const failedStatusUrl = `${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${failedQueuedAttempt.id}/status?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`;
+  const failedAttempt = await waitForAttempt(failedStatusUrl, { 'X-Exam-Run-Secret': 'standalone-failed-secret-12345678' }, value => value.aiGradingStatus === 'failed');
+  assert.equal(failedAttempt.status, 'pending_review');
+  assert.equal(failedAttempt.aiGradingRetryable, true);
+  assert.match(failedAttempt.aiGradingMessage, /quá tải hoặc phản hồi chậm/);
+  const unauthorizedStatus = await fetch(failedStatusUrl, { headers: { 'X-Exam-Run-Secret': 'wrong-standalone-failed-secret' } });
+  assert.equal(unauthorizedStatus.status, 404);
+  const retryUrl = `${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${failedQueuedAttempt.id}/retry-writing-grade`;
+  const retryBody = JSON.stringify(identity);
+  const earlyRetry = await fetch(retryUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Exam-Run-Secret': 'standalone-failed-secret-12345678' }, body: retryBody });
+  assert.equal(earlyRetry.status, 429);
+  assert.equal((await earlyRetry.json() as any).details.code, 'WRITING_GRADING_COOLDOWN');
+  await new Promise(resolve => setTimeout(resolve, 1_050));
+  failWritingGrade = false;
+  const retryResponseForLearner = await fetch(retryUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Exam-Run-Secret': 'standalone-failed-secret-12345678' }, body: retryBody });
+  const retriedQueuedAttempt = await retryResponseForLearner.json() as any;
+  assert.equal(retryResponseForLearner.status, 202, JSON.stringify(retriedQueuedAttempt));
+  assert.equal(retriedQueuedAttempt.id, failedQueuedAttempt.id);
+  assert.equal(retriedQueuedAttempt.aiGradingCycle, 2);
+  const retriedCompletedAttempt = await waitForAttempt(failedStatusUrl, { 'X-Exam-Run-Secret': 'standalone-failed-secret-12345678' }, value => value.aiGradingStatus === 'completed');
+  assert.equal(retriedCompletedAttempt.id, failedQueuedAttempt.id);
+  assert.equal(retriedCompletedAttempt.aiGradingCycle, 2);
 
   const drawCurrent = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
   const drawContent = importUniversalExamBundle(drawCurrent, JSON.stringify({

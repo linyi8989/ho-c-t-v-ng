@@ -11,6 +11,10 @@ const serverSource = readFileSync(new URL("../../server.ts", import.meta.url), "
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 const studentGameSource = readFileSync(new URL("../components/games/StudentLearningArea.tsx", import.meta.url), "utf8");
 const authSource = readFileSync(new URL("../context/AuthContext.tsx", import.meta.url), "utf8");
+const teacherPreviewSource = readFileSync(
+  new URL("../components/admin/TeacherLibraryPreview.tsx", import.meta.url),
+  "utf8"
+);
 const firestoreRules = readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8");
 const mediaMaintenanceSource = readFileSync(
   new URL("../../scripts/media-orphan-maintenance.mjs", import.meta.url),
@@ -166,4 +170,28 @@ test("legacy resource delete routes archive records instead of deleting history-
     assert.match(route, /archiveResourceRecord/);
     assert.doesNotMatch(route, /await [^;\n]+\.delete\(|batch\d*\.delete\(/);
   }
+});
+
+test("teacher library preview point-reads are authenticated and owner-scoped", () => {
+  for (const [routeMarker, ownerCheck] of [
+    ['app.get("/api/admin/grammar-sets/:id/preview"', "canManageGrammarSet"],
+    ['app.get("/api/admin/vocab-sets/:id/preview"', "canManageVocabSet"],
+  ] as const) {
+    const start = serverSource.indexOf(routeMarker);
+    const end = serverSource.indexOf("\napp.", start + routeMarker.length);
+    assert.notEqual(start, -1, `Missing ${routeMarker}`);
+    assert.notEqual(end, -1, `Cannot bound ${routeMarker}`);
+    const route = serverSource.slice(start, end);
+    assert.match(route, /authenticateUser/);
+    assert.match(route, /requireRole\(\["teacher", "super_admin"\]\)/);
+    assert.ok(route.includes(ownerCheck), `Missing ${ownerCheck}`);
+    assert.match(route, /status\(404\)/);
+    assert.doesNotMatch(route, /\.set\(|\.update\(|\.delete\(/);
+  }
+
+  assert.match(teacherPreviewSource, /\/api\/admin\/vocab-sets\/\$\{encodeURIComponent\(setId\)\}\/preview/);
+  assert.match(teacherPreviewSource, /\/api\/admin\/grammar-sets\/\$\{encodeURIComponent\(setId\)\}\/preview/);
+  assert.match(teacherPreviewSource, /Authorization: `Bearer \$\{token\}`/);
+  assert.match(teacherPreviewSource, /AbortController/);
+  assert.match(appSource, /if \(!user \|\| !isStaff \|\| !token\)/);
 });

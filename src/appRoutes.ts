@@ -4,7 +4,14 @@ export type AppShellRoute =
   | { kind: 'auth'; pathname: string; mode: 'login' | 'register' }
   | { kind: 'private-vocabulary'; pathname: string; token: string }
   | { kind: 'private-grammar'; pathname: string; token: string }
+  | { kind: 'teacher-preview'; pathname: string; resourceType: TeacherPreviewResource; setId: string }
   | { kind: 'other'; pathname: string };
+
+export type TeacherPreviewResource = 'vocabulary' | 'grammar';
+
+export function teacherLibraryPreviewPath(resourceType: TeacherPreviewResource, setId: string) {
+  return `/teacher-preview/${resourceType}/${encodeURIComponent(setId)}`;
+}
 
 function normalizePathname(pathname: string) {
   return pathname.replace(/\/+$/, '') || '/';
@@ -44,6 +51,16 @@ export function parseAppShellRoute(pathnameValue: string): AppShellRoute {
       kind: 'private-grammar',
       pathname,
       token: decodeRouteToken(grammarMatch[1]),
+    };
+  }
+
+  const teacherPreviewMatch = pathname.match(/^\/teacher-preview\/(vocabulary|grammar)\/([^/?#]+)$/);
+  if (teacherPreviewMatch) {
+    return {
+      kind: 'teacher-preview',
+      pathname,
+      resourceType: teacherPreviewMatch[1] as TeacherPreviewResource,
+      setId: decodeRouteToken(teacherPreviewMatch[2]),
     };
   }
   return { kind: 'other', pathname };

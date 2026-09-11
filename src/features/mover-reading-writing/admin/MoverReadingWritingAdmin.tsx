@@ -489,7 +489,7 @@ export default function MoverReadingWritingAdmin({
                 <td className="p-4 font-bold text-slate-600">6 Part · 40 câu</td>
                 <td className="p-4 font-bold text-slate-600">{set.status === 'published' ? `Đã xuất bản v${set.publishedVersionNumber || 1}` : 'Bản nháp'}</td>
                 <td className="p-4"><LibraryLinkStatus visibility={set.visibility} privateUrl={set.visibility === 'assignment' && set.shareToken ? previewUrl(set) : undefined} onCopyPrivateLink={set.shareToken ? async () => { await navigator.clipboard.writeText(previewUrl(set)); setMessage({ text: 'Đã sao chép link riêng.' }); } : undefined} /></td>
-                <td className="p-4"><LibraryRowActions onPlay={() => window.location.href = previewUrl(set)} playDisabled={set.status !== 'published'} onEdit={() => void editSet(set.id)} onClone={() => void cloneSet(set)} onResults={() => void showResults(set)} onDelete={() => void archiveSet(set)} disabled={busy} deleteTitle="Lưu trữ bộ đề" /></td>
+                <td className="p-4"><LibraryRowActions playHref={previewUrl(set)} playDisabled={set.status !== 'published'} onEdit={() => void editSet(set.id)} onClone={() => void cloneSet(set)} onResults={() => void showResults(set)} onDelete={() => void archiveSet(set)} disabled={busy} deleteTitle="Lưu trữ bộ đề" /></td>
               </tr>
             ))}
             {visibleSets.length === 0 && <tr><td colSpan={5} className="p-10 text-center font-semibold text-slate-500">{searchQuery.trim() ? 'Không tìm thấy bộ đề Reading & Writing phù hợp.' : 'Chưa có bộ đề Reading & Writing.'}</td></tr>}

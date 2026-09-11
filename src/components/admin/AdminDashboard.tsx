@@ -11,7 +11,8 @@ import { playAudioUrl, playVocabAudio, resolveTtsPlaybackRate, speakEnglish } fr
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
 import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
-import { LibraryLinkStatus, LibraryRowActions } from './LibraryRowControls';
+import { LibraryLinkStatus, LibraryPlayAction, LibraryRowActions } from './LibraryRowControls';
+import { teacherLibraryPreviewPath } from '../../appRoutes';
 import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
@@ -3001,7 +3002,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             </td>
                             <td className="px-4 py-4">
                               <div className="flex flex-wrap gap-1.5">
-                                <button type="button" onClick={() => onViewAsStudent(set)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-700 hover:bg-emerald-100"><Play size={13} />Play</button>
+                                <LibraryPlayAction href={teacherLibraryPreviewPath('vocabulary', set.id)} />
                                 <button type="button" onClick={() => handleOpenEditEditor(set)} className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-black text-blue-700 hover:bg-blue-100">Sửa</button>
                                 <button type="button" onClick={() => handleCloneSet(set.id)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-black text-indigo-700 hover:bg-indigo-100">Sao chép</button>
                                 <button type="button" onClick={() => handleLoadVocabResults(set)} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-black text-amber-700 hover:bg-amber-100">Kết quả</button>
@@ -3345,7 +3346,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                             </td>
                             <td className="px-4 py-4">
                               <LibraryRowActions
-                                onPlay={() => onViewGrammarAsStudent?.(set)}
+                                playHref={teacherLibraryPreviewPath('grammar', set.id)}
                                 onEdit={() => handleEditGrammarSet(set)}
                                 onClone={() => handleCloneGrammarSet(set)}
                                 onResults={() => handleLoadGrammarResults(set)}

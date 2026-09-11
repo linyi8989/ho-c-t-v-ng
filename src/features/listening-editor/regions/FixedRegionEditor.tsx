@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { MousePointer2 } from 'lucide-react';
+import { normalizedPointFromExamImage } from '../../exam-media/imageCoordinates';
 import type { ListeningRegion } from '../../listening/types';
 
 export interface FixedRegionItem {
@@ -25,20 +26,20 @@ export default function FixedRegionEditor({
   width = 0.12,
   height = 0.055,
 }: FixedRegionEditorProps) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const dragOffsetRef = useRef({ x: width / 2, y: height / 2 });
   const draggingIdRef = useRef('');
   const [activeId, setActiveId] = useState(items[0]?.id || '');
   const [preview, setPreview] = useState<{ id: string; region: ListeningRegion } | null>(null);
-  const pointerPosition = (event: React.PointerEvent) => {
-    const bounds = surfaceRef.current!.getBoundingClientRect();
-    return {
-      x: (event.clientX - bounds.left) / bounds.width,
-      y: (event.clientY - bounds.top) / bounds.height,
-    };
-  };
-  const pointerRegion = (event: React.PointerEvent): ListeningRegion => {
+  const pointerPosition = (event: React.PointerEvent) => normalizedPointFromExamImage(
+    event.clientX,
+    event.clientY,
+    imageRef.current,
+    { clamp: true },
+  );
+  const pointerRegion = (event: React.PointerEvent): ListeningRegion | undefined => {
     const point = pointerPosition(event);
+    if (!point) return undefined;
     return {
       shape: 'rect',
       x: clamp(point.x - dragOffsetRef.current.x, 1 - width),
@@ -51,6 +52,7 @@ export default function FixedRegionEditor({
     event.preventDefault();
     event.stopPropagation();
     const point = pointerPosition(event);
+    if (!point) return;
     const region = {
       ...item.region,
       shape: 'rect' as const,
@@ -68,12 +70,14 @@ export default function FixedRegionEditor({
   };
   const move = (event: React.PointerEvent) => {
     const draggingId = draggingIdRef.current;
-    if (draggingId) setPreview({ id: draggingId, region: pointerRegion(event) });
+    const region = pointerRegion(event);
+    if (draggingId && region) setPreview({ id: draggingId, region });
   };
   const finish = (event: React.PointerEvent) => {
     const draggingId = draggingIdRef.current;
     if (!draggingId) return;
     const region = pointerRegion(event);
+    if (!region) return;
     draggingIdRef.current = '';
     setPreview(null);
     onChange(items.map(item => {
@@ -121,10 +125,9 @@ export default function FixedRegionEditor({
         <div className="flex min-h-48 items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-white text-xs font-bold text-slate-400">Chọn hình trước khi đặt vùng</div>
       ) : (
         <div
-          ref={surfaceRef}
           className="relative mx-auto max-w-4xl overflow-hidden rounded-xl border border-slate-300 bg-white select-none"
         >
-          <img src={imageUrl} alt="Ảnh đặt vùng cố định" className="block h-auto w-full pointer-events-none" draggable={false} />
+          <img ref={imageRef} src={imageUrl} alt="Ảnh đặt vùng cố định" className="block h-auto w-full pointer-events-none" draggable={false} />
           {items.map((item, index) => {
             const region = preview?.id === item.id ? preview.region : {
               ...item.region,

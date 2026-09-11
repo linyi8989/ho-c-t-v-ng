@@ -3138,7 +3138,7 @@ app.use(
     logAudit: logAuditAction,
     writingGrading: {
       providers: getWritingGradingProviders(WRITING_GRADING_CONFIG),
-      grade: input => gradeWritingWithProvider(input, WRITING_GRADING_CONFIG),
+      grade: (input, options) => gradeWritingWithProvider(input, { ...WRITING_GRADING_CONFIG, onAttempt: options?.onAttempt }),
     },
   })
 );
@@ -5057,6 +5057,18 @@ app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (re
   }
 });
 
+app.get("/api/admin/grammar-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const set = await getGrammarSetOr404(req.params.id);
+    if (!set || isArchivedRecord(set) || !canManageGrammarSet(req.user, set)) {
+      return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
+    }
+    res.json(set);
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
 app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
@@ -5074,6 +5086,19 @@ app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["t
     });
     attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
     res.json({ set, attempts: await enrichStudentNames(attempts) });
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+app.get("/api/admin/vocab-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    const set = setDoc.exists ? { id: setDoc.id, ...setDoc.data() } : null;
+    if (!set || isArchivedRecord(set) || !canManageVocabSet(req.user, set)) {
+      return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
+    }
+    res.json(stripPrivateVocabSetFields(set));
   } catch (err: any) {
     sendApiError(res, err);
   }

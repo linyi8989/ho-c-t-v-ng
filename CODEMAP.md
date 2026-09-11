@@ -4697,3 +4697,223 @@ Rollout and verification:
   the generated Writing player is in `clientRegistry-BjjsMsoi.js`; and the
   restarted `dev:local` server returns HTTP 200 while serving the new typed-only
   source boundary.
+
+## 88. Absolute private exam links for existing sets - 2026-09-10
+
+- Generic exam admin rows previously copied the canonical relative route such
+  as `/writing/:setId?accessToken=...`. That route works inside the app but is
+  incomplete when pasted into a message outside the site.
+- The shared route helper now resolves the canonical path against
+  `window.location.origin` before it reaches `LibraryLinkStatus` or the
+  clipboard. Production therefore copies a complete
+  `https://app.msdieu.com/writing/:setId?accessToken=...` URL, while localhost
+  automatically uses `http://localhost:3000`.
+- This is computed at copy time and therefore fixes existing and new sets
+  without a database migration, republish or token change. The `accessToken`
+  query remains mandatory for assignment-only access, and URL-safe tokens may
+  validly end in `-`.
+- Play navigation continues to use the canonical app path. No visibility,
+  ownership, published version, attempt, result, token persistence or access
+  validation behavior changed. Verification: TypeScript lint passes; the route
+  and admin contracts pass 24/24; the complete exam-platform suite passes
+  75/75; and the canonical build succeeds with the updated admin path in
+  `GenericExamAdmin-CFbqGhtc.js`.
+
+## 89. Stable actor mode for exam attempt submission - 2026-09-10
+
+- Generic exam tickets already contain a server-signed `ownerKey` and a hash of
+  the per-run secret. The player previously selected its optional Authorization
+  header from the browser's current auth state on every request. A guest run
+  could therefore be submitted as `user:*` if a login appeared later, or an
+  authenticated run could fall through as `guest:*` after auth changed; the
+  backend correctly rejected either transition as an owner mismatch.
+- `examRunIdentity.ts` reads only the actor kind (`guest` or `authenticated`)
+  from the ticket payload and pins renew, submit and post-submit review to that
+  mode. Guest runs omit a bearer token even if one appears later; authenticated
+  runs continue using the latest current bearer token. Existing saved tickets
+  need no migration because actor kind is derived from their signed payload.
+- After ticket signature validation, the exam router applies the same pinning
+  when resolving the owner for renew, submit and learner review. This lets an
+  already-open old client submit a guest ticket even if optional authentication
+  later appears, while an authenticated ticket still resolves through the
+  current account and must match its exact signed `user:*` owner.
+- This client-side routing decision grants no authority. The backend continues
+  to validate ticket signature, route/set/version, run-secret hash and exact
+  owner. A malformed/unknown ticket never triggers a guest downgrade; changing
+  from user A to user B, changing the guest ID, or mixing a ticket and secret
+  from different tabs remains rejected.
+- The change preserves current answers and retry state. It changes no private
+  link token, database schema, grading, score, history or published content.
+  Remaining real 401/403 responses are not auto-retried in a loop; the player
+  tells the learner to keep the page and restore the original account before a
+  manual submit retry instead of suggesting an immediate new run that would
+  clear the visible answer.
+  `examRunIdentity.test.ts` covers guest-to-auth drift, authenticated token
+  refresh and malformed/unknown tickets; the exam-platform contract protects
+  all renew/submit/review call sites. Router integration covers a guest ticket
+  with a later bearer identity and still rejects account A → account B.
+- Verification after both client and router changes: TypeScript lint passes;
+  the complete exam-platform suite passes 78/78; and the canonical client plus
+  bundled-server build succeeds. The generated exam player is in
+  `clientRegistry-BP8rIS5Z.js`, the link-management UI is in
+  `GenericExamAdmin-unYoGukm.js`, and the server authority is in
+  `dist/server.cjs`.
+
+## 90. Vietnamese Writing feedback contract - 2026-09-10
+
+- The standalone Writing result heading is `Nhận Xét Chung`; the grammar and
+  vocabulary headings remain `Ngữ pháp cần lưu ý` and `Từ vựng cần lưu ý`.
+- `writingGradingProvider.ts` now requires the overall feedback and every
+  grammar/vocabulary note to be natural Vietnamese with Vietnamese diacritics.
+  Exact English mistakes and corrected English examples may remain in quotation
+  marks so learners can compare them, but explanatory prose cannot be
+  English-only. This provider-level contract is shared by standalone Writing
+  and KET Reading & Writing Part 9.
+- Language requirements are present in the provider system instruction, the
+  user prompt and the strict JSON-schema descriptions. Provider output remains
+  untrusted: runtime validation rejects English-only feedback or list items and
+  makes the existing bounded second request to the same selected provider. It
+  never silently falls back to another provider. Empty grammar/vocabulary arrays
+  remain valid when no notable issue exists.
+- Previously stored attempts are unchanged and continue to render their original
+  feedback; a new grading/retry is required to generate Vietnamese feedback for
+  an old attempt. No attempt, history, published-content or database schema was
+  migrated.
+- Verification: TypeScript lint passes; the complete exam-platform suite passes
+  82/82 including prompt, runtime-language, same-provider retry, router and UI
+  contracts; and the canonical production build succeeds. The generated Writing
+  result UI is in `clientRegistry-BGRBePH6.js`, while the Vietnamese grading
+  contract is bundled in `dist/server.cjs`.
+
+## 91. Teacher library Play opens an isolated tab - 2026-09-11
+
+- The five-action library row keeps `Play`, `Sửa`, `Sao chép`, `Kết quả`, and
+  `Xóa` in the same order. Only `Play` is now a native anchor with
+  `target="_blank"` and `rel="noopener noreferrer"`; the other four actions
+  remain buttons with their existing callbacks. A disabled Play remains a
+  disabled button, so unpublished exam sets cannot bypass the current rule.
+- Listening, Movers Reading & Writing, standalone Writing, and every generic
+  exam module reuse their existing stable student/share preview URL. No share
+  token, assignment URL, publication policy, result action, or title-click
+  behavior changed.
+- Vocabulary and grammar previously depended on in-memory dashboard state, so
+  they now use stable authenticated routes
+  `/teacher-preview/vocabulary/:setId` and
+  `/teacher-preview/grammar/:setId`. `TeacherLibraryPreview.tsx` point-loads
+  exactly one set with the current bearer token and renders the existing
+  student learning component in the new tab. The browser's existing login
+  session is reused; there is no second login in the normal teacher flow.
+- The matching backend point-read endpoints are staff-only, owner-scoped, hide
+  a cross-owner set behind 404, reject archived records, and perform no write.
+  Vocabulary preview responses continue to strip private filesystem audio
+  paths. This adds no database field, migration, public content endpoint, or
+  student authorization path.
+- Regression coverage renders the shared action component to prove that Play
+  alone is a safe new-tab link, checks every library call site, protects route
+  parsing, and verifies the API authentication/ownership contract. Local
+  verification: TypeScript lint passes; security 15/15, grammar 13/13,
+  vocabulary games 13/13, Listening 139/139, Movers Reading & Writing 26/26,
+  and exam platform 82/82 pass; the canonical production build succeeds. The
+  generated preview chunk is `TeacherLibraryPreview-CGVOB-sA.js`, the shared
+  actions are in `LibraryRowControls-D8Q9Jy9k.js`, and backend enforcement is
+  bundled in `dist/server.cjs`. The native legacy integration file includes the
+  owner/cross-owner endpoint cases, but cannot start under this workstation's
+  active Node 24 ABI 137 because `better-sqlite3` is the production-baseline
+  Node 22 ABI 127 build; it must be run in the documented Node 22 release lane.
+
+## 92. Interaction-safe exam image coordinates and explicit zoom - 2026-09-11
+
+- `ExamImageViewer` now distinguishes ordinary viewing from an
+  `answer-surface`. Ordinary question/reference images keep the existing
+  double-click and keyboard zoom behavior. Interactive answer images never use
+  stage double-click zoom, never show a zoom cursor, and expose one explicit
+  `Phóng to ảnh` button below and outside the answer surface instead.
+- Answer surfaces also ignore `fillFrame`, so their stage shrink-wraps the
+  rendered image rather than a larger responsive frame. Answer handlers keep
+  their established click sequence: a later click may clear, replace or move
+  an answer according to that exercise's existing rules. This deliberately
+  preserves the observed double-click-to-remove behavior in legacy placement
+  and colour tasks; only the unrelated image-zoom reaction is removed.
+- `imageCoordinates.ts` is the shared coordinate boundary. It derives the
+  actual rendered image content rectangle from the image element, intrinsic
+  dimensions and `object-contain` scale, then converts pointer coordinates to
+  normalized 0..1 image coordinates. Pointer events in letterbox padding are
+  ignored for students and clamped to the nearest image edge while teachers
+  author or drag regions.
+- Listening Part 1/3/5 and generic Starters matching, colour, draw and
+  image-entry interactions opt into the answer-surface mode. Direct matching
+  and placement coordinates use the inline image ref rather than the outer
+  frame. `ListeningRegionEditor` and `FixedRegionEditor` use the same helper,
+  so authored regions and student hit-testing share one coordinate system at
+  every responsive size.
+- Stored regions remain normalized coordinates and require no content or
+  database migration. Region sizes, scoring, answer schemas and ordinary image
+  presentation are unchanged.
+- Regression coverage includes a letterboxed 600x400 element containing a
+  2:1 image, verifies exact center mapping, rejects padding clicks, protects
+  the authoring/player shared helper, and limits answer-surface mode to the
+  intended interactive call sites. Local verification: TypeScript lint passes;
+  Listening passes 139/139; exam platform passes 83/83; and Movers Reading &
+  Writing passes 26/26. The canonical production build succeeds; the updated
+  shared viewer and interaction code is emitted in
+  `clientRegistry-CJ45FhwF.js`.
+
+## 93. Durable asynchronous Writing grading - 2026-09-11
+
+- Submitting an AI-enabled Writing answer now persists the immutable attempt,
+  answer detail and grading queue state before returning. The submit endpoint
+  responds immediately with `pending_review` + `queued`; it no longer keeps the
+  student's HTTP request open while Stali/DevQuota grades the essay.
+- Queue state is stored on the existing `exam_attempts` document (`cycle`,
+  provider-attempt number, status, retry eligibility, cooldown and a private
+  lease). This is a persistent job without a new table or schema migration.
+  A startup/periodic recovery scan resumes queued work and reclaims an expired
+  `processing`/`retrying` lease after a server restart. Public attempt summaries
+  remove the private lease token and expiry.
+- One grading cycle makes at most two HTTP requests to the explicitly selected
+  provider. Transient network/timeout/408/425/429/5xx errors and invalid grading
+  contracts receive one same-provider retry; configuration, authentication,
+  unsupported-provider and unsafe-input errors stop immediately. There is no
+  silent provider fallback. Each provider request has a 60-second timeout.
+- After both bounded requests fail transiently, the attempt remains
+  `pending_review`, the original answer remains unchanged, and the learner sees
+  a safe overload message. The server enforces a five-minute cooldown before
+  the authenticated owner can press `Chấm lại`. That action increments the
+  grading cycle on the same attempt/version/essay; it never creates a second
+  learning attempt. Permanent failures stay teacher-only for retry/configuration
+  repair or manual grading.
+- Student polling uses a narrow owner-protected status endpoint. Guest access
+  requires the exact guest identity plus run secret; authenticated runs require
+  their original account. Polls do not touch guest activity. The pending result
+  and run credential stay in local storage, so reloading the tab while grading
+  restores the same status screen. On success, standalone Writing loads the
+  Vietnamese review automatically. While queued, processing or automatically
+  retrying, the learner sees one friendly delivery message and no provider
+  attempt counter or duplicated technical `aiGradingMessage`; those operational
+  details remain available to the backend and teacher dashboard.
+- The learner retry action has explicit feature-scoped styling for every state:
+  cooldown/loading stays disabled with a pale amber background and dark text;
+  after cooldown, the enabled `Chấm lại` action switches to an opaque dark-amber
+  background with white text, plus a darker hover state. Both states disable the
+  legacy global glass/blur treatment and meet WCAG AA instead of relying on
+  Tailwind utility classes that global `!important` selectors can override.
+- Teacher result rows distinguish queued, first request, automatic retry and
+  failure, refresh while a job is active, and keep manual grading available.
+  Per-attempt locking plus cycle/lease checks prevent a stale AI worker from
+  overwriting a teacher grade in the same process.
+- Failure logs contain only safe transport diagnostics (error name/message and
+  nested cause code/message), provider ID and attempt ID. They expose neither
+  API keys nor the student's essay, while making DNS/TLS/socket/permission
+  failures distinguishable from a slow provider response.
+- Regression coverage verifies immediate queued submission, protected status
+  reads, background completion, transient failure, enforced cooldown, same-ID
+  learner retry, maximum-two provider calls, no retry for HTTP 401, and the
+  updated UI contracts. No answer, published set, learning-history schema or
+  score formula changed.
+- Verification: TypeScript lint passes; security passes 15/15; the complete
+  exam-platform suite passes 86/86; and the canonical production build
+  succeeds. The updated learner flow is emitted in
+  `clientRegistry-B4FU7Re9.js`, the live teacher statuses are in
+  `GenericExamAdmin-Cuxq3uRa.js`, the retry-button contrast is emitted in
+  `index-BNpUlfNl.css`, and the persistent worker/provider policy is bundled in
+  `dist/server.cjs`.
