@@ -4839,24 +4839,38 @@ Rollout and verification:
   dimensions and `object-contain` scale, then converts pointer coordinates to
   normalized 0..1 image coordinates. Pointer events in letterbox padding are
   ignored for students and clamped to the nearest image edge while teachers
-  author or drag regions.
+  author or drag regions. The inverse helper
+  `examImageContentRectInStage(...)` projects stored normalized coordinates
+  back into that exact same pixel rectangle.
+- `ExamImageViewer` mounts every answer overlay (SVG lines, hitboxes, colour
+  masks, placed objects and image-entry fields) in a dedicated
+  `data-exam-image-content-layer`. The layer is offset and sized to the real
+  image pixels, not the possibly letterboxed `<img>` element box, and is kept
+  synchronized by `ResizeObserver` plus the window-resize fallback. This fixes
+  the remaining curved-mirror-like drift where pointer input already used the
+  contained image but overlays still used the full stage.
 - Listening Part 1/3/5 and generic Starters matching, colour, draw and
   image-entry interactions opt into the answer-surface mode. Direct matching
   and placement coordinates use the inline image ref rather than the outer
   frame. `ListeningRegionEditor` and `FixedRegionEditor` use the same helper,
   so authored regions and student hit-testing share one coordinate system at
   every responsive size.
-- Stored regions remain normalized coordinates and require no content or
-  database migration. Region sizes, scoring, answer schemas and ordinary image
-  presentation are unchanged.
+- Stored regions from both old and new exercises remain normalized coordinates
+  and require no content or database migration. The authoring surfaces before
+  this fix also stored coordinates against the displayed image itself, so old
+  regions become aligned as soon as the corrected player is deployed. Region
+  sizes, scoring, answer schemas and ordinary image presentation are unchanged.
 - Regression coverage includes a letterboxed 600x400 element containing a
   2:1 image, verifies exact center mapping, rejects padding clicks, protects
   the authoring/player shared helper, and limits answer-surface mode to the
-  intended interactive call sites. Local verification: TypeScript lint passes;
-  Listening passes 139/139; exam platform passes 83/83; and Movers Reading &
-  Writing passes 26/26. The canonical production build succeeds; the updated
-  shared viewer and interaction code is emitted in
-  `clientRegistry-CJ45FhwF.js`.
+  intended interactive call sites. It additionally round-trips one unchanged
+  legacy normalized point through both a portrait image with horizontal
+  letterboxing and a landscape image with vertical letterboxing. Local
+  verification: TypeScript lint passes; Listening passes 139/139; exam platform
+  passes 86/86; and Movers Reading & Writing passes 26/26. The canonical
+  production build succeeds; shared coordinate projection is emitted in
+  `imageCoordinates-CmDxKtti.js` and the updated player/viewer bundle is
+  `clientRegistry-BW_bGxxE.js`.
 
 ## 93. Durable asynchronous Writing grading - 2026-09-11
 

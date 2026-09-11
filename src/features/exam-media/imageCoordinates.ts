@@ -38,6 +38,30 @@ export function containedExamImageRect(
   };
 }
 
+/**
+ * Returns the image-content rectangle in coordinates relative to the shared
+ * overlay stage. This is the inverse projection used by answer overlays: a
+ * normalized stored point rendered inside this rectangle lands on the same
+ * image pixel that normalizedExamImagePoint reads from a pointer event.
+ */
+export function examImageContentRectInStage(
+  stageRect: ExamImageRect,
+  imageElementRect: ExamImageRect,
+  naturalWidth: number,
+  naturalHeight: number,
+): ExamImageRect | undefined {
+  if (![stageRect.left, stageRect.top, stageRect.width, stageRect.height].every(Number.isFinite)) return undefined;
+  if (stageRect.width <= 0 || stageRect.height <= 0) return undefined;
+  const contentRect = containedExamImageRect(imageElementRect, naturalWidth, naturalHeight);
+  if (!contentRect) return undefined;
+  return {
+    left: contentRect.left - stageRect.left,
+    top: contentRect.top - stageRect.top,
+    width: contentRect.width,
+    height: contentRect.height,
+  };
+}
+
 export function normalizedExamImagePoint(
   clientX: number,
   clientY: number,

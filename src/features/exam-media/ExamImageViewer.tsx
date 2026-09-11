@@ -9,6 +9,7 @@ import {
   type RefObject,
   type SyntheticEvent,
 } from 'react';
+import { examImageContentRectInStage, type ExamImageRect } from './imageCoordinates';
 import { getExamImageProfile, type ExamImageProfile } from './imageProfiles';
 
 export interface ExamImageViewerProps {
@@ -70,7 +71,10 @@ export default function ExamImageViewer({
   const dialogRef = useRef<HTMLDivElement>(null);
   const imageViewportRef = useRef<HTMLDivElement>(null);
   const modalImageRef = useRef<HTMLImageElement>(null);
+  const inlineStageRef = useRef<HTMLDivElement>(null);
+  const inlineImageRef = useRef<HTMLImageElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [answerContentRect, setAnswerContentRect] = useState<ExamImageRect>();
   const profileConfig = getExamImageProfile(profile);
   const resolvedMaxWidth = maxWidth || profileConfig.maxWidth;
   const resolvedMaxHeight = maxHeight || profileConfig.maxHeight;
@@ -102,7 +106,43 @@ export default function ExamImageViewer({
 
   useEffect(() => {
     setNaturalSize(undefined);
+    setAnswerContentRect(undefined);
   }, [src]);
+
+  useEffect(() => {
+    if (!answerSurface) {
+      setAnswerContentRect(undefined);
+      return;
+    }
+    const stage = inlineStageRef.current;
+    const image = inlineImageRef.current;
+    if (!stage || !image) return;
+    const updateContentRect = () => {
+      const next = examImageContentRectInStage(
+        stage.getBoundingClientRect(),
+        image.getBoundingClientRect(),
+        image.naturalWidth,
+        image.naturalHeight,
+      );
+      if (!next) return;
+      setAnswerContentRect(current => current
+        && Math.abs(current.left - next.left) < .25
+        && Math.abs(current.top - next.top) < .25
+        && Math.abs(current.width - next.width) < .25
+        && Math.abs(current.height - next.height) < .25
+        ? current
+        : next);
+    };
+    updateContentRect();
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateContentRect);
+    resizeObserver?.observe(stage);
+    resizeObserver?.observe(image);
+    window.addEventListener('resize', updateContentRect);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateContentRect);
+    };
+  }, [answerSurface, naturalSize?.height, naturalSize?.width, src]);
 
   useEffect(() => {
     if (!open) return;
@@ -151,7 +191,10 @@ export default function ExamImageViewer({
       : <div data-exam-image-profile={profile} className={`exam-platform-image-viewer relative mx-auto max-w-full overflow-visible rounded-2xl ${fillInlineFrame ? 'h-full w-full' : 'w-fit'} ${className}`} style={fillInlineFrame ? undefined : { maxWidth: resolvedMaxWidth }}>
           <div
             {...safeStageProps}
-            ref={frameRef}
+            ref={node => {
+              inlineStageRef.current = node;
+              if (frameRef) frameRef.current = node;
+            }}
             data-exam-image-stage
             data-exam-image-interaction={interactionMode}
             data-exam-image-double-click={expandFromStage ? 'true' : undefined}
@@ -175,7 +218,10 @@ export default function ExamImageViewer({
             className={`relative mx-auto max-w-full overflow-hidden rounded-[inherit] ${expandFromStage ? 'cursor-zoom-in focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-amber-400' : ''} ${fillInlineFrame ? 'h-full w-full' : 'w-fit'} ${stageClassName}`}
           >
             <img
-              ref={imageRef}
+              ref={node => {
+                inlineImageRef.current = node;
+                if (imageRef) imageRef.current = node;
+              }}
               data-exam-image-inline
               src={src}
               alt={alt}
@@ -192,7 +238,16 @@ export default function ExamImageViewer({
                 ...imageStyle,
               }}
             />
-            {children}
+            {answerSurface
+              ? <div
+                  data-exam-image-content-layer
+                  data-exam-image-content-ready={answerContentRect ? 'true' : 'false'}
+                  className="absolute overflow-visible"
+                  style={answerContentRect
+                    ? { left: answerContentRect.left, top: answerContentRect.top, width: answerContentRect.width, height: answerContentRect.height }
+                    : { inset: 0, pointerEvents: 'none', visibility: 'hidden' }}
+                >{children}</div>
+              : children}
           </div>
           {showSeparateExpandControl && <div data-exam-image-actions className="mt-2 flex justify-end"><button type="button" onClick={event => { event.stopPropagation(); openViewer(); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} /><span>Phóng to ảnh</span></button></div>}
         </div>}

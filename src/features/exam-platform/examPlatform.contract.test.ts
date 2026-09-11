@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { containedExamImageRect, normalizedExamImagePoint } from '../exam-media/imageCoordinates';
+import {
+  containedExamImageRect,
+  examImageContentRectInStage,
+  normalizedExamImagePoint,
+} from '../exam-media/imageCoordinates';
 import { EXAM_IMAGE_PROFILES } from '../exam-media/imageProfiles';
 import {
   normalizeStarterPart2PromptForMover,
@@ -340,9 +344,62 @@ test('answer coordinates follow the rendered image pixels instead of letterboxed
     normalizedExamImagePoint(400, 60, { left: 100, top: 40, width: 600, height: 400 }, 1200, 600, { clamp: true }),
     { x: 0.5, y: 0 },
   );
+
+  const oldStoredPoint = { x: 0.187, y: 0.41 };
+  const portraitElement = { left: 50, top: 20, width: 900, height: 744 };
+  const portraitLayer = examImageContentRectInStage(
+    portraitElement,
+    portraitElement,
+    416,
+    526,
+  );
+  assert.ok(portraitLayer);
+  assert.ok(portraitLayer.left > 150, 'portrait object-contain image should have horizontal letterboxing');
+  assert.equal(portraitLayer.top, 0);
+  const portraitClientPoint = {
+    x: portraitElement.left + portraitLayer.left + portraitLayer.width * oldStoredPoint.x,
+    y: portraitElement.top + portraitLayer.top + portraitLayer.height * oldStoredPoint.y,
+  };
+  const portraitRoundTrip = normalizedExamImagePoint(
+    portraitClientPoint.x,
+    portraitClientPoint.y,
+    portraitElement,
+    416,
+    526,
+  );
+  assert.ok(portraitRoundTrip);
+  assert.ok(Math.abs(portraitRoundTrip.x - oldStoredPoint.x) < 1e-12);
+  assert.ok(Math.abs(portraitRoundTrip.y - oldStoredPoint.y) < 1e-12);
+
+  const landscapeElement = { left: 80, top: 30, width: 600, height: 500 };
+  const landscapeLayer = examImageContentRectInStage(
+    landscapeElement,
+    landscapeElement,
+    1200,
+    600,
+  );
+  assert.deepEqual(landscapeLayer, { left: 0, top: 100, width: 600, height: 300 });
+  const landscapeClientPoint = {
+    x: landscapeElement.left + landscapeLayer.left + landscapeLayer.width * oldStoredPoint.x,
+    y: landscapeElement.top + landscapeLayer.top + landscapeLayer.height * oldStoredPoint.y,
+  };
+  const landscapeRoundTrip = normalizedExamImagePoint(
+    landscapeClientPoint.x,
+    landscapeClientPoint.y,
+    landscapeElement,
+    1200,
+    600,
+  );
+  assert.ok(landscapeRoundTrip);
+  assert.ok(Math.abs(landscapeRoundTrip.x - oldStoredPoint.x) < 1e-12);
+  assert.ok(Math.abs(landscapeRoundTrip.y - oldStoredPoint.y) < 1e-12);
+
   assert.match(imageCoordinatesSource, /image\.getBoundingClientRect\(\)/);
   assert.match(imageCoordinatesSource, /image\.naturalWidth/);
   assert.match(imageCoordinatesSource, /image\.naturalHeight/);
+  assert.match(imageViewerSource, /data-exam-image-content-layer/);
+  assert.match(imageViewerSource, /examImageContentRectInStage/);
+  assert.match(imageViewerSource, /new ResizeObserver\(updateContentRect\)/);
 });
 
 test('standalone Writing is a separate admin library with flexible AI grading and 0–10 history', () => {
