@@ -9,6 +9,7 @@ import {
   isQuizItemEligible
 } from '../../lib/game-engine/quizContracts';
 import GameControlPanel from './GameControlPanel';
+import VocabItemImage from './VocabItemImage';
 
 interface QuizGameProps {
   items: VocabItem[];
@@ -18,6 +19,7 @@ interface QuizGameProps {
     contractVersion?: number;
     enableSound?: boolean;
     autoPlaySound?: boolean;
+    imagePolicy?: 'prompt' | 'feedback' | 'none';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
@@ -245,6 +247,13 @@ export default function QuizGame({
           <span className="text-xs font-bold uppercase tracking-widest text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full">
             {config.questionType === 'sound' ? 'NGHE PHÁT ÂM' : 'CHỌN ĐÁP ÁN ĐÚNG'}
           </span>
+
+          {config.imagePolicy === 'prompt' && (
+            <VocabItemImage item={currentItem} />
+          )}
+          {config.imagePolicy === 'feedback' && isAnswered && (
+            <VocabItemImage item={currentItem} revealAnswer />
+          )}
 
           {config.questionType === 'sound' ? (
             <div className="py-4">

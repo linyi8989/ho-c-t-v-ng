@@ -2,7 +2,7 @@ import path from "node:path";
 
 export function resolvePersistentDirectory(options: {
   env: NodeJS.ProcessEnv;
-  variable: "TTS_AUDIO_DIR" | "LISTENING_MEDIA_DIR";
+  variable: "TTS_AUDIO_DIR" | "LISTENING_MEDIA_DIR" | "VOCAB_IMAGE_DIR";
   localDirectory: string;
   cwd?: string;
 }) {

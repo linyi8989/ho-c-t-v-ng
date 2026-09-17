@@ -24,6 +24,19 @@ export interface ClassMember {
   studentName: string;
 }
 
+export type VocabImageProviderId = 'wikimedia' | 'pixabay' | 'pexels' | 'stali' | 'devquota' | 'seedvis-nano-banana-2' | 'seedvis-nano-banana-pro' | 'upload';
+export type VocabImageGenerationProviderId = 'stali' | 'devquota' | 'seedvis-nano-banana-2' | 'seedvis-nano-banana-pro';
+
+export interface VocabImageAttribution {
+  provider: VocabImageProviderId;
+  externalId: string;
+  title: string;
+  author: string;
+  license: string;
+  licenseUrl?: string;
+  sourcePageUrl?: string;
+}
+
 export interface VocabItem {
   id: string;
   term: string;
@@ -32,7 +45,10 @@ export interface VocabItem {
   pos: string; // e.g., Noun, Verb, Adjective, Adverb, Phrase
   example: string;
   exampleMeaning: string;
+  imageAssetId?: string;
   imageUrl?: string;
+  imageAttribution?: VocabImageAttribution;
+  imageAttachedAt?: string;
   audioUrl?: string;
   audioPath?: string;
   audioHash?: string;

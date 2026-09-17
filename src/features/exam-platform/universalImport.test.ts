@@ -99,7 +99,7 @@ test('KET Listening Part 1 crop grouping ignores the single combined frame for p
   ]);
 });
 
-test('KET text-only Parts preserve imported source text and the Part 2 example', () => {
+test('KET import preserves text-only Parts, structured Part 5 example choices and teacher-owned Part 8 image', () => {
   const current = createDefaultExamContent(getExamPaperDefinition('ket', 'reading-writing')!);
   const part2 = importUniversalExamPart(current, 1, JSON.stringify({
     partNumber: 2,
@@ -145,12 +145,12 @@ test('KET text-only Parts preserve imported source text and the Part 2 example',
       title: 'Image, example and answer rows',
       interaction: interaction('choice', 'cloze', 'multiple-choice-cloze'),
       content: {
-        examples: [{ prompt: 'There are ___ sizes of Schnauzer dogs.', answer: 'C' }],
+        examples: [{ prompt: '0', options: [{ label: 'A', text: 'with' }, { label: 'B', text: 'of' }, { label: 'C', text: 'in' }], answer: 'B' }],
         questions: [{ questionNumber: 28, prompt: 'Gap 28', options: [{ label: 'A', text: 'came' }, { label: 'B', text: 'come' }, { label: 'C', text: 'comes' }], answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } }],
       },
     }],
   })).part;
-  assert.deepEqual(part5.examples, [{ prompt: 'There are ___ sizes of Schnauzer dogs.', answer: 'C' }]);
+  assert.deepEqual(part5.examples, [{ prompt: '0', options: [{ label: 'A', text: 'with' }, { label: 'B', text: 'of' }, { label: 'C', text: 'in' }], answer: 'B' }]);
 
   current.parts[7].imageAssetId = 'ket-part8-teacher-image';
   current.parts[7].imageUrl = '/media/ket-part8-teacher-image.png';
@@ -162,16 +162,18 @@ test('KET text-only Parts preserve imported source text and the Part 2 example',
       blockNumber: 1,
       title: 'Form fields',
       interaction: interaction('text-entry', 'form-completion', 'image-form-fields'),
-      content: { passage: 'Printed source and example.', questions: [{ questionNumber: 51, prompt: 'Date', type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: ['Tuesday'] } }] },
+      content: { questions: [{ questionNumber: 51, prompt: 'Date', type: 'short-answer', answerSource: 'official-answer-key', answerKey: { acceptedAnswers: ['Tuesday'] } }] },
     }],
   })).part;
   assert.equal(part8.imageAssetId, 'ket-part8-teacher-image');
   assert.equal(part8.imageUrl, '/media/ket-part8-teacher-image.png');
+  assert.equal(part8.passage, undefined);
 
   const prompt = buildUniversalExamImportPrompt(current);
   assert.match(prompt, /Part 1: đúng một ảnh đặt bên trái/);
-  assert.match(prompt, /Part 5: ảnh hiển thị phía trên; trả đúng một example/);
+  assert.match(prompt, /Part 5: ảnh hiển thị phía trên.*Example trong official key là một hàng lựa chọn/s);
   assert.match(prompt, /Part 8: giáo viên tải\/dán một ảnh riêng/);
+  assert.match(prompt, /Part 8 không trả content\.passage/);
 });
 
 test('Universal JSON v2 owns a flexible six-Part structure and supports several blocks outside fixed Cambridge young-learner papers', () => {

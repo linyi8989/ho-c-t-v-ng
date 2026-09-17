@@ -1,0 +1,933 @@
+Tôi đã mở và audit trực tiếp source trong ZIP, không chỉ dựa vào CODEMAP nữa. Kết luận lần này nghiêm hơn: kiến trúc tổng thể khá tốt, các bản vá §83–§85 phần lớn đi đúng hướng, nhưng snapshot hiện tại chưa đủ điều kiện GO production.
+
+Kết luận nhanh
+
+Điểm codebase hiện tại: khoảng 7.2/10.
+Release verdict: NO-GO với snapshot này cho đến khi xử lý các P1 bên dưới.
+
+Tôi chưa thấy P0 chắc chắn theo nghĩa “đang có thể khai thác ngay từ Internet” trong phần code đã kiểm tra. Tuy nhiên có một lỗi phân quyền P1-HIGH có thể nâng thành P0 trong tình huống tài khoản admin bị compromise và bạn cần hạ quyền ngay lập tức.
+
+Khu vực	Điểm	Nhận xét
+Kiến trúc	8.4/10	Có phân lớp, fail-closed tốt hơn nhiều
+SQLite / data safety production	8.7/10	Migration, quick_check, transaction khá chặt
+Security / Authorization	6.9/10	Có lỗi authority của role cần sửa
+Performance	7.2/10	§83 tốt nhưng Home vẫn còn tải leaderboard lớn
+Test strategy	7.3/10	Nhiều test nhưng còn phụ thuộc contract/regex
+Maintainability	6.6/10	Một số file đã quá lớn
+Release / Deploy	6.2/10	Lockfile + TypeScript gate + deploy chưa atomic
+1. Tôi đã test được gì thật sự?
+
+Điểm rất thuận lợi là môi trường audit hiện tại đang chạy chính xác:
+
+Node 22.16.0
+ABI 127
+npm 10.9.2
+
+Đây đúng target production của bạn.
+
+Tôi đã chạy được test trực tiếp bằng Node 22 với runner thay thế cho các suite không phụ thuộc package ngoài. Kết quả:
+
+70 test PASS.
+
+Có 7 trường hợp không kết luận được vì fallback runner của tôi không xử lý hoàn toàn giống tsx, ví dụ .js → .ts, .tsx loader và type-only import. Đây không phải 7 assertion fail của project.
+
+Những phần đã PASS đáng chú ý gồm:
+
+security contracts
+performance contracts
+guest identity
+local auth bypass
+grammar answer contracts
+learning runs
+Starters crop detection
+Mover compatibility/smart-import
+§84 VocabBoardAudio.contract.test.ts
+§85 VocabGameInteraction.contract.test.ts
+
+Vì vậy tôi xác nhận code của §84 và §85 thực sự có thay đổi như CODEMAP mô tả, không phải chỉ cập nhật tài liệu.
+
+Tuy nhiên tôi chưa thể tuyên bố test:phase1 PASS, vì có hai vấn đề ở chính snapshot và một giới hạn mạng của môi trường audit.
+
+2. P1 — Có lỗi phân quyền thật trong role resolution
+
+Đây là phát hiện quan trọng nhất.
+
+Trong:
+
+src/server/accessPolicy.ts
+
+logic hiện tại về cơ bản là:
+
+const claimRole = decodedToken.role;
+
+if (VALID_ROLES.has(claimRole)) {
+  return claimRole;
+}
+
+const storedRole = storedProfile.role;
+
+return VALID_ROLES.has(storedRole)
+  ? storedRole
+  : "student";
+
+Tức là:
+
+Firebase custom claim được ưu tiên hơn role lưu ở backend.
+
+Nhưng khi admin thay đổi role trong server.ts, code lại làm:
+
+await userRef.update({ role });
+
+try {
+  await adminAuth.setCustomUserClaims(targetUserId, { role });
+} catch (...) {
+  // warning
+}
+
+Nếu bước cập nhật custom claim lỗi, database vẫn báo role mới nhưng quyền thực tế có thể tiếp tục lấy từ token cũ.
+
+Tôi đã kiểm tra trực tiếp logic:
+
+Firebase claim = super_admin
+DB role        = student
+=> kết quả: super_admin
+
+và ngược lại:
+
+Firebase claim = student
+DB role        = super_admin
+=> kết quả: student
+Hậu quả
+
+Ví dụ admin hạ:
+
+super_admin → student
+
+Database đã là student, nhưng token cũ còn:
+
+role: super_admin
+
+thì user vẫn có thể được backend nhìn nhận là super_admin.
+
+Điều này đặc biệt nguy hiểm trong trường hợp:
+
+tài khoản giáo viên/admin bị mất quyền;
+cần khóa ngay tài khoản;
+cần hạ quyền ngay;
+Firebase custom claim update gặp lỗi;
+token chưa refresh.
+
+CODEMAP lại mô tả backend-stored role là authoritative, nên code hiện tại không khớp design intent.
+
+Tôi đề nghị sửa
+
+Authority nên là:
+
+1. Backend stored role
+2. Firebase claim chỉ dùng bootstrap/fallback
+3. configured bootstrap admin chỉ dùng khi profile chưa được khởi tạo
+
+Ví dụ:
+
+const storedRole = String(storedProfile?.role || "").trim();
+
+if (VALID_ROLES.has(storedRole as AppRole)) {
+  return storedRole as AppRole;
+}
+
+const claimRole = String(decodedToken?.role || "").trim();
+
+if (VALID_ROLES.has(claimRole as AppRole)) {
+  return claimRole as AppRole;
+}
+
+return "student";
+
+Và test hiện tại cũng cần sửa, vì test security của bạn đang vô tình đóng đinh behavior sai này.
+
+Nên thêm regression test:
+
+assert.equal(
+  resolveTrustedRole(
+    { role: "super_admin" },
+    { role: "student" },
+    configuredAdmins
+  ),
+  "student"
+);
+
+Đây là ví dụ điển hình cho việc test PASS nhưng vẫn đang bảo vệ bug.
+
+3. P1 — Snapshot không có package-lock.json hợp lệ
+
+Trong ZIP có:
+
+.package-lock.json
+
+nhưng không có:
+
+package-lock.json
+
+Đây không chỉ là vấn đề tên file.
+
+File .package-lock.json bên trong giống hidden lock npm tạo trong node_modules, và không có root package metadata chuẩn.
+
+Trong khi .cpanel.yml lại yêu cầu:
+
+cp app.js package.json package-lock.json ...
+
+Tôi chạy thử:
+
+npm ci
+
+và tái hiện được lỗi:
+
+npm ERR! code EUSAGE
+
+The npm ci command can only install with an existing
+package-lock.json or npm-shrinkwrap.json
+Vì sao đây là P1?
+
+Không có lockfile chuẩn thì release không deterministic.
+
+Ví dụ package.json ghi:
+
+"react": "^19.0.1"
+
+nhưng hidden lock hiện chứa:
+
+react 19.2.7
+
+Tương tự Vite, Firebase, Express, tsx...
+
+Một lần cài mới khác thời điểm có thể lấy dependency khác.
+
+Đối với một project đang chạy production và có native dependency như:
+
+better-sqlite3
+
+tôi không chấp nhận release không có root lockfile.
+
+Cần có
+/package-lock.json
+
+commit vào Git.
+
+Sau đó bắt buộc:
+
+rm -rf node_modules
+npm ci
+
+phải chạy sạch trên Node 22.16.0.
+
+4. P1 — npm run lint hiện không đáng tin
+
+Đây là lỗi rất rõ.
+
+package.json của bạn định nghĩa:
+
+"lint": "tsc --noEmit"
+
+nhưng tsconfig.json trong ZIP chỉ có dạng:
+
+{
+  "compilerOptions": {
+    "target": "ES5",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true
+  }
+}
+
+Không có:
+
+jsx
+lib
+module
+moduleResolution
+noEmit
+
+Tôi dùng TypeScript 5.8.3 kiểm tra đúng snapshot này.
+
+Kết quả có khoảng:
+
+6681 × TS17004:
+Cannot use JSX unless the '--jsx' flag is provided
+
+cộng thêm:
+
+TS6142
+Map / Set missing
+ES5 lib problems
+...
+
+Vì vậy câu trong CODEMAP rằng:
+
+npm run lint: PASS
+
+không thể đúng với chính tsconfig.json đang nằm trong ZIP này.
+
+Có hai khả năng:
+
+ZIP thiếu tsconfig thật đang dùng trên máy bạn.
+Test ledger trong CODEMAP đang ghi kết quả của một configuration khác.
+
+Cả hai đều cần sửa vì release gate hiện không reproducible.
+
+Một baseline hợp lý hơn với project này là khoảng:
+
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "esModuleInterop": true
+  }
+}
+
+Tôi không khuyên bật strict: true ngay lập tức nếu project chưa sẵn sàng. Có thể siết dần.
+
+5. §83 — Bản vá Student Exercise Entry: tốt, nhưng chưa được release approval
+
+Tôi đã kiểm tra source thật và xác nhận phần lớn design trong CODEMAP là chính xác.
+
+Có thật:
+
+student-entry-hot-path-v1
+
+Có migration:
+
+share_token
+idx_assignments_share_token
+idx_vocab_sets_share_token
+
+Có migration copy dữ liệu legacy:
+
+shareToken
+assignmentSlug
+→ physical share_token
+
+Guest identity normal path đã chuyển về point read.
+
+Leaderboard ở StudentLearningArea dùng:
+
+/api/public/leaderboard-summary
+
+và khi read model chưa sẵn sàng trả:
+
+503 LEADERBOARD_NOT_READY
+
+thay vì fallback scan toàn bộ dữ liệu.
+
+Đây là một cải tiến đúng về kiến trúc.
+
+Nhưng tôi vẫn chưa duyệt §83 để production
+
+Vẫn còn hai điểm.
+
+Thứ nhất, migration chạy khi SQLite startup. Trong rollout của bạn lại có sequence:
+
+start bundle
+→ migration
+→ backfill
+→ readiness
+→ restart
+
+Nếu Passenger bắt đầu nhận request ngay khi app lên, có thể xuất hiện window:
+
+migration xong
+nhưng backfill/read-model chưa hoàn thành
+trong khi traffic đã quay lại
+
+Tôi vẫn khuyên có:
+
+MAINTENANCE_MODE=true
+
+hoặc tốt hơn:
+
+npm run db:migrate
+npm run db:backfill
+npm run db:verify
+
+tách khỏi web process.
+
+Sau khi tất cả PASS mới đưa traffic vào.
+
+6. §83 chưa giải quyết hết performance vì Home vẫn tải full leaderboard
+
+Đây là phát hiện quan trọng khi đọc src/App.tsx.
+
+StudentLearningArea đã được tối ưu.
+
+Nhưng Home vẫn còn các request kiểu:
+
+/api/public/leaderboard-results
+
+và authenticated:
+
+/api/leaderboard-results
+
+ngay trong luồng load trang.
+
+Trong CODEMAP trước đó bạn từng ghi full leaderboard khoảng:
+
+~17 MB
+
+Vậy nên bản vá §83 đã sửa:
+
+đường vào bài học
+
+nhưng chưa sửa:
+
+toàn bộ first-page / home hot path.
+
+Tôi khuyên Home cũng chuyển sang:
+
+/api/public/leaderboard-summary
+
+với ví dụ:
+
+limit=8
+period=week
+
+Chỉ tải bảng đầy đủ khi người dùng thực sự mở màn hình leaderboard.
+
+7. Public vocab/grammar listing vẫn còn khả năng scale kém
+
+Tôi cũng thấy các public endpoint dạng:
+
+/api/public/vocab-sets
+/api/public/grammar-sets
+
+còn xu hướng:
+
+collection(...).get()
+→ load toàn collection
+→ filter
+
+Và public vocab set có thể vẫn mang cả:
+
+items[]
+
+ra list response.
+
+Khi hệ thống chỉ có vài trăm bài thì chưa đáng kể.
+
+Nhưng khi có:
+
+1,000–5,000 bộ từ
+
+và mỗi bộ hàng chục/hàng trăm item, Home/library sẽ bắt đầu nặng.
+
+Thiết kế tốt hơn:
+
+GET /api/public/vocab-sets?page=1&limit=20
+
+chỉ trả metadata:
+
+id
+title
+level
+topic
+thumbnail
+itemCount
+teacherName
+...
+
+Sau đó:
+
+GET /api/public/vocab-sets/:id
+
+mới tải items.
+
+Đây là P2 hiện tại nhưng nên làm sớm trước khi dữ liệu tăng mạnh.
+
+8. §84 — Audio Memory/Matching: tôi duyệt code
+
+Tôi đã kiểm tra source và test contract.
+
+Hai game hiện dùng đúng:
+
+playVocabAudio(item, card.text)
+
+thay vì:
+
+speakEnglish(card.text)
+
+và map qua stable:
+
+card.itemId
+
+để tìm lại VocabItem.
+
+Đây là thiết kế đúng, đặc biệt trong trường hợp có:
+
+hai vocabulary item cùng text
+nhưng audioUrl khác nhau
+
+Contract test §84 PASS.
+
+Còn thiếu browser test
+
+Cần kiểm thử runtime ít nhất:
+
+AI33 audioUrl → MP3
+YupVox → đúng ttsSpeed
+MP3 404 → Web Speech fallback
+mute → không MP3, không speech
+duplicate term → đúng audio theo itemId
+
+Tôi đặc biệt muốn test race:
+
+click card A
+audio A reject chậm
+click card B
+audio B bắt đầu
+promise A reject sau đó
+
+Không được để rejection cũ kích hoạt:
+
+speakEnglish(A)
+
+đè lên audio B.
+
+Tôi chưa kết luận code hiện có bug race này, nhưng đây là case nên có browser/integration test.
+
+9. §85 — Fill keyboard + Matching state: tôi duyệt code
+
+Contract test PASS.
+
+FillBlank có đúng flow:
+
+input
+→ Enter
+→ check answer
+→ feedback
+→ focus continue button
+→ Enter
+→ next
+→ focus input
+
+và không dùng global keydown listener.
+
+Matching có đúng priority màu:
+
+selected → amber
+failed → rose
+matched → emerald
+
+Đây là hướng đúng.
+
+Nhưng loại tính năng này không nên chỉ test bằng source regex.
+
+Cần browser test xác nhận:
+
+document.activeElement
+
+thực sự chuyển đúng element.
+
+Đặc biệt test:
+
+giữ Enter lâu
+
+không được skip 2 câu liên tiếp.
+
+Và trên điện thoại cần thử IME / software keyboard.
+
+10. P1/P2 — Local JSON vẫn có nguy cơ mất dữ liệu âm thầm
+
+Production của bạn hiện dùng SQLite nên đây không phải blocker trực tiếp cho production hiện tại, nhưng source backend local-json vẫn đáng lo.
+
+Trong firebaseAdmin.ts, local JSON engine có pattern đại ý:
+
+try {
+  // write file
+} catch (err) {
+  console.error(err);
+}
+
+nhưng không rethrow.
+
+Nghĩa là nếu:
+
+disk full
+permission denied
+filesystem error
+
+API có thể tưởng write thành công trong khi file không được lưu.
+
+Nguy hiểm hơn, phần load JSON lỗi/corrupt có nhánh đặt:
+
+memoryCache = {}
+
+Tức là corrupted db có thể biến thành “database rỗng” trong RAM.
+
+Với lịch sử data-loss của project, tôi không chấp nhận kiểu fail-open này.
+
+Nếu vẫn giữ STORAGE_MODE=local-json, nên:
+
+write temp file
+→ fsync
+→ atomic rename
+
+và bất kỳ lỗi nào phải:
+
+throw StorageUnavailableError
+
+Parse JSON lỗi cũng phải fail closed, không được coi như database mới rỗng.
+
+11. Storage fail-closed chính đã được làm tốt
+
+Ngược lại, một nghi ngờ cũ trong CODEMAP đã được source thật giải tỏa.
+
+Code hiện tại không tự động chuyển Firestore lỗi sang local-json.
+
+Logic hiện nay là:
+
+STORAGE_MODE=local-json
+
+thì mới dùng local JSON.
+
+Nếu chọn Firebase và Firebase storage lỗi thì:
+
+StorageUnavailableError
+
+chứ không silently fallback.
+
+Đây là thay đổi rất tốt.
+
+CODEMAP phần core cũ nói tự động fallback hiện đã lỗi thời.
+
+12. /api/auth/debug hiện được bảo vệ tốt
+
+Một concern tôi nêu từ lần review CODEMAP trước cũng đã được source xác minh.
+
+Các diagnostic endpoint dùng:
+
+x-diagnostic-secret
+
+và timing-safe compare.
+
+Nếu production không cấu hình secret thì trả kiểu:
+
+404
+
+thay vì mở endpoint.
+
+Như vậy phần này tôi không còn xem là lỗi security.
+
+13. /api/auth/email-by-phone vẫn còn code chết nguy hiểm
+
+Route hiện đã return sớm và không trả email nữa.
+
+Đây là đúng.
+
+Nhưng ngay phía sau return vẫn còn block legacy đại ý:
+
+lookup phone
+→ tìm email
+→ return email
+
+Code này hiện unreachable, nên không phải vulnerability đang chạy.
+
+Nhưng tôi rất khuyên xóa hẳn.
+
+Vì chỉ cần một refactor nhỏ làm mất return ở trên thì cơ chế:
+
+phone number → account email
+
+có thể sống lại.
+
+Với authentication code, dead security-sensitive code nên delete, không nên “để đó phòng khi cần”.
+
+14. Rate-limit hiện vẫn là process-local
+
+Phone login hiện có rate-limit dạng:
+
+IP + phone
+5 requests / 10 minutes
+
+Đây là tốt hơn không có.
+
+Nhưng implementation dùng memory của Node process.
+
+Nếu Passenger có:
+
+worker A
+worker B
+worker C
+
+thì mỗi process có bucket riêng.
+
+Restart app cũng reset rate limit.
+
+Tôi xem đây là P2 hiện tại.
+
+Ít nhất nên có hai bucket:
+
+per-IP
+per-account / HMAC(phone)
+
+Nếu sau này abuse lớn thì chuyển sang shared rate limiter.
+
+15. CSP mới chỉ là lớp tối thiểu
+
+httpHardening.ts hiện có CSP kiểu:
+
+base-uri
+object-src
+frame-ancestors
+form-action
+
+Đây là tốt.
+
+Nhưng chưa có đầy đủ:
+
+default-src
+script-src
+connect-src
+img-src
+media-src
+
+Tôi không tìm thấy việc sử dụng tràn lan dangerouslySetInnerHTML, nên nguy cơ XSS hiện không phải quá cao.
+
+Tuy nhiên app có token/session trong browser, nên về lâu dài CSP đầy đủ sẽ tăng defense-in-depth khá nhiều.
+
+Nên làm theo từng bước để không làm hỏng:
+
+Firebase
+audio CDN
+AI providers
+image URLs
+TTS
+16. Có một edge case share-token giữa Firestore và SQLite
+
+SQLite đã normalize:
+
+shareToken
+assignmentSlug
+→ share_token
+
+nên resolver có thể phát hiện hai row trùng.
+
+Nhưng Firestore resolver hiện có pattern:
+
+query shareToken
+
+nếu không tìm thấy
+→ query assignmentSlug
+
+Edge case:
+
+doc A:
+shareToken = abc
+
+doc B:
+assignmentSlug = abc
+
+Query đầu tiên thấy A rồi dừng, nên không nhận ra collision với B.
+
+Production SQLite hiện tại làm rủi ro này thấp, nhưng logic hai backend không hoàn toàn tương đương.
+
+Tốt hơn là:
+
+query cả shareToken
+query cả assignmentSlug
+union theo document ID
+accept nếu tổng unique docs = 1
+17. Deployment .cpanel.yml chưa atomic
+
+Hiện deploy làm kiểu:
+
+xóa index.html
+xóa assets/
+copy assets mới
+xóa dist/
+copy dist mới
+
+Nếu deployment dừng ở giữa:
+
+xóa xong
+nhưng copy chưa xong
+
+production có thể nằm ở trạng thái nửa cũ nửa mới.
+
+Với app bình thường đây là P2.
+
+Với app có migration DB thì rủi ro lớn hơn.
+
+Thiết kế tốt hơn:
+
+releases/
+  20260908-001/
+  20260908-002/
+
+current -> releases/20260908-002
+
+Build/copy/verify ở thư mục mới trước.
+
+Chỉ khi healthcheck PASS mới đổi current.
+
+Nếu cPanel không thuận tiện symlink thì ít nhất:
+
+stage/
+→ verify
+→ rename/swap
+
+sẽ tốt hơn xóa production trước.
+
+18. Maintainability đang bắt đầu thành vấn đề
+
+Tôi đếm khoảng 73.000+ dòng TS/TSX/MJS.
+
+Một số file đã quá lớn:
+
+AdminDashboard.tsx        ~270 KB
+index.css                 ~134 KB
+sqliteStorage.ts          ~127 KB
+listening service         ~106 KB
+examValidation.ts         ~75 KB
+listeningRouter.ts        ~66 KB
+GenericExamAdmin.tsx      ~64 KB
+StarterAuthoring.tsx      ~63 KB
+examRouter.ts             ~56 KB
+StudentLearningArea.tsx   ~53 KB
+App.tsx                   ~50 KB
+
+Project hiện đã qua giai đoạn mà “một file router lớn” còn dễ quản lý.
+
+Tôi đặc biệt ưu tiên tách:
+
+server.ts
+sqliteStorage.ts
+AdminDashboard.tsx
+App.tsx
+
+Theo domain:
+
+auth/
+users/
+vocab/
+grammar/
+exam/
+leaderboard/
+learning-history/
+tts/
+storage/
+
+Không cần rewrite toàn project. Tách dần khi mỗi domain được sửa.
+
+19. Test suite nhiều, nhưng đang phụ thuộc khá nhiều vào “test source text”
+
+Tôi thấy khoảng:
+
+67 file *.test.ts
+13 file *.contract.test.ts
+
+và khá nhiều test dùng:
+
+readFileSync(...)
+regex / includes(...)
+
+để xác minh code source có pattern nhất định.
+
+Ví dụ dạng:
+
+MatchingGame phải chứa playVocabAudio
+FillBlank phải chứa continueButtonRef
+
+Loại test này rất hữu ích để ngăn regression kiến trúc.
+
+Nhưng nó không chứng minh:
+
+button có focus thật
+audio có phát thật
+API có trả đúng HTTP status thật
+authorization có chặn request thật
+
+Vấn đề role phía trên là ví dụ rất rõ:
+
+test security vẫn PASS vì test đang kiểm tra behavior sai.
+
+Tôi khuyên pyramid tiếp theo của project là:
+
+unit tests
++
+API integration tests
++
+SQLite integration tests
++
+Playwright browser tests
+
+thay vì tăng thêm quá nhiều regex contract tests.
+
+20. CODEMAP vẫn có documentation drift
+
+Source mới cho thấy CODEMAP phần mới §80–§85 khá sát code.
+
+Nhưng các phần “core/current” cũ vẫn có những mô tả đã lỗi thời, ví dụ:
+
+automatic Firestore fallback
+old email-by-phone behavior
+old scoring description
+hardcoded super-admin
+old release artifact/version
+
+Ngoài ra trước đó tôi còn phát hiện duplicate section 16.
+
+Đối với project một người phát triển nhỏ thì đây chỉ là inconvenience.
+
+Nhưng khi CODEMAP được dùng làm:
+
+AI development specification
+deployment handbook
+audit source
+
+thì nó trở thành operational risk.
+
+Tôi vẫn đề nghị cấu trúc:
+
+PART A — CURRENT STATE
+chỉ mô tả code hiện tại
+
+PART B — RELEASE PROCEDURES
+
+PART C — CHANGELOG
+§19...
+§80...
+§85...
+
+Không để current architecture và lịch sử vá lỗi trộn với nhau.
+
+Mức độ ưu tiên tôi chốt
+Severity	Phát hiện	Quyết định
+P1-HIGH	Firebase claim override stored role	Sửa trước deploy
+P1	Không có root package-lock.json	Sửa trước deploy
+P1	tsconfig.json không support lint TSX hiện tại	Sửa trước deploy
+P1	§83 chưa chạy native storage/startup gate	Bắt buộc trước deploy
+P1 conditional	local-json ghi lỗi nhưng không throw / corrupt load thành {}	Sửa nếu backend này còn support
+P1/P2	Home vẫn eager full leaderboard	Nên sửa sớm
+P2	Deployment không atomic	Nên harden
+P2	email-by-phone dead legacy block	Xóa
+P2	process-local rate limit	Harden
+P2	Firestore alias token collision	Sửa consistency
+P2	CSP chưa đầy đủ	Harden
+P2	Large monolithic files	Refactor dần
+Release gate tôi yêu cầu trước khi cho GO
+Sửa resolveTrustedRole() để backend stored role là authority và thêm regression test cho downgrade super_admin → student.
+Khôi phục root package-lock.json, xóa node_modules, xác nhận npm ci chạy sạch trên Node 22.16.0 / ABI 127.
+Sửa tsconfig.json, sau đó chạy thật npm run lint; không cập nhật CODEMAP thành PASS nếu command chưa PASS.
+Chạy nguyên npm run test:phase1, đặc biệt native better-sqlite3 storage/startup/history tests.
+Dùng bản copy production SQLite đã anonymize: backup → quick_check → migration §83 → chạy migration lần hai → kiểm tra row count → duplicate token → backfill → readiness marker.
+Chặn traffic trong toàn bộ migration/backfill window, không chỉ “quiesce rồi start Passenger”.
+Chạy browser smoke §84–§85: MP3/YupVox/fallback/mute/race; Fill Enter-focus; Matching colors.
+Chuyển Home leaderboard sang bounded summary hoặc ít nhất kiểm tra lại payload/TTFB với database production-size.
+Xử lý/triage lại 3 high npm audit findings mà CODEMAP trước đó ghi nhận.
+Chỉ sau các bước trên tôi mới chuyển verdict từ NO-GO → GO.
+
+Điểm đáng ghi nhận là SQLite production path, fail-closed storage, archive lifecycle, guest point-read, §83 hot path và §84–§85 đều được triển khai thực sự chứ không chỉ ghi trong CODEMAP. Vấn đề lớn hiện tại không còn nằm ở “ý tưởng kiến trúc”, mà nằm ở authorization authority, reproducible build/test và release discipline.
+
+Nếu sửa đúng 3 blocker đầu tiên, chất lượng codebase có thể nhảy khá rõ từ khoảng 7.2 lên vùng 8/10 mà chưa cần refactor lớn.

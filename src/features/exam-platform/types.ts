@@ -210,6 +210,11 @@ export interface ExamWritingGradingConfig {
 export interface ExamDisplayExample {
   prompt: string;
   answer: string;
+  /** Optional unscored choices printed in a worked example (for example KET Reading & Writing Part 5). */
+  options?: Array<{
+    label: string;
+    text: string;
+  }>;
   imageAssetId?: string;
   imageUrl?: string;
   /** Optional second public picture used by a paired-image worked example. */

@@ -29,6 +29,9 @@ const MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = 'mover-reading-writing-schema-
 const EXAM_PLATFORM_SCHEMA_MIGRATION_ID = 'exam-platform-schema-v1';
 const ACTIVITY_READ_INDEX_MIGRATION_ID = 'activity-read-indexes-v1';
 const STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = 'student-entry-hot-path-v1';
+const VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID = 'vocab-image-assets-v1';
+const VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID = 'vocab-image-providers-ai-v2';
+const VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID = 'vocab-image-providers-seedvis-v3';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -45,6 +48,8 @@ const collectionTableMap: Record<string, string> = {
   guestprofiles: 'guest_profiles',
   vocab_sets: 'vocab_sets',
   vocabsets: 'vocab_sets',
+  vocab_image_assets: 'vocab_image_assets',
+  vocabimageassets: 'vocab_image_assets',
   classes: 'classes',
   class_members: 'class_members',
   classmembers: 'class_members',
@@ -158,6 +163,15 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     ownerId: 'owner_id',
     shareToken: 'share_token',
     assignmentSlug: 'share_token',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  vocab_image_assets: {
+    id: 'id',
+    provider: 'provider',
+    externalId: 'external_id',
+    sha256: 'sha256',
+    createdBy: 'created_by',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   },
@@ -1503,6 +1517,38 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'vocab_image_assets') {
+    run(
+      `INSERT INTO vocab_image_assets (
+        id, provider, external_id, sha256, mime_type, storage_key, public_url,
+        created_by, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        provider = excluded.provider,
+        external_id = excluded.external_id,
+        sha256 = excluded.sha256,
+        mime_type = excluded.mime_type,
+        storage_key = excluded.storage_key,
+        public_url = excluded.public_url,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'provider')),
+        optionalText(firstDefined(data, 'externalId', 'external_id')),
+        optionalText(firstDefined(data, 'sha256')),
+        optionalText(firstDefined(data, 'mimeType', 'mime_type')),
+        optionalText(firstDefined(data, 'storageKey', 'storage_key')),
+        optionalText(firstDefined(data, 'publicUrl', 'public_url')),
+        optionalText(firstDefined(data, 'createdBy', 'created_by')),
+        createdAt,
+        updatedAt,
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (
     table === 'listening_sets'
     || table === 'listening_set_versions'
@@ -2733,6 +2779,144 @@ function migrateListeningSchema() {
   sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
 }
 
+function migrateVocabImageAssetSchema() {
+  if (hasMigration(VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS vocab_image_assets (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN ('wikimedia', 'pixabay', 'pexels')),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID;
+}
+
+function migrateVocabImageProviderSchema() {
+  if (hasMigration(VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  // Rebuild only this metadata table inside the surrounding migration
+  // transaction. Binary image files are not stored in SQLite, and every row is
+  // copied before the old table is removed.
+  getDb().run(`
+    CREATE TABLE vocab_image_assets_v2 (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN ('wikimedia', 'pixabay', 'pexels', 'stali', 'devquota', 'upload')),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    INSERT INTO vocab_image_assets_v2 (
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    )
+    SELECT
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    FROM vocab_image_assets;
+
+    DROP TABLE vocab_image_assets;
+    ALTER TABLE vocab_image_assets_v2 RENAME TO vocab_image_assets;
+
+    CREATE INDEX idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID;
+}
+
+function migrateVocabImageSeedvisProviderSchema() {
+  if (hasMigration(VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  getDb().run(`
+    CREATE TABLE vocab_image_assets_v3 (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN (
+        'wikimedia', 'pixabay', 'pexels', 'stali', 'devquota',
+        'seedvis-nano-banana-2', 'seedvis-nano-banana-pro', 'upload'
+      )),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    INSERT INTO vocab_image_assets_v3 (
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    )
+    SELECT
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    FROM vocab_image_assets;
+
+    DROP TABLE vocab_image_assets;
+    ALTER TABLE vocab_image_assets_v3 RENAME TO vocab_image_assets;
+
+    CREATE INDEX idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
+}
+
 function migrateMoverReadingWritingSchema() {
   if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
     sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
@@ -3141,6 +3325,9 @@ export async function initializeSQLiteStorage() {
         migrateLearningHistorySchema();
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
+        migrateVocabImageAssetSchema();
+        migrateVocabImageProviderSchema();
+        migrateVocabImageSeedvisProviderSchema();
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();
@@ -3507,6 +3694,7 @@ export async function getSQLiteDiagnostics() {
       users: await tableCount('users'),
       vocab_sets: await tableCount('vocab_sets'),
       vocab_items: await tableCount('vocab_items'),
+      vocab_image_assets: await tableCount('vocab_image_assets'),
       classes: await tableCount('classes'),
       assignments: await tableCount('assignments'),
       results: await tableCount('results'),

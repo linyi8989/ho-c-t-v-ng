@@ -4,6 +4,7 @@ import { Volume2, HelpCircle, CheckCircle } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
+import VocabItemImage from './VocabItemImage';
 
 interface FlashcardGameProps {
   items: VocabItem[];
@@ -12,6 +13,7 @@ interface FlashcardGameProps {
     back: 'term' | 'meaning' | 'both';
     enableSound?: boolean;
     autoPlaySound?: boolean;
+    imagePolicy?: 'prompt' | 'answer' | 'none';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
@@ -186,6 +188,9 @@ export default function FlashcardGame({
 
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+        {config.imagePolicy === 'prompt' && (
+          <VocabItemImage item={currentItem} theme="dark" className="mb-3" />
+        )}
         {subtitle && (
           <span className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded-full uppercase tracking-wider mb-3">
             {subtitle}
@@ -207,7 +212,10 @@ export default function FlashcardGame({
     if (!currentItem) return null;
     if (config.back === 'both') {
       return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-4 bg-slate-900">
+        <div className="flex flex-col items-center justify-center h-full overflow-y-auto p-6 text-center space-y-4 bg-slate-900">
+          {config.imagePolicy === 'answer' && (
+            <VocabItemImage item={currentItem} revealAnswer theme="dark" />
+          )}
           <div>
             <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded uppercase tracking-wider">
               {currentItem.pos}
@@ -238,6 +246,9 @@ export default function FlashcardGame({
     const value = config.back === 'term' ? currentItem.term : currentItem.meaning;
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-slate-900">
+        {config.imagePolicy === 'answer' && (
+          <VocabItemImage item={currentItem} revealAnswer theme="dark" className="mb-3" />
+        )}
         <h2 className="text-4xl md:text-5xl font-black text-indigo-400 leading-tight select-all">
           {value}
         </h2>

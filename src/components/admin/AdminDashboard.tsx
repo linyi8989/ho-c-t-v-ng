@@ -3,9 +3,9 @@ import {
   Plus, Edit2, Edit3, Trash2, Copy, Search, Filter, BookOpen, Layers, Users,
   Calendar, Award, Sparkles, Check, Play, RefreshCw, Send, AlertCircle, ListPlus, Volume2,
   Shield, FileText, Lock, Unlock, Star, X, ChevronLeft, ChevronRight, ChevronDown, MoreHorizontal, Headphones,
-  SlidersHorizontal
+  SlidersHorizontal, Images
 } from 'lucide-react';
-import { VocabSet, VocabItem, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
+import { VocabSet, VocabItem, VocabImageGenerationProviderId, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { playAudioUrl, playVocabAudio, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +23,15 @@ import {
   buildRewriteGrammarBulkImportPrompt,
   buildVocabularyBulkImportPrompt,
 } from '../../lib/adminBulkImportPrompts';
+import {
+  VocabImageGenerateDialog,
+  VocabImageThumbnail,
+  type BatchImageGenerationResult,
+  type ManagedVocabImageAsset,
+  type VocabImageBatchProvider,
+  type VocabImageGenerationResult,
+  type VocabImageProviderOption,
+} from './vocab-images';
 
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 const WritingLibraryAdmin = React.lazy(() => import('../../features/writing-library/admin/WritingLibraryAdmin'));
@@ -599,6 +608,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [isPreviewingTts, setIsPreviewingTts] = useState(false);
   const [ttsQueuedSetId, setTtsQueuedSetId] = useState<string | null>(null);
   const [isBatchGeneratingAudio, setIsBatchGeneratingAudio] = useState(false);
+  const [vocabImageProviders, setVocabImageProviders] = useState<VocabImageProviderOption[]>([]);
+  const [imagePickerItemId, setImagePickerItemId] = useState<string | null>(null);
+  const [isBatchGeneratingImages, setIsBatchGeneratingImages] = useState(false);
+  const [busyVocabImageItemId, setBusyVocabImageItemId] = useState<string | null>(null);
 
   // Quick Batch Add States
   const [batchTerms, setBatchTerms] = useState('');
@@ -797,6 +810,14 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setTimeout(() => setNotification(null), 4000);
   };
 
+  const ensureVocabImageProviders = async () => {
+    if (vocabImageProviders.length > 0) return vocabImageProviders;
+    const data = await authFetchJson<{ providers: VocabImageProviderOption[] }>('/api/image-library/providers');
+    const providers = Array.isArray(data.providers) ? data.providers : [];
+    setVocabImageProviders(providers);
+    return providers;
+  };
+
   // --- EDITOR FUNCTIONS ---
   const handleOpenNewEditor = () => {
     setEditingSetId(null);
@@ -809,6 +830,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setEditorItems([]);
     setTtsSettings(DEFAULT_TTS_SETTINGS);
     setTtsQueuedSetId(null);
+    setImagePickerItemId(null);
+    setIsBatchGeneratingImages(false);
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
@@ -1117,6 +1140,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setEditorItems([...set.items]);
     setTtsSettings({ ...DEFAULT_TTS_SETTINGS, ...(set.ttsSettings || {}) });
     setTtsQueuedSetId(null);
+    setImagePickerItemId(null);
+    setIsBatchGeneratingImages(false);
     setBatchTerms('');
     setBatchMeanings('');
     setBatchIpas('');
@@ -1144,7 +1169,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setEditorItems(prev => prev.map(item => {
       if (item.id === id) {
         if (field === 'term' && String(value).trim() !== item.term.trim()) {
-          return {
+          const updated = {
             ...item,
             [field]: value,
             audioUrl: '',
@@ -1156,11 +1181,192 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             audioGeneratedAt: '',
             audioUpdatedAt: ''
           };
+          delete updated.imageAssetId;
+          delete updated.imageUrl;
+          delete updated.imageAttribution;
+          delete updated.imageAttachedAt;
+          return updated;
         }
         return { ...item, [field]: value };
       }
       return item;
     }));
+  };
+
+  const handleOpenImagePicker = async (itemId: string) => {
+    try {
+      await ensureVocabImageProviders();
+      setImagePickerItemId(itemId);
+    } catch (err: any) {
+      showNotification(err.message || 'Không tải được danh sách dịch vụ tạo ảnh.', 'error');
+    }
+  };
+
+  const handleGenerateAllVocabImages = async () => {
+    const targetItems = editorItems
+      .filter(item => item.term.trim())
+      .map(item => ({ id: item.id, term: item.term.trim(), meaning: item.meaning.trim(), pos: item.pos.trim() }));
+    if (targetItems.length === 0) {
+      showNotification('Chưa có từ tiếng Anh để tạo ảnh.', 'error');
+      return;
+    }
+    setIsBatchGeneratingImages(true);
+    try {
+      const providers = await ensureVocabImageProviders();
+      if (!providers.some(provider => provider.configured)) {
+        throw new Error('Chưa cấu hình dịch vụ tạo ảnh trên máy chủ.');
+      }
+      const results = await generateVocabImagesBatch('auto', targetItems);
+      applyVocabImageBatchResults(results);
+    } catch (err: any) {
+      showNotification(err.message || 'Không thể tạo ảnh hàng loạt.', 'error');
+    } finally {
+      setIsBatchGeneratingImages(false);
+    }
+  };
+
+  const loadDefaultVocabImagePrompt = async (item: VocabItem) => {
+    const data = await authFetchJson<{ prompt: string }>('/api/image-library/prompt', {
+      method: 'POST',
+      body: JSON.stringify({
+        term: item.term.trim(),
+        meaning: item.meaning.trim(),
+        partOfSpeech: item.pos.trim(),
+      })
+    });
+    return data.prompt;
+  };
+
+  const generateVocabImage = async (provider: VocabImageGenerationProviderId, item: VocabItem, prompt: string) => {
+    return authFetchJson<VocabImageGenerationResult>('/api/image-library/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider,
+        term: item.term.trim(),
+        meaning: item.meaning.trim(),
+        partOfSpeech: item.pos.trim(),
+        prompt,
+      })
+    });
+  };
+
+  const applyVocabImageAsset = (itemId: string, asset: ManagedVocabImageAsset) => {
+    setEditorItems(current => current.map(item => item.id === itemId ? {
+      ...item,
+      imageAssetId: asset.id,
+      imageUrl: asset.publicUrl,
+      imageAttribution: {
+        provider: asset.provider,
+        externalId: asset.externalId,
+        title: asset.title,
+        author: asset.author,
+        license: asset.license,
+        ...(asset.licenseUrl ? { licenseUrl: asset.licenseUrl } : {}),
+        ...(asset.sourcePageUrl ? { sourcePageUrl: asset.sourcePageUrl } : {}),
+      },
+      imageAttachedAt: new Date().toISOString(),
+    } : item));
+    showNotification('Đã đưa ảnh vào bản soạn. Bấm lưu bộ từ để hoàn tất gắn ảnh.');
+  };
+
+  const uploadVocabImageFile = async (file: File) => {
+    const supportedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!supportedTypes.includes(file.type)) throw new Error('Chỉ hỗ trợ ảnh JPEG, PNG, WebP hoặc GIF.');
+    if (file.size > 8 * 1024 * 1024) throw new Error('Ảnh lớn hơn giới hạn 8 MB.');
+    const response = await fetch('/api/image-library/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': file.type,
+        'x-image-file-name': encodeURIComponent(file.name || 'image'),
+        'x-image-rights-confirmed': 'true',
+      },
+      body: file,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || `Tải ảnh thất bại (HTTP ${response.status}).`);
+    return data.asset as ManagedVocabImageAsset;
+  };
+
+  const handleUploadVocabImage = async (itemId: string, file: File) => {
+    setBusyVocabImageItemId(itemId);
+    try {
+      applyVocabImageAsset(itemId, await uploadVocabImageFile(file));
+    } catch (err: any) {
+      showNotification(err?.message || 'Không tải được ảnh.', 'error');
+    } finally {
+      setBusyVocabImageItemId(null);
+    }
+  };
+
+  const handlePasteVocabImage = async (itemId: string) => {
+    if (!navigator.clipboard?.read) {
+      showNotification('Trình duyệt chưa cho phép đọc ảnh từ clipboard. Hãy dùng nút Tải.', 'error');
+      return;
+    }
+    setBusyVocabImageItemId(itemId);
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      const clipboardItem = clipboardItems.find(entry => entry.types.some(type => type.startsWith('image/')));
+      const imageType = clipboardItem?.types.find(type => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(type));
+      if (!clipboardItem || !imageType) throw new Error('Clipboard không có ảnh JPEG, PNG, WebP hoặc GIF.');
+      const blob = await clipboardItem.getType(imageType);
+      const extension = imageType === 'image/jpeg' ? 'jpg' : imageType.split('/')[1];
+      const file = new File([blob], `clipboard-${Date.now()}.${extension}`, { type: imageType });
+      applyVocabImageAsset(itemId, await uploadVocabImageFile(file));
+    } catch (err: any) {
+      showNotification(err?.message || 'Không dán được ảnh từ clipboard.', 'error');
+    } finally {
+      setBusyVocabImageItemId(null);
+    }
+  };
+
+  const removeVocabImage = (itemId: string) => {
+    setEditorItems(current => current.map(item => {
+      if (item.id !== itemId) return item;
+      const updated = { ...item };
+      delete updated.imageAssetId;
+      delete updated.imageUrl;
+      delete updated.imageAttribution;
+      delete updated.imageAttachedAt;
+      return updated;
+    }));
+  };
+
+  const generateVocabImagesBatch = async (provider: VocabImageBatchProvider, items: Array<{ id: string; term: string; meaning: string; pos: string }>) => {
+    const data = await authFetchJson<{ items: BatchImageGenerationResult[] }>('/api/image-library/batch-generate', {
+      method: 'POST',
+      body: JSON.stringify({ provider, items })
+    });
+    return Array.isArray(data.items) ? data.items : [];
+  };
+
+  const applyVocabImageBatchResults = (results: BatchImageGenerationResult[]) => {
+    const assets = new Map(results.filter(result => result.asset).map(result => [result.id, result.asset!]));
+    setEditorItems(current => current.map(item => {
+      const asset = assets.get(item.id);
+      if (!asset) return item;
+      return {
+        ...item,
+        imageAssetId: asset.id,
+        imageUrl: asset.publicUrl,
+        imageAttribution: {
+          provider: asset.provider,
+          externalId: asset.externalId,
+          title: asset.title,
+          author: asset.author,
+          license: asset.license,
+          ...(asset.licenseUrl ? { licenseUrl: asset.licenseUrl } : {}),
+          ...(asset.sourcePageUrl ? { sourcePageUrl: asset.sourcePageUrl } : {}),
+        },
+        imageAttachedAt: new Date().toISOString(),
+      };
+    }));
+    const failed = results.length - assets.size;
+    showNotification(
+      `Đã tạo và gắn ${assets.size} ảnh${failed ? `, lỗi ${failed} từ` : ''}. Bấm lưu bộ từ để lưu metadata ảnh.`,
+      failed ? 'error' : 'success'
+    );
   };
 
   const updateTtsSettings = (patch: Partial<TtsSettings>) => {
@@ -1687,12 +1893,10 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     const url = editingSetId ? `/api/vocab-sets/${editingSetId}` : '/api/vocab-sets';
     const method = editingSetId ? 'PUT' : 'POST';
 
-    authFetch(url, {
+    authFetchJson<VocabSet>(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-    .then(res => res.json())
     .then(data => {
       showNotification("Lưu bộ từ vựng thành công!");
       const savedVisibility = getSetVisibility(data);
@@ -1707,7 +1911,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     })
     .catch(err => {
       console.error(err);
-      showNotification("Không thể lưu bộ từ vựng.", "error");
+      showNotification(err.message || "Không thể lưu bộ từ vựng.", "error");
     });
   };
 
@@ -4151,6 +4355,18 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   </button>
 
                   <button
+                    type="button"
+                    onClick={() => void handleGenerateAllVocabImages()}
+                    disabled={isBatchGeneratingImages || !editorItems.some(item => item.term.trim())}
+                    className="py-2.5 px-4 bg-violet-50 hover:bg-violet-100 disabled:bg-gray-50 disabled:text-gray-300 text-violet-700 font-bold rounded-xl text-xs transition-all flex items-center space-x-1 border border-violet-100 cursor-pointer"
+                    id="batch-generate-vocab-images-btn"
+                    title="Chia từ qua các dịch vụ AI đã cấu hình, tự tải ảnh về và gắn vào bảng soạn"
+                  >
+                    {isBatchGeneratingImages ? <RefreshCw size={14} className="animate-spin" /> : <Images size={14} />}
+                    <span>{isBatchGeneratingImages ? 'Đang tạo ảnh...' : 'Tạo ảnh hàng loạt'}</span>
+                  </button>
+
+                  <button
                     onClick={handleAddItemRow}
                     className="py-2.5 px-4 bg-gray-50 hover:bg-indigo-600 hover:text-white text-gray-700 font-bold rounded-xl text-xs border border-gray-100 transition-all flex items-center space-x-1 cursor-pointer"
                     id="add-single-row-btn"
@@ -4172,6 +4388,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                       <th className="p-4 w-36">Phát âm IPA</th>
                       <th className="p-4 w-28">Loại từ</th>
                       <th className="p-4 min-w-[200px]">Ví dụ minh họa</th>
+                      <th className="p-4 w-32 text-center">Ảnh</th>
                       <th className="p-4 w-40">Audio TTS</th>
                       <th className="p-4 text-center w-12">Thao tác</th>
                     </tr>
@@ -4179,7 +4396,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                   <tbody className="divide-y divide-gray-50">
                     {editorItems.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-12 text-center text-gray-400 text-sm font-medium">
+                        <td colSpan={9} className="p-12 text-center text-gray-400 text-sm font-medium">
                           Danh sách từ vựng trống. Hãy thêm dòng hoặc sử dụng các công cụ sinh nhanh ở trên!
                         </td>
                       </tr>
@@ -4259,6 +4476,16 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                               onChange={(e) => handleUpdateItemValue(item.id, 'exampleMeaning', e.target.value)}
                               placeholder="Dịch nghĩa tiếng Việt..."
                               className="w-full p-2 bg-gray-50 border border-gray-100 focus:bg-white rounded-xl outline-none text-xs text-gray-500"
+                            />
+                          </td>
+                          <td className="p-3 text-center">
+                            <VocabImageThumbnail
+                              item={item}
+                              busy={isBatchGeneratingImages || busyVocabImageItemId === item.id}
+                              onGenerate={() => void handleOpenImagePicker(item.id)}
+                              onPaste={() => void handlePasteVocabImage(item.id)}
+                              onUpload={(file) => void handleUploadVocabImage(item.id, file)}
+                              onRemove={() => removeVocabImage(item.id)}
                             />
                           </td>
                           <td className="p-3">
@@ -5131,6 +5358,17 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
           </div>
         )}
 
+        <VocabImageGenerateDialog
+          item={editorItems.find(item => item.id === imagePickerItemId) || null}
+          providers={vocabImageProviders}
+          onClose={() => setImagePickerItemId(null)}
+          onLoadPrompt={loadDefaultVocabImagePrompt}
+          onGenerate={generateVocabImage}
+          onApplied={(itemId, asset) => {
+            applyVocabImageAsset(itemId, asset);
+            setImagePickerItemId(null);
+          }}
+        />
       </main>
 
     </div>

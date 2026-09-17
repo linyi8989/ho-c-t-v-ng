@@ -72,8 +72,25 @@ function ImagePicker({ label, value, assets, token, onAssets, onChange }: {
   />;
 }
 
-function ExampleEditor({ examples, onChange }: { examples: ExamDisplayExample[]; onChange: (examples: ExamDisplayExample[]) => void }) {
+function ExampleEditor({ examples, onChange, choiceRow = false }: { examples: ExamDisplayExample[]; onChange: (examples: ExamDisplayExample[]) => void; choiceRow?: boolean }) {
   const example = examples[0] || { prompt: '', answer: '' };
+  if (choiceRow) {
+    const options = ['A', 'B', 'C'].map((label, index) => ({
+      label,
+      text: example.options?.[index]?.text || '',
+    }));
+    const updateOption = (index: number, text: string) => onChange([{
+      ...example,
+      options: options.map((option, optionIndex) => optionIndex === index ? { ...option, text } : option),
+    }]);
+    return <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4" data-ket-choice-example-editor>
+      <div className="grid gap-3 md:grid-cols-[150px_minmax(180px,1fr)]">
+        <label className="text-xs font-black text-indigo-950">Số example in trên đề<input value={example.prompt} onChange={event => onChange([{ ...example, prompt: event.target.value, options }])} className={`mt-1 ${fieldClass}`} placeholder="0" /></label>
+        <label className="text-xs font-black text-indigo-950">Đáp án example<select value={example.answer} onChange={event => onChange([{ ...example, answer: event.target.value, options }])} className={`mt-1 ${fieldClass}`}><option value="">Chọn đáp án</option>{options.map(option => <option key={option.label} value={option.label}>{option.label}</option>)}</select></label>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">{options.map((option, index) => <label key={option.label} className="rounded-xl border border-indigo-200 bg-white p-3 text-xs font-black text-indigo-950">{option.label}<input value={option.text} onChange={event => updateOption(index, event.target.value)} className={`mt-2 ${fieldClass}`} /></label>)}</div>
+    </section>;
+  }
   return <section className="grid gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 md:grid-cols-2" data-ket-example-editor>
     <label className="text-xs font-black text-indigo-950">Example không chấm điểm<input value={example.prompt} onChange={event => onChange([{ ...example, prompt: event.target.value }])} className={`mt-1 ${fieldClass}`} /></label>
     <label className="text-xs font-black text-indigo-950">Đáp án in sẵn<input value={example.answer} onChange={event => onChange([{ ...example, answer: event.target.value }])} className={`mt-1 ${fieldClass}`} /></label>
@@ -111,11 +128,11 @@ function ChoiceRows({ unit, showPrompt, onChange }: { unit: ExamPartContent; sho
   </div>;
 }
 
-function ChoicePart({ token, part, assets, onAssets, onChange, showPrompt = false, showExample = true, withImage = true }: Props & { showPrompt?: boolean; showExample?: boolean; withImage?: boolean }) {
+function ChoicePart({ token, part, assets, onAssets, onChange, showPrompt = false, showExample = true, withImage = true, choiceExample = false }: Props & { showPrompt?: boolean; showExample?: boolean; withImage?: boolean; choiceExample?: boolean }) {
   return <div className="space-y-4">
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, choiceQuestion(part)] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
     {withImage && <ImagePicker label="Ảnh đề hiển thị phía trên cho học sinh" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />}
-    {showExample && <ExampleEditor examples={part.examples || []} onChange={examples => onChange({ ...part, examples })} />}
+    {showExample && <ExampleEditor examples={part.examples || []} choiceRow={choiceExample} onChange={examples => onChange({ ...part, examples })} />}
     <ChoiceRows unit={part} showPrompt={showPrompt} onChange={onChange} />
   </div>;
 }
@@ -190,8 +207,7 @@ function FormPart({ token, part, assets, onAssets, onChange, withImage = false }
   const update = (index: number, question: ExamQuestion) => onChange({ ...part, questions: part.questions.map((item, itemIndex) => itemIndex === index ? question : item) });
   return <div className="space-y-4">
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, shortQuestion(part, { prompt: `Field ${part.questions.length + 1}`, maxWords: 5 })] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} label="hàng biểu mẫu" />
-    {withImage && <ImagePicker label="Ảnh đề Part 8 · hiển thị phía trên khu vực làm bài" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />}
-    <PassageEditor value={part.passage} onChange={passage => onChange({ ...part, passage })} label="Nội dung hướng dẫn và example dạng chữ hiển thị phía trên" />
+    {withImage && <ImagePicker label="Ảnh đề Part 8 · hiển thị bên trái khu vực làm bài" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />}
     <div className="space-y-3">{part.questions.map((question, index) => <article key={question.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-[110px_minmax(180px,1fr)_180px_minmax(220px,1fr)]">
       <DisplayNumber question={question} onChange={next => update(index, next)} />
       <label className="text-xs font-black text-slate-700">Nhãn hàng<input value={question.prompt} onChange={event => update(index, { ...question, prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>
@@ -239,12 +255,12 @@ export default function KetReadingWritingAuthoring(props: Props) {
     return () => { active = false; };
   }, [part.part, props.token]);
   return <section id="ket-reading-writing-authoring" className="space-y-4" data-ket-reading-writing-part={part.part}>
-    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-800">KET Reading & Writing · Part {part.part}/9</p><p className="mt-1 text-sm font-semibold text-blue-950">Part 2 và Part 6–9 dùng nội dung chữ được nhận diện từ JSON; Part 1, 3A/3B, 4, 5 và 8 có ảnh đề do giáo viên tải/dán. Part 1–8 linh hoạt số câu, Part 9 cố định một bài viết 10 điểm.</p></div>
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-blue-800">KET Reading & Writing · Part {part.part}/9</p><p className="mt-1 text-sm font-semibold text-blue-950">Part 2, 6, 7 và 9 dùng nội dung chữ được nhận diện từ JSON; Part 1, 3A/3B, 4, 5 và 8 có ảnh đề do giáo viên tải/dán. Part 8 chỉ nhập nhãn hàng và đáp án vì hướng dẫn/example đã nằm trong ảnh. Part 1–8 linh hoạt số câu, Part 9 cố định một bài viết 10 điểm.</p></div>
     {part.part === 1 ? <LetterPart {...props} />
       : part.part === 2 ? <ChoicePart {...props} showPrompt withImage={false} />
         : part.part === 3 ? <CompoundPart {...props} />
           : part.part === 4 ? <ChoicePart {...props} showPrompt showExample={false} />
-            : part.part === 5 ? <ChoicePart {...props} />
+            : part.part === 5 ? <ChoicePart {...props} choiceExample />
               : part.part === 6 ? <SpellingPart {...props} />
                 : part.part === 7 ? <NumberedGapsPart {...props} />
                   : part.part === 8 ? <FormPart {...props} withImage />

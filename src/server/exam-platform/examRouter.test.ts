@@ -59,8 +59,9 @@ function completeContent(moduleId: 'starter' | 'pet' | 'ket' | 'writing', paperI
         part.imageAssetId = 'exam-image-1';
         part.imageUrl = '/listening-media/exam-image.png';
       }
-      if ([2, 5].includes(part.part)) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
-      if ([6, 7, 8].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
+      if (part.part === 2) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
+      if (part.part === 5) part.examples = [{ prompt: '0', answer: 'A', options: [{ label: 'A', text: 'with' }, { label: 'B', text: 'of' }, { label: 'C', text: 'in' }] }];
+      if ([6, 7].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
       if (part.part === 9) part.passage = 'Printed writing task and all required hints.';
       if (part.part === 1 && part.readingScenes?.[0]) {
         part.readingScenes[0].imageAssetId = 'exam-image-1';

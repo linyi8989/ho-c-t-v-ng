@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-09-10
+Last updated: 2026-09-16
 
 ## 1. Project Overview
 
@@ -11,6 +11,7 @@ Core capabilities:
 - Student login/register and vocabulary learning portal.
 - Long-lived student learning history for vocabulary and grammar; the UI always ships while API/projector availability uses the Release B server runtime flag.
 - Teacher/admin dashboard for vocabulary sets, classes, assignments, results, and AI generation.
+- Teacher-reviewed managed vocabulary images from external providers, stored locally before student use.
 - Game engine with flashcards, quiz, fill-blank, matching, and memory games.
 - Firebase Authentication plus Firestore data storage.
 - Express backend API with Firebase Admin and explicit Firebase, SQLite, or local JSON storage modes.
@@ -4931,3 +4932,419 @@ Rollout and verification:
   `GenericExamAdmin-Cuxq3uRa.js`, the retry-button contrast is emitted in
   `index-BNpUlfNl.css`, and the persistent worker/provider policy is bundled in
   `dist/server.cjs`.
+
+## 94. Managed vocabulary image provider pipeline - 2026-09-14
+
+- Vocabulary images now follow a server-owned search, review, import and attach
+  pipeline instead of persisting provider hotlinks. `VocabItem` has optional
+  `imageAssetId`, `imageUrl`, `imageAttribution` and `imageAttachedAt` fields.
+  Images remain optional and were not added to any game's `requiredFields`, so
+  every existing set and every no-image learning flow remains playable.
+- The backend implementation is isolated under `src/server/vocab-images/`.
+  Wikimedia Commons is always available; Pixabay and Pexels appear only when
+  their backend-only `PIXABAY_API_KEY` or `PEXELS_API_KEY` is configured. A
+  request always names one provider and never silently falls back to another.
+  Search results preserve title, author, license and source-page attribution;
+  the private provider download URL is removed before candidates reach the
+  browser. Pixabay search results use a 24-hour bounded in-process query cache.
+- `GET /api/image-library/providers`, `GET /api/image-library/search`,
+  `POST /api/image-library/batch-preview`, `POST /api/image-library/import` and
+  `POST /api/image-library/batch-import` are authenticated staff-only routes
+  behind a weighted fixed-window limit. Batch preview/import accepts at most
+  100 rows with bounded concurrency and returns failures per row, so one
+  provider error does not discard successful or pre-existing row state. Import
+  and batch import write audit-log actions. `GET
+  /api/vocab-sets/:id/images/status` is owner-scoped in the same manner as the
+  existing TTS status endpoint.
+- Search and import are deliberately separate. Candidate thumbnails may be
+  shown from the selected provider during review; the selected provider and
+  immutable external ID are then sent to the import endpoint. The backend
+  resolves that ID again, downloads it and never trusts a browser-supplied
+  source/download URL or attribution object.
+- Provider downloads require HTTPS and an adapter-specific hostname allowlist.
+  Every initial URL and redirect is revalidated, DNS results cannot resolve to
+  loopback/private/link-local/special networks, redirects are bounded, and the
+  response is subject to timeout, byte-size, MIME and magic-byte checks. Only
+  JPEG, PNG, WebP and GIF are accepted; SVG is excluded from Wikimedia search
+  candidates and rejected at download time. Files are written through a
+  temporary file plus atomic rename and named by SHA-256.
+- Imported files live under `VOCAB_IMAGE_DIR` and are served as immutable
+  `/vocab-images/{sha256}.{ext}` resources. Production startup fails closed if
+  `VOCAB_IMAGE_DIR` is absent; development falls back to
+  `.data/vocab-images`. `.env.example` documents the persistent path, optional
+  provider keys, download/search deadlines, byte cap and batch concurrency.
+  Binary bytes never enter SQLite or Firestore.
+- SQLite migration `vocab-image-assets-v1` additively creates the
+  `vocab_image_assets` table plus provider/external-ID, SHA and creator indexes.
+  The document facade stores full attribution/storage metadata in `data_json`
+  and query columns, while `vocab_items` continues to carry only the selected
+  item reference in its existing JSON payload. No table, row, legacy image or
+  asset file is removed automatically. Asset reclamation remains a future
+  explicit dry-run/quarantine maintenance task.
+- Vocabulary create/update now resolves every non-empty `imageAssetId` from
+  `vocab_image_assets` and supplies the canonical managed URL and attribution
+  server-side. A missing or malformed asset is rejected, and a new arbitrary
+  external `imageUrl` cannot be added directly. An unchanged image URL that was
+  already stored before this pipeline remains readable/saveable for backward
+  compatibility. Removing an image only detaches its item fields; it never
+  deletes the shared asset. Cloning an existing set may keep the same validated
+  immutable asset reference.
+- `AdminDashboard` delegates image UI to
+  `src/components/admin/vocab-images/`. The vocabulary table has a 72x72
+  non-cropping thumbnail with find/replace/remove controls. The per-word dialog
+  uses 96x96 candidates with source metadata. Batch review requests three
+  candidates per non-empty term, preselects the first candidate for convenience
+  but performs no download until the teacher confirms, and lets a teacher skip
+  individual words. Partial import failures keep their row visible for retry.
+  Changing the English term detaches stale image fields as well as stale TTS
+  fields to prevent semantic mismatch.
+- Student display is centralized in `VocabItemImage.tsx`: a square white/light
+  `object-contain` frame at 128x128 on narrow screens and 160x160 from desktop,
+  a neutral pre-answer alt label and a compact `Nguồn ảnh` attribution link.
+  Broken image URLs fail closed without breaking the game. The existing
+  Millionaire crop was replaced by this same non-cropping frame.
+- Game timing is explicit in `gameList.ts`. Flashcard English→Vietnamese and
+  Vietnamese→English show the image on the prompt face; sound flashcards show
+  it only after flip. Text quizzes show it with the prompt, while sound quiz
+  reveals it only after an answer. Both fill games show it in the question
+  card. Millionaire shows it with the term. Matching, Memory and Speaking AI
+  intentionally render no image because an image would either reveal pair
+  identity, overload a dense board or distract from pronunciation.
+- Regression coverage is split across provider adapters, SSRF/download
+  security, content-addressed storage, authoritative save resolution, additive
+  SQLite storage, staff/API contracts, editor workflow and the game matrix.
+  Local verification: TypeScript lint passes; vocabulary games pass 16/16;
+  vocabulary image tests pass 19/19; security passes 15/15; and Vite plus the
+  bundled Express server build successfully into a disposable temporary output
+  directory without touching tracked `dist`. The repository-wide storage suite
+  cannot load this workstation's Node-22 ABI-127 `better-sqlite3` binary under
+  the active Node-24 ABI-137 shell; the new migration itself passes through the
+  explicit `sql.js` rollback driver and the native storage suite remains a Node
+  22 release-lane check.
+
+## 95. KET Reading & Writing Part 5 example and Part 8 image-led layout - 2026-09-14
+
+- KET Reading & Writing Part 5 now models its unscored printed example as a
+  choice row: the printed example number, three public A/B/C option texts and
+  the official answer label. `ExamDisplayExample.options` is optional so every
+  released module and legacy example remains readable. Universal Import parses
+  the optional choices instead of discarding them, while Part 5 publish
+  validation requires exactly A/B/C plus one matching official answer.
+- The KET import prompt no longer asks the model to reconstruct the Part 5
+  sentence already visible in the teacher-owned image. Its schema example and
+  explicit Schnauzer regression case map official-key row `0` to A `with`, B
+  `of`, C `in`, answer `B`. The Part 5 authoring surface exposes those same
+  fields; live attempt and detailed review render the example as an A/B/C row.
+  Existing examples without structured choices still use the prior text
+  fallback until a teacher reviews or re-imports that Part.
+- KET Reading & Writing Part 8 no longer exposes the duplicate `Nội dung hướng
+  dẫn và example dạng chữ hiển thị phía trên` editor. Universal Import is told
+  not to return `content.passage`, and publish validation no longer requires
+  it. The teacher-owned image remains mandatory; question number, form label,
+  optional prefix and accepted answer remain normal editable JSON/form data.
+- Part 8 live attempt and detailed review now share the KET split presentation:
+  the image is on the left and the form/result rows are on the right at the
+  existing responsive 44/56 desktop ratio, collapsing naturally on narrow
+  screens. Neither surface renders a duplicate text-source/example block.
+- No database schema, stored answer, grading rule, image ownership or released
+  content was rewritten. Focused regression coverage verifies the structured
+  Part 5 import/prompt/UI contract, rejects the former sentence-only Part 5
+  example at publish time, preserves the Part 8 teacher image across JSON
+  import and permits Part 8 without `passage`. TypeScript lint and the complete
+  exam-platform suite pass (86/86).
+
+## 96. Wikimedia Commons thumbnail-host boundary - 2026-09-15
+
+- Wikimedia search metadata serves normal resized JPEG/PNG previews from
+  `thumb.wikimedia.org`, while original files remain on
+  `upload.wikimedia.org`. The vocabulary image provider previously reused the
+  original-download allowlist for preview filtering, so valid raster candidates
+  such as `Red Apple` were silently removed even though the upstream API
+  returned HTTP 200. Unscaled GIF previews happened to survive, which made the
+  failure appear query-dependent.
+- `VocabImageProvider` now owns separate `allowedPreviewHosts` and
+  `allowedDownloadHosts`. Wikimedia previews allow the exact official
+  `thumb.wikimedia.org` and `upload.wikimedia.org` hosts, while secure imports
+  remain restricted to originals on `upload.wikimedia.org`. Pixabay and Pexels
+  declare their existing preview hosts explicitly. Source-page and secure
+  download validation are unchanged.
+- The local `fetch failed` observed before this fix had a separate environment
+  cause: the sandboxed development process received outbound TCP `EACCES`.
+  Running `npm run dev:local` with outbound access returned Wikimedia HTTP 200;
+  the real localhost batch endpoint then returned three candidates each for
+  `apple` and `book` after the preview allowlist correction.
+- Regression fixtures now use the real Wikimedia split-host shape and protect
+  the narrower download boundary. Verification: TypeScript lint passes;
+  vocabulary image tests pass 19/19; exam-platform tests pass 86/86; the live
+  batch-preview endpoint succeeds; and both the Vite client and bundled Express
+  server build successfully into a disposable output directory.
+
+## 97. Pixabay/Pexels activation and Vietnamese batch balancing - 2026-09-15
+
+- Pixabay and Pexels remain optional backend-only providers under the existing
+  managed vocabulary image pipeline. `PIXABAY_API_KEY` is sent only by the
+  Pixabay server adapter; `PEXELS_API_KEY` is sent only in Pexels' backend
+  `Authorization` header. The browser continues to submit only a provider ID
+  plus the immutable external image ID, and never receives the provider's
+  private download URL or either credential.
+- Pixabay search now enforces the documented 100-character query boundary,
+  `safesearch=true` and `image_type=all`; it sends `lang=vi` or `lang=en` from
+  the reviewed search language. Pexels likewise sends `locale=vi-VN` or
+  `locale=en-US` and prefers the bounded `large2x` rendition for managed
+  import. Both adapters reject non-numeric external IDs before making an
+  upstream request.
+- Search caching is 24 hours for both quota-backed providers. Wikimedia keeps
+  its shorter five-minute cache. The cache is bounded in-process and does not
+  change the import rule: every selected external ID is resolved again by the
+  backend before download and storage.
+- Both teacher review dialogs now list all registered sources. Unconfigured
+  providers stay visible but disabled with a clear backend-configuration note,
+  while configured providers remain selectable for per-word and batch review.
+  `.env.example` documents the two official key sources and restart boundary;
+  real credentials remain outside source control.
+- Per-word review defaults to the item's Vietnamese `meaning` and exposes an
+  explicit Vietnamese/English language switch. Batch review carries both
+  `term` and `meaning`; the server prefers the Vietnamese meaning and falls
+  back to the English term only when no meaning exists. The review card shows
+  the exact query, language and provider used.
+- Batches above ten rows default to the explicit `auto` strategy. Work is
+  bounded by the existing concurrency limit and rotated across configured
+  Wikimedia, Pixabay and Pexels adapters. A provider returning HTTP 429 enters
+  a bounded cooldown (honouring `Retry-After` when supplied); only in this
+  teacher-selected auto strategy may the row try the next configured source.
+  Direct provider searches never silently fall back.
+- Verification with local backend keys: TypeScript lint passes and vocabulary
+  image tests pass 23/23, including credential transport, adaptive locale,
+  malformed-ID rejection, Pexels cache expiry, Vietnamese query selection,
+  automatic provider balancing and 429 cooldown. A live UTF-8 batch of 12
+  vocabulary rows returned candidates for all rows at concurrency 3: Pixabay
+  reported upstream HTTP 429, so the completed rows were served by Wikimedia
+  (4) and Pexels (8). A selected Pexels candidate then resolved, downloaded and
+  served from managed storage as HTTP 200 `image/webp` with author and licence
+  metadata. The local key file remains untracked and no key value was logged.
+
+## 98. Vocabulary image relevance, pagination and same-origin previews - 2026-09-16
+
+- This section supersedes the default query and auto-provider behaviour recorded
+  in section 97. Pixabay's official API documentation sets a default limit of
+  100 requests per 60 seconds per key, requires 24-hour response caching and
+  says the API is intended for human searches rather than systematic mass
+  downloads. Pixabay therefore remains available in the single-word picker but
+  is disabled and rejected for batch preview. A provider HTTP 429 starts a
+  bounded local cooldown so repeated clicks do not keep spending upstream
+  quota. Automatic batch work now rotates only across configured Pexels and
+  Wikimedia adapters.
+- Flashcard search now defaults to the English vocabulary term and carries the
+  part of speech. Pexels/Pixabay receive a provider-appropriate visual qualifier
+  such as `car isolated on white background`; verbs and adjectives use action
+  or visual-concept qualifiers. Wikimedia keeps the exact term because Commons
+  full-text search performs poorly with stock-photo qualifiers. Pexels requests
+  square, medium-or-larger photos; Pixabay requests at least 800x600 horizontal
+  images. The server fetches a bounded wider candidate pool, rejects avoidably
+  small images when alternatives exist, then ranks title overlap, resolution,
+  near-square composition and noisy `toy`/`poster`/`logo` metadata before
+  returning the requested candidates.
+- Provider adapters and the search cache are page-aware. The per-word picker
+  exposes previous/next result pages, and every batch row exposes `3 ảnh khác`.
+  Page is part of the 24-hour Pexels/Pixabay cache key, so moving forward returns
+  different candidates while repeated viewing of the same page does not spend
+  another provider request. The exact optimized query and current page remain
+  visible to the teacher.
+- Review thumbnails no longer depend on the browser reaching provider CDNs.
+  Search responses replace the upstream preview URL with a one-hour opaque
+  same-origin `/api/image-library/preview/{handle}` capability. The public
+  preview route is separately rate-limited, accepts only handles registered by
+  a validated search result, reuses the existing HTTPS/hostname/DNS/redirect/
+  MIME/magic-byte/size protections and caches validated bytes privately for 30
+  minutes. Download URLs and API credentials remain server-only. Pixabay uses
+  its smaller dedicated preview rendition to reduce CDN throttling; selected
+  imports still resolve and download the full managed rendition.
+- Candidate tiles are larger in both review dialogs. Student games continue to
+  share one `object-contain` component, now 160x160 on narrow screens and
+  192x192 on desktop. The inline `Nguồn ảnh ...` caption has been removed from
+  the student card as requested; canonical author, licence and source-page
+  metadata remains attached to the managed asset and visible in the teacher
+  editor/review workflow.
+- Live verification against localhost: optimized Pexels `car` search returned a
+  14173x14173 white-background car as the first candidate; pages 1 and 2 had
+  disjoint IDs; three same-origin thumbnails returned HTTP 200 JPEG. A 12-word
+  transport batch completed 12/12 rows with no error and an exact 6 Pexels / 6
+  Wikimedia split; the sample proxy thumbnail returned HTTP 200. The Pixabay
+  key worked after its prior window reset, then returned HTTP 429 again on new
+  uncached queries, confirming that it must stay out of automated batch work.
+  TypeScript lint passes, vocabulary-image tests pass 27/27, vocabulary-game
+  tests pass 16/16, and both Vite client and bundled Express production builds
+  pass in a disposable output directory without modifying tracked `dist`.
+
+## 99. Education-oriented vocabulary image preprocessing - 2026-09-16
+
+- `src/server/vocab-images/searchStrategy.ts` is now the pure, testable boundary
+  between a teacher's vocabulary term and an external provider request. It was
+  designed for this repository after reviewing the separate IOE implementation;
+  no IOE source, hotlink behaviour, cache policy or weaker download boundary was
+  copied. The existing same-origin preview proxy, managed import, attribution,
+  SSRF/DNS/redirect checks and student image contract remain unchanged.
+- Flashcard searches classify a term as `object-illustration`, `vehicle`,
+  `action`, `concept`, `map` or `photo`, then build a provider-specific plan.
+  Examples include Pexels `car side view isolated studio`, Pixabay illustration
+  filters, Wikimedia `Australia country map outline`, human-action queries for
+  verbs and a physical-book query that avoids document-page ambiguity. Pixabay
+  remains single-search only and outside automatic batches.
+- Provider adapters accept a bounded structured filter object. Flashcard search
+  fetches a wider pool of at most 30 metadata records in one upstream request,
+  then applies semantic/title evidence, educational composition, dimensions,
+  aspect ratio, visual style and explicit noise penalties. Watermarks, logos,
+  collages, toys/models, scanned book pages, thematic maps, non-human action
+  subjects and context-heavy vehicle photos are demoted or removed. Returned
+  candidates expose only review metadata: optimized query, intent, 0-100 score,
+  `excellent|good|usable` quality, visual style and short reasons; provider
+  download URLs remain private.
+- Concurrent identical searches now share one in-flight provider request.
+  Pexels/Pixabay still retain the required 24-hour response cache, Wikimedia
+  keeps five minutes, page remains part of the key, and cached results can still
+  be reviewed while a provider is in cooldown. `VOCAB_IMAGE_SEARCH_STRATEGY_V2`
+  is a server-runtime rollback switch; it defaults on and can be set to `false`
+  without changing stored assets or vocabulary records.
+- Teacher dialogs show the optimized query, score, quality, style, dimensions
+  and scoring reasons. Weak candidates are not returned. Batch review only
+  preselects `good` or `excellent` candidates; `usable` candidates remain visible
+  for an explicit teacher decision and no image is downloaded before approval.
+  Empty/unsuitable results in automatic mode try the next bulk-safe provider.
+- Live localhost verification with the configured keys found all three provider
+  registrations, while Pixabay again returned HTTP 429 and correctly stayed out
+  of batch work. A 12-word batch completed 12/12 across Pexels and Wikimedia.
+  Follow-up regressions from real results now reject an unrelated Australia
+  photo, a model-boat project, archival book scans, decorative book concepts and
+  a dog for the verb `run`; the matching country map and human running action
+  remain recommendable. Verification passes: vocabulary-image tests 36/36,
+  vocabulary-game tests 16/16, TypeScript lint and the production client/server
+  build. No database migration, existing managed asset or released set changed.
+
+## 100. Managed AI vocabulary images and Seedvis native generation - 2026-09-17
+
+- This section supersedes the external-image search/review implementation in
+  sections 96-99. Vocabulary authoring no longer calls Wikimedia Commons,
+  Pixabay or Pexels and no longer exposes search, preview or external-import
+  routes. Teachers can generate one image, generate a batch for review, upload
+  a local file, or paste an image from the browser clipboard. Generated and
+  uploaded files still enter the same content-addressed managed storage before
+  a vocabulary item may reference them.
+- `src/server/vocab-images/generationProviders.ts` is the private provider
+  boundary. Stali uses exactly `req/gpt-image-2`, DevQuota uses exactly
+  `gpt-image-2`, and Seedvis exposes exactly two choices: Google Nano Banana 2
+  (`NARWHAL`) and Google Nano Banana Pro (`GEM_PIX_2`). Provider API keys never
+  reach the browser. Seedvis uses its native `POST /developer/generations`
+  lifecycle with one UUID idempotency key, `aspect_ratio: "4:3"`, `count: 1`,
+  and follows the returned long-poll URL without resubmitting the paid job.
+- A completed Seedvis output is accepted only from the exact official
+  `cdn.seedvis.com` HTTPS boundary. It is then downloaded through the existing
+  DNS/private-address/redirect/MIME/magic-byte/size checks and stored locally;
+  the transient CDN URL is not saved into the vocabulary set. Generation and
+  download have separate bounded timeouts, while batch work keeps bounded
+  concurrency and automatic fallback across configured model choices.
+- `src/server/vocab-images/generationPrompt.ts` owns one normalized prompt for
+  all generation paths. It carries the exact English term, Vietnamese meaning
+  as semantic context and part of speech, including the short `v` verb marker.
+  It requests one child-friendly, school-safe, non-graphic 3D educational
+  scene with a clear focal subject/action, full-frame 4:3 composition and no
+  explanation, spelling, pronunciation, text, labels, watermark, border,
+  collage, gap, card mock-up, multiple panels or stacked visual layers.
+- The staff-only surface is `GET /api/image-library/providers`, `POST
+  /api/image-library/generate`, `POST /api/image-library/batch-generate`, and
+  `POST /api/image-library/upload`. `VocabImageGenerateDialog` lets a teacher
+  choose an enabled model and approve a generated image. The batch dialog
+  shows consistent 4:3 thumbnails and only attaches reviewed rows. Per-row
+  controls remain `Tạo`, `Dán`, and `Tải`; clipboard/local images require the
+  existing rights confirmation before upload.
+- SQLite migration `vocab-image-providers-seedvis-v3` rebuilds only the image
+  metadata table inside the startup migration transaction, copies every row,
+  and expands the provider check for the two Seedvis IDs. Historical
+  Wikimedia/Pixabay/Pexels metadata stays readable so existing released sets
+  are not rewritten or broken. Configure the backend-only `SEEDVIS_API_KEY`
+  and optional official `SEEDVIS_BASE_URL`, then restart the server.
+- Verification passes: TypeScript lint; vocabulary-image tests 27/27;
+  vocabulary-game tests 16/16; security tests 15/15; storage/migration tests
+  5/5 under the repository's declared Node 22 runtime; and the complete Vite
+  client plus bundled Express production build. Localhost returns all four
+  generation choices with the exact model IDs. With no `SEEDVIS_API_KEY` in
+  the local environment, both Seedvis choices remain visibly disabled and a
+  direct request fails closed with HTTP 503 before any paid upstream request.
+- Clipboard/local-upload intent is now implicit in the teacher clicking `Dán`
+  or choosing a file: the application no longer opens a second rights-confirm
+  dialog and always sends the existing server-side rights flag. The browser's
+  own clipboard permission prompt cannot be suppressed by application code;
+  it normally appears once per origin and remains the browser's security
+  boundary on both localhost and hosted HTTPS domains.
+- Raw provider transport exceptions are translated to an actionable HTTP 502
+  message naming server DNS/firewall/outbound access instead of exposing
+  `fetch failed`. The screenshot failure was reproduced only while the local
+  dev process was sandboxed from outbound TCP. After restarting localhost with
+  outbound access, real end-to-end `book` generations succeeded through Stali
+  `req/gpt-image-2` in 40.9 seconds and DevQuota `gpt-image-2` in 43.2 seconds.
+  Both managed results serve as HTTP 200 `image/png`. Final verification passes
+  TypeScript lint, vocabulary-image tests 28/28 and the production build.
+- A later DevQuota response with `type: upstream_error` and request ID
+  `20260917...` was diagnosed against both configured gateways. Each `/models`
+  endpoint returned HTTP 200 and still listed its exact requested model. A
+  rejected diagnostic request showed that DevQuota owns this timestamped
+  request-ID format, whereas Stali returns a different error contract. The
+  failure is therefore inside DevQuota's downstream `gpt-image-2` channel, not
+  browser JSON, authentication, model spelling or local managed storage.
+  Provider JSON errors are now unwrapped into one readable message prefixed by
+  the provider label while retaining the upstream request ID for support. No
+  automatic retry is issued for an explicitly selected paid provider.
+
+## 101. High-throughput automatic vocabulary image batches - 2026-09-17
+
+- The vocabulary editor batch action now mirrors the existing pre-save TTS
+  batch workflow. One authenticated request contains every non-empty editor
+  row (bounded by `VOCAB_IMAGE_BATCH_MAX_ITEMS`, default 500). There is no
+  separate review/attach modal: every successful managed asset is applied
+  directly to its matching draft row when the batch returns, failed rows keep
+  their previous image, and the teacher still saves the vocabulary set to
+  persist the new references.
+- Backend scheduling uses an independent FIFO semaphore for each configured
+  generation provider. `VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER` defaults
+  to 50 and is clamped to 1-50. With the currently configured Stali and
+  DevQuota providers, Auto assigns alternating preferred providers and permits
+  up to 50 in-flight jobs on each service (100 total). A fallback attempt must
+  acquire the destination provider's semaphore, so provider limits cannot be
+  exceeded when failures cross over.
+- The former global concurrency of 2 and the hard 100-row slice were removed.
+  All rows are scheduled from the single batch request; additional rows wait
+  only behind their provider semaphore. Explicit-provider batches still avoid
+  fallback, while Auto preserves per-row fallback and per-row errors without
+  cancelling successful rows.
+- Generated bytes are validated and written to content-addressed backend
+  storage before the result reaches the browser. The editor then fills the
+  existing 4:3 thumbnail immediately from the managed URL. During the batch,
+  image controls are disabled and the batch button shows a spinner. A row with
+  an existing image exposes `Tạo lại`; the single-image dialog remains the
+  teacher-controlled replacement path.
+- Regression coverage verifies independent provider ceilings, alternating
+  assignment, row-level failures, a 101-row batch beyond the old cutoff,
+  automatic editor attachment, removal of the review modal and the regenerate
+  control. Verification passes vocabulary-image tests 31/31, vocabulary-game
+  tests 16/16 and TypeScript lint.
+
+## 102. Teacher-editable prompt for single vocabulary images - 2026-09-17
+
+- The single-image generation dialog now loads the server-owned default prompt
+  through staff-only `POST /api/image-library/prompt` and displays it in an
+  editable textarea before any paid provider call. Teachers can adjust the
+  prompt, view its character count and restore the original generated prompt.
+- `POST /api/image-library/generate` accepts the edited `prompt` only for the
+  explicit single-image workflow. The backend requires text, normalizes line
+  endings, trims outer whitespace and rejects empty input or more than 8,000
+  characters before calling a provider. The exact accepted prompt is returned
+  to the dialog and retained in managed asset metadata; it is not written to
+  audit-log details.
+- Batch generation deliberately continues to build the canonical prompt from
+  each term, Vietnamese meaning and part of speech. A caller-supplied `prompt`
+  field inside a batch row is ignored, preserving the automatic batch contract
+  and preventing an accidental custom instruction from spreading across rows.
+- The dialog disables generation while the default prompt is loading or while
+  a paid request is active. It remains scrollable within the viewport and the
+  prompt can be edited even if preview loading failed. Regression coverage
+  verifies formatting preservation, validation, API wiring, UI controls and
+  the batch-isolation rule.

@@ -16,7 +16,13 @@ function Examples({ part }: { part: ExamPartContent }) {
   if (!part.examples?.length) return null;
   return <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-slate-800" data-ket-examples>
     <p className="text-xs font-black uppercase text-indigo-800">{part.examples.length > 1 ? 'Examples' : 'Example'}</p>
-    {part.examples.map((example, index) => <p key={index} className="mt-2 flex flex-wrap items-baseline justify-between gap-3 font-semibold"><span>{example.prompt}</span><b className="border-b-2 border-dotted border-indigo-500 bg-white px-4 text-indigo-900">{example.answer}</b></p>)}
+    {part.examples.map((example, index) => example.options?.length
+      ? <div key={index} className="mt-3 grid items-center gap-2 sm:grid-cols-[3rem_repeat(3,minmax(0,1fr))_5rem]" data-ket-choice-example-row>
+          <b className="text-center text-indigo-950">{example.prompt}</b>
+          {example.options.slice(0, 3).map(option => <span key={option.label} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-center font-semibold"><b className="mr-1">{option.label}.</b>{option.text}</span>)}
+          <b className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-center text-indigo-950" aria-label={`Đáp án example ${example.answer}`}>{example.answer}</b>
+        </div>
+      : <p key={index} className="mt-2 flex flex-wrap items-baseline justify-between gap-3 font-semibold"><span>{example.prompt}</span><b className="border-b-2 border-dotted border-indigo-500 bg-white px-4 text-indigo-900">{example.answer}</b></p>)}
   </div>;
 }
 
@@ -114,7 +120,7 @@ function NumberedRows({ unit, answers, onAnswer }: { unit: ExamPartContent; answ
 }
 
 function FormRows({ unit, answers, onAnswer }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer'] }) {
-  return <div className="space-y-5" data-ket-part8-image-top>{unit.imageUrl && <TopImage imageUrl={unit.imageUrl} imageAlt="Ảnh đề KET Reading & Writing Part 8" />}<TextSource passage={unit.passage} label="Hướng dẫn và example" /><div className="space-y-2" data-ket-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(110px,.7fr)_minmax(180px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-900">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-600 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200"><b className="shrink-0 pl-3 text-slate-800">{question.answerPrefix}</b><input value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Đáp án ${question.prompt}`} className="h-10 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /></span></label>)}</div></div>;
+  return <div data-ket-part8-split-layout><TwoColumn imageUrl={unit.imageUrl} imageAlt="Ảnh đề KET Reading & Writing Part 8"><div className="space-y-2" data-ket-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(100px,.65fr)_minmax(150px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-900">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-600 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200"><b className="shrink-0 pl-3 text-slate-800">{question.answerPrefix}</b><input value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Đáp án ${question.prompt}`} className="h-10 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /></span></label>)}</div></TwoColumn></div>;
 }
 
 function WritingPart({ unit, answers, onAnswer }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer'] }) {

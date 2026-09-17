@@ -167,7 +167,10 @@ function normalizeQuestion(part: number, question: ExamQuestion, number: number,
 
 function publicExamples(part: number, examples: ExamPartContent['examples']) {
   if (![1, 2, 5].includes(part)) return undefined;
-  return examples?.length ? examples : [{ prompt: 'Printed example', answer: '' }];
+  if (examples?.length) return examples;
+  return part === 5
+    ? [{ prompt: '0', answer: '', options: ['A', 'B', 'C'].map(label => ({ label, text: `Option ${label}` })) }]
+    : [{ prompt: 'Printed example', answer: '' }];
 }
 
 function blockFrom(

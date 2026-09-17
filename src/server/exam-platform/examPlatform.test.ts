@@ -45,8 +45,9 @@ function completeDraft(content: ExamPaperContent) {
     }
     if (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.parts.length === 9) {
       if ([1, 4, 5, 8].includes(part.part)) part.imageAssetId = `image-ket-rw-${part.part}`;
-      if ([2, 5].includes(part.part)) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
-      if ([6, 7, 8].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
+      if (part.part === 2) part.examples = [{ prompt: 'Printed example question', answer: 'A' }];
+      if (part.part === 5) part.examples = [{ prompt: '0', answer: 'A', options: [{ label: 'A', text: 'with' }, { label: 'B', text: 'of' }, { label: 'C', text: 'in' }] }];
+      if ([6, 7].includes(part.part)) part.passage = `Printed KET Part ${part.part} instructions, source text and example.`;
       if (part.part === 9) part.passage = 'Printed writing task and all required hints.';
       if (part.part === 1 && part.readingScenes?.[0]) part.readingScenes[0].imageAssetId = 'image-ket-rw-1-middle';
       if (part.part === 3 && part.blocks?.length === 2) {
@@ -280,6 +281,11 @@ test('KET Reading & Writing uses nine flexible Parts, two Part 3 groups and a te
   assert.equal(content.parts.length, 9);
   assert.deepEqual(content.parts.map(part => part.questions.length), [5, 5, 10, 7, 8, 5, 10, 5, 1]);
   assert.equal(content.parts[2].blocks?.length, 2);
+  assert.equal(validateExamPaperContent(content).some(error => error.includes('Part 8') && error.includes('nội dung')), false);
+  const validPart5Example = content.parts[4].examples;
+  content.parts[4].examples = [{ prompt: 'There are three sizes ___ Schnauzer dog.', answer: 'B' }];
+  assert.equal(validateExamPaperContent(content).some(error => error.includes('Part 5') && error.includes('ba lựa chọn A/B/C')), true);
+  content.parts[4].examples = validPart5Example;
   const legacySpelling = createDefaultExamContent(definition);
   legacySpelling.parts[5].questions[0].answerPrefix = 'p';
   legacySpelling.parts[5].questions[0].answerLength = 8;

@@ -4,12 +4,14 @@ import { Volume2, Check, X, ArrowRight, HelpCircle, Info } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
+import VocabItemImage from './VocabItemImage';
 
 interface FillBlankGameProps {
   items: VocabItem[];
   config: {
     mode: 'complete' | 'missing_letters';
     promptType: 'meaning' | 'meaning_and_hint';
+    imagePolicy?: 'prompt' | 'none';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
@@ -285,6 +287,10 @@ export default function FillBlankGame({
             </h2>
             <p className="text-xs text-gray-400 font-semibold uppercase">{currentItem.pos}</p>
           </div>
+
+          {config.imagePolicy === 'prompt' && (
+            <VocabItemImage item={currentItem} />
+          )}
 
           {config.mode === 'missing_letters' && (
             <div className="bg-gray-50 border border-gray-100 px-6 py-3 rounded-2xl font-mono text-2xl md:text-3xl tracking-widest text-indigo-600 font-bold select-none">

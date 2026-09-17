@@ -101,6 +101,14 @@ import {
   isArchivedRecord,
 } from "./src/server/resourceLifecycle.js";
 import { buildLeaderboard, type LeaderboardPeriod } from "./src/lib/leaderboard.js";
+import {
+  createVocabImageRouter,
+  MANAGED_VOCAB_IMAGE_ASSET_ID,
+  MANAGED_VOCAB_IMAGE_URL,
+  resolveVocabImageReferencesForSave,
+  VocabImageLibraryService,
+  vocabImageAttributionFromAsset,
+} from "./src/server/vocab-images/index.js";
 
 // Load environment variables
 dotenv.config();
@@ -129,6 +137,18 @@ const LISTENING_MEDIA_DIR = resolvePersistentDirectory({
   env: process.env,
   variable: "LISTENING_MEDIA_DIR",
   localDirectory: "listening-media"
+});
+const VOCAB_IMAGE_PUBLIC_PREFIX = "/vocab-images";
+const VOCAB_IMAGE_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "VOCAB_IMAGE_DIR",
+  localDirectory: "vocab-images"
+});
+const vocabImageLibraryService = new VocabImageLibraryService({
+  db: adminDb,
+  imageDir: VOCAB_IMAGE_DIR,
+  publicPrefix: VOCAB_IMAGE_PUBLIC_PREFIX,
+  env: process.env,
 });
 const SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 const LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
@@ -181,6 +201,11 @@ fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use(AUDIO_PUBLIC_PREFIX, express.static(AUDIO_DIR));
 fs.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
 app.use(LISTENING_MEDIA_PUBLIC_PREFIX, express.static(LISTENING_MEDIA_DIR, {
+  immutable: true,
+  maxAge: "365d"
+}));
+fs.mkdirSync(VOCAB_IMAGE_DIR, { recursive: true });
+app.use(VOCAB_IMAGE_PUBLIC_PREFIX, express.static(VOCAB_IMAGE_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -3072,6 +3097,16 @@ app.use(
 );
 
 app.use(
+  "/api/image-library",
+  createVocabImageRouter({
+    service: vocabImageLibraryService,
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    logAudit: logAuditAction,
+  })
+);
+
+app.use(
   "/api/listening",
   createMoverLegacyRouter({
     db: adminDb,
@@ -3742,7 +3777,7 @@ app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
 app.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = req.body;
+    const set = await resolveVocabImageReferencesForSave(req.body, {}, adminDb);
     const id = `set-${Date.now()}`;
     const newSet = normalizeVocabSetForSave({
       ...set,
@@ -3789,7 +3824,8 @@ app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_
       return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
     }
 
-    const updatedSet = normalizeVocabSetForSave({ ...payload, id }, existingDoc.data());
+    const resolvedPayload = await resolveVocabImageReferencesForSave(payload, existingDoc.data(), adminDb);
+    const updatedSet = normalizeVocabSetForSave({ ...resolvedPayload, id }, existingDoc.data());
 
     await docRef.set(updatedSet);
     if (updatedSet.ttsSettings?.autoGenerate) {
@@ -3969,6 +4005,32 @@ app.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teac
         audioGeneratedAt: item.audioGeneratedAt,
         audioUpdatedAt: item.audioUpdatedAt
       }))
+    });
+  } catch (err: any) {
+    sendApiError(res, err);
+  }
+});
+
+app.get("/api/vocab-sets/:id/images/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const set = doc.data();
+    if (!canManageVocabSet(req.user, set)) {
+      return res.status(403).json({ error: "Ban khong co quyen xem trang thai anh cua bo tu vung nay." });
+    }
+    const items = Array.isArray(set.items) ? set.items : [];
+    res.json({
+      id: set.id,
+      items: items.map((item: any) => ({
+        id: item.id,
+        term: item.term,
+        imageAssetId: item.imageAssetId,
+        imageUrl: item.imageUrl,
+        imageAttribution: item.imageAttribution,
+        imageAttachedAt: item.imageAttachedAt,
+        imageStatus: item.imageAssetId && item.imageUrl ? "ready" : item.imageUrl ? "legacy" : "missing",
+      })),
     });
   } catch (err: any) {
     sendApiError(res, err);
@@ -6537,9 +6599,28 @@ function normalizeVocabItemForSave(item: any, index: number, errors: string[]) {
     pos: safeText(item?.pos, 120),
     example: safeText(item?.example, 1000),
     exampleMeaning: safeText(item?.exampleMeaning, 1000),
-    imageUrl: safeText(item?.imageUrl, 1000),
     displayOrder: Number.isFinite(Number(item?.displayOrder)) ? Number(item.displayOrder) : index + 1
   };
+
+  const imageAssetId = safeText(item?.imageAssetId, 80);
+  const imageUrl = safeText(item?.imageUrl, 1000);
+  if (imageAssetId) {
+    if (!MANAGED_VOCAB_IMAGE_ASSET_ID.test(imageAssetId) || !MANAGED_VOCAB_IMAGE_URL.test(imageUrl)) {
+      errors.push(`Dong ${index + 1}: invalid managed image metadata.`);
+    } else {
+      try {
+        normalized.imageAssetId = imageAssetId;
+        normalized.imageUrl = imageUrl;
+        normalized.imageAttribution = vocabImageAttributionFromAsset(item?.imageAttribution);
+        normalized.imageAttachedAt = safeText(item?.imageAttachedAt, 80) || new Date().toISOString();
+      } catch {
+        errors.push(`Dong ${index + 1}: invalid image attribution.`);
+      }
+    }
+  } else if (imageUrl) {
+    // Compatibility path for images that were already stored before managed assets existed.
+    normalized.imageUrl = imageUrl;
+  }
 
   if (audioUrl) normalized.audioUrl = audioUrl;
   if (audioHash) normalized.audioHash = audioHash;

@@ -102,6 +102,12 @@ test("production persistent paths fail closed while local paths stay inside .dat
     localDirectory: "listening-media",
     cwd: "C:/workspace"
   }), /\.data[\\/]listening-media$/);
+  assert.match(resolvePersistentDirectory({
+    env: { NODE_ENV: "development" },
+    variable: "VOCAB_IMAGE_DIR",
+    localDirectory: "vocab-images",
+    cwd: "C:/workspace"
+  }), /\.data[\\/]vocab-images$/);
 });
 
 test("DevQuota legacy variable is accepted only as a warned migration alias", () => {

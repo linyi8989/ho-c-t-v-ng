@@ -394,9 +394,19 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
       const example = row(value);
       const previous = currentBlock?.examples?.[index]
         || (!current?.blocks?.length ? current?.examples?.[index] : undefined);
+      const options = Array.isArray(example.options)
+        ? example.options.slice(0, 10).map((optionValue: unknown) => {
+            const option = row(optionValue);
+            return {
+              label: cleanText(option.label, 20),
+              text: cleanText(option.text, 1_000),
+            };
+          }).filter(option => option.label && option.text)
+        : [];
       return {
         prompt: cleanText(example.prompt, 2_000),
         answer: cleanText(example.answer, 1_000),
+        ...(options.length ? { options } : {}),
         ...(previous?.imageAssetId ? { imageAssetId: previous.imageAssetId } : {}),
         ...(previous?.imageUrl ? { imageUrl: previous.imageUrl } : {}),
         ...(previous?.secondaryImageAssetId ? { secondaryImageAssetId: previous.secondaryImageAssetId } : {}),

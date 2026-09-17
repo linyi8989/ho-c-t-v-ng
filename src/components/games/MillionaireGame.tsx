@@ -12,12 +12,14 @@ import {
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playAudioUrl, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
+import VocabItemImage from './VocabItemImage';
 
 interface MillionaireGameProps {
   items: VocabItem[];
   config: {
     maxQuestions?: number;
     enableLifelines?: boolean;
+    imagePolicy?: 'prompt' | 'none';
   };
   onComplete: (score: number, correct: number, incorrect: number, details?: GameCompletionDetails) => void;
   onAction?: (action: Omit<GameAction, 'actionId' | 'sequence'>) => void;
@@ -67,11 +69,6 @@ function getUniqueMeanings(items: VocabItem[]): string[] {
         .filter((meaning): meaning is string => Boolean(meaning))
     )
   );
-}
-
-function getImageUrl(item: VocabItem): string | undefined {
-  const source = item as any;
-  return source.imageUrl || source.image;
 }
 
 function getPhonetic(item: VocabItem): string | undefined {
@@ -157,7 +154,6 @@ export default function MillionaireGame({
   const bankedPrize = correctCount > 0 ? PRIZE_LADDER[correctCount - 1] : 0;
   const phoneticHint = currentQuestion ? getPhonetic(currentQuestion.item) : undefined;
   const learningAudioUrl = currentQuestion ? getLearningAudioUrl(currentQuestion.item) : undefined;
-  const imageUrl = currentQuestion ? getImageUrl(currentQuestion.item) : undefined;
 
   const clearMillionaireTimers = () => {
     if (timerRef.current) {
@@ -460,13 +456,8 @@ export default function MillionaireGame({
           </div>
 
           <div className="mt-6 rounded-3xl border border-white/10 bg-white/8 p-5 md:p-7 text-center shadow-xl">
-            {imageUrl && (
-              <img
-                src={imageUrl}
-                alt=""
-                className="mx-auto mb-5 h-28 w-28 rounded-2xl object-cover border border-white/10"
-                loading="lazy"
-              />
+            {config.imagePolicy !== 'none' && (
+              <VocabItemImage item={currentQuestion.item} theme="dark" className="mb-5" />
             )}
             <p className="text-sm font-bold uppercase tracking-widest text-blue-200">
               What is the meaning of:

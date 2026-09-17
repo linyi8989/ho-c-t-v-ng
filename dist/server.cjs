@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express6 = __toESM(require("express"), 1);
+var import_express7 = __toESM(require("express"), 1);
 var import_path5 = __toESM(require("path"), 1);
 var import_crypto4 = __toESM(require("crypto"), 1);
 
@@ -467,6 +467,9 @@ var MOVER_READING_WRITING_SCHEMA_MIGRATION_ID = "mover-reading-writing-schema-v1
 var EXAM_PLATFORM_SCHEMA_MIGRATION_ID = "exam-platform-schema-v1";
 var ACTIVITY_READ_INDEX_MIGRATION_ID = "activity-read-indexes-v1";
 var STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = "student-entry-hot-path-v1";
+var VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID = "vocab-image-assets-v1";
+var VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID = "vocab-image-providers-ai-v2";
+var VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID = "vocab-image-providers-seedvis-v3";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -481,6 +484,8 @@ var collectionTableMap = {
   guestprofiles: "guest_profiles",
   vocab_sets: "vocab_sets",
   vocabsets: "vocab_sets",
+  vocab_image_assets: "vocab_image_assets",
+  vocabimageassets: "vocab_image_assets",
   classes: "classes",
   class_members: "class_members",
   classmembers: "class_members",
@@ -593,6 +598,15 @@ var sqlQueryFieldMap = {
     ownerId: "owner_id",
     shareToken: "share_token",
     assignmentSlug: "share_token",
+    createdAt: "created_at",
+    updatedAt: "updated_at"
+  },
+  vocab_image_assets: {
+    id: "id",
+    provider: "provider",
+    externalId: "external_id",
+    sha256: "sha256",
+    createdBy: "created_by",
     createdAt: "created_at",
     updatedAt: "updated_at"
   },
@@ -1838,6 +1852,37 @@ function upsertDoc(collectionName, id2, inputData) {
     upsertPronunciationAttempt(id2, data, dataJson, createdAt, updatedAt);
     return;
   }
+  if (table === "vocab_image_assets") {
+    run(
+      `INSERT INTO vocab_image_assets (
+        id, provider, external_id, sha256, mime_type, storage_key, public_url,
+        created_by, created_at, updated_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        provider = excluded.provider,
+        external_id = excluded.external_id,
+        sha256 = excluded.sha256,
+        mime_type = excluded.mime_type,
+        storage_key = excluded.storage_key,
+        public_url = excluded.public_url,
+        updated_at = excluded.updated_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "provider")),
+        optionalText(firstDefined(data, "externalId", "external_id")),
+        optionalText(firstDefined(data, "sha256")),
+        optionalText(firstDefined(data, "mimeType", "mime_type")),
+        optionalText(firstDefined(data, "storageKey", "storage_key")),
+        optionalText(firstDefined(data, "publicUrl", "public_url")),
+        optionalText(firstDefined(data, "createdBy", "created_by")),
+        createdAt,
+        updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
   if (table === "listening_sets" || table === "listening_set_versions" || table === "listening_assets" || table === "listening_asset_usages" || table === "listening_attempts" || table === "listening_attempt_details") {
     upsertListeningDocument(table, id2, data, dataJson, createdAt, updatedAt);
     return;
@@ -2989,6 +3034,132 @@ function migrateListeningSchema() {
   );
   sqliteLastMigration = LISTENING_SCHEMA_MIGRATION_ID;
 }
+function migrateVocabImageAssetSchema() {
+  if (hasMigration(VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS vocab_image_assets (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN ('wikimedia', 'pixabay', 'pexels')),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID;
+}
+function migrateVocabImageProviderSchema() {
+  if (hasMigration(VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE vocab_image_assets_v2 (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN ('wikimedia', 'pixabay', 'pexels', 'stali', 'devquota', 'upload')),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    INSERT INTO vocab_image_assets_v2 (
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    )
+    SELECT
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    FROM vocab_image_assets;
+
+    DROP TABLE vocab_image_assets;
+    ALTER TABLE vocab_image_assets_v2 RENAME TO vocab_image_assets;
+
+    CREATE INDEX idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID;
+}
+function migrateVocabImageSeedvisProviderSchema() {
+  if (hasMigration(VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE vocab_image_assets_v3 (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK(provider IN (
+        'wikimedia', 'pixabay', 'pexels', 'stali', 'devquota',
+        'seedvis-nano-banana-2', 'seedvis-nano-banana-pro', 'upload'
+      )),
+      external_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    INSERT INTO vocab_image_assets_v3 (
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    )
+    SELECT
+      id, provider, external_id, sha256, mime_type, storage_key, public_url,
+      created_by, created_at, updated_at, data_json
+    FROM vocab_image_assets;
+
+    DROP TABLE vocab_image_assets;
+    ALTER TABLE vocab_image_assets_v3 RENAME TO vocab_image_assets;
+
+    CREATE INDEX idx_vocab_image_assets_provider_external
+      ON vocab_image_assets(provider, external_id);
+    CREATE INDEX idx_vocab_image_assets_sha256
+      ON vocab_image_assets(sha256);
+    CREATE INDEX idx_vocab_image_assets_created_by
+      ON vocab_image_assets(created_by, created_at DESC);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
+}
 function migrateMoverReadingWritingSchema() {
   if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
     sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
@@ -3367,6 +3538,9 @@ async function initializeSQLiteStorage() {
         migrateLearningHistorySchema();
         migrateGuestCapabilitiesToPhysicalColumns();
         migrateListeningSchema();
+        migrateVocabImageAssetSchema();
+        migrateVocabImageProviderSchema();
+        migrateVocabImageSeedvisProviderSchema();
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();
@@ -3648,6 +3822,7 @@ async function getSQLiteDiagnostics() {
       users: await tableCount("users"),
       vocab_sets: await tableCount("vocab_sets"),
       vocab_items: await tableCount("vocab_items"),
+      vocab_image_assets: await tableCount("vocab_image_assets"),
       classes: await tableCount("classes"),
       assignments: await tableCount("assignments"),
       results: await tableCount("results"),
@@ -4817,7 +4992,8 @@ function normalizeQuestion(part2, question, number2, mode) {
 }
 function publicExamples(part2, examples) {
   if (![1, 2, 5].includes(part2)) return void 0;
-  return examples?.length ? examples : [{ prompt: "Printed example", answer: "" }];
+  if (examples?.length) return examples;
+  return part2 === 5 ? [{ prompt: "0", answer: "", options: ["A", "B", "C"].map((label) => ({ label, text: `Option ${label}` })) }] : [{ prompt: "Printed example", answer: "" }];
 }
 function blockFrom(source, part2, block, questions, interaction) {
   return {
@@ -6597,12 +6773,12 @@ async function filterOptions(ownerKey) {
     )
   ];
   const [classes, lessons, assignments, games] = await Promise.all(queries);
-  const clean = (items) => items.filter((item) => item.id).map((item) => ({ id: String(item.id), label: String(item.label || item.id) }));
+  const clean3 = (items) => items.filter((item) => item.id).map((item) => ({ id: String(item.id), label: String(item.label || item.id) }));
   return {
-    classes: clean(classes),
-    lessons: clean(lessons),
-    assignments: clean(assignments),
-    games: clean(games)
+    classes: clean3(classes),
+    lessons: clean3(lessons),
+    assignments: clean3(assignments),
+    games: clean3(games)
   };
 }
 async function assignmentGroups(whereSql, params) {
@@ -7486,9 +7662,9 @@ var import_path3 = __toESM(require("path"), 1);
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
-function validateRegion(region, path12, errors) {
+function validateRegion(region, path13, errors) {
   if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
-    errors.push(`${path12}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path13}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
     return;
   }
   for (const [key, value] of Object.entries({
@@ -7498,25 +7674,25 @@ function validateRegion(region, path12, errors) {
     height: region.height
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors.push(`${path12}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+      errors.push(`${path13}.${key}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
     }
   }
   if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
-    errors.push(`${path12}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+    errors.push(`${path13}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
   }
   if (region.shape === "polygon") {
     if (!Array.isArray(region.points) || region.points.length < 3) {
-      errors.push(`${path12}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+      errors.push(`${path13}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
     } else {
       region.points.forEach((point, index) => {
         if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-          errors.push(`${path12}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+          errors.push(`${path13}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
         }
       });
     }
   }
   if (region && !isValidListeningRegion(region)) {
-    errors.push(`${path12}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path13}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -7526,12 +7702,12 @@ function regionsOverlap(a, b) {
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   return right - left > 0.01 && bottom - top > 0.01;
 }
-function validateRegionCollection(items, path12, errors) {
-  items.forEach((item, index) => validateRegion(item.region, `${path12}[${index}].region`, errors));
+function validateRegionCollection(items, path13, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path13}[${index}].region`, errors));
   for (let first = 0; first < items.length; first += 1) {
     for (let second = first + 1; second < items.length; second += 1) {
       if (regionsOverlap(items[first].region, items[second].region)) {
-        errors.push(`${path12}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+        errors.push(`${path13}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
       }
     }
   }
@@ -9139,7 +9315,7 @@ function localFallback(part2, text6) {
 }
 async function createListeningSmartImportCandidate(input) {
   const warnings = [];
-  let provider = "local";
+  let provider2 = "local";
   const selectedProvider = input.preferredProvider || DEFAULT_SMART_IMPORT_AI_PROVIDER_ID;
   let raw;
   if (input.images.length && input.analyzeVision) {
@@ -9176,10 +9352,10 @@ Your previous response was not valid for the required JSON schema and extraction
           parsed = parseJson3(result.text);
           const validationError = validateResponse?.(parsed, attempt);
           if (validationError) throw new Error(validationError);
-          provider = result.provider;
+          provider2 = result.provider;
           usedProviders.add(result.provider);
           if (result.errors?.length) warnings.push(...result.errors.map((value) => cleanText(value, 240)));
-          if (attempt > 1) warnings.push(`Part ${input.part}: ${provider} \u0111\xE3 tr\u1EA3 JSON h\u1EE3p l\u1EC7 sau l\u1EA7n retry ${schemaName}.`);
+          if (attempt > 1) warnings.push(`Part ${input.part}: ${provider2} \u0111\xE3 tr\u1EA3 JSON h\u1EE3p l\u1EC7 sau l\u1EA7n retry ${schemaName}.`);
           break;
         } catch (reason) {
           const returnedProvider = cleanText(result.provider, 60) || "AI";
@@ -9362,7 +9538,7 @@ Your previous response was not valid for the required JSON schema and extraction
         `listening_mover_part_${input.part}`
       );
     }
-    if (usedProviders.size > 1) provider = [...usedProviders].join("+");
+    if (usedProviders.size > 1) provider2 = [...usedProviders].join("+");
   } else if (input.pastedText && (input.part === 2 || input.part === 3)) {
     raw = localFallback(input.part, input.pastedText);
     warnings.push(`Part ${input.part}: \u0111ang d\xF9ng fallback v\u0103n b\u1EA3n th\u1EE7 c\xF4ng thay cho \u1EA3nh answer key.`);
@@ -9384,7 +9560,7 @@ Your previous response was not valid for the required JSON schema and extraction
     basePartHash: input.basePartHash,
     sources: input.sources,
     sourceImageAssetIds: input.sources.map((source) => source.assetId),
-    provider,
+    provider: provider2,
     warnings,
     createdAt: (/* @__PURE__ */ new Date()).toISOString(),
     data
@@ -10196,7 +10372,7 @@ function createListeningRouter(dependencies) {
       recentUsage.push(Date.now());
       smartImportUsage.set(usageKey, recentUsage);
       const preferredProvider = text(req.body?.preferredProvider, 60);
-      const selectedProvider = (smartImport.providers || []).find((provider) => provider.id === preferredProvider);
+      const selectedProvider = (smartImport.providers || []).find((provider2) => provider2.id === preferredProvider);
       if (!selectedProvider) throw apiError(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
       if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
         throw apiError(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a s\u1EB5n s\xE0ng cho \u1EA3nh.`);
@@ -10299,11 +10475,11 @@ function createListeningRouter(dependencies) {
       }
       const pastedText = text(req.body?.pastedText, 12e3);
       const preferredProvider = text(req.body?.preferredProvider || "stali:gpt-5.6-sol", 60);
-      const providerIds = new Set((smartImport?.providers || []).map((provider) => provider.id));
+      const providerIds = new Set((smartImport?.providers || []).map((provider2) => provider2.id));
       if (!providerIds.has(preferredProvider)) {
         throw apiError(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
       }
-      const selectedProvider = (smartImport?.providers || []).find((provider) => provider.id === preferredProvider);
+      const selectedProvider = (smartImport?.providers || []).find((provider2) => provider2.id === preferredProvider);
       if (selectedProvider && !selectedProvider.enabled) {
         throw apiError(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh tr\xEAn m\xE1y ch\u1EE7.`);
       }
@@ -11446,7 +11622,12 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     if (units.length !== 1) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t d\u1EA1ng b\xE0i ch\u1ECDn A/B/C.`);
     requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn");
     requireThreeChoices(part2.questions);
-    if ((part2.examples || []).length !== 1 || (part2.examples || []).some((example) => !text2(example.prompt, 8e3) || !text2(example.answer, 500))) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example d\u1EA1ng ch\u1EEF, kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
+    const example = part2.examples?.[0];
+    const exampleOptions = example?.options || [];
+    const optionLabels = exampleOptions.map((option) => text2(option.label, 20).toUpperCase());
+    if ((part2.examples || []).length !== 1 || !text2(example?.prompt, 20) || exampleOptions.length !== 3 || exampleOptions.some((option) => !text2(option.text, 1e3)) || optionLabels.join("|") !== "A|B|C" || !optionLabels.includes(text2(example?.answer, 20).toUpperCase())) {
+      errors.push(`${label}: example ph\u1EA3i c\xF3 s\u1ED1 in tr\xEAn \u0111\u1EC1, \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng t\u1EEB official key.`);
+    }
   }
   if (partNumber === 3) {
     if (part2.blocks?.length !== 2 || units.length !== 2) {
@@ -11483,8 +11664,7 @@ function validateKetReadingWritingPart(part2, partIndex, errors) {
     if (part2.questions.some((question) => question.type !== "short-answer" || question.maxWords !== 1 || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1 in tr\xEAn \u1EA3nh v\xE0 \xF4 \u0111i\u1EC1n \u0111\xFAng m\u1ED9t t\u1EEB.`);
   }
   if (partNumber === 8) {
-    requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn khu v\u1EF1c l\xE0m b\xE0i");
-    if (!text2(part2.passage, 2e4)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung ngu\u1ED3n, h\u01B0\u1EDBng d\u1EABn v\xE0 example d\u1EA1ng ch\u1EEF.`);
+    requireImage(part2, "\u1EA3nh \u0111\u1EC1 hi\u1EC3n th\u1ECB b\xEAn tr\xE1i khu v\u1EF1c l\xE0m b\xE0i");
     if (part2.questions.some((question) => question.type !== "short-answer" || !text2(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1, nh\xE3n bi\u1EC3u m\u1EABu v\xE0 \u0111\xE1p \xE1n \u0111i\u1EC1n.`);
     if (part2.questions.some((question) => text2(question.answerSuffix, 80))) errors.push(`${label}: ch\u1EC9 d\xF9ng m\u1ED9t v\xF9ng nh\u1EADp v\u1EDBi k\xFD t\u1EF1 c\xF3 s\u1EB5n \u1EDF \u0111\u1EA7u; kh\xF4ng d\xF9ng k\xFD t\u1EF1 ph\xEDa sau.`);
   }
@@ -13202,7 +13382,7 @@ function createMoverReadingWritingRouter(dependencies) {
         throw apiError2(409, "Part \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi b\u1EAFt \u0111\u1EA7u ph\xE2n t\xEDch.", { code: "MOVER_READING_IMPORT_BASE_CHANGED" });
       }
       const preferredProvider = text3(req.body?.preferredProvider, 60);
-      const selectedProvider = (smartImport.providers || []).find((provider) => provider.id === preferredProvider);
+      const selectedProvider = (smartImport.providers || []).find((provider2) => provider2.id === preferredProvider);
       if (!selectedProvider) throw apiError2(400, `Nh\xE0 cung c\u1EA5p AI "${preferredProvider}" kh\xF4ng t\u1ED3n t\u1EA1i.`);
       if (!selectedProvider.enabled || selectedProvider.visionEnabled === false) {
         throw apiError2(503, selectedProvider.reason || `${selectedProvider.label} ch\u01B0a s\u1EB5n s\xE0ng cho \u1EA3nh.`);
@@ -16297,6 +16477,849 @@ function buildLeaderboard(sessions, assignments, filters) {
   return { gold, diligent, accurate, improved };
 }
 
+// src/server/vocab-images/router.ts
+var import_express6 = __toESM(require("express"), 1);
+function sendError4(res, error) {
+  const requested = Number(error?.status || error?.statusCode || 500);
+  const status = Number.isInteger(requested) && requested >= 400 && requested <= 599 ? requested : 500;
+  const expose = status < 500 || process.env.NODE_ENV !== "production";
+  res.status(status).json({
+    error: expose ? String(error?.message || "Y\xEAu c\u1EA7u \u1EA3nh th\u1EA5t b\u1EA1i.").slice(0, 500) : "Y\xEAu c\u1EA7u \u1EA3nh th\u1EA5t b\u1EA1i."
+  });
+}
+function requestFileName(req) {
+  const encoded = String(req.header("x-image-file-name") || "image");
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return "image";
+  }
+}
+function createVocabImageRouter(options) {
+  const router = import_express6.default.Router();
+  const rateLimit = createFixedWindowRateLimiter({
+    namespace: "vocab-image-generation",
+    windowMs: 10 * 60 * 1e3,
+    maxCost: 120,
+    cost: (req) => {
+      if (req.path === "/batch-generate") return Math.min(100, Math.max(1, req.body?.items?.length || 1));
+      if (req.path === "/generate") return 2;
+      return 1;
+    },
+    message: "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n t\u1EA1o \u1EA3nh t\u1EA1m th\u1EDDi. Vui l\xF2ng ch\u1EDD r\u1ED3i th\u1EED l\u1EA1i."
+  });
+  router.use(options.authenticateUser, options.requireStaff, rateLimit);
+  router.get("/providers", (_req, res) => {
+    res.json({ providers: options.service.listProviders() });
+  });
+  router.post("/prompt", (req, res) => {
+    try {
+      res.json({ prompt: options.service.getDefaultPrompt(req.body) });
+    } catch (error) {
+      sendError4(res, error);
+    }
+  });
+  router.post("/generate", async (req, res) => {
+    try {
+      const user = req.user;
+      const result = await options.service.generate(req.body?.provider, req.body, user.id, req.body?.prompt);
+      await options.logAudit(
+        user.id,
+        user.name,
+        user.email,
+        "GENERATE_VOCAB_IMAGE",
+        `Generated ${result.asset.id} with ${result.provider}/${result.model}.`
+      );
+      res.status(201).json(result);
+    } catch (error) {
+      sendError4(res, error);
+    }
+  });
+  router.post("/batch-generate", async (req, res) => {
+    try {
+      const user = req.user;
+      const items = await options.service.batchGenerate(req.body?.provider, req.body?.items, user.id);
+      const generated = items.filter((item) => item.asset).length;
+      await options.logAudit(
+        user.id,
+        user.name,
+        user.email,
+        "BATCH_GENERATE_VOCAB_IMAGES",
+        `Generated ${generated}/${items.length} reviewed vocabulary image candidates.`
+      );
+      const configuredProviders = options.service.listProviders().filter((provider2) => provider2.configured).length;
+      res.status(201).json({
+        items,
+        generated,
+        concurrencyPerProvider: options.service.batchConcurrencyPerProvider,
+        totalConcurrency: configuredProviders * options.service.batchConcurrencyPerProvider
+      });
+    } catch (error) {
+      sendError4(res, error);
+    }
+  });
+  router.post(
+    "/upload",
+    import_express6.default.raw({ type: ["image/jpeg", "image/png", "image/webp", "image/gif"], limit: options.service.uploadLimitBytes }),
+    async (req, res) => {
+      try {
+        const user = req.user;
+        if (!Buffer.isBuffer(req.body)) throw httpBodyError();
+        const asset = await options.service.upload({
+          bytes: req.body,
+          declaredMimeType: req.header("content-type") || void 0,
+          fileName: requestFileName(req),
+          rightsConfirmed: req.header("x-image-rights-confirmed") === "true"
+        }, user.id);
+        await options.logAudit(
+          user.id,
+          user.name,
+          user.email,
+          "UPLOAD_VOCAB_IMAGE",
+          `Uploaded managed vocabulary image ${asset.id}.`
+        );
+        res.status(201).json({ asset });
+      } catch (error) {
+        sendError4(res, error);
+      }
+    }
+  );
+  return router;
+}
+function httpBodyError() {
+  return Object.assign(new Error("N\u1ED9i dung t\u1EA3i l\xEAn ph\u1EA3i l\xE0 \u1EA3nh JPEG, PNG, WebP ho\u1EB7c GIF."), { status: 415 });
+}
+
+// src/server/vocab-images/service.ts
+var import_node_crypto11 = __toESM(require("node:crypto"), 1);
+var import_node_fs4 = __toESM(require("node:fs"), 1);
+var import_node_path7 = __toESM(require("node:path"), 1);
+
+// src/server/vocab-images/downloadSecurity.ts
+var import_promises = __toESM(require("node:dns/promises"), 1);
+var import_node_net2 = __toESM(require("node:net"), 1);
+var MIME_ALIASES = {
+  "image/jpeg": "image/jpeg",
+  "image/jpg": "image/jpeg",
+  "image/png": "image/png",
+  "image/webp": "image/webp",
+  "image/gif": "image/gif"
+};
+function createHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function isPrivateIpv42(address) {
+  const octets = address.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return true;
+  const [a, b] = octets;
+  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 || a >= 224;
+}
+function isPrivateNetworkAddress(address) {
+  const normalized4 = address.trim().toLowerCase();
+  const family = import_node_net2.default.isIP(normalized4);
+  if (family === 4) return isPrivateIpv42(normalized4);
+  if (family !== 6) return true;
+  if (normalized4 === "::" || normalized4 === "::1") return true;
+  if (normalized4.startsWith("fc") || normalized4.startsWith("fd") || normalized4.startsWith("fe8") || normalized4.startsWith("fe9") || normalized4.startsWith("fea") || normalized4.startsWith("feb")) return true;
+  const mapped = normalized4.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  return mapped ? isPrivateIpv42(mapped[1]) : false;
+}
+function hostnameMatchesAllowlist(hostname, allowedHosts) {
+  const normalized4 = hostname.toLowerCase().replace(/\.$/, "");
+  return allowedHosts.some((rawHost) => {
+    const allowed = rawHost.toLowerCase().replace(/\.$/, "");
+    return normalized4 === allowed || normalized4.endsWith(`.${allowed}`);
+  });
+}
+async function defaultResolveHost(hostname) {
+  const records = await import_promises.default.lookup(hostname, { all: true, verbatim: true });
+  return records.map((record2) => ({ address: record2.address, family: record2.family }));
+}
+async function assertSafeUrl(value, allowedHosts, resolveHost) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw createHttpError(400, "Image provider returned an invalid URL.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) {
+    throw createHttpError(400, "Only standard HTTPS image URLs are allowed.");
+  }
+  if (!hostnameMatchesAllowlist(url.hostname, allowedHosts) || import_node_net2.default.isIP(url.hostname)) {
+    throw createHttpError(400, "Image download host is not allowed for this provider.");
+  }
+  const addresses = await resolveHost(url.hostname);
+  if (addresses.length === 0 || addresses.some((record2) => isPrivateNetworkAddress(record2.address))) {
+    throw createHttpError(400, "Image download host resolved to a blocked network address.");
+  }
+  return url;
+}
+function sniffMimeType(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
+  if (bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) return "image/gif";
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
+function extensionForMime(mimeType) {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "gif";
+}
+function validateImageBytes(bytes, declaredMimeType, maxBytes) {
+  const limit = Math.max(64 * 1024, Math.min(20 * 1024 * 1024, Math.floor(maxBytes)));
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw createHttpError(400, "T\u1EC7p \u1EA3nh \u0111ang tr\u1ED1ng.");
+  if (bytes.length > limit) throw createHttpError(413, "T\u1EC7p \u1EA3nh l\u1EDBn h\u01A1n gi\u1EDBi h\u1EA1n cho ph\xE9p.");
+  const sniffedMime = sniffMimeType(bytes);
+  if (!sniffedMime) throw createHttpError(415, "D\u1EEF li\u1EC7u kh\xF4ng \u0111\xFAng \u0111\u1ECBnh d\u1EA1ng \u1EA3nh JPEG, PNG, WebP ho\u1EB7c GIF.");
+  const normalizedDeclared = MIME_ALIASES[String(declaredMimeType || "").split(";", 1)[0].trim().toLowerCase()];
+  if (declaredMimeType && (!normalizedDeclared || normalizedDeclared !== sniffedMime)) {
+    throw createHttpError(415, "Lo\u1EA1i t\u1EC7p khai b\xE1o kh\xF4ng kh\u1EDBp v\u1EDBi d\u1EEF li\u1EC7u \u1EA3nh.");
+  }
+  return { bytes, mimeType: sniffedMime, extension: extensionForMime(sniffedMime) };
+}
+async function readBoundedBody(response, maxBytes) {
+  const declared = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw createHttpError(413, "Image is larger than the configured limit.");
+  }
+  if (!response.body) throw createHttpError(502, "Image provider returned an empty response.");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => void 0);
+      throw createHttpError(413, "Image is larger than the configured limit.");
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total);
+}
+async function downloadImageSecurely(sourceUrl, options) {
+  const fetchImpl = options.fetchImpl || fetch;
+  const resolveHost = options.resolveHost || defaultResolveHost;
+  const maxBytes = Math.max(64 * 1024, Math.min(20 * 1024 * 1024, Math.floor(options.maxBytes)));
+  const timeoutMs = Math.max(1e3, Math.min(6e4, Math.floor(options.timeoutMs)));
+  const maxRedirects = Math.max(0, Math.min(5, options.maxRedirects ?? 3));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let currentUrl = await assertSafeUrl(sourceUrl, options.allowedHosts, resolveHost);
+    for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+      const response = await fetchImpl(currentUrl, {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: { Accept: "image/jpeg,image/png,image/webp,image/gif" }
+      });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        if (redirectCount === maxRedirects) throw createHttpError(502, "Image provider redirected too many times.");
+        const location = response.headers.get("location");
+        if (!location) throw createHttpError(502, "Image provider returned an invalid redirect.");
+        currentUrl = await assertSafeUrl(new URL(location, currentUrl).toString(), options.allowedHosts, resolveHost);
+        continue;
+      }
+      if (!response.ok) throw createHttpError(502, `Image download failed (${response.status}).`);
+      const headerMime = MIME_ALIASES[String(response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase()];
+      if (!headerMime) throw createHttpError(415, "Image provider returned an unsupported content type.");
+      const bytes = await readBoundedBody(response, maxBytes);
+      const sniffedMime = sniffMimeType(bytes);
+      if (!sniffedMime || sniffedMime !== headerMime) {
+        throw createHttpError(415, "Image bytes do not match the declared content type.");
+      }
+      return {
+        bytes,
+        mimeType: sniffedMime,
+        extension: extensionForMime(sniffedMime),
+        finalUrl: currentUrl.toString()
+      };
+    }
+    throw createHttpError(502, "Image download failed.");
+  } catch (error) {
+    if (error?.name === "AbortError") throw createHttpError(504, "Image download timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// src/server/vocab-images/generationProviders.ts
+var import_node_crypto10 = __toESM(require("node:crypto"), 1);
+var STALI_IMAGE_MODEL = "req/gpt-image-2";
+var DEVQUOTA_IMAGE_MODEL = "gpt-image-2";
+var SEEDVIS_NANO_BANANA_2_MODEL = "NARWHAL";
+var SEEDVIS_NANO_BANANA_PRO_MODEL = "GEM_PIX_2";
+var STALI_IMAGE_BASE_URL = "https://api.stali.vn/v1";
+var DEVQUOTA_IMAGE_BASE_URL = "https://sv.devquote.shop/v1";
+var SEEDVIS_IMAGE_BASE_URL = "https://seedvis.com/api/v1";
+function httpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+async function fetchUpstream(fetchImpl, url, init, label) {
+  try {
+    return await fetchImpl(url, init);
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw httpError(502, `Kh\xF4ng k\u1EBFt n\u1ED1i \u0111\u01B0\u1EE3c t\u1EDBi ${label}. H\xE3y ki\u1EC3m tra DNS, firewall ho\u1EB7c quy\u1EC1n truy c\u1EADp m\u1EA1ng c\u1EE7a m\xE1y ch\u1EE7.`);
+  }
+}
+async function readUpstreamError(response, label) {
+  const raw = await response.text().catch(() => "");
+  let message = "";
+  try {
+    const payload = JSON.parse(raw);
+    message = String(payload?.error?.message || payload?.message || payload?.error || "");
+  } catch {
+    message = raw;
+  }
+  const cleanMessage = message.replace(/\s+/g, " ").trim().slice(0, 500);
+  return cleanMessage ? `${label}: ${cleanMessage}` : `${label} t\u1EA1o \u1EA3nh th\u1EA5t b\u1EA1i (HTTP ${response.status}).`;
+}
+function normalizeBaseUrl(value, fallback, variableName) {
+  const candidate = String(value || fallback).trim().replace(/\/+$/, "");
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw httpError(500, `${variableName} kh\xF4ng ph\u1EA3i URL h\u1EE3p l\u1EC7.`);
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    throw httpError(500, `${variableName} ph\u1EA3i d\xF9ng HTTPS an to\xE0n.`);
+  }
+  return candidate;
+}
+function extractImagePayload(data) {
+  const first = Array.isArray(data?.data) ? data.data[0] : void 0;
+  const direct = first?.b64_json || first?.base64 || first?.image_base64 || data?.b64_json || data?.image_base64;
+  if (typeof direct === "string" && direct.trim()) {
+    return { bytes: Buffer.from(direct.trim(), "base64"), declaredMimeType: String(first?.mime_type || data?.mime_type || "") || void 0 };
+  }
+  const url = typeof first?.url === "string" ? first.url.trim() : "";
+  const dataUrl = url.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (dataUrl) return { bytes: Buffer.from(dataUrl[2].replace(/\s+/g, ""), "base64"), declaredMimeType: dataUrl[1].toLowerCase() };
+  throw httpError(502, "Nh\xE0 cung c\u1EA5p kh\xF4ng tr\u1EA3 v\u1EC1 image data h\u1EE3p l\u1EC7.");
+}
+function provider(input) {
+  const apiKey = input.apiKey?.trim() || "";
+  return {
+    id: input.id,
+    label: input.label,
+    model: input.model,
+    configured: Boolean(apiKey),
+    documentationUrl: input.documentationUrl,
+    allowedDownloadHosts: [],
+    async generate(prompt, signal) {
+      if (!apiKey) throw httpError(503, `${input.variableName.replace("_BASE_URL", "_API_KEY")} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh tr\xEAn m\xE1y ch\u1EE7.`);
+      const baseUrl = normalizeBaseUrl(input.baseUrl, input.fallbackBaseUrl, input.variableName);
+      const response = await fetchUpstream(input.fetchImpl, `${baseUrl}/images/generations`, {
+        method: "POST",
+        signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ model: input.model, prompt, size: "1024x1024", n: 1 })
+      }, input.label);
+      if (!response.ok) {
+        throw httpError(response.status, await readUpstreamError(response, input.label));
+      }
+      const data = await response.json().catch(() => null);
+      const image = extractImagePayload(data);
+      return {
+        ...image,
+        provider: input.id,
+        model: input.model,
+        ...data?.id ? { requestId: String(data.id).slice(0, 200) } : {}
+      };
+    }
+  };
+}
+function isSeedvisUrl(value, purpose) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw httpError(502, `Seedvis returned an invalid ${purpose} URL.`);
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) {
+    throw httpError(502, `Seedvis returned an unsafe ${purpose} URL.`);
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (purpose === "poll") {
+    if (hostname !== "seedvis.com" || !parsed.pathname.startsWith("/api/v1/developer/generations/")) {
+      throw httpError(502, "Seedvis returned a poll URL outside its API boundary.");
+    }
+  } else if (hostname !== "cdn.seedvis.com") {
+    throw httpError(502, "Seedvis returned an image URL outside its CDN boundary.");
+  }
+  return parsed.toString();
+}
+function seedvisErrorMessage(data, fallback) {
+  return String(data?.error?.message || data?.message || data?.error || fallback).replace(/\s+/g, " ").trim().slice(0, 500);
+}
+async function seedvisJson(response, label) {
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw httpError(response.status, seedvisErrorMessage(data, `${label} failed (HTTP ${response.status}).`));
+  return data;
+}
+function seedvisProvider(input) {
+  const apiKey = input.apiKey?.trim() || "";
+  return {
+    id: input.id,
+    label: input.label,
+    model: input.model,
+    configured: Boolean(apiKey),
+    documentationUrl: "https://seedvis.com/api-docs",
+    allowedDownloadHosts: ["cdn.seedvis.com"],
+    async generate(prompt, signal) {
+      if (!apiKey) throw httpError(503, "SEEDVIS_API_KEY ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh tr\xEAn m\xE1y ch\u1EE7.");
+      const baseUrl = normalizeBaseUrl(input.baseUrl, SEEDVIS_IMAGE_BASE_URL, "SEEDVIS_BASE_URL");
+      const headers = {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": import_node_crypto10.default.randomUUID()
+      };
+      const created = await fetchUpstream(input.fetchImpl, `${baseUrl}/developer/generations`, {
+        method: "POST",
+        signal,
+        headers,
+        body: JSON.stringify({
+          model: input.model,
+          prompt,
+          aspect_ratio: "4:3",
+          count: 1
+        })
+      }, input.label);
+      let envelope = await seedvisJson(created, `${input.label} generation`);
+      let generation = envelope?.data || envelope;
+      const requestId = String(generation?.id || "").trim().slice(0, 200);
+      for (let poll = 0; poll < 10 && !generation?.is_final; poll += 1) {
+        if (generation?.status === "failed") throw httpError(502, seedvisErrorMessage(generation, `${input.label} generation failed.`));
+        const nextUrl = isSeedvisUrl(String(generation?.next?.url || ""), "poll");
+        const polled = await fetchUpstream(input.fetchImpl, nextUrl, {
+          method: "GET",
+          signal,
+          headers: { Authorization: `Bearer ${apiKey}` }
+        }, input.label);
+        envelope = await seedvisJson(polled, `${input.label} polling`);
+        generation = envelope?.data || envelope;
+      }
+      if (!generation?.is_final) throw httpError(504, `${input.label} ch\u01B0a ho\xE0n t\u1EA5t trong gi\u1EDBi h\u1EA1n polling an to\xE0n.`);
+      if (generation?.status !== "completed") throw httpError(502, seedvisErrorMessage(generation, `${input.label} generation failed.`));
+      const output = Array.isArray(generation?.outputs) ? generation.outputs.find((item) => item?.type === "image" && typeof item?.url === "string") || generation.outputs[0] : null;
+      const remoteUrl = isSeedvisUrl(String(output?.url || ""), "output");
+      return {
+        remoteUrl,
+        provider: input.id,
+        model: input.model,
+        ...requestId ? { requestId } : {}
+      };
+    }
+  };
+}
+function createVocabImageGenerationProviders(env, fetchImpl = fetch) {
+  return {
+    stali: provider({
+      id: "stali",
+      label: "Stali \xB7 GPT Image 2",
+      model: STALI_IMAGE_MODEL,
+      apiKey: env.STALI_API_KEY,
+      baseUrl: env.STALI_BASE_URL,
+      fallbackBaseUrl: STALI_IMAGE_BASE_URL,
+      variableName: "STALI_BASE_URL",
+      documentationUrl: "https://api.stali.vn/docs",
+      fetchImpl
+    }),
+    devquota: provider({
+      id: "devquota",
+      label: "DevQuota \xB7 GPT Image 2",
+      model: DEVQUOTA_IMAGE_MODEL,
+      apiKey: resolveDevQuotaApiKey(env),
+      baseUrl: env.DEVQUOTA_BASE_URL,
+      fallbackBaseUrl: DEVQUOTA_IMAGE_BASE_URL,
+      variableName: "DEVQUOTA_BASE_URL",
+      documentationUrl: "https://devquota.shop/models",
+      fetchImpl
+    }),
+    "seedvis-nano-banana-2": seedvisProvider({
+      id: "seedvis-nano-banana-2",
+      label: "Seedvis \xB7 Google Nano Banana 2",
+      model: SEEDVIS_NANO_BANANA_2_MODEL,
+      apiKey: env.SEEDVIS_API_KEY,
+      baseUrl: env.SEEDVIS_BASE_URL,
+      fetchImpl
+    }),
+    "seedvis-nano-banana-pro": seedvisProvider({
+      id: "seedvis-nano-banana-pro",
+      label: "Seedvis \xB7 Google Nano Banana Pro",
+      model: SEEDVIS_NANO_BANANA_PRO_MODEL,
+      apiKey: env.SEEDVIS_API_KEY,
+      baseUrl: env.SEEDVIS_BASE_URL,
+      fetchImpl
+    })
+  };
+}
+
+// src/server/vocab-images/generationPrompt.ts
+var VOCAB_IMAGE_CUSTOM_PROMPT_MAX_LENGTH = 8e3;
+function clean(value, maxLength) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+function subjectInstruction(term, partOfSpeech) {
+  const normalizedPos = partOfSpeech.toLowerCase();
+  const normalizedTerm = term.toLowerCase();
+  const compactPos = normalizedPos.replace(/[.\s_-]+/g, "");
+  if (normalizedPos.includes("verb") || normalizedPos.includes("\u0111\u1ED9ng t\u1EEB") || compactPos === "v") {
+    if (normalizedTerm === "bully") {
+      return "Depict the verb clearly in a school-safe, nonviolent scene: one student uses an intimidating posture or expression toward another student, with no injury, physical attack or humiliation.";
+    }
+    return `Show one person clearly performing the action \u201C${term}\u201D, with the action easy to recognize at a glance.`;
+  }
+  const countries = ["australia", "canada", "china", "england", "france", "germany", "india", "italy", "japan", "vietnam", "united kingdom", "united states"];
+  if (countries.includes(normalizedTerm) || normalizedPos.includes("proper noun")) {
+    return `Show a clean, recognizable map outline representing \u201C${term}\u201D; do not write the place name on the image.`;
+  }
+  if (normalizedPos.includes("adjective") || normalizedPos.includes("t\xEDnh t\u1EEB")) {
+    return `Show one simple, unambiguous visual situation that communicates the quality \u201C${term}\u201D.`;
+  }
+  return `Show one clear main subject representing \u201C${term}\u201D, centered and fully visible.`;
+}
+function buildVocabImageGenerationPrompt(input) {
+  const term = clean(input.term, 120);
+  const meaning = clean(input.meaning, 160);
+  const partOfSpeech = clean(input.partOfSpeech, 40) || "unspecified";
+  if (!term) throw Object.assign(new Error("T\u1EEB ti\u1EBFng Anh l\xE0 b\u1EAFt bu\u1ED9c \u0111\u1EC3 t\u1EA1o \u1EA3nh."), { status: 400 });
+  return [
+    "Create one child-friendly 3D educational flashcard illustration for an English-vocabulary learning web app.",
+    `English vocabulary term: "${term}".`,
+    ...meaning ? [`Vietnamese meaning for semantic clarification only: "${meaning}".`] : [],
+    `Part of speech: "${partOfSpeech}".`,
+    subjectInstruction(term, partOfSpeech),
+    "Visual style: polished modern 3D animated illustration, expressive and immediately understandable for school students, age-appropriate and non-graphic.",
+    "Composition: one coherent scene in a 4:3 landscape canvas, full-frame edge-to-edge artwork, one clear focal action or subject, large and sharp, high contrast. Fill the whole canvas naturally with no empty outer margin, no gap, no padding and no card mockup.",
+    "Hard constraints: image only; no explanation, no pronunciation, no vocabulary word, no text, no letters, no numbers, no captions, no labels, no logos, no watermark, no border, no collage, no split screen, no stacked overlays, no multiple panels, no multiple visual layers, no irrelevant objects."
+  ].join("\n");
+}
+function validateVocabImageCustomPrompt(value) {
+  if (typeof value !== "string") {
+    throw Object.assign(new Error("Prompt t\xF9y ch\u1EC9nh ph\u1EA3i l\xE0 v\u0103n b\u1EA3n."), { status: 400 });
+  }
+  const prompt = value.replace(/\r\n?/g, "\n").trim();
+  if (!prompt) {
+    throw Object.assign(new Error("Prompt t\u1EA1o \u1EA3nh kh\xF4ng \u0111\u01B0\u1EE3c \u0111\u1EC3 tr\u1ED1ng."), { status: 400 });
+  }
+  if (prompt.length > VOCAB_IMAGE_CUSTOM_PROMPT_MAX_LENGTH) {
+    throw Object.assign(
+      new Error(`Prompt t\u1EA1o \u1EA3nh kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${VOCAB_IMAGE_CUSTOM_PROMPT_MAX_LENGTH.toLocaleString("vi-VN")} k\xFD t\u1EF1.`),
+      { status: 400 }
+    );
+  }
+  return prompt;
+}
+
+// src/server/vocab-images/service.ts
+function httpError2(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback;
+}
+function clean2(value, maxLength) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+function isGenerationProviderId(value) {
+  return value === "stali" || value === "devquota" || value === "seedvis-nano-banana-2" || value === "seedvis-nano-banana-pro";
+}
+function cleanFileName(value) {
+  const baseName = import_node_path7.default.basename(String(value || "image")).replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "-").trim();
+  return (baseName || "image").slice(0, 180);
+}
+function createConcurrencyLimiter(concurrency) {
+  let active = 0;
+  const waiting = [];
+  return async (task) => {
+    if (active >= concurrency) await new Promise((resolve) => waiting.push(resolve));
+    active += 1;
+    try {
+      return await task();
+    } finally {
+      active -= 1;
+      waiting.shift()?.();
+    }
+  };
+}
+var VocabImageLibraryService = class {
+  constructor(options) {
+    this.options = options;
+    this.providers = createVocabImageGenerationProviders(options.env, options.fetchImpl);
+    this.now = options.now || (() => /* @__PURE__ */ new Date());
+    this.timeoutMs = boundedInteger(options.env.VOCAB_IMAGE_GENERATION_TIMEOUT_MS, 12e4, 1e4, 3e5);
+    this.downloadTimeoutMs = boundedInteger(options.env.VOCAB_IMAGE_DOWNLOAD_TIMEOUT_MS, 3e4, 2e3, 6e4);
+    this.maxBytes = boundedInteger(options.env.VOCAB_IMAGE_MAX_BYTES, 8 * 1024 * 1024, 64 * 1024, 20 * 1024 * 1024);
+    this.batchConcurrencyPerProvider = boundedInteger(options.env.VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER, 50, 1, 50);
+    this.batchMaxItems = boundedInteger(options.env.VOCAB_IMAGE_BATCH_MAX_ITEMS, 500, 1, 1e3);
+  }
+  get uploadLimitBytes() {
+    return this.maxBytes;
+  }
+  listProviders() {
+    return ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].map((id2) => {
+      const provider2 = this.providers[id2];
+      return {
+        id: provider2.id,
+        label: provider2.label,
+        model: provider2.model,
+        configured: provider2.configured,
+        documentationUrl: provider2.documentationUrl
+      };
+    });
+  }
+  getProvider(value) {
+    if (!isGenerationProviderId(value)) throw httpError2(400, "Nh\xE0 cung c\u1EA5p t\u1EA1o \u1EA3nh kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    const provider2 = this.providers[value];
+    if (!provider2.configured) throw httpError2(503, `${provider2.label} ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5u h\xECnh API key tr\xEAn m\xE1y ch\u1EE7.`);
+    return provider2;
+  }
+  getDefaultPrompt(rawInput) {
+    const term = clean2(rawInput?.term, 120);
+    const meaning = clean2(rawInput?.meaning, 160);
+    const partOfSpeech = clean2(rawInput?.partOfSpeech || rawInput?.pos, 40);
+    return buildVocabImageGenerationPrompt({ term, meaning, partOfSpeech });
+  }
+  async storeBytes(input) {
+    const validated = validateImageBytes(input.bytes, input.declaredMimeType, this.maxBytes);
+    const sha2564 = import_node_crypto11.default.createHash("sha256").update(input.bytes).digest("hex");
+    const idHash = import_node_crypto11.default.createHash("sha256").update(`${input.provider}:${sha2564}`).digest("hex");
+    const id2 = `vimg-${idHash.slice(0, 40)}`;
+    const storageKey = `${sha2564}.${validated.extension}`;
+    const publicPrefix = `/${this.options.publicPrefix.replace(/^\/+|\/+$/g, "")}`;
+    const publicUrl = `${publicPrefix}/${storageKey}`;
+    const doc = this.options.db.collection("vocab_image_assets").doc(id2);
+    const existing = await doc.get();
+    if (existing.exists) {
+      const asset2 = existing.data();
+      if (asset2?.sha256 === sha2564 && asset2?.publicUrl === publicUrl) return asset2;
+      throw httpError2(409, "M\xE3 \u1EA3nh qu\u1EA3n l\xFD \u0111\xE3 t\u1ED3n t\u1EA1i v\u1EDBi n\u1ED9i dung kh\xE1c.");
+    }
+    import_node_fs4.default.mkdirSync(this.options.imageDir, { recursive: true });
+    const finalPath = import_node_path7.default.join(this.options.imageDir, storageKey);
+    if (!import_node_fs4.default.existsSync(finalPath)) {
+      const temporaryPath = import_node_path7.default.join(this.options.imageDir, `.tmp-${process.pid}-${import_node_crypto11.default.randomUUID()}`);
+      try {
+        import_node_fs4.default.writeFileSync(temporaryPath, input.bytes, { flag: "wx" });
+        try {
+          import_node_fs4.default.renameSync(temporaryPath, finalPath);
+        } catch (error) {
+          if (!import_node_fs4.default.existsSync(finalPath)) throw error;
+        }
+      } finally {
+        if (import_node_fs4.default.existsSync(temporaryPath)) import_node_fs4.default.unlinkSync(temporaryPath);
+      }
+    }
+    const timestamp = this.now().toISOString();
+    const asset = {
+      id: id2,
+      provider: input.provider,
+      externalId: clean2(input.externalId, 500),
+      title: clean2(input.title, 500),
+      author: clean2(input.author, 500),
+      license: clean2(input.license, 300),
+      ...input.sourcePageUrl ? { sourcePageUrl: input.sourcePageUrl } : {},
+      sha256: sha2564,
+      mimeType: validated.mimeType,
+      storageKey,
+      publicUrl,
+      ...input.prompt ? { prompt: input.prompt } : {},
+      ...input.model ? { model: input.model } : {},
+      ...input.originalFileName ? { originalFileName: input.originalFileName } : {},
+      createdBy: clean2(input.actorId, 200),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    await doc.set(asset);
+    return asset;
+  }
+  async generate(rawProviderId, rawInput, actorId, rawPrompt) {
+    const provider2 = this.getProvider(rawProviderId);
+    const term = clean2(rawInput?.term, 120);
+    const defaultPrompt = this.getDefaultPrompt(rawInput);
+    const prompt = rawPrompt === void 0 ? defaultPrompt : validateVocabImageCustomPrompt(rawPrompt);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const generated = await provider2.generate(prompt, controller.signal);
+      const downloaded = generated.bytes ? validateImageBytes(generated.bytes, generated.declaredMimeType, this.maxBytes) : generated.remoteUrl ? await downloadImageSecurely(generated.remoteUrl, {
+        fetchImpl: this.options.fetchImpl,
+        resolveHost: this.options.resolveHost,
+        allowedHosts: provider2.allowedDownloadHosts,
+        timeoutMs: this.downloadTimeoutMs,
+        maxBytes: this.maxBytes
+      }) : null;
+      if (!downloaded) throw httpError2(502, `${provider2.label} kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u \u1EA3nh h\u1EE3p l\u1EC7.`);
+      const asset = await this.storeBytes({
+        bytes: downloaded.bytes,
+        declaredMimeType: downloaded.mimeType,
+        provider: provider2.id,
+        externalId: generated.requestId || `${provider2.id}-${import_node_crypto11.default.randomUUID()}`,
+        title: `\u1EA2nh t\u1EEB v\u1EF1ng: ${term}`,
+        author: `${provider2.label} \xB7 ${provider2.model}`,
+        license: "\u1EA2nh do AI t\u1EA1o theo y\xEAu c\u1EA7u c\u1EE7a gi\xE1o vi\xEAn",
+        sourcePageUrl: provider2.documentationUrl,
+        prompt,
+        model: provider2.model,
+        actorId
+      });
+      return { asset, prompt, provider: provider2.id, model: provider2.model };
+    } catch (error) {
+      if (error?.name === "AbortError") throw httpError2(504, `${provider2.label} t\u1EA1o \u1EA3nh qu\xE1 th\u1EDDi gian ch\u1EDD.`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async upload(input, actorId) {
+    if (!input.rightsConfirmed) throw httpError2(400, "Gi\xE1o vi\xEAn ph\u1EA3i x\xE1c nh\u1EADn c\xF3 quy\u1EC1n s\u1EED d\u1EE5ng \u1EA3nh tr\u01B0\u1EDBc khi t\u1EA3i l\xEAn.");
+    const fileName = cleanFileName(input.fileName);
+    const sha = import_node_crypto11.default.createHash("sha256").update(input.bytes).digest("hex");
+    return this.storeBytes({
+      bytes: input.bytes,
+      declaredMimeType: input.declaredMimeType,
+      provider: "upload",
+      externalId: `upload-${sha.slice(0, 32)}`,
+      title: fileName,
+      author: "Gi\xE1o vi\xEAn t\u1EA3i l\xEAn",
+      license: "Gi\xE1o vi\xEAn x\xE1c nh\u1EADn quy\u1EC1n s\u1EED d\u1EE5ng",
+      originalFileName: fileName,
+      actorId
+    });
+  }
+  async batchGenerate(rawProvider, rawItems, actorId) {
+    const items = Array.isArray(rawItems) ? rawItems.slice(0, this.batchMaxItems) : [];
+    if (items.length === 0) throw httpError2(400, "C\u1EA7n \xEDt nh\u1EA5t m\u1ED9t t\u1EEB v\u1EF1ng \u0111\u1EC3 t\u1EA1o \u1EA3nh h\xE0ng lo\u1EA1t.");
+    const providerChoice = rawProvider === "auto" ? "auto" : isGenerationProviderId(rawProvider) ? rawProvider : "auto";
+    const configured = ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].filter((id2) => this.providers[id2].configured);
+    if (configured.length === 0) throw httpError2(503, "Ch\u01B0a c\u1EA5u h\xECnh key c\u1EE7a d\u1ECBch v\u1EE5 t\u1EA1o \u1EA3nh tr\xEAn m\xE1y ch\u1EE7.");
+    const providerLimiters = Object.fromEntries(
+      ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].map((id2) => [id2, createConcurrencyLimiter(this.batchConcurrencyPerProvider)])
+    );
+    return Promise.all(items.map(async (rawItem, index) => {
+      const id2 = clean2(rawItem?.id, 160) || `item-${index + 1}`;
+      const preferred = providerChoice === "auto" ? configured[index % configured.length] : providerChoice;
+      const attempts = [preferred, ...configured.filter((candidate) => candidate !== preferred)];
+      let lastError = null;
+      for (const providerId of attempts) {
+        try {
+          const result = await providerLimiters[providerId](() => this.generate(providerId, rawItem || {}, actorId));
+          return { id: id2, provider: providerId, asset: result.asset, prompt: result.prompt };
+        } catch (error) {
+          lastError = error;
+          if (providerChoice !== "auto") break;
+        }
+      }
+      return {
+        id: id2,
+        provider: preferred,
+        error: String(lastError?.message || "Kh\xF4ng t\u1EA1o \u0111\u01B0\u1EE3c \u1EA3nh.").slice(0, 500)
+      };
+    }));
+  }
+};
+
+// src/server/vocab-images/saveReferences.ts
+var MANAGED_VOCAB_IMAGE_ASSET_ID = /^vimg-[a-f0-9]{40}$/;
+var MANAGED_VOCAB_IMAGE_URL = /^\/vocab-images\/[a-f0-9]{64}\.(?:jpg|png|webp|gif)$/;
+function httpError3(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function safeText(value, maxLength) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+function vocabImageAttributionFromAsset(asset) {
+  const provider2 = safeText(asset?.provider, 40).toLowerCase();
+  const externalId = safeText(asset?.externalId, 500);
+  const title = safeText(asset?.title, 500);
+  const author = safeText(asset?.author, 500);
+  const license = safeText(asset?.license, 300);
+  const sourcePageUrl = safeText(asset?.sourcePageUrl, 1e3);
+  const providersRequiringSource = [
+    "wikimedia",
+    "pixabay",
+    "pexels",
+    "stali",
+    "devquota",
+    "seedvis-nano-banana-2",
+    "seedvis-nano-banana-pro"
+  ];
+  if (![...providersRequiringSource, "upload"].includes(provider2) || !externalId || !title || !author || !license || providersRequiringSource.includes(provider2) && !/^https:\/\//i.test(sourcePageUrl)) {
+    throw httpError3(400, "Managed vocabulary image metadata is invalid.");
+  }
+  return {
+    provider: provider2,
+    externalId,
+    title,
+    author,
+    license,
+    ...asset?.licenseUrl && /^https:\/\//i.test(String(asset.licenseUrl)) ? { licenseUrl: safeText(asset.licenseUrl, 1e3) } : {},
+    ...sourcePageUrl ? { sourcePageUrl } : {}
+  };
+}
+async function resolveVocabImageReferencesForSave(payload, existing, db, now = () => /* @__PURE__ */ new Date()) {
+  if (!Array.isArray(payload?.items)) return payload;
+  const existingItems = new Map(
+    (Array.isArray(existing?.items) ? existing.items : []).map((item) => [String(item?.id || ""), item])
+  );
+  const items = await Promise.all(payload.items.slice(0, 500).map(async (rawItem, index) => {
+    const item = { ...rawItem || {} };
+    const previous = existingItems.get(String(item.id || ""));
+    const imageAssetId = safeText(item.imageAssetId, 80);
+    if (imageAssetId) {
+      if (!MANAGED_VOCAB_IMAGE_ASSET_ID.test(imageAssetId)) {
+        throw httpError3(400, `Dong ${index + 1}: invalid managed image reference.`);
+      }
+      const assetDoc = await db.collection("vocab_image_assets").doc(imageAssetId).get();
+      if (!assetDoc.exists) {
+        throw httpError3(400, `Dong ${index + 1}: managed image does not exist.`);
+      }
+      const asset = assetDoc.data() || {};
+      const imageUrl = safeText(asset.publicUrl, 1e3);
+      if (asset.id !== imageAssetId || !MANAGED_VOCAB_IMAGE_URL.test(imageUrl)) {
+        throw httpError3(400, `Dong ${index + 1}: managed image storage metadata is invalid.`);
+      }
+      return {
+        ...item,
+        imageAssetId,
+        imageUrl,
+        imageAttribution: vocabImageAttributionFromAsset(asset),
+        imageAttachedAt: previous?.imageAssetId === imageAssetId && previous?.imageAttachedAt ? safeText(previous.imageAttachedAt, 80) : now().toISOString()
+      };
+    }
+    const requestedLegacyUrl = safeText(item.imageUrl, 1e3);
+    if (requestedLegacyUrl) {
+      if (!previous?.imageAssetId && previous?.imageUrl === requestedLegacyUrl) {
+        delete item.imageAssetId;
+        delete item.imageAttribution;
+        delete item.imageAttachedAt;
+        return item;
+      }
+      throw httpError3(
+        400,
+        `Dong ${index + 1}: external image URLs cannot be added directly; import an image from the managed library.`
+      );
+    }
+    delete item.imageAssetId;
+    delete item.imageUrl;
+    delete item.imageAttribution;
+    delete item.imageAttachedAt;
+    return item;
+  }));
+  return { ...payload, items };
+}
+
 // server.ts
 import_dotenv.default.config();
 var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
@@ -16306,7 +17329,7 @@ if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
 if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
-var app2 = (0, import_express6.default)();
+var app2 = (0, import_express7.default)();
 app2.disable("x-powered-by");
 var PORT = Number(process.env.PORT) || 3e3;
 var TRUST_PROXY_HOPS = parseTrustedProxyHops(process.env.TRUST_PROXY_HOPS);
@@ -16322,6 +17345,18 @@ var LISTENING_MEDIA_DIR = resolvePersistentDirectory({
   env: process.env,
   variable: "LISTENING_MEDIA_DIR",
   localDirectory: "listening-media"
+});
+var VOCAB_IMAGE_PUBLIC_PREFIX = "/vocab-images";
+var VOCAB_IMAGE_DIR = resolvePersistentDirectory({
+  env: process.env,
+  variable: "VOCAB_IMAGE_DIR",
+  localDirectory: "vocab-images"
+});
+var vocabImageLibraryService = new VocabImageLibraryService({
+  db: adminDb,
+  imageDir: VOCAB_IMAGE_DIR,
+  publicPrefix: VOCAB_IMAGE_PUBLIC_PREFIX,
+  env: process.env
 });
 var SLOW_API_LOG_MS = Math.max(0, Number(process.env.SLOW_API_LOG_MS || 500));
 var LEARNING_HISTORY_REQUESTED = process.env.LEARNING_HISTORY_ENABLED === "true";
@@ -16347,7 +17382,7 @@ if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
 app2.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
-app2.use(import_express6.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
+app2.use(import_express7.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -16356,9 +17391,14 @@ app2.use((req, _res, next) => {
   });
 });
 import_fs5.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express6.default.static(AUDIO_DIR));
+app2.use(AUDIO_PUBLIC_PREFIX, import_express7.default.static(AUDIO_DIR));
 import_fs5.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
-app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express6.default.static(LISTENING_MEDIA_DIR, {
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express7.default.static(LISTENING_MEDIA_DIR, {
+  immutable: true,
+  maxAge: "365d"
+}));
+import_fs5.default.mkdirSync(VOCAB_IMAGE_DIR, { recursive: true });
+app2.use(VOCAB_IMAGE_PUBLIC_PREFIX, import_express7.default.static(VOCAB_IMAGE_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -16479,7 +17519,7 @@ function normalizePhoneE164(value) {
   if (normalized4.length < 10 || normalized4.length > 15) return "";
   return `+${normalized4}`;
 }
-function createHttpError(status, message, details) {
+function createHttpError2(status, message, details) {
   const err = new Error(message);
   err.status = status;
   if (details) err.details = details;
@@ -16503,7 +17543,7 @@ function buildUserProfileFromToken(decodedToken, storedProfile = {}) {
   const phoneVerified = Boolean(tokenPhone) || Boolean(storedProfile.phoneVerified && storedPhone);
   return {
     id: decodedToken.uid,
-    name: safeText(storedProfile.name || decodedToken.name || email.split("@")[0] || "Hoc sinh moi", 120),
+    name: safeText2(storedProfile.name || decodedToken.name || email.split("@")[0] || "Hoc sinh moi", 120),
     email,
     phone: phone || void 0,
     phoneVerified,
@@ -16665,11 +17705,11 @@ function toActivitySummary(activity, sourceType, sourceId) {
     runSecretHash: _runSecretHash,
     ...summary
   } = activity || {};
-  const resolvedSourceType = safeText(sourceType || summary.sourceType || "vocabulary", 80);
+  const resolvedSourceType = safeText2(sourceType || summary.sourceType || "vocabulary", 80);
   return {
     ...summary,
     sourceType: resolvedSourceType,
-    sourceId: safeText(sourceId || summary.sourceId || summary.id || "", 180)
+    sourceId: safeText2(sourceId || summary.sourceId || summary.id || "", 180)
   };
 }
 function sanitizeActivityDetail(activity) {
@@ -16720,7 +17760,7 @@ function appendLearningHistoryProjection(batch, projection) {
   }
 }
 function getRequestSessionToken(req) {
-  return safeText(req.body?.sessionToken || req.body?.runSecret || req.headers["x-session-token"], 200);
+  return safeText2(req.body?.sessionToken || req.body?.runSecret || req.headers["x-session-token"], 200);
 }
 function omitSensitiveSessionFields(session) {
   const { sessionTokenHash, privateSnapshot, ...safeSession } = session;
@@ -16746,13 +17786,13 @@ var GAME_ACTION_BATCH_MAX_ITEMS = Math.max(
 );
 var LAZY_SESSION_V3_ENABLED = process.env.LAZY_SESSION_V3_ENABLED !== "false";
 function getClientRunCredentials(payload) {
-  const clientRunId = safeText(payload?.clientRunId, 160);
-  const runSecret = safeText(payload?.runSecret || payload?.sessionToken, 200);
+  const clientRunId = safeText2(payload?.clientRunId, 160);
+  const runSecret = safeText2(payload?.runSecret || payload?.sessionToken, 200);
   if (!/^[A-Za-z0-9._:-]{8,160}$/.test(clientRunId)) {
-    throw createHttpError(400, "clientRunId khong hop le.");
+    throw createHttpError2(400, "clientRunId khong hop le.");
   }
   if (runSecret.length < 24) {
-    throw createHttpError(400, "runSecret khong hop le.");
+    throw createHttpError2(400, "runSecret khong hop le.");
   }
   return { clientRunId, runSecret };
 }
@@ -16762,49 +17802,49 @@ function normalizeGameAnswer(value) {
 function buildGameSessionSnapshot(vocabSet, gameId, requestedOrder = []) {
   const quizContract = getCurrentQuizContract(gameId);
   const canonicalItems = (Array.isArray(vocabSet.items) ? vocabSet.items : []).slice(0, 200).map((item, index) => ({
-    id: safeText(item.id || `item-${index + 1}`, 160),
-    term: safeText(item.term, 500),
-    meaning: safeText(item.meaning, 1e3),
-    example: safeText(item.example, 1500),
-    ipa: safeText(item.ipa, 160),
+    id: safeText2(item.id || `item-${index + 1}`, 160),
+    term: safeText2(item.term, 500),
+    meaning: safeText2(item.meaning, 1e3),
+    example: safeText2(item.example, 1500),
+    ipa: safeText2(item.ipa, 160),
     audioUrl: normalizeAudioUrlForClient(item.audioUrl),
     displayOrder: Number(item.displayOrder || index + 1)
   })).filter((item) => item.id && item.term).filter((item) => !quizContract || isQuizItemEligible(item, quizContract));
   const byId = new Map(canonicalItems.map((item) => [item.id, item]));
-  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id2) => safeText(id2, 160)).filter((id2, index, list2) => id2 && byId.has(id2) && list2.indexOf(id2) === index) : [];
+  const orderedIds = Array.isArray(requestedOrder) ? requestedOrder.map((id2) => safeText2(id2, 160)).filter((id2, index, list2) => id2 && byId.has(id2) && list2.indexOf(id2) === index) : [];
   const items = orderedIds.length ? orderedIds.map((id2) => byId.get(id2)) : canonicalItems;
   const config = quizContract ? quizContract : gameId.startsWith("flashcard-") ? { front: gameId === "flashcard-vi-en" ? "meaning" : gameId === "flashcard-sound" ? "sound_only" : "term" } : gameId.startsWith("fill-") ? { mode: gameId === "fill-missing" ? "missing_letters" : "complete" } : gameId === "millionaire-vocab" ? { maxQuestions: 15 } : gameId === "speaking-ai" ? { targetMode: "example_or_term" } : {};
   return { itemOrder: items.map((item) => item.id), items, config };
 }
 function sanitizeGameAction(input) {
-  const type = safeText(input?.type, 60);
+  const type = safeText2(input?.type, 60);
   const allowed = /* @__PURE__ */ new Set(["flashcard.rate", "quiz.answer", "fill.answer", "matching.attempt", "memory.move", "millionaire.answer", "speaking.attempt"]);
-  if (!allowed.has(type)) throw createHttpError(400, "Game action type is not supported.");
+  if (!allowed.has(type)) throw createHttpError2(400, "Game action type is not supported.");
   const sequence = Number(input?.sequence);
-  if (!Number.isInteger(sequence) || sequence < 0 || sequence > 1e3) throw createHttpError(400, "Invalid game action sequence.");
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > 1e3) throw createHttpError2(400, "Invalid game action sequence.");
   return {
-    actionId: safeText(input?.actionId, 120),
+    actionId: safeText2(input?.actionId, 120),
     type,
     sequence,
-    wordId: safeText(input?.wordId, 160),
-    userAnswer: safeText(input?.userAnswer, 1e3),
-    firstItemId: safeText(input?.firstItemId, 160),
+    wordId: safeText2(input?.wordId, 160),
+    userAnswer: safeText2(input?.userAnswer, 1e3),
+    firstItemId: safeText2(input?.firstItemId, 160),
     firstSide: input?.firstSide === "meaning" ? "meaning" : "term",
-    secondItemId: safeText(input?.secondItemId, 160),
+    secondItemId: safeText2(input?.secondItemId, 160),
     secondSide: input?.secondSide === "meaning" ? "meaning" : "term",
-    recognizedText: safeText(input?.recognizedText, 1e3),
+    recognizedText: safeText2(input?.recognizedText, 1e3),
     responseMs: Math.max(0, Math.min(12e4, Number(input?.responseMs || 0))),
     attemptNumber: Math.max(1, Math.min(20, Number(input?.attemptNumber || 1)))
   };
 }
 function sanitizeSubmittedGameActions(input) {
   if (!Array.isArray(input)) return [];
-  if (input.length > 1e3) throw createHttpError(400, "C\xF3 qu\xE1 nhi\u1EC1u thao t\xE1c trong m\u1ED9t l\u01B0\u1EE3t ch\u01A1i.");
+  if (input.length > 1e3) throw createHttpError2(400, "C\xF3 qu\xE1 nhi\u1EC1u thao t\xE1c trong m\u1ED9t l\u01B0\u1EE3t ch\u01A1i.");
   const actions = input.map(sanitizeGameAction);
   const sequenceSet = /* @__PURE__ */ new Set();
   for (const action of actions) {
     if (sequenceSet.has(action.sequence)) {
-      throw createHttpError(400, "Game action sequence b\u1ECB tr\xF9ng.");
+      throw createHttpError2(400, "Game action sequence b\u1ECB tr\xF9ng.");
     }
     sequenceSet.add(action.sequence);
   }
@@ -16854,7 +17894,7 @@ function gradeGameSessionV2(session, actions) {
     });
   } else if (session.gameId.startsWith("quiz-")) {
     const contract = resolveStoredQuizContract(session.gameId, session.privateSnapshot?.config);
-    if (!contract) throw createHttpError(400, "Quiz contract is not supported.");
+    if (!contract) throw createHttpError2(400, "Quiz contract is not supported.");
     const latest = /* @__PURE__ */ new Map();
     ordered.filter((a) => a.type === "quiz.answer" && byId.has(a.wordId)).forEach((a) => latest.set(a.wordId, a));
     items.forEach((item, index) => {
@@ -16925,11 +17965,11 @@ function gradeGameSessionV2(session, actions) {
   return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, rawScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, maxScore: session.gameId === "millionaire-vocab" ? 1e6 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
 }
 function getGuestProfileId(value) {
-  return safeText(value, 120);
+  return safeText2(value, 120);
 }
 function isGuestOwnedRecord(data) {
   const guestId = getGuestProfileId(data?.guestId);
-  const userId = safeText(data?.userId, 120);
+  const userId = safeText2(data?.userId, 120);
   return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
 }
 async function findExistingGuestIdentity(guestIdValue, timing) {
@@ -16940,9 +17980,9 @@ async function findExistingGuestIdentity(guestIdValue, timing) {
   if (profileDoc.exists) {
     const profile = { id: profileDoc.id, guestId, ...profileDoc.data() };
     if (profile.status === "blocked") {
-      throw createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+      throw createHttpError2(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
     }
-    const displayName = safeText(profile.displayName || profile.name, 120);
+    const displayName = safeText2(profile.displayName || profile.name, 120);
     if (displayName) {
       return {
         ...profile,
@@ -16961,7 +18001,7 @@ var GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
 );
 async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}, timing) {
   const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) throw createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
+  if (!guestId) throw createHttpError2(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
   const profileRef = adminDb.collection("guest_profiles").doc(guestId);
   const profileDoc = await profileRef.get();
   timing?.mark("guest_profile");
@@ -16969,12 +18009,12 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
   if (profileDoc.exists) {
     const existing = { id: profileDoc.id, ...profileDoc.data() };
     if (existing.status === "blocked") {
-      throw createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+      throw createHttpError2(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
     }
-    const displayName = safeText(existing.displayName || existing.name, 120);
+    const displayName = safeText2(existing.displayName || existing.name, 120);
     if (!displayName) {
       const validation2 = validateStudentDisplayName(studentNameValue);
-      if (!validation2.valid) throw createHttpError(400, validation2.error);
+      if (!validation2.valid) throw createHttpError2(400, validation2.error);
       const repaired = {
         ...existing,
         displayName: validation2.value,
@@ -16989,14 +18029,14 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
       invalidateCanonicalStudentNameCache();
       return repaired;
     }
-    const classId = classInfo.verified ? safeText(classInfo.classId, 160) : "";
-    const className = classInfo.verified ? safeText(classInfo.className, 240) : "";
+    const classId = classInfo.verified ? safeText2(classInfo.classId, 160) : "";
+    const className = classInfo.verified ? safeText2(classInfo.className, 240) : "";
     const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
     const shouldTouchActivity = Boolean(
       touchActivity && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
     );
-    const shouldUpdateClassId = Boolean(classId && classId !== safeText(existing.classId, 160));
-    const shouldUpdateClassName = Boolean(className && className !== safeText(existing.className, 240));
+    const shouldUpdateClassId = Boolean(classId && classId !== safeText2(existing.classId, 160));
+    const shouldUpdateClassName = Boolean(className && className !== safeText2(existing.className, 240));
     if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
       await profileRef.update({
         ...shouldTouchActivity ? { lastActiveAt: now } : {},
@@ -17015,7 +18055,7 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     };
   }
   const validation = validateStudentDisplayName(studentNameValue);
-  if (!validation.valid) throw createHttpError(400, validation.error);
+  if (!validation.valid) throw createHttpError2(400, validation.error);
   const guestAccessToken = createSessionToken();
   const guestAccessTokenVersion = 1;
   const profile = {
@@ -17027,8 +18067,8 @@ async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity
     normalizedName: normalizePersonName(validation.value),
     role: "student",
     status: "active",
-    classId: classInfo.verified ? safeText(classInfo.classId, 160) : "",
-    className: classInfo.verified ? safeText(classInfo.className, 240) : "",
+    classId: classInfo.verified ? safeText2(classInfo.classId, 160) : "",
+    className: classInfo.verified ? safeText2(classInfo.className, 240) : "",
     createdAt: now,
     updatedAt: now,
     lastActiveAt: now,
@@ -17063,7 +18103,7 @@ async function getCanonicalStudentName(kind, id2) {
     const collectionName = kind === "user" ? "users" : "guest_profiles";
     pending = adminDb.collection(collectionName).doc(id2).get().then((document) => {
       const data = document.exists ? document.data() : {};
-      const name = safeText(kind === "user" ? data.name || data.displayName : data.displayName || data.name, 120);
+      const name = safeText2(kind === "user" ? data.name || data.displayName : data.displayName || data.name, 120);
       canonicalStudentNameCache.set(key, {
         expiresAt: Date.now() + CANONICAL_STUDENT_NAME_CACHE_TTL_MS,
         name
@@ -17082,7 +18122,7 @@ async function getCanonicalStudentNameMaps(items) {
       const guestId = getGuestProfileId(item?.guestId);
       if (guestId) guestIds.add(guestId);
     } else {
-      const userId = safeText(item?.userId || item?.studentId, 120);
+      const userId = safeText2(item?.userId || item?.studentId, 120);
       if (userId) userIds.add(userId);
     }
   });
@@ -17104,7 +18144,7 @@ async function getCanonicalStudentNameMaps(items) {
 function enrichStudentName(data, maps) {
   if (!data) return data;
   const guestId = getGuestProfileId(data.guestId);
-  const userId = safeText(data.userId || data.studentId, 120);
+  const userId = safeText2(data.userId || data.studentId, 120);
   const canonicalName = isGuestOwnedRecord(data) ? maps.guests.get(guestId) : maps.users.get(userId);
   if (canonicalName) return { ...data, studentName: canonicalName };
   return guestId || userId ? data : { ...data, legacyUnlinked: true };
@@ -17122,12 +18162,12 @@ function getGameSessionActor(req, payload = {}) {
       ownerKey: `user:${req.user.id}`,
       userId: req.user.id,
       studentId: req.user.id,
-      guestId: safeText(payload.guestId || "", 120),
-      studentName: req.user.name || safeText(payload.studentName || "Hoc sinh", 120)
+      guestId: safeText2(payload.guestId || "", 120),
+      studentName: req.user.name || safeText2(payload.studentName || "Hoc sinh", 120)
     };
   }
-  const guestId = safeText(payload.guestId, 120);
-  const studentName = safeText(payload.studentName, 120);
+  const guestId = safeText2(payload.guestId, 120);
+  const studentName = safeText2(payload.studentName, 120);
   if (!guestId || !studentName) return null;
   return {
     ownerType: "guest",
@@ -17149,7 +18189,7 @@ function canUpdateGameSession(req, existing, payload) {
   }
   if (canUseLegacyGuestSessionUpdate({
     session: existing,
-    suppliedGuestId: safeText(payload.guestId, 120),
+    suppliedGuestId: safeText2(payload.guestId, 120),
     maxAgeMs: LEGACY_GUEST_SESSION_MAX_AGE_MS
   })) return true;
   return false;
@@ -17197,7 +18237,7 @@ async function canManageGuestProfile(user, profile) {
   ]);
   for (const doc of sessionsSnapshot.docs || []) {
     const session = doc.data();
-    const assignmentId = safeText(session?.assignmentId, 160);
+    const assignmentId = safeText2(session?.assignmentId, 160);
     if (assignmentId) {
       const assignmentDoc = await adminDb.collection("assignments").doc(assignmentId).get();
       if (assignmentDoc.exists) {
@@ -17207,7 +18247,7 @@ async function canManageGuestProfile(user, profile) {
         if (canManageAssignment(user, assignment, classData)) return true;
       }
     }
-    const vocabSetId = safeText(session?.vocabSetId, 160);
+    const vocabSetId = safeText2(session?.vocabSetId, 160);
     if (vocabSetId) {
       const setDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
       if (setDoc.exists && canManageVocabSet(user, { id: setDoc.id, ...setDoc.data() })) {
@@ -17217,7 +18257,7 @@ async function canManageGuestProfile(user, profile) {
   }
   for (const doc of attemptsSnapshot.docs || []) {
     const attempt = doc.data();
-    const grammarSetId = safeText(attempt?.grammarSetId, 160);
+    const grammarSetId = safeText2(attempt?.grammarSetId, 160);
     if (!grammarSetId) continue;
     const setDoc = await adminDb.collection("grammar_sets").doc(grammarSetId).get();
     if (setDoc.exists && canManageGrammarSet(user, { id: setDoc.id, ...setDoc.data() })) {
@@ -17260,13 +18300,13 @@ async function getManageableGuestProfileIdsForTeacher(user) {
   });
   sessions.forEach((doc) => {
     const session = doc.data();
-    if (!managedAssignmentIds.has(safeText(session.assignmentId, 160)) && !managedVocabSetIds.has(safeText(session.vocabSetId, 160))) return;
+    if (!managedAssignmentIds.has(safeText2(session.assignmentId, 160)) && !managedVocabSetIds.has(safeText2(session.vocabSetId, 160))) return;
     const guestId = getGuestProfileId(session.guestId);
     if (guestId) manageable.add(guestId);
   });
   grammarAttempts.forEach((doc) => {
     const attempt = doc.data();
-    if (!managedGrammarSetIds.has(safeText(attempt.grammarSetId, 160))) return;
+    if (!managedGrammarSetIds.has(safeText2(attempt.grammarSetId, 160))) return;
     const guestId = getGuestProfileId(attempt.guestId);
     if (guestId) manageable.add(guestId);
   });
@@ -17335,7 +18375,7 @@ function isAssignmentOpenForLearning(assignment, set) {
   return visibility === "public" || visibility === "assignment";
 }
 function getRequestVocabShareToken(req) {
-  return safeText(req.body?.accessToken || req.headers["x-vocab-share-token"], 200);
+  return safeText2(req.body?.accessToken || req.headers["x-vocab-share-token"], 200);
 }
 async function findDocumentByShareToken(collectionName, token) {
   let snapshot = await adminDb.collection(collectionName).where("shareToken", "==", token).limit(2).get();
@@ -17347,7 +18387,7 @@ async function findDocumentByShareToken(collectionName, token) {
   return docs.length === 1 ? docs[0] : null;
 }
 async function resolveVocabLearningAccess(tokenValue, expectedVocabSetId = "", expectedAssignmentId = "", timing) {
-  const token = safeText(tokenValue, 200);
+  const token = safeText2(tokenValue, 200);
   if (!token) return null;
   if (expectedAssignmentId) {
     const assignmentDoc2 = await adminDb.collection("assignments").doc(expectedAssignmentId).get();
@@ -17418,7 +18458,7 @@ function canViewGrammarActivity(user, attempt, set) {
   return isTeacher(user) && canManageGrammarSet(user, set);
 }
 function getRequestGrammarAttemptToken(req) {
-  return safeText(req.body?.attemptToken || req.query?.attemptToken || req.headers["x-grammar-attempt-token"], 160);
+  return safeText2(req.body?.attemptToken || req.query?.attemptToken || req.headers["x-grammar-attempt-token"], 160);
 }
 function sanitizeGrammarAnswerForStudent(answer, includeReview = false) {
   const safeAnswer2 = {
@@ -17514,28 +18554,28 @@ function isExpiredStoredLeaderboardEvent(data, nowMs = Date.now()) {
   return isOutsideLeaderboardRetention(data, nowMs);
 }
 function sanitizeLeaderboardEvent(event) {
-  const sourceType = safeText(event.sourceType || "vocabulary", 80);
-  const sourceId = safeText(event.sourceId || event.id || "", 180);
+  const sourceType = safeText2(event.sourceType || "vocabulary", 80);
+  const sourceId = safeText2(event.sourceId || event.id || "", 180);
   const completedAt = getLeaderboardEventTime(event);
   return {
     id: event.id || leaderboardEventId(sourceType, sourceId || import_crypto4.default.randomUUID()),
     sourceType,
     sourceId,
-    assignmentId: safeText(event.assignmentId || "", 180),
-    classId: safeText(event.classId || "", 180),
-    className: safeText(event.className || "", 180),
-    vocabSetId: safeText(event.vocabSetId || "", 180),
-    vocabSetTitle: safeText(event.vocabSetTitle || "", 240),
-    grammarSetId: safeText(event.grammarSetId || "", 180),
-    gameId: safeText(event.gameId || "", 120),
-    gameName: safeText(event.gameName || "", 160),
-    gameType: safeText(event.gameType || "", 80),
-    ownerKey: safeText(event.ownerKey || "", 180),
-    ownerType: safeText(event.ownerType || "", 40),
-    userId: safeText(event.userId || "", 180),
-    studentId: safeText(event.studentId || "", 180),
-    guestId: safeText(event.guestId || "", 180),
-    studentName: safeText(event.studentName || "Hoc sinh", 160),
+    assignmentId: safeText2(event.assignmentId || "", 180),
+    classId: safeText2(event.classId || "", 180),
+    className: safeText2(event.className || "", 180),
+    vocabSetId: safeText2(event.vocabSetId || "", 180),
+    vocabSetTitle: safeText2(event.vocabSetTitle || "", 240),
+    grammarSetId: safeText2(event.grammarSetId || "", 180),
+    gameId: safeText2(event.gameId || "", 120),
+    gameName: safeText2(event.gameName || "", 160),
+    gameType: safeText2(event.gameType || "", 80),
+    ownerKey: safeText2(event.ownerKey || "", 180),
+    ownerType: safeText2(event.ownerType || "", 40),
+    userId: safeText2(event.userId || "", 180),
+    studentId: safeText2(event.studentId || "", 180),
+    guestId: safeText2(event.guestId || "", 180),
+    studentName: safeText2(event.studentName || "Hoc sinh", 160),
     startedAt: event.startedAt || completedAt,
     endedAt: event.endedAt || completedAt,
     completedAt,
@@ -17554,7 +18594,7 @@ function sanitizeLeaderboardEvent(event) {
   };
 }
 function gameSessionToLeaderboardEvent(session) {
-  const sourceId = safeText(session.id || session.sourceId || "", 180);
+  const sourceId = safeText2(session.id || session.sourceId || "", 180);
   return sanitizeLeaderboardEvent({
     ...session,
     id: leaderboardEventId("vocabulary", sourceId),
@@ -17566,7 +18606,7 @@ function gameSessionToLeaderboardEvent(session) {
 }
 function grammarAttemptToLeaderboardEvent(attempt, set = {}) {
   const activity = grammarAttemptToActivity(attempt, set);
-  const sourceId = safeText(attempt.id || activity.id, 180);
+  const sourceId = safeText2(attempt.id || activity.id, 180);
   return sanitizeLeaderboardEvent({
     ...activity,
     answerDetails: void 0,
@@ -17717,16 +18757,16 @@ function sanitizeTtsInput(input) {
   return { text: text6, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
-  const provider = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
-  if (!SUPPORTED_TTS_PROVIDERS.has(provider)) {
-    throw createHttpError(400, `Unsupported TTS provider: ${provider}`);
+  const provider2 = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
+  if (!SUPPORTED_TTS_PROVIDERS.has(provider2)) {
+    throw createHttpError2(400, `Unsupported TTS provider: ${provider2}`);
   }
   const lang = settings.lang === "en-GB" ? "en-GB" : DEFAULT_TTS_LANG;
   const speed = Math.min(1.5, Math.max(0.5, Number(settings.speed || DEFAULT_TTS_SPEED)));
-  const providerVoices = DEFAULT_TTS_VOICE_BY_PROVIDER[provider];
+  const providerVoices = DEFAULT_TTS_VOICE_BY_PROVIDER[provider2];
   return {
     autoGenerate: Boolean(settings.autoGenerate),
-    provider,
+    provider: provider2,
     voice: String(settings.voice || providerVoices[lang] || providerVoices[DEFAULT_TTS_LANG]).trim(),
     lang,
     speed
@@ -18265,13 +19305,13 @@ function getOpenAIKey() {
   }
   return apiKey;
 }
-function sanitizeAiError(provider, error) {
+function sanitizeAiError(provider2, error) {
   if (error?.name === "AbortError") {
-    return `${provider}: request b\u1ECB h\u1EE7y do v\u01B0\u1EE3t th\u1EDDi gian x\u1EED l\xFD.`;
+    return `${provider2}: request b\u1ECB h\u1EE7y do v\u01B0\u1EE3t th\u1EDDi gian x\u1EED l\xFD.`;
   }
   const status = error?.status || error?.statusCode || error?.response?.status;
   const message = String(error?.message || error || "Unknown AI error").replace(/sk-[A-Za-z0-9_-]+/g, "sk-***").slice(0, 240);
-  return status ? `${provider} ${status}: ${message}` : `${provider}: ${message}`;
+  return status ? `${provider2} ${status}: ${message}` : `${provider2}: ${message}`;
 }
 function extractOpenAIText(data) {
   if (typeof data?.output_text === "string") return data.output_text;
@@ -18497,7 +19537,7 @@ function assertPhoneAuthRateLimit(req, phone) {
   const key = `${getRequestIp(req)}:${phone}`;
   const result = phoneAuthRateLimit.consume(key);
   if (!result.allowed) {
-    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.", {
+    throw createHttpError2(429, "Too many phone login attempts. Please wait and try again.", {
       retryAfterSeconds: result.retryAfterSeconds
     });
   }
@@ -18550,7 +19590,7 @@ function getFirebaseWebApiKey() {
 }
 async function verifyFirebasePassword(email, password) {
   const apiKey = getFirebaseWebApiKey();
-  if (!apiKey) throw createHttpError(503, "Phone password login is not configured.");
+  if (!apiKey) throw createHttpError2(503, "Phone password login is not configured.");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1e4);
   try {
@@ -18562,7 +19602,7 @@ async function verifyFirebasePassword(email, password) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.localId) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
+      throw createHttpError2(401, "Phone number or password is incorrect.");
     }
     return data;
   } finally {
@@ -18612,11 +19652,11 @@ app2.post("/api/auth/login-by-phone", async (req, res) => {
     const userRecord = await findUserByPhone(normalizedPhone, rawPhone);
     const email = normalizeEmail(userRecord?.email);
     if (!userRecord || !email) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
+      throw createHttpError2(401, "Phone number or password is incorrect.");
     }
     const verified = await verifyFirebasePassword(email, password);
     if (verified.localId !== userRecord.id) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
+      throw createHttpError2(401, "Phone number or password is incorrect.");
     }
     if (userRecord.phone !== normalizedPhone) {
       await adminDb.collection("users").doc(userRecord.id).set({
@@ -18756,6 +19796,15 @@ app2.use(
 app2.use(
   "/api/listening-library",
   createListeningLibraryRouter()
+);
+app2.use(
+  "/api/image-library",
+  createVocabImageRouter({
+    service: vocabImageLibraryService,
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    logAudit: logAuditAction
+  })
 );
 app2.use(
   "/api/listening",
@@ -19243,7 +20292,7 @@ app2.get("/api/public/leaderboard-summary", async (req, res) => {
   const timing = createApiTiming(req, "GET /api/public/leaderboard-summary");
   try {
     const period = req.query.period === "month" ? "month" : "week";
-    const classId = safeText(req.query.classId, 180);
+    const classId = safeText2(req.query.classId, 180);
     const requestedLimit = Number(req.query.limit || 8);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
     const cacheKey = `${period}:${classId}:${limit}`;
@@ -19265,9 +20314,9 @@ app2.get("/api/public/leaderboard-summary", async (req, res) => {
     const publicEvents = events.map(sanitizePublicStudentRecord2);
     const classesById = /* @__PURE__ */ new Map();
     for (const event of publicEvents) {
-      const eventClassId = safeText(event.classId, 180);
+      const eventClassId = safeText2(event.classId, 180);
       if (!eventClassId) continue;
-      const eventClassName = safeText(event.className, 180) || eventClassId;
+      const eventClassName = safeText2(event.className, 180) || eventClassId;
       if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
     }
     const entries = buildLeaderboard(publicEvents, [], {
@@ -19328,7 +20377,7 @@ app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
 app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = req.body;
+    const set = await resolveVocabImageReferencesForSave(req.body, {}, adminDb);
     const id2 = `set-${Date.now()}`;
     const newSet = normalizeVocabSetForSave({
       ...set,
@@ -19366,7 +20415,8 @@ app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super
     if (!canManageVocabSet(req.user, existingDoc.data())) {
       return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
     }
-    const updatedSet = normalizeVocabSetForSave({ ...payload, id: id2 }, existingDoc.data());
+    const resolvedPayload = await resolveVocabImageReferencesForSave(payload, existingDoc.data(), adminDb);
+    const updatedSet = normalizeVocabSetForSave({ ...resolvedPayload, id: id2 }, existingDoc.data());
     await docRef.set(updatedSet);
     if (updatedSet.ttsSettings?.autoGenerate) {
       enqueueVocabSetAudio(id2, updatedSet.ttsSettings);
@@ -19527,6 +20577,31 @@ app2.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["tea
         audioWarnings: item.audioWarnings || [],
         audioGeneratedAt: item.audioGeneratedAt,
         audioUpdatedAt: item.audioUpdatedAt
+      }))
+    });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+app2.get("/api/vocab-sets/:id/images/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
+  try {
+    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
+    const set = doc.data();
+    if (!canManageVocabSet(req.user, set)) {
+      return res.status(403).json({ error: "Ban khong co quyen xem trang thai anh cua bo tu vung nay." });
+    }
+    const items = Array.isArray(set.items) ? set.items : [];
+    res.json({
+      id: set.id,
+      items: items.map((item) => ({
+        id: item.id,
+        term: item.term,
+        imageAssetId: item.imageAssetId,
+        imageUrl: item.imageUrl,
+        imageAttribution: item.imageAttribution,
+        imageAttachedAt: item.imageAttachedAt,
+        imageStatus: item.imageAssetId && item.imageUrl ? "ready" : item.imageUrl ? "legacy" : "missing"
       }))
     });
   } catch (err) {
@@ -20164,7 +21239,7 @@ app2.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, a
         alreadyActivated: true
       });
     }
-    if (safeText(payload.grammarSetVersion, 160) !== getGrammarSetVersion(set)) {
+    if (safeText2(payload.grammarSetVersion, 160) !== getGrammarSetVersion(set)) {
       return res.status(409).json({ error: "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi." });
     }
     const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
@@ -20312,7 +21387,7 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
     if (!attemptQuestion) return res.status(400).json({ error: "C\xE2u h\u1ECFi kh\xF4ng h\u1EE3p l\u1EC7." });
     const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
     const selectedOptionId = questionType === "multiple_choice" ? String(req.body?.selectedOptionId || "") : "";
-    const textAnswer = questionType === "rewrite" ? safeText(req.body?.textAnswer, 4e3) : "";
+    const textAnswer = questionType === "rewrite" ? safeText2(req.body?.textAnswer, 4e3) : "";
     if (questionType === "multiple_choice") {
       const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option) => option.id === selectedOptionId);
       if (!selectedOption) return res.status(400).json({ error: "Ph\u01B0\u01A1ng \xE1n \u0111\xE3 ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7." });
@@ -20540,7 +21615,7 @@ app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["te
 });
 async function resolveGameSessionStartContext(req, payload, timing) {
   let actor = getGameSessionActor(req, payload);
-  if (!actor) throw createHttpError(401, "Student identity is required to start a game session.");
+  if (!actor) throw createHttpError2(401, "Student identity is required to start a game session.");
   if (actor.ownerType === "guest") {
     const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
       classId: payload.classId,
@@ -20549,16 +21624,16 @@ async function resolveGameSessionStartContext(req, payload, timing) {
     actor = { ...actor, studentName: profile.displayName || profile.name };
   }
   timing?.mark("identity");
-  const vocabSetId = safeText(payload.vocabSetId, 160);
-  const gameId = safeText(payload.gameId, 120);
-  if (!vocabSetId || !gameId) throw createHttpError(400, "vocabSetId and gameId are required.");
-  if (!SESSION_V2_GAME_IDS.has(gameId)) throw createHttpError(400, "Game khong duoc ho tro.");
+  const vocabSetId = safeText2(payload.vocabSetId, 160);
+  const gameId = safeText2(payload.gameId, 120);
+  if (!vocabSetId || !gameId) throw createHttpError2(400, "vocabSetId and gameId are required.");
+  if (!SESSION_V2_GAME_IDS.has(gameId)) throw createHttpError2(400, "Game khong duoc ho tro.");
   let assignment = null;
   let access = null;
   const accessToken = getRequestVocabShareToken(req);
   if (accessToken) {
-    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
-    if (!access) throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
+    access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText2(payload.assignmentId, 160), timing);
+    if (!access) throw createHttpError2(403, "Link khong co quyen tao luot hoc nay.");
     assignment = access.assignment;
   } else if (payload.assignmentId) {
     const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
@@ -20575,26 +21650,26 @@ async function resolveGameSessionStartContext(req, payload, timing) {
   let vocabSet = access?.set || null;
   if (!vocabSet) {
     const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
-    if (!vocabDoc.exists) throw createHttpError(404, "Vocabulary set not found.");
+    if (!vocabDoc.exists) throw createHttpError2(404, "Vocabulary set not found.");
     vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
   }
   timing?.mark("set_read");
   if (assignment) {
     if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
-      throw createHttpError(403, "Assignment is not available for this vocabulary set.");
+      throw createHttpError2(403, "Assignment is not available for this vocabulary set.");
     }
     if (!req.user && !accessToken) {
-      throw createHttpError(403, "Link giao bai khong hop le hoac da het quyen truy cap.");
+      throw createHttpError2(403, "Link giao bai khong hop le hoac da het quyen truy cap.");
     }
     if (assignment.gameId && assignment.gameId !== gameId) {
-      throw createHttpError(403, "Game khong dung voi bai giao.");
+      throw createHttpError2(403, "Game khong dung voi bai giao.");
     }
   } else if (access?.accessType === "vocab_set") {
     if (access.set.id !== vocabSetId || getVocabVisibility(vocabSet) !== "assignment") {
-      throw createHttpError(403, "Link khong co quyen tao luot hoc nay.");
+      throw createHttpError2(403, "Link khong co quyen tao luot hoc nay.");
     }
   } else if (!canViewVocabSet(req.user, vocabSet)) {
-    throw createHttpError(403, "Ban khong co quyen bat dau game voi bo tu nay.");
+    throw createHttpError2(403, "Ban khong co quyen bat dau game voi bo tu nay.");
   }
   let inferredClass = null;
   if (!assignment && payload.vocabSetId) {
@@ -20624,18 +21699,18 @@ function buildGameSessionRecord(context, payload, options) {
     userId: actor.userId,
     studentId: actor.studentId,
     guestId: actor.guestId,
-    assignmentId: safeText(assignment?.id || "", 160),
+    assignmentId: safeText2(assignment?.id || "", 160),
     assignmentVerified: Boolean(assignment?.id),
-    assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+    assignmentTitle: safeText2(assignment?.title || assignment?.name || "", 300),
     assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
     vocabSetId,
-    vocabSetTitle: safeText(payload.vocabSetTitle || vocabSet.title, 240),
+    vocabSetTitle: safeText2(payload.vocabSetTitle || vocabSet.title, 240),
     gameId,
-    gameName: safeText(payload.gameName, 160),
-    gameType: safeText(payload.gameType, 80),
+    gameName: safeText2(payload.gameName, 160),
+    gameType: safeText2(payload.gameType, 80),
     studentName: actor.studentName,
-    classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-    className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+    classId: safeText2(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+    className: safeText2(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
     startedAt,
     createdAt: now,
     activatedAt: options.schemaVersion === 3 ? now : void 0,
@@ -20803,8 +21878,8 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     const id2 = `session-${import_crypto4.default.randomUUID()}`;
     const sessionToken = createSessionToken();
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const vocabSetId = safeText(payload.vocabSetId, 160);
-    const gameId = safeText(payload.gameId, 120);
+    const vocabSetId = safeText2(payload.vocabSetId, 160);
+    const gameId = safeText2(payload.gameId, 120);
     if (!vocabSetId || !gameId) {
       return res.status(400).json({ error: "vocabSetId and gameId are required." });
     }
@@ -20815,7 +21890,7 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
     let access = null;
     const accessToken = getRequestVocabShareToken(req);
     if (accessToken) {
-      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
+      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText2(payload.assignmentId, 160), timing);
       if (!access) return res.status(403).json({ error: "Link kh\xF4ng c\xF3 quy\u1EC1n t\u1EA1o l\u01B0\u1EE3t h\u1ECDc n\xE0y." });
       assignment = access.assignment;
     } else if (payload.assignmentId) {
@@ -20880,18 +21955,18 @@ app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
       userId: actor.userId,
       studentId: actor.studentId,
       guestId: actor.guestId,
-      assignmentId: safeText(assignment?.id || "", 160),
+      assignmentId: safeText2(assignment?.id || "", 160),
       assignmentVerified: Boolean(assignment?.id),
-      assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
+      assignmentTitle: safeText2(assignment?.title || assignment?.name || "", 300),
       assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
       vocabSetId,
-      vocabSetTitle: safeText(payload.vocabSetTitle, 240),
+      vocabSetTitle: safeText2(payload.vocabSetTitle, 240),
       gameId,
-      gameName: safeText(payload.gameName, 160),
-      gameType: safeText(payload.gameType, 80),
+      gameName: safeText2(payload.gameName, 160),
+      gameType: safeText2(payload.gameType, 80),
       studentName: actor.studentName,
-      classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-      className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
+      classId: safeText2(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
+      className: safeText2(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
       startedAt: now,
       createdAt: now,
       status: "started",
@@ -21094,7 +22169,7 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
   try {
     const payload = req.body || {};
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    const gameSessionId = safeText(payload.gameSessionId, 160);
+    const gameSessionId = safeText2(payload.gameSessionId, 160);
     let sessionData = null;
     if (gameSessionId) {
       const sessionDoc = await adminDb.collection("game_sessions").doc(gameSessionId).get();
@@ -21131,10 +22206,10 @@ app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, r
       studentId: actor.studentId || actor.guestId || "",
       guestId: actor.guestId || "",
       studentName: actor.studentName || "",
-      vocabularySetId: sessionData?.vocabSetId || safeText(payload.vocabularySetId || payload.vocabSetId || "", 160),
-      wordId: safeText(payload.wordId, 160),
-      targetText: safeText(payload.targetText, 500),
-      recognizedText: safeText(payload.recognizedText, 500),
+      vocabularySetId: sessionData?.vocabSetId || safeText2(payload.vocabularySetId || payload.vocabSetId || "", 160),
+      wordId: safeText2(payload.wordId, 160),
+      targetText: safeText2(payload.targetText, 500),
+      recognizedText: safeText2(payload.recognizedText, 500),
       score: Math.max(0, Math.min(100, Number(payload.score || 0))),
       correctWords: Math.max(0, Number(payload.correctWords || 0)),
       totalWords: Math.max(0, Number(payload.totalWords || 0)),
@@ -21157,8 +22232,8 @@ app2.get("/api/results/:sourceType/:resultId", authenticateUser, async (req, res
       timing.finish(res);
       return res.status(401).json({ error: "Unauthenticated" });
     }
-    const sourceType = safeText(req.params.sourceType, 80);
-    const requestedId = safeText(req.params.resultId, 200);
+    const sourceType = safeText2(req.params.sourceType, 80);
+    const requestedId = safeText2(req.params.resultId, 200);
     if (!requestedId || !["vocabulary", "grammar", "listening"].includes(sourceType)) {
       timing.finish(res);
       return res.status(400).json({ error: "Lo\u1EA1i k\u1EBFt qu\u1EA3 kh\xF4ng h\u1EE3p l\u1EC7." });
@@ -21672,11 +22747,11 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path5.default.join(process.cwd(), "dist", "client");
-    app2.use("/assets", import_express6.default.static(import_path5.default.join(distPath, "assets"), {
+    app2.use("/assets", import_express7.default.static(import_path5.default.join(distPath, "assets"), {
       immutable: true,
       maxAge: "365d"
     }));
-    app2.use(import_express6.default.static(distPath));
+    app2.use(import_express7.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path5.default.join(distPath, "index.html"));
     });
@@ -21733,7 +22808,7 @@ function setUniqueClass(map, key, classInfo) {
   }
 }
 function normalizeAudioUrlForClient(value) {
-  const audioUrl = safeText(value, 1e3);
+  const audioUrl = safeText2(value, 1e3);
   if (!audioUrl) return "";
   if (audioUrl.startsWith(`${AUDIO_PUBLIC_PREFIX}/`)) return audioUrl;
   if (/^https:\/\/[^\s]+$/i.test(audioUrl)) return audioUrl;
@@ -21758,55 +22833,72 @@ function normalizeVocabSetForRead(set) {
   };
 }
 function normalizeVocabItemForSave(item, index, errors) {
-  const id2 = safeText(item?.id, 160) || makeId4(`item-${index + 1}`);
-  const term = safeText(item?.term, 160);
-  const meaning = safeText(item?.meaning, 500);
+  const id2 = safeText2(item?.id, 160) || makeId4(`item-${index + 1}`);
+  const term = safeText2(item?.term, 160);
+  const meaning = safeText2(item?.meaning, 500);
   if (!term) errors.push(`Dong ${index + 1}: missing English word.`);
   if (!meaning) errors.push(`Dong ${index + 1}: missing Vietnamese meaning.`);
   const audioUrl = normalizeAudioUrlForClient(item?.audioUrl);
   if (item?.audioUrl && !audioUrl) {
     errors.push(`Dong ${index + 1}: invalid audio URL.`);
   }
-  const ttsProvider = safeText(item?.ttsProvider, 40).toLowerCase();
+  const ttsProvider = safeText2(item?.ttsProvider, 40).toLowerCase();
   if (ttsProvider && !SUPPORTED_TTS_PROVIDERS.has(ttsProvider)) {
     errors.push(`Dong ${index + 1}: unsupported TTS provider.`);
   }
-  const ttsLang = safeText(item?.ttsLang, 20);
+  const ttsLang = safeText2(item?.ttsLang, 20);
   if (ttsLang && ttsLang !== "en-US" && ttsLang !== "en-GB") {
     errors.push(`Dong ${index + 1}: invalid TTS language.`);
   }
   const rawSpeed = Number(item?.ttsSpeed);
   const ttsSpeed = Number.isFinite(rawSpeed) ? Math.min(1.5, Math.max(0.5, rawSpeed)) : void 0;
-  const audioHash = safeText(item?.audioHash, 128);
+  const audioHash = safeText2(item?.audioHash, 128);
   if (audioHash && !/^[a-f0-9]{64}$/i.test(audioHash)) {
     errors.push(`Dong ${index + 1}: invalid audio hash.`);
   }
-  const status = safeText(item?.audioStatus, 20);
+  const status = safeText2(item?.audioStatus, 20);
   const audioStatus = ["missing", "queued", "generating", "ready", "failed"].includes(status) ? status : void 0;
   const normalized4 = {
     id: id2,
     term,
     meaning,
-    ipa: safeText(item?.ipa, 120),
-    pos: safeText(item?.pos, 120),
-    example: safeText(item?.example, 1e3),
-    exampleMeaning: safeText(item?.exampleMeaning, 1e3),
-    imageUrl: safeText(item?.imageUrl, 1e3),
+    ipa: safeText2(item?.ipa, 120),
+    pos: safeText2(item?.pos, 120),
+    example: safeText2(item?.example, 1e3),
+    exampleMeaning: safeText2(item?.exampleMeaning, 1e3),
     displayOrder: Number.isFinite(Number(item?.displayOrder)) ? Number(item.displayOrder) : index + 1
   };
+  const imageAssetId = safeText2(item?.imageAssetId, 80);
+  const imageUrl = safeText2(item?.imageUrl, 1e3);
+  if (imageAssetId) {
+    if (!MANAGED_VOCAB_IMAGE_ASSET_ID.test(imageAssetId) || !MANAGED_VOCAB_IMAGE_URL.test(imageUrl)) {
+      errors.push(`Dong ${index + 1}: invalid managed image metadata.`);
+    } else {
+      try {
+        normalized4.imageAssetId = imageAssetId;
+        normalized4.imageUrl = imageUrl;
+        normalized4.imageAttribution = vocabImageAttributionFromAsset(item?.imageAttribution);
+        normalized4.imageAttachedAt = safeText2(item?.imageAttachedAt, 80) || (/* @__PURE__ */ new Date()).toISOString();
+      } catch {
+        errors.push(`Dong ${index + 1}: invalid image attribution.`);
+      }
+    }
+  } else if (imageUrl) {
+    normalized4.imageUrl = imageUrl;
+  }
   if (audioUrl) normalized4.audioUrl = audioUrl;
   if (audioHash) normalized4.audioHash = audioHash;
   if (audioStatus) normalized4.audioStatus = audioStatus;
-  if (item?.audioError) normalized4.audioError = safeText(item.audioError, 500);
-  if (Array.isArray(item?.audioWarnings)) normalized4.audioWarnings = item.audioWarnings.map((warning) => safeText(warning, 200)).filter(Boolean).slice(0, 5);
-  if (item?.audioGeneratedAt) normalized4.audioGeneratedAt = safeText(item.audioGeneratedAt, 80);
-  if (item?.audioUpdatedAt) normalized4.audioUpdatedAt = safeText(item.audioUpdatedAt, 80);
+  if (item?.audioError) normalized4.audioError = safeText2(item.audioError, 500);
+  if (Array.isArray(item?.audioWarnings)) normalized4.audioWarnings = item.audioWarnings.map((warning) => safeText2(warning, 200)).filter(Boolean).slice(0, 5);
+  if (item?.audioGeneratedAt) normalized4.audioGeneratedAt = safeText2(item.audioGeneratedAt, 80);
+  if (item?.audioUpdatedAt) normalized4.audioUpdatedAt = safeText2(item.audioUpdatedAt, 80);
   if (ttsProvider) normalized4.ttsProvider = ttsProvider;
-  if (item?.ttsVoice) normalized4.ttsVoice = safeText(item.ttsVoice, 200);
+  if (item?.ttsVoice) normalized4.ttsVoice = safeText2(item.ttsVoice, 200);
   if (ttsLang) normalized4.ttsLang = ttsLang;
   if (ttsSpeed !== void 0) normalized4.ttsSpeed = ttsSpeed;
-  if (item?.ttsText) normalized4.ttsText = safeText(item.ttsText, 160);
-  if (item?.notes) normalized4.notes = safeText(item.notes, 1e3);
+  if (item?.ttsText) normalized4.ttsText = safeText2(item.ttsText, 160);
+  if (item?.notes) normalized4.notes = safeText2(item.notes, 1e3);
   return normalized4;
 }
 function normalizeVocabSetForSave(payload, existing = {}) {
@@ -21817,16 +22909,16 @@ function normalizeVocabSetForSave(payload, existing = {}) {
   const errors = [];
   const items = (Array.isArray(merged.items) ? merged.items : []).slice(0, 500).map((item, index) => normalizeVocabItemForSave(item, index, errors)).sort((a, b) => a.displayOrder - b.displayOrder).map((item, index) => ({ ...item, displayOrder: index + 1 }));
   if (items.length === 0) errors.push("Vocabulary set needs at least one valid item.");
-  if (errors.length > 0) throw createHttpError(400, errors.join(" "), errors);
+  if (errors.length > 0) throw createHttpError2(400, errors.join(" "), errors);
   const ttsSettings = merged.ttsSettings ? normalizeTtsSettings(merged.ttsSettings) : void 0;
   const visibility = getVocabVisibility(merged);
   const normalized4 = {
     ...merged,
-    title: safeText(merged.title, 240),
-    description: safeText(merged.description, 2e3),
-    subject: safeText(merged.subject || "General English", 120),
-    gradeLevel: safeText(merged.gradeLevel || "L\u1EDBp 3", 80),
-    tags: Array.isArray(merged.tags) ? merged.tags.map((tag) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
+    title: safeText2(merged.title, 240),
+    description: safeText2(merged.description, 2e3),
+    subject: safeText2(merged.subject || "General English", 120),
+    gradeLevel: safeText2(merged.gradeLevel || "L\u1EDBp 3", 80),
+    tags: Array.isArray(merged.tags) ? merged.tags.map((tag) => safeText2(tag, 60)).filter(Boolean).slice(0, 12) : [],
     items,
     ...ttsSettings ? { ttsSettings } : {},
     visibility,
@@ -21857,7 +22949,7 @@ function getRequestShareToken(req) {
   return String(raw || "").replace(/^grammar-/, "").trim();
 }
 function getGuestIdentityInput(req) {
-  const guestId = safeText(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
+  const guestId = safeText2(req.body?.guestId || req.query?.guestId || req.headers["x-guest-id"], 120);
   const studentName = req.body?.studentName || req.query?.studentName;
   if (!guestId) return null;
   return { guestId, studentName };
@@ -21909,7 +23001,7 @@ function canAccessGrammarAttempt(attempt, actor, set, req, allowStaffReview = fa
   }
   return true;
 }
-function safeText(value, max = 2e3) {
+function safeText2(value, max = 2e3) {
   return String(value || "").normalize("NFKC").trim().slice(0, max);
 }
 function makeId4(prefix) {
@@ -21937,7 +23029,7 @@ function deterministicShuffle(input, seed) {
   return items;
 }
 function getGrammarSetVersion(set) {
-  return safeText(set?.updatedAt || set?.createdAt || set?.id, 160);
+  return safeText2(set?.updatedAt || set?.createdAt || set?.id, 160);
 }
 function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret) {
   const grammarSetVersion = getGrammarSetVersion(set);
@@ -21971,9 +23063,9 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
     grammarSetId: set.id,
     grammarSetTitle: set.title,
     grammarSetVersion,
-    assignmentId: isAssignment ? safeText(set.id, 160) : "",
+    assignmentId: isAssignment ? safeText2(set.id, 160) : "",
     assignmentVerified: isAssignment,
-    assignmentTitle: isAssignment ? safeText(set.title, 300) : "",
+    assignmentTitle: isAssignment ? safeText2(set.title, 300) : "",
     assignmentDueAt: isAssignment ? set.dueDate || set.dueAt || "" : "",
     userId: actor.id,
     studentId: actor.id,
@@ -22005,15 +23097,15 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
 }
 function buildGrammarAttemptAnswer(attempt, set, payload) {
   const attemptQuestion = (attempt.questions || []).find((question) => question.id === payload?.attemptQuestionId);
-  if (!attemptQuestion) throw createHttpError(400, "Cau hoi khong hop le.");
+  if (!attemptQuestion) throw createHttpError2(400, "Cau hoi khong hop le.");
   const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
   const selectedOptionId = questionType === "multiple_choice" ? String(payload?.selectedOptionId || "") : "";
-  const textAnswer = questionType === "rewrite" ? safeText(payload?.textAnswer, 4e3) : "";
+  const textAnswer = questionType === "rewrite" ? safeText2(payload?.textAnswer, 4e3) : "";
   if (questionType === "multiple_choice") {
     const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option) => option.id === selectedOptionId);
-    if (!selectedOption) throw createHttpError(400, "Phuong an da chon khong hop le.");
+    if (!selectedOption) throw createHttpError2(400, "Phuong an da chon khong hop le.");
   } else if (!normalizeGrammarTextAnswer(textAnswer)) {
-    throw createHttpError(400, "Vui long nhap cau tra loi.");
+    throw createHttpError2(400, "Vui long nhap cau tra loi.");
   }
   const isCorrect = questionType === "rewrite" ? isGrammarTextAnswerCorrect(textAnswer, attemptQuestion.correctAnswerSnapshot, attemptQuestion.acceptedAnswersSnapshot) : selectedOptionId === attemptQuestion.correctOptionId;
   const answer = {
@@ -22070,7 +23162,7 @@ function normalizeAcceptedGrammarAnswers(value, correctAnswer) {
   if (normalizedCorrectAnswer) seen.add(normalizedCorrectAnswer);
   const acceptedAnswers = [];
   for (const candidate of source) {
-    const answer = safeText(candidate, 4e3);
+    const answer = safeText2(candidate, 4e3);
     const normalizedAnswer = normalizeGrammarTextAnswer(answer);
     if (!normalizedAnswer || seen.has(normalizedAnswer)) continue;
     seen.add(normalizedAnswer);
@@ -22085,21 +23177,21 @@ function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choi
   const rawOptions = questionType === "multiple_choice" && Array.isArray(question.options) ? question.options : [];
   const options = rawOptions.slice(0, 5).map((option, optionIndex2) => ({
     id: option.id || `${questionId}-option-${optionIndex2 + 1}`,
-    text: safeText(option.text, 1e3),
+    text: safeText2(option.text, 1e3),
     originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex2 + 1
   }));
   const normalized4 = {
     id: questionId,
     questionType,
-    questionText: safeText(question.questionText || question.question, 4e3),
+    questionText: safeText2(question.questionText || question.question, 4e3),
     options,
-    explanation: safeText(question.explanation, 6e3),
+    explanation: safeText2(question.explanation, 6e3),
     score: Math.max(1, Number(question.score || 1)),
     position: Number.isFinite(Number(question.position)) ? Number(question.position) : index + 1
   };
   if (questionType === "rewrite") {
     normalized4.correctOptionId = "";
-    normalized4.correctAnswer = safeText(question.correctAnswer || question.answer, 4e3);
+    normalized4.correctAnswer = safeText2(question.correctAnswer || question.answer, 4e3);
     normalized4.acceptedAnswers = normalizeAcceptedGrammarAnswers(
       question.acceptedAnswers,
       normalized4.correctAnswer
@@ -22163,12 +23255,12 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     ...existing,
     ...payload,
     id: payload.id || existing.id,
-    title: safeText(payload.title || existing.title, 240),
-    description: safeText(payload.description || existing.description, 2e3),
-    gradeLevel: safeText(payload.gradeLevel || existing.gradeLevel || "L\u1EDBp 3", 80),
-    subject: safeText(payload.subject || existing.subject || "English Grammar", 120),
-    topic: safeText(payload.topic || existing.topic || "", 160),
-    tags: Array.isArray(payload.tags) ? payload.tags.map((tag) => safeText(tag, 60)).filter(Boolean).slice(0, 12) : [],
+    title: safeText2(payload.title || existing.title, 240),
+    description: safeText2(payload.description || existing.description, 2e3),
+    gradeLevel: safeText2(payload.gradeLevel || existing.gradeLevel || "L\u1EDBp 3", 80),
+    subject: safeText2(payload.subject || existing.subject || "English Grammar", 120),
+    topic: safeText2(payload.topic || existing.topic || "", 160),
+    tags: Array.isArray(payload.tags) ? payload.tags.map((tag) => safeText2(tag, 60)).filter(Boolean).slice(0, 12) : [],
     visibility,
     questionType,
     status: visibility === "assignment" ? "private" : visibility,

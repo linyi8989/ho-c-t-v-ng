@@ -23,6 +23,7 @@ export const GAMES_LIST: GameConfig[] = [
     config: {
       front: 'term',
       back: 'meaning',
+      imagePolicy: 'prompt',
       enableSound: true,
       autoPlaySound: false
     }
@@ -39,6 +40,7 @@ export const GAMES_LIST: GameConfig[] = [
     config: {
       front: 'meaning',
       back: 'term',
+      imagePolicy: 'prompt',
       enableSound: true,
       autoPlaySound: false
     }
@@ -55,6 +57,7 @@ export const GAMES_LIST: GameConfig[] = [
     config: {
       front: 'sound_only', // Custom mode where the front only shows audio button
       back: 'both',
+      imagePolicy: 'answer',
       enableSound: true,
       autoPlaySound: true
     }
@@ -72,6 +75,7 @@ export const GAMES_LIST: GameConfig[] = [
     requiredFields: ['term', 'meaning'],
     config: {
       ...quizEnViContract,
+      imagePolicy: 'prompt',
       enableSound: true
     }
   },
@@ -86,6 +90,7 @@ export const GAMES_LIST: GameConfig[] = [
     requiredFields: ['term', 'meaning'],
     config: {
       ...quizViEnContract,
+      imagePolicy: 'prompt',
       enableSound: false
     }
   },
@@ -100,6 +105,7 @@ export const GAMES_LIST: GameConfig[] = [
     requiredFields: ['term', 'meaning'],
     config: {
       ...quizSoundContract,
+      imagePolicy: 'feedback',
       enableSound: true,
       autoPlaySound: true
     }
@@ -117,7 +123,8 @@ export const GAMES_LIST: GameConfig[] = [
     requiredFields: ['term'],
     config: {
       mode: 'missing_letters', // Fill hidden letter blanks, e.g. a_p_e
-      promptType: 'meaning_and_hint'
+      promptType: 'meaning_and_hint',
+      imagePolicy: 'prompt'
     }
   },
   {
@@ -131,7 +138,8 @@ export const GAMES_LIST: GameConfig[] = [
     requiredFields: ['term', 'meaning'],
     config: {
       mode: 'complete', // Write entire word
-      promptType: 'meaning'
+      promptType: 'meaning',
+      imagePolicy: 'prompt'
     }
   },
 
@@ -146,7 +154,8 @@ export const GAMES_LIST: GameConfig[] = [
     componentName: 'MatchingGame',
     requiredFields: ['term', 'meaning'],
     config: {
-      matchType: 'term_to_meaning'
+      matchType: 'term_to_meaning',
+      imagePolicy: 'none'
     }
   },
 
@@ -161,7 +170,8 @@ export const GAMES_LIST: GameConfig[] = [
     componentName: 'MemoryGame',
     requiredFields: ['term', 'meaning'],
     config: {
-      gridSize: 'small'
+      gridSize: 'small',
+      imagePolicy: 'none'
     }
   },
 
@@ -179,6 +189,7 @@ export const GAMES_LIST: GameConfig[] = [
       maxQuestions: 15,
       questionType: 'term',
       answerType: 'meaning',
+      imagePolicy: 'prompt',
       enableLifelines: true
     }
   },
@@ -196,7 +207,8 @@ export const GAMES_LIST: GameConfig[] = [
     hidden: true,
     config: {
       targetMode: 'example_or_term',
-      recognitionLang: 'en-US'
+      recognitionLang: 'en-US',
+      imagePolicy: 'none'
     }
   }
 ];

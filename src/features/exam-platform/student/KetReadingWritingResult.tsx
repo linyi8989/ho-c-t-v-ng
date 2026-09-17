@@ -18,7 +18,9 @@ function StateIcon({ state }: { state: State }) {
 
 function Examples({ unit }: { unit: ExamPartContent }) {
   if (!unit.examples?.length) return null;
-  return <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm"><p className="text-xs font-black uppercase text-indigo-800">{unit.examples.length > 1 ? 'Examples' : 'Example'}</p>{unit.examples.map((example, index) => <p key={index} className="mt-2 flex flex-wrap justify-between gap-3 font-semibold text-slate-800"><span>{example.prompt}</span><b className="border-b-2 border-dotted border-indigo-500 bg-white px-3 text-indigo-900">{example.answer}</b></p>)}</div>;
+  return <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm"><p className="text-xs font-black uppercase text-indigo-800">{unit.examples.length > 1 ? 'Examples' : 'Example'}</p>{unit.examples.map((example, index) => example.options?.length
+    ? <div key={index} className="mt-3 grid items-center gap-2 sm:grid-cols-[3rem_repeat(3,minmax(0,1fr))_5rem]" data-ket-choice-example-result-row><b className="text-center text-indigo-950">{example.prompt}</b>{example.options.slice(0, 3).map(option => <span key={option.label} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-center font-semibold text-slate-800"><b className="mr-1">{option.label}.</b>{option.text}</span>)}<b className="rounded-lg border border-emerald-400 bg-emerald-50 px-3 py-2 text-center text-emerald-950">{example.answer}</b></div>
+    : <p key={index} className="mt-2 flex flex-wrap justify-between gap-3 font-semibold text-slate-800"><span>{example.prompt}</span><b className="border-b-2 border-dotted border-indigo-500 bg-white px-3 text-indigo-900">{example.answer}</b></p>)}</div>;
 }
 
 function TextSource({ passage, label = 'Nội dung đề' }: { passage?: string; label?: string }) {
@@ -63,6 +65,13 @@ function TextPart({ unit, results, showPrompt = true, split = false, imageTop = 
   return <div className="space-y-5">{imageTop && unit.imageUrl && <TopImage imageUrl={unit.imageUrl} imageAlt="Ảnh đề KET Reading & Writing Part 8" />}<TextSource passage={unit.passage} label={unit.part === 7 ? 'Bài đọc, hướng dẫn và example' : 'Hướng dẫn và example'} /><div className={split ? 'grid gap-3 md:grid-cols-2' : 'space-y-2'}>{groups.map((questions, index) => <div key={index} className="space-y-2">{questions.map(question => { const result = results.find(item => item.questionId === question.id); return result ? <ResultCard key={question.id} question={question} result={result} showPrompt={showPrompt} /> : null; })}</div>)}</div></div>;
 }
 
+function FormResultPart({ unit, results }: { unit: ExamPartContent; results: ExamQuestionResult[] }) {
+  return <div data-ket-part8-result-split-layout><TwoColumn imageUrl={unit.imageUrl}><div className="space-y-2" data-ket-form-result-rows>{unit.questions.map(question => {
+    const result = results.find(item => item.questionId === question.id);
+    return result ? <ResultCard key={question.id} question={question} result={result} /> : null;
+  })}</div></TwoColumn></div>;
+}
+
 function WritingPart({ unit, results }: { unit: ExamPartContent; results: ExamQuestionResult[] }) {
   const question = unit.questions[0];
   const result = results.find(item => item.questionId === question?.id);
@@ -86,7 +95,7 @@ function ReviewPart({ part, results }: { part: ExamPartContent; results: ExamQue
   else if (part.part === 3) body = <CompoundReview units={units} results={results} />;
   else if (part.part === 4) body = <ChoicePart unit={units[0] || part} results={results} showPrompt imageTop hideExamples />;
   else if (part.part === 7) body = <TextPart unit={units[0] || part} results={results} showPrompt={false} split />;
-  else if (part.part === 8) body = <TextPart unit={units[0] || part} results={results} imageTop />;
+  else if (part.part === 8) body = <FormResultPart unit={units[0] || part} results={results} />;
   else if (part.part === 9) body = <WritingPart unit={units[0] || part} results={results} />;
   else body = <TextPart unit={units[0] || part} results={results} />;
   return <section><div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">Part {part.part}</p><h3 className="mt-1 text-2xl font-black text-slate-950">{part.title}</h3><p className="mt-2 text-sm font-semibold text-slate-700">{part.instruction}</p></div>{body}</section>;

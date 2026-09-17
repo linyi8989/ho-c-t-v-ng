@@ -551,7 +551,14 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
     if (units.length !== 1) errors.push(`${label}: phải có đúng một dạng bài chọn A/B/C.`);
     requireImage(part, 'ảnh đề hiển thị phía trên');
     requireThreeChoices(part.questions);
-    if ((part.examples || []).length !== 1 || (part.examples || []).some(example => !text(example.prompt, 8_000) || !text(example.answer, 500))) errors.push(`${label}: phải có đúng một example dạng chữ, không chấm điểm.`);
+    const example = part.examples?.[0];
+    const exampleOptions = example?.options || [];
+    const optionLabels = exampleOptions.map(option => text(option.label, 20).toUpperCase());
+    if ((part.examples || []).length !== 1 || !text(example?.prompt, 20) || exampleOptions.length !== 3
+      || exampleOptions.some(option => !text(option.text, 1_000)) || optionLabels.join('|') !== 'A|B|C'
+      || !optionLabels.includes(text(example?.answer, 20).toUpperCase())) {
+      errors.push(`${label}: example phải có số in trên đề, đúng ba lựa chọn A/B/C và một đáp án đúng từ official key.`);
+    }
   }
   if (partNumber === 3) {
     if (part.blocks?.length !== 2 || units.length !== 2) {
@@ -588,8 +595,7 @@ function validateKetReadingWritingPart(part: ExamPartContent, partIndex: number,
     if (part.questions.some(question => question.type !== 'short-answer' || question.maxWords !== 1 || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên ảnh và ô điền đúng một từ.`);
   }
   if (partNumber === 8) {
-    requireImage(part, 'ảnh đề hiển thị phía trên khu vực làm bài');
-    if (!text(part.passage, 20_000)) errors.push(`${label}: thiếu nội dung nguồn, hướng dẫn và example dạng chữ.`);
+    requireImage(part, 'ảnh đề hiển thị bên trái khu vực làm bài');
     if (part.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số, nhãn biểu mẫu và đáp án điền.`);
     if (part.questions.some(question => text(question.answerSuffix, 80))) errors.push(`${label}: chỉ dùng một vùng nhập với ký tự có sẵn ở đầu; không dùng ký tự phía sau.`);
   }
