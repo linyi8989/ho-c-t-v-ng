@@ -42,6 +42,40 @@ interface VocabImageUploadInput {
   rightsConfirmed: boolean;
 }
 
+type VocabImageBatchJobStatus = "queued" | "running" | "completed" | "failed";
+
+interface PreparedVocabImageBatchItem {
+  id: string;
+  term: string;
+  meaning: string;
+  pos: string;
+}
+
+interface VocabImageBatchJobRecord {
+  id: string;
+  actorId: string;
+  provider: VocabImageBatchProvider;
+  status: VocabImageBatchJobStatus;
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  inputs: PreparedVocabImageBatchItem[];
+  error?: string;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+const BATCH_JOB_COLLECTION = "vocab_image_batch_jobs";
+const BATCH_JOB_RESULT_COLLECTION = "vocab_image_batch_job_results";
+const BATCH_JOB_TTL_MS = 24 * 60 * 60 * 1000;
+const BATCH_JOB_LEASE_MS = 60 * 1000;
+const BATCH_JOB_HEARTBEAT_MS = 20 * 1000;
+const BATCH_WORKER_INSTANCE_ID = `vimgworker-${process.pid}-${crypto.randomUUID()}`;
+
 function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { status });
 }
@@ -88,7 +122,9 @@ export class VocabImageLibraryService {
   private readonly timeoutMs: number;
   private readonly downloadTimeoutMs: number;
   private readonly maxBytes: number;
+  private readonly activeBatchJobIds = new Set<string>();
   readonly batchConcurrencyPerProvider: number;
+  readonly batchTotalConcurrency: number;
   readonly batchMaxItems: number;
 
   constructor(private readonly options: VocabImageLibraryOptions) {
@@ -98,6 +134,7 @@ export class VocabImageLibraryService {
     this.downloadTimeoutMs = boundedInteger(options.env.VOCAB_IMAGE_DOWNLOAD_TIMEOUT_MS, 30_000, 2_000, 60_000);
     this.maxBytes = boundedInteger(options.env.VOCAB_IMAGE_MAX_BYTES, 8 * 1024 * 1024, 64 * 1024, 20 * 1024 * 1024);
     this.batchConcurrencyPerProvider = boundedInteger(options.env.VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER, 50, 1, 50);
+    this.batchTotalConcurrency = boundedInteger(options.env.VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY, 8, 1, 100);
     this.batchMaxItems = boundedInteger(options.env.VOCAB_IMAGE_BATCH_MAX_ITEMS, 500, 1, 1_000);
   }
 
@@ -262,38 +299,250 @@ export class VocabImageLibraryService {
   }
 
   async batchGenerate(rawProvider: unknown, rawItems: unknown, actorId: string) {
-    const items = Array.isArray(rawItems) ? rawItems.slice(0, this.batchMaxItems) : [];
-    if (items.length === 0) throw httpError(400, "Cần ít nhất một từ vựng để tạo ảnh hàng loạt.");
+    const prepared = this.prepareBatch(rawProvider, rawItems);
+    return this.executeBatch(prepared.providerChoice, prepared.items, prepared.configured, actorId);
+  }
+
+  async startBatchGenerationJob(rawProvider: unknown, rawItems: unknown, actorId: string) {
+    const prepared = this.prepareBatch(rawProvider, rawItems);
+    const now = this.now();
+    const job: VocabImageBatchJobRecord = {
+      id: `vimgjob-${crypto.randomUUID()}`,
+      actorId: clean(actorId, 200),
+      provider: prepared.providerChoice,
+      status: "queued",
+      total: prepared.items.length,
+      completed: 0,
+      succeeded: 0,
+      failed: 0,
+      inputs: prepared.items,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + BATCH_JOB_TTL_MS).toISOString(),
+    };
+    await this.options.db.collection(BATCH_JOB_COLLECTION).doc(job.id).set(job);
+    this.scheduleBatchGenerationJob(job, prepared.configured);
+    return this.publicBatchJob(job, []);
+  }
+
+  async getBatchGenerationJob(rawJobId: unknown, actorId: string) {
+    const jobId = clean(rawJobId, 200);
+    const doc = await this.options.db.collection(BATCH_JOB_COLLECTION).doc(jobId).get();
+    const job = doc.exists ? doc.data() as VocabImageBatchJobRecord : null;
+    if (!job || job.actorId !== clean(actorId, 200)) {
+      throw httpError(404, "Không tìm thấy lượt tạo ảnh hàng loạt.");
+    }
+    const resultSnapshot = await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION)
+      .where("jobId", "==", jobId)
+      .get();
+    const results = (resultSnapshot.docs || [])
+      .map((resultDoc: any) => resultDoc.data())
+      .sort((left: any, right: any) => Number(left.index) - Number(right.index))
+      .map((entry: any) => entry.result);
+    const leaseExpired = !job.leaseExpiresAt || Date.parse(job.leaseExpiresAt) <= this.now().getTime();
+    if (job.status === "queued" || (job.status === "running" && leaseExpired)) {
+      const configured = (["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"] as const)
+        .filter(id => this.providers[id].configured);
+      if (configured.length > 0) this.scheduleBatchGenerationJob(job, configured);
+    }
+    return this.publicBatchJob(job, results);
+  }
+
+  private prepareBatch(rawProvider: unknown, rawItems: unknown) {
+    const sourceItems = Array.isArray(rawItems) ? rawItems.slice(0, this.batchMaxItems) : [];
+    if (sourceItems.length === 0) throw httpError(400, "Cần ít nhất một từ vựng để tạo ảnh hàng loạt.");
     const providerChoice: VocabImageBatchProvider = rawProvider === "auto"
       ? "auto"
       : isGenerationProviderId(rawProvider) ? rawProvider : "auto";
     const configured = (["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"] as const)
       .filter(id => this.providers[id].configured);
     if (configured.length === 0) throw httpError(503, "Chưa cấu hình key của dịch vụ tạo ảnh trên máy chủ.");
+    if (providerChoice !== "auto") this.getProvider(providerChoice);
+    const items = sourceItems.map((rawItem: any, index) => ({
+      id: clean(rawItem?.id, 160) || `item-${index + 1}`,
+      term: clean(rawItem?.term, 120),
+      meaning: clean(rawItem?.meaning, 160),
+      pos: clean(rawItem?.partOfSpeech || rawItem?.pos, 40),
+    }));
+    return { providerChoice, configured, items };
+  }
+
+  private async executeBatch(
+    providerChoice: VocabImageBatchProvider,
+    items: PreparedVocabImageBatchItem[],
+    configured: VocabImageGenerationProviderId[],
+    actorId: string,
+    onResult?: (index: number, result: any) => Promise<void>,
+    originalIndexes?: number[]
+  ) {
     const providerLimiters = Object.fromEntries(
       (["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"] as const)
         .map(id => [id, createConcurrencyLimiter(this.batchConcurrencyPerProvider)])
     ) as Record<VocabImageGenerationProviderId, ReturnType<typeof createConcurrencyLimiter>>;
+    const totalLimiter = createConcurrencyLimiter(this.batchTotalConcurrency);
 
-    return Promise.all(items.map(async (rawItem: any, index) => {
-      const id = clean(rawItem?.id, 160) || `item-${index + 1}`;
-      const preferred = providerChoice === "auto" ? configured[index % configured.length] : providerChoice;
+    return Promise.all(items.map(async (rawItem, index) => {
+      const resultIndex = originalIndexes?.[index] ?? index;
+      const id = rawItem.id;
+      const preferred = providerChoice === "auto" ? configured[resultIndex % configured.length] : providerChoice;
       const attempts = [preferred, ...configured.filter(candidate => candidate !== preferred)];
       let lastError: any = null;
+      let rowResult: any = null;
       for (const providerId of attempts) {
         try {
-          const result = await providerLimiters[providerId](() => this.generate(providerId, rawItem || {}, actorId));
-          return { id, provider: providerId, asset: result.asset, prompt: result.prompt };
+          const result = await totalLimiter(() => providerLimiters[providerId](() => this.generate(providerId, rawItem, actorId)));
+          rowResult = { id, provider: providerId, asset: result.asset, prompt: result.prompt };
+          break;
         } catch (error: any) {
           lastError = error;
           if (providerChoice !== "auto") break;
         }
       }
-      return {
-        id,
-        provider: preferred,
-        error: String(lastError?.message || "Không tạo được ảnh.").slice(0, 500),
-      };
+      if (!rowResult) {
+        rowResult = {
+          id,
+          provider: preferred,
+          error: String(lastError?.message || "Không tạo được ảnh.").slice(0, 500),
+        };
+      }
+      if (onResult) await onResult(resultIndex, rowResult);
+      return rowResult;
     }));
+  }
+
+  private scheduleBatchGenerationJob(job: VocabImageBatchJobRecord, configured: VocabImageGenerationProviderId[]) {
+    if (this.activeBatchJobIds.has(job.id)) return;
+    this.activeBatchJobIds.add(job.id);
+    setImmediate(() => {
+      void this.runBatchGenerationJob(job, configured).catch(error => {
+        console.error("[Vocab image batch] Background job failed:", {
+          jobId: job.id,
+          message: String(error?.message || error).slice(0, 300),
+        });
+      }).finally(() => this.activeBatchJobIds.delete(job.id));
+    });
+  }
+
+  private async runBatchGenerationJob(job: VocabImageBatchJobRecord, configured: VocabImageGenerationProviderId[]) {
+    const jobDoc = this.options.db.collection(BATCH_JOB_COLLECTION).doc(job.id);
+    const latestDoc = await jobDoc.get();
+    const latest = latestDoc.exists ? latestDoc.data() as VocabImageBatchJobRecord : null;
+    if (!latest || latest.status === "completed" || latest.status === "failed") return;
+    if (latest.status === "running"
+      && latest.leaseOwner
+      && latest.leaseOwner !== BATCH_WORKER_INSTANCE_ID
+      && Date.parse(latest.leaseExpiresAt || "") > this.now().getTime()) return;
+    job = { ...latest };
+    let persistence = Promise.resolve();
+    const persistJob = () => {
+      const snapshot = { ...job, inputs: job.inputs.map(item => ({ ...item })) };
+      persistence = persistence.then(() => jobDoc.set(snapshot));
+      return persistence;
+    };
+    const renewLease = () => {
+      const now = this.now();
+      job.leaseOwner = BATCH_WORKER_INSTANCE_ID;
+      job.leaseExpiresAt = new Date(now.getTime() + BATCH_JOB_LEASE_MS).toISOString();
+      job.updatedAt = now.toISOString();
+    };
+    const resultSnapshot = await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION)
+      .where("jobId", "==", job.id)
+      .get();
+    const existingEntries = (resultSnapshot.docs || []).map((resultDoc: any) => resultDoc.data());
+    const completedIndexes = new Set(existingEntries.map((entry: any) => Number(entry.index)));
+    job.completed = completedIndexes.size;
+    job.succeeded = existingEntries.filter((entry: any) => Boolean(entry.result?.asset)).length;
+    job.failed = existingEntries.filter((entry: any) => !entry.result?.asset).length;
+    job.status = "running";
+    delete job.error;
+    renewLease();
+    await persistJob();
+    const heartbeat = setInterval(() => {
+      renewLease();
+      void persistJob().catch(error => console.error("[Vocab image batch] Heartbeat write failed:", {
+        jobId: job.id,
+        message: String(error?.message || error).slice(0, 300),
+      }));
+    }, BATCH_JOB_HEARTBEAT_MS);
+    try {
+      const pendingIndexes = job.inputs.map((_item, index) => index).filter(index => !completedIndexes.has(index));
+      const pendingItems = pendingIndexes.map(index => job.inputs[index]);
+      await this.executeBatch(job.provider, pendingItems, configured, job.actorId, async (index, result) => {
+        const safeResult = this.publicBatchResult(result);
+        await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION).doc(`${job.id}:${index}`).set({
+          id: `${job.id}:${index}`,
+          jobId: job.id,
+          index,
+          result: safeResult,
+          createdAt: this.now().toISOString(),
+          expiresAt: job.expiresAt,
+        });
+        job.completed += 1;
+        if (safeResult.asset) job.succeeded += 1;
+        else job.failed += 1;
+        renewLease();
+        await persistJob();
+      }, pendingIndexes);
+      job.status = "completed";
+      job.leaseOwner = "";
+      job.leaseExpiresAt = "";
+      job.updatedAt = this.now().toISOString();
+      await persistJob();
+    } catch (error: any) {
+      job.status = "failed";
+      job.error = String(error?.message || "Lượt tạo ảnh nền thất bại.").slice(0, 500);
+      job.leaseOwner = "";
+      job.leaseExpiresAt = "";
+      job.updatedAt = this.now().toISOString();
+      await persistJob();
+      throw error;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  private publicBatchResult(result: any) {
+    if (!result?.asset) return {
+      id: clean(result?.id, 160),
+      provider: result?.provider,
+      error: String(result?.error || "Không tạo được ảnh.").slice(0, 500),
+    };
+    const asset = result.asset as VocabImageAsset;
+    return {
+      id: clean(result.id, 160),
+      provider: result.provider,
+      asset: {
+        id: asset.id,
+        provider: asset.provider,
+        externalId: asset.externalId,
+        title: asset.title,
+        author: asset.author,
+        license: asset.license,
+        ...(asset.licenseUrl ? { licenseUrl: asset.licenseUrl } : {}),
+        ...(asset.sourcePageUrl ? { sourcePageUrl: asset.sourcePageUrl } : {}),
+        publicUrl: asset.publicUrl,
+        ...(asset.width ? { width: asset.width } : {}),
+        ...(asset.height ? { height: asset.height } : {}),
+        ...(asset.model ? { model: asset.model } : {}),
+      },
+    };
+  }
+
+  private publicBatchJob(job: VocabImageBatchJobRecord, items: any[]) {
+    return {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+      succeeded: job.succeeded,
+      failed: job.failed,
+      items,
+      ...(job.error ? { error: job.error } : {}),
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      expiresAt: job.expiresAt,
+      concurrencyPerProvider: this.batchConcurrencyPerProvider,
+      totalConcurrency: this.batchTotalConcurrency,
+    };
   }
 }

@@ -3,6 +3,7 @@ import type {
   ListeningPart3ConnectImage,
   ListeningRegion,
 } from '../../listening/types';
+import { withChatGptJsonCopyBlock } from '../../exam-platform/chatGptJsonOutput';
 import { MOVER_COLOUR_CATALOG } from '../../listening-library/modules/mover/editor/colourCatalog';
 import {
   PART1_EXTERNAL_PROVIDER,
@@ -642,11 +643,10 @@ const externalParametersModelRules: Record<ListeningSmartImportPartId, string[]>
   ],
 };
 
-export const externalParametersModelInstructions = (part: ListeningSmartImportPartId) => [
+export const externalParametersModelInstructions = (part: ListeningSmartImportPartId) => withChatGptJsonCopyBlock([
   `Hãy phân tích ảnh đề bài Listening Movers Part ${part} được đính kèm.`,
   '',
   `Chỉ trả về một JSON object hợp lệ theo schema mover-part${part}-external-v1.`,
-  'Không dùng Markdown hoặc code fence. Không giải thích trước hay sau JSON.',
   'Không sinh ID kỹ thuật, UUID, database ID hoặc trường ngoài cấu trúc được cung cấp.',
   'Không dùng audio hoặc transcript để suy luận đáp án. Không đoán dữ liệu không chắc chắn.',
   'Hãy thay toàn bộ giá trị minh họa trong JSON mẫu bằng dữ liệu thật đọc từ ảnh đính kèm.',
@@ -657,4 +657,4 @@ export const externalParametersModelInstructions = (part: ListeningSmartImportPa
   '',
   'JSON mẫu đúng cấu trúc:',
   externalParametersTemplate(part),
-].join('\n');
+].join('\n'));

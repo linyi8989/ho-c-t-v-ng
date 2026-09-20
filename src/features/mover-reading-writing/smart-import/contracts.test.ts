@@ -2,11 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDefaultMoverReadingWritingContent } from '../defaultContent';
 import {
+  moverReadingWritingExternalInstructions,
   moverReadingWritingExternalTemplate,
   parseMoverReadingWritingExternalImport,
 } from './contracts';
 import { mergeMoverReadingWritingSmartImport } from './merge';
 import { getMoverReadingWritingSmartImportRoleDefinitions } from './types';
+
+test('all six external ChatGPT prompts request one copyable JSON block', () => {
+  for (const part of [1, 2, 3, 4, 5, 6] as const) {
+    const prompt = moverReadingWritingExternalInstructions(part);
+    assert.match(prompt, /ĐỊNH DẠNG PHẢN HỒI CÓ NÚT COPY/);
+    assert.match(prompt, /```json/);
+    assert.doesNotMatch(prompt, /Không dùng Markdown|không dùng code fence/i);
+  }
+});
 
 test('all six external Smart Import contracts accept their versioned templates', () => {
   for (const part of [1, 2, 3, 4, 5, 6] as const) {

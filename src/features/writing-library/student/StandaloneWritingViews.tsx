@@ -36,6 +36,11 @@ export function StandaloneWritingPartView({ part, answers, onAnswer }: PartProps
     setExternalInsertBlocked(true);
     event.currentTarget.focus();
   };
+  const blockClipboardTransfer = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    event.preventDefault();
+    setExternalInsertBlocked(true);
+    event.currentTarget.focus();
+  };
   const guardBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
     const inputType = (event.nativeEvent as InputEvent).inputType;
     if (!BLOCKED_EXTERNAL_INSERT_TYPES.has(inputType)) return;
@@ -62,6 +67,8 @@ export function StandaloneWritingPartView({ part, answers, onAnswer }: PartProps
           id={`writing-answer-${question.id}`}
           value={answer}
           onChange={event => updateTypedAnswer(event.target.value)}
+          onCopy={blockClipboardTransfer}
+          onCut={blockClipboardTransfer}
           onPaste={blockExternalInsertion}
           onDrop={blockExternalInsertion}
           onBeforeInput={guardBeforeInput}
@@ -73,7 +80,7 @@ export function StandaloneWritingPartView({ part, answers, onAnswer }: PartProps
           data-no-hard-word-limit="true"
           data-typed-only-answer="true"
         />
-        {externalInsertBlocked && <p id={`writing-input-warning-${question.id}`} role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900"><AlertTriangle size={16} className="mt-0.5 shrink-0" />Không thể dán hoặc kéo thả nội dung. Em hãy tự gõ bài viết bằng bàn phím.</p>}
+        {externalInsertBlocked && <p id={`writing-input-warning-${question.id}`} role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900"><AlertTriangle size={16} className="mt-0.5 shrink-0" />Không thể dán hoặc kéo thả nội dung; cũng không thể sao chép hoặc cắt bài làm. Em hãy tự gõ bài viết bằng bàn phím.</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-bold text-slate-500">Vùng linh hoạt tham khảo: {policy.flexibleMin}–{policy.flexibleMax} từ</p>
           <p className={`rounded-full px-3 py-1.5 text-sm font-black ${belowFlexibleRange ? 'bg-amber-100 text-amber-900' : aboveFlexibleRange ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-800'}`}>{wordCount} từ</p>

@@ -29,6 +29,7 @@ import {
   type BatchImageGenerationResult,
   type ManagedVocabImageAsset,
   type VocabImageBatchProvider,
+  type VocabImageBatchJob,
   type VocabImageGenerationResult,
   type VocabImageProviderOption,
 } from './vocab-images';
@@ -611,6 +612,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [vocabImageProviders, setVocabImageProviders] = useState<VocabImageProviderOption[]>([]);
   const [imagePickerItemId, setImagePickerItemId] = useState<string | null>(null);
   const [isBatchGeneratingImages, setIsBatchGeneratingImages] = useState(false);
+  const [vocabImageBatchProgress, setVocabImageBatchProgress] = useState<{ completed: number; total: number } | null>(null);
   const [busyVocabImageItemId, setBusyVocabImageItemId] = useState<string | null>(null);
 
   // Quick Batch Add States
@@ -1211,17 +1213,25 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       return;
     }
     setIsBatchGeneratingImages(true);
+    setVocabImageBatchProgress({ completed: 0, total: targetItems.length });
     try {
       const providers = await ensureVocabImageProviders();
       if (!providers.some(provider => provider.configured)) {
         throw new Error('Chưa cấu hình dịch vụ tạo ảnh trên máy chủ.');
       }
-      const results = await generateVocabImagesBatch('auto', targetItems);
-      applyVocabImageBatchResults(results);
+      const expectedTerms = new Map<string, string>(targetItems.map(item => [String(item.id), String(item.term)] as const));
+      const startedJob = await generateVocabImagesBatch('auto', targetItems);
+      const completedJob = await pollVocabImageBatchJob(startedJob, expectedTerms);
+      const firstError = completedJob.items.find(item => item.error)?.error || completedJob.error;
+      showNotification(
+        `Đã tạo và gắn ${completedJob.succeeded} ảnh${completedJob.failed ? `, lỗi ${completedJob.failed} từ` : ''}.${firstError ? ` ${firstError}` : ''} Bấm lưu bộ từ để lưu metadata ảnh.`,
+        completedJob.failed || completedJob.status === 'failed' ? 'error' : 'success'
+      );
     } catch (err: any) {
       showNotification(err.message || 'Không thể tạo ảnh hàng loạt.', 'error');
     } finally {
       setIsBatchGeneratingImages(false);
+      setVocabImageBatchProgress(null);
     }
   };
 
@@ -1334,18 +1344,18 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const generateVocabImagesBatch = async (provider: VocabImageBatchProvider, items: Array<{ id: string; term: string; meaning: string; pos: string }>) => {
-    const data = await authFetchJson<{ items: BatchImageGenerationResult[] }>('/api/image-library/batch-generate', {
+    return authFetchJson<VocabImageBatchJob>('/api/image-library/batch-generate', {
       method: 'POST',
       body: JSON.stringify({ provider, items })
     });
-    return Array.isArray(data.items) ? data.items : [];
   };
 
-  const applyVocabImageBatchResults = (results: BatchImageGenerationResult[]) => {
+  const applyVocabImageBatchResults = (results: BatchImageGenerationResult[], expectedTerms?: Map<string, string>) => {
     const assets = new Map(results.filter(result => result.asset).map(result => [result.id, result.asset!]));
     setEditorItems(current => current.map(item => {
       const asset = assets.get(item.id);
       if (!asset) return item;
+      if (expectedTerms && item.term.trim() !== expectedTerms.get(item.id)) return item;
       return {
         ...item,
         imageAssetId: asset.id,
@@ -1362,11 +1372,31 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         imageAttachedAt: new Date().toISOString(),
       };
     }));
-    const failed = results.length - assets.size;
-    showNotification(
-      `Đã tạo và gắn ${assets.size} ảnh${failed ? `, lỗi ${failed} từ` : ''}. Bấm lưu bộ từ để lưu metadata ảnh.`,
-      failed ? 'error' : 'success'
-    );
+  };
+
+  const pollVocabImageBatchJob = async (startedJob: VocabImageBatchJob, expectedTerms: Map<string, string>) => {
+    let job = startedJob;
+    let consecutiveFailures = 0;
+    const appliedIds = new Set<string>();
+    while (job.status === 'queued' || job.status === 'running') {
+      await new Promise(resolve => window.setTimeout(resolve, consecutiveFailures ? Math.min(10_000, consecutiveFailures * 2_000) : 1_500));
+      try {
+        job = await authFetchJson<VocabImageBatchJob>(`/api/image-library/batch-generate/${encodeURIComponent(job.jobId)}`);
+        consecutiveFailures = 0;
+      } catch (error) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 6) throw error;
+        continue;
+      }
+      const newResults = job.items.filter(item => !appliedIds.has(item.id));
+      newResults.forEach(item => appliedIds.add(item.id));
+      if (newResults.length > 0) applyVocabImageBatchResults(newResults, expectedTerms);
+      setVocabImageBatchProgress({ completed: job.completed, total: job.total });
+    }
+    if (job.status === 'failed' && job.completed === 0) {
+      throw new Error(job.error || 'Tiến trình tạo ảnh nền đã dừng trước khi có kết quả.');
+    }
+    return job;
   };
 
   const updateTtsSettings = (patch: Partial<TtsSettings>) => {
@@ -4363,7 +4393,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
                     title="Chia từ qua các dịch vụ AI đã cấu hình, tự tải ảnh về và gắn vào bảng soạn"
                   >
                     {isBatchGeneratingImages ? <RefreshCw size={14} className="animate-spin" /> : <Images size={14} />}
-                    <span>{isBatchGeneratingImages ? 'Đang tạo ảnh...' : 'Tạo ảnh hàng loạt'}</span>
+                    <span>{isBatchGeneratingImages
+                      ? `Đang tạo ${vocabImageBatchProgress?.completed || 0}/${vocabImageBatchProgress?.total || editorItems.filter(item => item.term.trim()).length} ảnh...`
+                      : 'Tạo ảnh hàng loạt'}</span>
                   </button>
 
                   <button

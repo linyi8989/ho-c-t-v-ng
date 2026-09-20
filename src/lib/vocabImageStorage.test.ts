@@ -34,6 +34,16 @@ test("vocabulary image asset migration and facade work with metadata-only SQLite
     ["vocab_image_assets"]
   );
   assert.equal(table?.name, "vocab_image_assets");
+  const jobTable = await sqliteQueryOne<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ["vocab_image_batch_jobs"]
+  );
+  const resultTable = await sqliteQueryOne<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ["vocab_image_batch_job_results"]
+  );
+  assert.equal(jobTable?.name, "vocab_image_batch_jobs");
+  assert.equal(resultTable?.name, "vocab_image_batch_job_results");
 
   const db = new SQLiteFirestore();
   const asset = {
@@ -85,6 +95,27 @@ test("vocabulary image asset migration and facade work with metadata-only SQLite
   await db.collection("vocab_image_assets").doc(seedvisAsset.id).set(seedvisAsset);
   const seedvisStored = await db.collection("vocab_image_assets").doc(seedvisAsset.id).get();
   assert.equal(seedvisStored.data().provider, "seedvis-nano-banana-2");
+
+  const jobId = "vimgjob-storage-test";
+  await db.collection("vocab_image_batch_jobs").doc(jobId).set({
+    id: jobId,
+    actorId: "teacher-1",
+    status: "running",
+    createdAt: "2026-09-18T00:00:00.000Z",
+    updatedAt: "2026-09-18T00:00:01.000Z",
+    expiresAt: "2026-09-19T00:00:00.000Z",
+  });
+  await db.collection("vocab_image_batch_job_results").doc(`${jobId}:0`).set({
+    id: `${jobId}:0`,
+    jobId,
+    index: 0,
+    result: { id: "word-1", asset: { id: seedvisAsset.id, publicUrl: seedvisAsset.publicUrl } },
+    createdAt: "2026-09-18T00:00:02.000Z",
+    expiresAt: "2026-09-19T00:00:00.000Z",
+  });
+  const jobResults = await db.collection("vocab_image_batch_job_results").where("jobId", "==", jobId).get();
+  assert.equal(jobResults.size, 1);
+  assert.equal(jobResults.docs[0].data().result.id, "word-1");
 
   const diagnostics = await getSQLiteDiagnostics();
   assert.equal(diagnostics.tableCounts.vocab_image_assets, 3);

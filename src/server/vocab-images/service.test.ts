@@ -21,6 +21,18 @@ function createMemoryDb() {
             async set(value: any) { values.set(key, value); },
           };
         },
+        where(field: string, operator: string, expected: unknown) {
+          assert.equal(operator, "==");
+          return {
+            async get() {
+              const prefix = `${name}/`;
+              const docs = Array.from(values.entries())
+                .filter(([key, value]) => key.startsWith(prefix) && value?.[field] === expected)
+                .map(([key, value]) => ({ id: key.slice(prefix.length), data: () => value }));
+              return { empty: docs.length === 0, docs };
+            },
+          };
+        },
       };
     },
   };
@@ -187,6 +199,174 @@ test("automatic batch uses an independent concurrency ceiling for each configure
   }
 });
 
+test("automatic batch also applies a hosting-safe total concurrency ceiling", async () => {
+  let active = 0;
+  let maximum = 0;
+  let started = 0;
+  let signalStarted!: () => void;
+  let release!: () => void;
+  const firstWaveStarted = new Promise<void>(resolve => { signalStarted = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-total-concurrency-"));
+  const service = new VocabImageLibraryService({
+    db: createMemoryDb(),
+    imageDir,
+    publicPrefix: "/vocab-images",
+    env: {
+      STALI_API_KEY: "stali-key",
+      DEVQUOTA_API_KEY: "dev-key",
+      VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER: "50",
+      VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY: "3",
+    },
+    fetchImpl: (async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      started += 1;
+      if (started === 3) signalStarted();
+      await gate;
+      active -= 1;
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), { status: 200 });
+    }) as typeof fetch,
+  });
+
+  try {
+    const pending = service.batchGenerate("auto", Array.from({ length: 8 }, (_, index) => ({
+      id: `word-${index + 1}`,
+      term: `word-${index + 1}`,
+      meaning: `nghĩa ${index + 1}`,
+      pos: "noun",
+    })), "teacher-1");
+    await firstWaveStarted;
+    assert.equal(maximum, 3);
+    assert.equal(service.batchConcurrencyPerProvider, 50);
+    assert.equal(service.batchTotalConcurrency, 3);
+    release();
+    assert.equal((await pending).length, 8);
+  } finally {
+    fs.rmSync(imageDir, { recursive: true, force: true });
+  }
+});
+
+test("background batch returns immediately and exposes durable incremental results to its owner", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-background-job-"));
+  const service = new VocabImageLibraryService({
+    db: createMemoryDb(),
+    imageDir,
+    publicPrefix: "/vocab-images",
+    env: {
+      STALI_API_KEY: "stali-key",
+      VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY: "1",
+    },
+    fetchImpl: (async () => {
+      await gate;
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), { status: 200 });
+    }) as typeof fetch,
+  });
+
+  try {
+    const started = await service.startBatchGenerationJob("auto", [
+      { id: "apple", term: "apple", meaning: "quả táo", pos: "noun" },
+      { id: "book", term: "book", meaning: "quyển sách", pos: "noun" },
+    ], "teacher-1");
+    assert.match(started.jobId, /^vimgjob-/);
+    assert.equal(started.status, "queued");
+    assert.equal(started.completed, 0);
+    await assert.rejects(() => service.getBatchGenerationJob(started.jobId, "teacher-2"), /Không tìm thấy/);
+
+    release();
+    let completed = await service.getBatchGenerationJob(started.jobId, "teacher-1");
+    for (let attempt = 0; attempt < 50 && completed.status !== "completed"; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      completed = await service.getBatchGenerationJob(started.jobId, "teacher-1");
+    }
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.completed, 2);
+    assert.equal(completed.succeeded, 2);
+    assert.equal(completed.failed, 0);
+    assert.deepEqual(completed.items.map((item: any) => item.id), ["apple", "book"]);
+    assert.ok(completed.items.every((item: any) => item.asset?.publicUrl?.startsWith("/vocab-images/")));
+    assert.ok(completed.items.every((item: any) => item.asset?.prompt === undefined));
+  } finally {
+    fs.rmSync(imageDir, { recursive: true, force: true });
+  }
+});
+
+test("an expired hosting worker lease resumes only unfinished batch rows", async () => {
+  const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-resumed-job-"));
+  const db = createMemoryDb();
+  let requestCount = 0;
+  const service = new VocabImageLibraryService({
+    db,
+    imageDir,
+    publicPrefix: "/vocab-images",
+    env: { STALI_API_KEY: "stali-key", VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY: "1" },
+    fetchImpl: (async () => {
+      requestCount += 1;
+      return new Response(JSON.stringify({ data: [{ b64_json: pngBase64 }] }), { status: 200 });
+    }) as typeof fetch,
+  });
+  const jobId = "vimgjob-hosting-restart";
+  const createdAt = new Date(Date.now() - 120_000).toISOString();
+  const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+  db.values.set(`vocab_image_batch_jobs/${jobId}`, {
+    id: jobId,
+    actorId: "teacher-1",
+    provider: "auto",
+    status: "running",
+    total: 2,
+    completed: 1,
+    succeeded: 1,
+    failed: 0,
+    inputs: [
+      { id: "apple", term: "apple", meaning: "qua tao", pos: "noun" },
+      { id: "book", term: "book", meaning: "quyen sach", pos: "noun" },
+    ],
+    leaseOwner: "worker-before-passenger-restart",
+    leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt,
+  });
+  db.values.set(`vocab_image_batch_job_results/${jobId}:0`, {
+    id: `${jobId}:0`,
+    jobId,
+    index: 0,
+    result: {
+      id: "apple",
+      provider: "stali",
+      asset: {
+        id: "vimg-existing",
+        provider: "stali",
+        externalId: "existing",
+        title: "apple",
+        author: "AI",
+        license: "generated",
+        publicUrl: "/vocab-images/existing.png",
+      },
+    },
+    createdAt,
+    expiresAt,
+  });
+
+  try {
+    let resumed = await service.getBatchGenerationJob(jobId, "teacher-1");
+    for (let attempt = 0; attempt < 50 && resumed.status !== "completed"; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      resumed = await service.getBatchGenerationJob(jobId, "teacher-1");
+    }
+    assert.equal(resumed.status, "completed");
+    assert.equal(resumed.completed, 2);
+    assert.equal(resumed.succeeded, 2);
+    assert.equal(requestCount, 1);
+    assert.deepEqual(resumed.items.map((item: any) => item.id), ["apple", "book"]);
+    assert.equal(resumed.items[0].asset.publicUrl, "/vocab-images/existing.png");
+  } finally {
+    fs.rmSync(imageDir, { recursive: true, force: true });
+  }
+});
+
 test("batch accepts the whole vocabulary list beyond the former 100-item cutoff", async () => {
   let requestCount = 0;
   const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-full-batch-"));
@@ -212,6 +392,7 @@ test("batch accepts the whole vocabulary list beyond the former 100-item cutoff"
     assert.equal(rows.length, 101);
     assert.equal(requestCount, 101);
     assert.equal(service.batchConcurrencyPerProvider, 50);
+    assert.equal(service.batchTotalConcurrency, 8);
     assert.equal(service.batchMaxItems, 500);
   } finally {
     fs.rmSync(imageDir, { recursive: true, force: true });

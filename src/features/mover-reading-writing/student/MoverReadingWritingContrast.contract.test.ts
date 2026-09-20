@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createDefaultMoverReadingWritingContent } from '../defaultContent';
 import { createEmptyMoverReadingWritingAnswers } from '../types';
-import { ReadingPart2View, ReadingPart6View } from './MoverReadingWritingPartViews';
+import { ReadingPart1View, ReadingPart2View, ReadingPart4View, ReadingPart5View, ReadingPart6View } from './MoverReadingWritingPartViews';
 
 const playerSource = readFileSync(new URL('./MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
@@ -96,9 +96,35 @@ test('Part 6 image-choice mode renders one student image and five three-option q
   assert.equal((markup.match(/<img/g) || []).length, 1);
   assert.equal((markup.match(/type="radio"/g) || []).length, 15);
   assert.equal((markup.match(/data-choice-layout="horizontal"/g) || []).length, 5);
-  assert.equal((markup.match(/grid-cols-3/g) || []).length, 5);
+  assert.equal((markup.match(/data-mover-rw-part6-inline-row=/g) || []).length, 5);
+  assert.equal((markup.match(/grid-cols-\[2\.75rem_repeat\(3,minmax\(0,1fr\)\)\]/g) || []).length, 5);
   assert.match(markup, /Choice 1\.1/);
   assert.doesNotMatch(markup, /Bảng lựa chọn Part 6/);
+});
+
+test('requested Movers answer fields use PET-style underlines and the specified row alignment', () => {
+  const content = createDefaultMoverReadingWritingContent();
+  const answers = createEmptyMoverReadingWritingAnswers();
+  const onAnswers = () => undefined;
+  const [part1, part2, , part4, part5] = content.parts;
+  part1.questions.forEach((question, index) => { question.prompt = `Definition ${index + 1}: {{${question.id}}}`; });
+  part2.questions.forEach((question, index) => { question.statement = `Statement ${index + 1}`; });
+  part5.scenes.forEach(scene => scene.questions.forEach((question, index) => { question.prompt = `Answer ${index + 1}: {{${question.id}}}`; }));
+
+  const part1Markup = renderToStaticMarkup(createElement(ReadingPart1View, { part: part1, answers, onAnswers }));
+  assert.equal((part1Markup.match(/data-mover-rw-right-answer-row/g) || []).length, part1.questions.length);
+  assert.equal((part1Markup.match(/data-student-underline-answer/g) || []).length, part1.questions.length);
+
+  const part2Markup = renderToStaticMarkup(createElement(ReadingPart2View, { part: part2, answers, onAnswers }));
+  assert.equal((part2Markup.match(/data-mover-rw-part2-row=/g) || []).length, part2.questions.length);
+  assert.equal((part2Markup.match(/type="radio"/g) || []).length, part2.questions.length * 2);
+  assert.match(part2Markup, /grid-cols-\[minmax\(0,1fr\)_4\.5rem_4\.5rem\]/);
+
+  const part4Markup = renderToStaticMarkup(createElement(ReadingPart4View, { part: part4, answers, onAnswers }));
+  assert.equal((part4Markup.match(/data-student-underline-answer/g) || []).length, part4.gaps.length);
+
+  const part5Markup = renderToStaticMarkup(createElement(ReadingPart5View, { part: part5, answers, onAnswers }));
+  assert.equal((part5Markup.match(/data-student-underline-answer/g) || []).length, part5.scenes.flatMap(scene => scene.questions).length);
 });
 
 test('Part 2 uses one uninterrupted Examples panel and Part 6 inserts the example answer at the printed blank', () => {

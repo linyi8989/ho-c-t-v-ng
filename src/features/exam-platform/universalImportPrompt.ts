@@ -1,4 +1,6 @@
 import type { ExamPaperContent } from './types';
+import { withChatGptJsonCopyBlock } from './chatGptJsonOutput';
+import { createDefaultPetReadingExample, PET_READING_PART_HEADERS } from './petReadingMigration';
 
 const starterListeningPartNames: Record<number, string> = {
   1: 'matching / image-image / draw-line — giữ mô hình nối hình Starters hiện tại',
@@ -57,7 +59,7 @@ ${selectedParts.map(part => `- Part ${part}: ${starterListeningPartNames[part]}.
 ${selectedParts.map(part => partRules[part]).join('\n\n')}
 
 QUY TẮC CHUNG
-- Chỉ trả một JSON object hợp lệ; không Markdown, code fence hoặc lời giải thích.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "starter", paperId "listening".
 - ${focusedPart ? `papers[0].parts chỉ có Part ${focusedPart}.` : 'papers[0].parts phải có đúng Part 1, 2, 3, 4 theo thứ tự; mỗi Part tổng cộng đúng 5 câu được chấm.'}
 - Không sinh id, questionId, questionIds, optionId, assetId, URL, base64 hoặc đường dẫn file.
@@ -164,7 +166,7 @@ QUY TẮC TỪNG PART
 QUY TẮC ĐÁP ÁN VÀ AN TOÀN
 - answerSource chỉ là "official-answer-key" khi thấy trực tiếp trong đáp án chính thức. Nếu không chắc, dùng "unverified" và để answerKey rỗng; tuyệt đối không đoán.
 - Không sinh id, questionId, questionIds, sceneId, optionId, assetId, URL, base64, đường dẫn file, crop hay tọa độ.
-- Không dùng audio/transcript để suy luận. Chỉ trả một JSON object hợp lệ, không Markdown/code fence và không giải thích ngoài JSON.
+- Không dùng audio/transcript để suy luận. Nội dung kết quả phải là đúng một JSON object hợp lệ.
 - format phải là "exam-bundle-import-v2", formatVersion 2, exam.moduleId "starter", paperId "reading-writing".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay dữ liệu minh họa bằng dữ liệu thật và mở rộng đủ 5 câu trong mỗi Part):
@@ -255,7 +257,7 @@ QUY TẮC DỮ LIỆU
 - Ảnh do giáo viên tải/dán trong editor, không đặt dữ liệu ảnh vào JSON. Part 7 cho phép không có ảnh. Không trả asset ID, URL, base64 hoặc đường dẫn file.
 - answerSource chỉ là "official-answer-key" khi nhìn thấy trực tiếp trong key. Nếu chưa chắc, dùng "unverified" và để answerKey rỗng; không đoán.
 - Không sinh id, questionId, questionIds, optionId, sceneId, crop, mask hoặc tọa độ.
-- Chỉ trả một JSON object hợp lệ; không Markdown, code fence hoặc giải thích ngoài JSON.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "flyer", paperId "reading-writing".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa bằng dữ liệu thật):
@@ -290,7 +292,7 @@ QUY TẮC
 - Part 3: đúng một example không chấm và đúng năm short-answer; acceptedAnswers chỉ là một chữ A-H. Không sinh crop/toạ độ.
 - Part 4: đúng ba options A/B/C cho mỗi câu; ứng dụng tự crop ảnh sau khi giáo viên tải trang nguồn.
 - Part 5: colour dùng catalog red, blue, green, yellow, orange, purple, pink, brown, black, white; draw/add phải trả scene-draw, drawObject và targetDescription, không đổi thành colour.
-- Không sinh id, questionId, questionIds, assetId, URL, base64, đường dẫn file hoặc trường kỹ thuật. Chỉ trả JSON, không Markdown hay giải thích.
+- Không sinh id, questionId, questionIds, assetId, URL, base64, đường dẫn file hoặc trường kỹ thuật. Nội dung kết quả chỉ gồm JSON hợp lệ.
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "flyer", paperId "listening".
 
 JSON MẪU (thay dữ liệu minh họa bằng dữ liệu thật):
@@ -343,7 +345,7 @@ QUY TẮC ĐÁP ÁN
 - Part 2: acceptedAnswers chỉ là một chữ A–H.
 - Part 4/5: acceptedAnswers chỉ chứa phần học sinh phải nhập ở giữa, không lặp answerPrefix hoặc answerSuffix.
 - Không sinh id, questionId, questionIds, optionId, imageAssetId, imageUrl, audioAssetId, audioUrl, secret/API key hoặc trường kỹ thuật.
-- Chỉ trả một JSON object hợp lệ, không Markdown, code fence hay giải thích ngoài JSON.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "ket", paperId "listening".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa và số lượng mẫu bằng dữ liệu thật):
@@ -407,13 +409,218 @@ QUY TẮC ĐÁP ÁN VÀ AN TOÀN
 - Part 2, 3A, 4, 5: mỗi câu đúng ba options A/B/C và đúng một correctOptionLabels.
 - Part 6: mỗi acceptedAnswers có đúng answerLength trừ độ dài answerPrefix ký tự và không chứa lại answerPrefix ở đầu; p + assport tạo thành passport.
 - Không sinh id, questionId, questionIds, optionId, assetId, URL, base64, đường dẫn file hoặc secret/API key.
-- Chỉ trả một JSON object hợp lệ, không Markdown, code fence hay giải thích ngoài JSON.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "ket", paperId "reading-writing".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay dữ liệu minh họa và số lượng mẫu bằng dữ liệu thật):
 ${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: content.title, description: content.description, level: 'A2 Key' }, papers: [{ paperId: 'reading-writing', title: 'Reading & Writing', timeLimitMinutes: content.timeLimitMinutes || 60, parts: selected.map(part => templates[part]) }] }, null, 2)}
 
 Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng interaction và đúng số câu thật trên ảnh` : 'đủ 9 Part; Part 1/3B mỗi dạng chỉ một ảnh; Part 3 đúng hai block; Part 5 có một example A/B/C lấy từ official key; Part 8 không có content.passage và có ảnh giáo viên gắn; Part 9 đúng một bài viết 10 điểm'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+}
+
+function petListeningPrompt(content: ExamPaperContent, focusedPart?: number) {
+  const selected = focusedPart ? [focusedPart] : [1, 2, 3, 4];
+  const accepted = (answers: string[]) => ({ answerSource: 'official-answer-key', answerKey: { acceptedAnswers: answers } });
+  const choices = (count: number, startNumber: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: startNumber + index,
+    prompt: `Question ${startNumber + index}`,
+    type: 'single-choice',
+    options: [{ label: 'A', text: 'Option A' }, { label: 'B', text: 'Option B' }, { label: 'C', text: 'Option C' }],
+    answerSource: 'official-answer-key',
+    answerKey: { correctOptionLabels: ['A'] },
+  }));
+  const formRows = (count: number, startNumber: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: startNumber + index,
+    prompt: `Field ${startNumber + index}`,
+    type: 'short-answer',
+    maxWords: 5,
+    ...accepted([`answer ${startNumber + index}`]),
+  }));
+  const yesNoRows = (count: number, startNumber: number) => Array.from({ length: count }, (_, index) => ({
+    questionNumber: startNumber + index,
+    prompt: `Statement ${startNumber + index}`,
+    type: 'single-choice',
+    options: [{ label: 'Yes', text: 'Yes' }, { label: 'No', text: 'No' }],
+    answerSource: 'official-answer-key',
+    answerKey: { correctOptionLabels: ['Yes'] },
+  }));
+  const templates: Record<number, unknown> = {
+    1: { partNumber: 1, title: 'Questions 1–7', instruction: 'TRANSCRIBE THE COMPLETE PRINTED INSTRUCTION VERBATIM.', blocks: [{ blockNumber: 1, title: 'Three-picture choices', interaction: { family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1 }, content: { examples: [{ prompt: 'Where is the girl’s hat?', answer: 'B', options: [{ label: 'A', text: 'Picture A' }, { label: 'B', text: 'Picture B' }, { label: 'C', text: 'Picture C' }] }], questions: choices(7, 1) } }] },
+    2: { partNumber: 2, title: 'Questions 8–13', instruction: 'TRANSCRIBE THE COMPLETE PRINTED INSTRUCTION VERBATIM.', blocks: [{ blockNumber: 1, title: 'Text multiple choice', interaction: { family: 'choice', subtype: 'dialogue', variant: 'dialogue-choice', schemaVersion: 1 }, content: { questions: choices(6, 8) } }] },
+    3: { partNumber: 3, title: 'Questions 14–19', instruction: 'TRANSCRIBE THE COMPLETE PRINTED INSTRUCTION VERBATIM.', blocks: [{ blockNumber: 1, title: 'Listening form fields', interaction: { family: 'text-entry', subtype: 'form-completion', variant: 'image-form-fields', schemaVersion: 1 }, content: { passage: 'FORM TITLE\nExample: Tuesday\nFirst field: [[14]]\nSecond field: [[15]]\nThird field: [[16]]\nFourth field: [[17]]\nFifth field: [[18]]\nSixth field: [[19]]', questions: formRows(6, 14) } }] },
+    4: { partNumber: 4, title: 'Questions 20–25', instruction: 'TRANSCRIBE THE COMPLETE PRINTED INSTRUCTION VERBATIM.', blocks: [{ blockNumber: 1, title: 'Yes or no statements', interaction: { family: 'choice', subtype: 'binary', variant: 'yes-no-statements', schemaVersion: 1 }, content: { questions: yesNoRows(6, 20) } }] },
+  };
+  return `Bạn là chuyên gia số hóa Cambridge B1 Preliminary (PET) Listening từ ảnh/PDF đề bài và official answer key.
+
+MỤC TIÊU CẤU TRÚC
+- ${focusedPart ? `CHỈ trả Part ${focusedPart}; papers[0].parts chỉ có đúng Part ${focusedPart}.` : 'Trả đúng 4 Part theo thứ tự 1–4.'}
+- Số câu không bị khóa theo JSON mẫu. Đọc đúng số câu thật của từng Part; example luôn tách khỏi câu chấm điểm.
+- title và instruction của MỌI Part phải được CHÉP NGUYÊN VĂN từ đề nguồn, gồm đúng dải số câu, dấu câu và toàn bộ các dòng hướng dẫn. Không tự viết lại, không rút gọn và không dùng tiêu đề mô tả giao diện như “Visual multiple choice”.
+- JSON chỉ chứa chữ và đáp án. Giáo viên gắn ảnh/audio và crop trong editor; không trả asset ID, URL, base64, crop hoặc tọa độ.
+
+ÁNH XẠ GIAO DIỆN
+- Part 1: giống KET Listening Part 1/Movers Listening Part 4. Trả đúng một content.examples[0] có prompt, đúng ba options nhãn A/B/C và đáp án A/B/C, không chấm điểm. Ứng dụng ưu tiên crop ba ảnh Example trước rồi crop ba ảnh cho mỗi câu chấm điểm từ trang nguồn; JSON không chứa media.
+- Part 2: giống KET Listening Part 3, chỉ có câu hỏi chữ và đúng ba lựa chọn A/B/C. Part này KHÔNG CÓ example: không trả content.examples và không biến câu đầu thành example.
+- Part 3: giống KET Listening Part 4/5. content.passage chỉ chứa biểu mẫu/ghi chú in sẵn và example của biểu mẫu; không lặp title/instruction. Thay CHÍNH XÁC mỗi chỗ học sinh cần điền bằng marker [[questionNumber]] ngay tại vị trí ô trống (ví dụ [[14]]), đúng một marker cho mỗi question; giữ nguyên các chữ và xuống dòng xung quanh marker. Mỗi question có questionNumber, prompt mô tả ngắn hàng tương ứng, answerPrefix/answerSuffix nếu thực sự dính liền ô nhập, maxWords và acceptedAnswers chỉ gồm phần học sinh cần điền. Giao diện sẽ thay marker bằng ô nhập trực tiếp trong biểu mẫu.
+- Part 4: giống Movers Reading & Writing Part 2 nhưng KHÔNG CÓ ẢNH. Mỗi prompt là một nhận định, đúng hai lựa chọn Yes và No, và đúng một đáp án chính thức.
+
+QUY TẮC ĐÁP ÁN
+- Chỉ dùng answerSource "official-answer-key" khi thấy trực tiếp official key. Nếu chưa chắc, dùng "unverified" và để answerKey rỗng; không đoán từ transcript.
+- Part 1/2: đúng một correctOptionLabels trong A/B/C. Part 3: acceptedAnswers ngăn cách theo các cách viết được key chấp nhận. Part 4: correctOptionLabels chỉ là Yes hoặc No.
+- Không sinh id, questionId, questionIds, optionId, imageAssetId, imageUrl, audioAssetId, audioUrl, secret/API key hoặc trường kỹ thuật.
+- Kết quả là đúng một JSON object, không giải thích ngoài JSON; format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "pet", paperId "listening".
+
+JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa, title, instruction và số lượng bằng dữ liệu thật):
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet', title: content.title, description: content.description, level: 'B1 Preliminary' }, papers: [{ paperId: 'listening', title: 'Listening', timeLimitMinutes: content.timeLimitMinutes || 30, parts: selected.map(part => templates[part]) }] }, null, 2)}
+
+Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, title/instruction chép nguyên văn, đúng số câu thật và đúng interaction đã khóa` : 'đủ 4 Part; Part 1 có example + ảnh A/B/C, Part 2 tuyệt đối không example, Part 3 có đúng một marker [[questionNumber]] cho mỗi form/gap field, Part 4 Yes/No không ảnh'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+}
+
+function petReadingPrompt(content: ExamPaperContent, focusedPart?: number) {
+  const selected = focusedPart ? [focusedPart] : [1, 2, 3, 4, 5];
+  const choice = (count: number) => Array.from({ length: count }, (_, index) => ({ label: String.fromCharCode(65 + index), text: `Option ${String.fromCharCode(65 + index)}` }));
+  const templates: Record<number, unknown> = {
+    1: { partNumber: 1, ...PET_READING_PART_HEADERS[0], blocks: [{ blockNumber: 1, title: 'Notice card choice', interaction: { family: 'choice', subtype: 'single', variant: 'notice-image-choice', schemaVersion: 1 }, content: { examples: [createDefaultPetReadingExample(1)], questions: [{ questionNumber: 1, context: 'STUDENTS!\nYOUR DEPOSIT FOR LOCKER KEYS WON’T BE REFUNDED IF KEYS ARE LOST.', prompt: 'What does this notice mean?', type: 'single-choice', options: choice(3), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } }] } }] },
+    2: { partNumber: 2, ...PET_READING_PART_HEADERS[1], blocks: [{ blockNumber: 1, title: 'People and eight texts', interaction: { family: 'choice', subtype: 'letter-matching', variant: 'people-text-matching', schemaVersion: 1 }, content: { questions: [{ questionNumber: 6, prompt: 'Description of person 1', type: 'single-choice', options: choice(8), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } }] } }] },
+    3: { partNumber: 3, ...PET_READING_PART_HEADERS[2], blocks: [{ blockNumber: 1, title: 'Picture statements', interaction: { family: 'choice', subtype: 'single', variant: 'image-yes-no', schemaVersion: 1 }, content: { questions: [{ questionNumber: 11, prompt: 'Statement from the paper', type: 'true-false', options: [{ label: 'YES', text: 'Yes' }, { label: 'NO', text: 'No' }], answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['YES'] } }] } }] },
+    4: { partNumber: 4, ...PET_READING_PART_HEADERS[3], blocks: [{ blockNumber: 1, title: 'Passage and four choices', interaction: { family: 'choice', subtype: 'single', variant: 'passage-four-choice', schemaVersion: 1 }, content: { passage: 'Full reading text from the source.', questions: [{ questionNumber: 21, prompt: 'Question from the paper', type: 'single-choice', options: choice(4), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['B'] } }] } }] },
+    5: { partNumber: 5, ...PET_READING_PART_HEADERS[4], blocks: [{ blockNumber: 1, title: 'Passage cloze', interaction: { family: 'choice', subtype: 'cloze', variant: 'multiple-choice-cloze-four', schemaVersion: 1 }, content: { examples: [createDefaultPetReadingExample(5)], passage: 'Text before [[26]] and after the gap. Continue with exactly one marker for every printed question.', questions: [{ questionNumber: 26, prompt: 'Gap 26', type: 'single-choice', options: choice(4), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['C'] } }] } }] },
+  };
+  return `Bạn là chuyên gia số hóa Cambridge B1 Preliminary (PET) Reading theo cấu trúc của PE 1.pdf.
+
+MỤC TIÊU
+${focusedPart ? `- CHỈ trích xuất Part ${focusedPart}; papers[0].parts chỉ có đúng Part đó.` : '- Trả đúng 5 Part Reading theo thứ tự; số câu của từng Part lấy từ đề thật, mặc định thường là 5–5–10–5–10 nhưng không tự bịa câu.'}
+- Giữ nguyên questionNumber in trên đề. Chỉ lấy đáp án từ official answer key; không suy đoán.
+- Không trả ID kỹ thuật, URL, base64 hoặc trường media. Part 1 dùng khung màu mặc định do giao diện dựng, không tải ảnh.
+
+QUY TẮC TỪNG PART
+- Mọi Part phải dùng CHÍNH XÁC title và instruction trong JSON mẫu; không diễn đạt lại, rút gọn hoặc đặt tiêu đề theo chủ đề bài đọc.
+- Part 1: title "${PET_READING_PART_HEADERS[0].title}" và instruction đúng nguyên văn trong mẫu. Trả đúng một content.examples[0] không chấm điểm: prompt là toàn bộ chữ trong notice example, options là ba lựa chọn A/B/C của example và answer là đúng nhãn A/B/C từ official key; mỗi question bắt buộc có context là toàn bộ chữ nằm trong notice/message (giữ xuống dòng hợp lý), prompt là câu hỏi ở bên phải, đúng 3 lựa chọn A/B/C và official key. Giao diện tự luân phiên 5 mẫu khung màu; không mô tả khung và không trả ảnh.
+- Part 2: title "${PET_READING_PART_HEADERS[1].title}" và instruction đúng nguyên văn trong mẫu. Bên trái là các mô tả người; bên phải là đúng một ngân hàng 8 đoạn chữ A–H. MỌI question phải lặp lại cùng 8 options A–H theo cùng thứ tự để hệ thống dựng ngân hàng chung. Mỗi người chọn một chữ khác nhau.
+- Part 3: title "${PET_READING_PART_HEADERS[2].title}" và instruction đúng nguyên văn trong mẫu. Một ảnh tình huống chung do giáo viên gắn; mỗi câu có đúng Yes và No.
+- Part 4: title "${PET_READING_PART_HEADERS[3].title}" và instruction đúng nguyên văn trong mẫu. content.passage là toàn bộ bài đọc; mỗi câu có đúng 4 lựa chọn A/B/C/D.
+- Part 5: title "${PET_READING_PART_HEADERS[4].title}" và instruction đúng nguyên văn trong mẫu. Trả đúng một content.examples[0] không chấm điểm: prompt là số example in trên đề (thường "0"), options là bốn lựa chọn A/B/C/D và answer là nhãn đúng từ official key. content.passage là toàn bộ bài cloze và thay mỗi ô trống bằng marker [[questionNumber]], đúng một marker cho mỗi câu; mỗi câu có đúng 4 lựa chọn A/B/C/D.
+- Example Part 1 và Part 5 chỉ nằm trong content.examples, tuyệt đối không đưa vào questions được chấm.
+
+ĐÁP ÁN
+- Mỗi question có answerSource "official-answer-key" và answerKey.correctOptionLabels.
+- Nếu official key không rõ, dùng answerSource "unverified" và answerKey rỗng; không đoán.
+
+CẤM
+- Không trả id, questionId, questionIds, imageAssetId, imageUrl, audioAssetId, audioUrl, correctOptionIds, URL, base64 hoặc đường dẫn file.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
+
+JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa bằng dữ liệu thật):
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet', title: content.title, description: content.description, level: 'B1 Preliminary' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 45, parts: selected.map(part => templates[part]) }] }, null, 2)}
+
+  Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng title/instruction cố định, đúng variant, đúng số câu và số lựa chọn` : 'đủ 5 Part và đúng title/instruction cố định; Part 1 và Part 5 mỗi Part có đúng một example không chấm điểm; mỗi câu Part 1 có context và 3 lựa chọn; Part 2 dùng chung 8 lựa chọn A–H; Part 3 là Yes/No; Part 4 và 5 có 4 lựa chọn; Part 5 đủ marker'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+}
+
+function petWritingPrompt(content: ExamPaperContent, focusedPart?: number) {
+  const selected = focusedPart ? [focusedPart] : [1, 2, 3];
+  const templates: Record<number, unknown> = {
+    1: {
+      partNumber: 1,
+      title: 'Questions 1–5',
+      instruction: 'Here are some sentences about a game.\nFor each question, complete the second sentence so that it means the same as the first.\nUse no more than three words.\nWrite only the missing words on your answer sheet.\nYou may use this page for any rough work.',
+      blocks: [{
+        blockNumber: 1,
+        title: 'Complete the second sentence',
+        interaction: { family: 'text-entry', subtype: 'short-answer', variant: 'sentence-transformation', schemaVersion: 1 },
+        content: {
+          examples: [{
+            prompt: 'The game is called Jotto.\nThe name ____ is Jotto.',
+            answer: 'of the game',
+          }],
+          questions: Array.from({ length: 5 }, (_, index) => ({
+            questionNumber: index + 1,
+            context: `Original sentence ${index + 1}.`,
+            prompt: `Rewritten sentence ${index + 1}: ____`,
+            type: 'short-answer',
+            maxWords: 5,
+            points: 1,
+            answerSource: 'official-answer-key',
+            answerKey: { acceptedAnswers: index === 0 ? ['have', "'ve"] : [`answer ${index + 1}`] },
+          })),
+        },
+      }],
+    },
+    2: {
+      partNumber: 2,
+      title: 'Write an email',
+      instruction: 'Read the task and write 35–45 words.',
+      blocks: [{
+        blockNumber: 1,
+        title: 'Guided email',
+        passage: 'Copy the complete visible task here, including the recipient/context and bullet points.',
+        interaction: { family: 'writing', subtype: 'guided-email', variant: 'guided-email-writing', schemaVersion: 1 },
+        content: { questions: [{
+          questionNumber: 6,
+          prompt: 'Write your email. Include all the points in the task.',
+          context: 'The mandatory content framework, written as a numbered list.',
+          type: 'long-writing', points: 10, minWords: 35, maxWords: 45,
+          rubric: 'Assess task fulfilment, email conventions, organisation, vocabulary and grammar. Score 0–10.',
+          writingGrading: {
+            enabled: true,
+            providerId: 'stali:gpt-5.6-sol',
+            taskContext: 'Các ý bắt buộc:\n1. Ý chính thứ nhất\n2. Ý chính thứ hai\n3. Ý chính thứ ba',
+            gradingInstructions: 'Chấm đủ các ý chính và đúng thể loại email/thư; chấp nhận chi tiết phụ phù hợp. Không trừ điểm máy móc vì bài dài hơn nếu bài đúng trọng tâm và viết tốt. Nhận xét lỗi ngữ pháp và từ vựng bằng tiếng Việt.',
+            scoreScale: 10,
+          },
+        }] },
+      }],
+    },
+    3: {
+      partNumber: 3,
+      title: 'Questions 7–8',
+      instruction: 'Write an answer to one of the questions (7 or 8) in this part.\nWrite your answer in about 100 words on your answer sheet.\nMark the question number in the box at the top of your answer sheet.',
+      blocks: [{
+        blockNumber: 1,
+        title: 'Two-option free writing',
+        interaction: { family: 'writing', subtype: 'choice', variant: 'choice-free-writing', schemaVersion: 1 },
+        content: { questions: [{
+          questionNumber: 7,
+          prompt: 'Choose one question and write your answer.',
+          context: 'Assess the response against the selected question only.',
+          type: 'long-writing', points: 10, minWords: 100, maxWords: 120,
+          options: [
+            { label: '7', text: 'Full text of Question 7, including its required text type and topic.' },
+            { label: '8', text: 'Full text of Question 8, including its required text type and topic.' },
+          ],
+          rubric: 'Assess relevance to the chosen task, content, organisation, vocabulary and grammar. Score 0–10.',
+          writingGrading: {
+            enabled: true,
+            providerId: 'stali:gpt-5.6-sol',
+            taskContext: 'Chấm theo đúng chủ đề, thể loại và yêu cầu của đề học sinh đã chọn.',
+            gradingInstructions: 'Đây là bài viết tự do. Chấp nhận cách triển khai sáng tạo hợp lý; không áp một dàn ý duy nhất. Bài dài hơn vẫn có thể đạt điểm cao nếu đúng đề, mạch lạc và dùng tiếng Anh tốt. Nhận xét lỗi ngữ pháp và từ vựng bằng tiếng Việt.',
+            scoreScale: 10,
+          },
+        }] },
+      }],
+    },
+  };
+  return `Bạn là chuyên gia số hóa Cambridge B1 Preliminary (PET) Writing từ ảnh/PDF đề bài và official answer key.
+
+MỤC TIÊU CỐ ĐỊNH
+- ${focusedPart ? `CHỈ trả Part ${focusedPart}; papers[0].parts chỉ có đúng Part này.` : 'Trả đúng 3 Part theo thứ tự: 5 câu biến đổi câu, một email hướng dẫn, một bài viết chọn 1 trong 2 đề.'}
+- Giữ nguyên nội dung tiếng Anh nhìn thấy trong đề. Không sinh ID kỹ thuật, URL, base64, media hoặc khóa API.
+- Với mọi Part, title và instruction phải được chép từ đúng phần tiêu đề/hướng dẫn nhìn thấy trong tài liệu nguồn; không tự đặt tên mô tả dạng bài. Giữ xuống dòng của instruction để học sinh đọc đúng bố cục.
+
+QUY TẮC TỪNG PART
+- Part 1: đúng 5 câu. title thường là "Questions 1–5" nhưng phải đối chiếu nguồn; instruction phải chép nguyên văn toàn bộ các dòng hướng dẫn (gồm chủ đề câu, cách hoàn thành câu thứ hai, giới hạn số từ và cách ghi đáp án). context là câu gốc ở trên; prompt là câu viết lại ở dưới và dùng ____ đúng vị trí cần điền. content.examples phải có đúng một example không chấm điểm: prompt chứa cả câu gốc và câu viết lại có ____, answer là phần chữ được in trong ô Answer. Đáp án official có thể có nhiều cách, đặt trong answerKey.acceptedAnswers; ví dụ ["have", "'ve"]. Không gộp nhiều đáp án thành một chuỗi có dấu |.
+- Part 2: đúng một long-writing question, số 6, 10 điểm. passage chép đầy đủ đề hiển thị. writingGrading.taskContext phải là khung các ý bắt buộc, diễn đạt rõ theo danh sách đánh số để AI kiểm tra mức độ hoàn thành. Giữ mục tiêu 35–45 từ nhưng quy tắc chấm phải linh hoạt, ghi nhận email dài hơn nếu đúng trọng tâm và viết tốt; chi tiết phụ phải phù hợp thể loại thư/email.
+- Part 3: đúng một long-writing question, 10 điểm, có đúng hai options nhãn 7 và 8. title và instruction phải chép nguyên văn phần hướng dẫn chung phía trên Question 7/8 trong nguồn, không thay bằng mô tả "Choose one writing task". Mỗi option.text là toàn bộ một đề để học sinh chọn. Mục tiêu khoảng 100 từ; chấm bài tự do theo đúng đề đã chọn, nội dung, tổ chức, từ vựng và ngữ pháp, không ép một dàn ý duy nhất.
+- Part 2 và 3 phải giữ writingGrading.enabled=true, scoreScale=10 và yêu cầu phản hồi/lỗi ngữ pháp/lỗi từ vựng bằng tiếng Việt.
+
+ĐÁP ÁN VÀ AN TOÀN
+- Part 1 chỉ dùng answerSource "official-answer-key" khi nhìn thấy đáp án chính thức; nếu không rõ, dùng "unverified" và answerKey.acceptedAnswers rỗng. Không tự giải đoán.
+- Không trả id, questionId, questionIds, optionId, assetId, URL, base64, đường dẫn file, secret hoặc API key.
+- Kết quả phải là đúng một JSON object hợp lệ, format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "pet", paperId "writing".
+
+JSON MẪU ĐÚNG CẤU TRÚC (thay dữ liệu minh họa bằng dữ liệu thật):
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet', title: content.title, description: content.description, level: 'B1 Preliminary' }, papers: [{ paperId: 'writing', title: 'Writing', timeLimitMinutes: content.timeLimitMinutes || 45, parts: selected.map(part => templates[part]) }] }, null, 2)}
+
+Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart} và đúng dạng đã khóa` : 'đủ 3 Part, số câu 5–1–1, Part 3 đúng hai lựa chọn 7/8'}, title/instruction đều chép từ nguồn, Part 1 có đúng một example và chỉ lấy official key, Part 2 có khung ý bắt buộc, Part 3 có toàn bộ hai đề lựa chọn. Sau đó chỉ in JSON.`;
 }
 
 function buildUniversalExamPrompt(content: ExamPaperContent, focusedPart?: number) {
@@ -423,6 +630,9 @@ function buildUniversalExamPrompt(content: ExamPaperContent, focusedPart?: numbe
   if (content.moduleId === 'flyer' && content.paperId === 'reading-writing') return flyerReadingWritingPrompt(content, focusedPart);
   if (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') return ketListeningPrompt(content, focusedPart);
   if (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1') return ketReadingWritingPrompt(content, focusedPart);
+  if (content.moduleId === 'pet' && content.paperId === 'reading' && content.templateVersion === 'pet-reading-5-v1') return petReadingPrompt(content, focusedPart);
+  if (content.moduleId === 'pet' && content.paperId === 'listening' && content.templateVersion === 'pet-listening-4-v1') return petListeningPrompt(content, focusedPart);
+  if (content.moduleId === 'pet' && content.paperId === 'writing' && content.templateVersion === 'pet-writing-3-v1') return petWritingPrompt(content, focusedPart);
   const context = JSON.stringify({
     moduleId: content.moduleId,
     paperId: content.paperId,
@@ -477,7 +687,7 @@ GỢI Ý TỌA ĐỘ (KHÔNG BẮT BUỘC)
 CẤM
 - Không trả id, questionId, questionIds, imageAssetId, imageUrl, audioAssetId, audioUrl, correctOptionIds, interactionSourceNodeId, responseKey, URL, base64 hoặc đường dẫn file.
 - Không đưa audio/transcript vào JSON và không dùng audio để suy luận đáp án.
-- Không bọc Markdown, không dùng dấu \`\`\`, không viết giải thích ngoài JSON.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 
 SCHEMA BẮT BUỘC
 {
@@ -585,9 +795,9 @@ ${focusedPart ? `Chỉ trả Part ${focusedPart}, nhưng vẫn dùng đầy đ�
 }
 
 export function buildUniversalExamImportPrompt(content: ExamPaperContent) {
-  return buildUniversalExamPrompt(content);
+  return withChatGptJsonCopyBlock(buildUniversalExamPrompt(content));
 }
 
 export function buildUniversalExamPartImportPrompt(content: ExamPaperContent, partIndex: number) {
-  return buildUniversalExamPrompt(content, partIndex + 1);
+  return withChatGptJsonCopyBlock(buildUniversalExamPrompt(content, partIndex + 1));
 }

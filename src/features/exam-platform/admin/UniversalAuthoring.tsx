@@ -2,7 +2,7 @@ import { ClipboardCopy, FileJson, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { ExamPaperDefinition, ExamPaperContent, ExamPartContent } from '../types';
 import { importStarterExamBundle, importStarterSinglePart } from '../starterImport';
-import { importUniversalExamBundle, importUniversalExamPart, type UniversalImportReport } from '../universalImport';
+import { importUniversalExamBundle, importUniversalExamPart, stripUniversalExamJsonFence, type UniversalImportReport } from '../universalImport';
 import { buildUniversalExamImportPrompt, buildUniversalExamPartImportPrompt } from '../universalImportPrompt';
 
 const fieldClass = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
@@ -12,6 +12,9 @@ function fixedStarterStructure(content: ExamPaperContent) {
   if (content.moduleId === 'flyer' && content.paperId === 'reading-writing') return { partCount: 7, questionCounts: null, label: 'Flyers Reading & Writing' };
   if (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') return { partCount: 5, questionCounts: null, label: 'KET Listening' };
   if (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1') return { partCount: 9, questionCounts: null, label: 'KET Reading & Writing' };
+  if (content.moduleId === 'pet' && content.paperId === 'reading' && content.templateVersion === 'pet-reading-5-v1') return { partCount: 5, questionCounts: null, label: 'PET Reading' };
+  if (content.moduleId === 'pet' && content.paperId === 'listening' && content.templateVersion === 'pet-listening-4-v1') return { partCount: 4, questionCounts: null, label: 'PET Listening' };
+  if (content.moduleId === 'pet' && content.paperId === 'writing' && content.templateVersion === 'pet-writing-3-v1') return { partCount: 3, questionCounts: [5, 1, 1], label: 'PET Writing' };
   if (content.moduleId !== 'starter') return null;
   if (content.paperId === 'listening') return { partCount: 4, questionCounts: [5, 5, 5, 5], label: 'Starters Listening' };
   if (content.paperId === 'reading-writing') return { partCount: 5, questionCounts: [5, 5, 5, 5, 5], label: 'Starters Reading & Writing' };
@@ -40,7 +43,7 @@ async function copyPrompt(value: string) {
 function JsonSource({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return <>
-    <textarea value={value} onChange={event => onChange(event.target.value)} className={`min-h-44 font-mono ${fieldClass}`} placeholder='Dán exam-bundle-import-v2 hoặc JSON của một Part…' />
+    <textarea value={value} onChange={event => onChange(event.target.value)} className={`min-h-44 font-mono ${fieldClass}`} placeholder='Dán JSON đã sao chép từ nút Copy của ChatGPT, hoặc một code block ```json…```…' />
     <div className="mt-2">
       <button type="button" onClick={() => inputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-black text-violet-700"><Upload size={14} />Tải file JSON</button>
       <input ref={inputRef} type="file" accept="application/json,.json,.txt" className="hidden" onChange={event => {
@@ -81,13 +84,13 @@ export function UniversalWholeImportPanel({
       const success = await copyPrompt(buildUniversalExamImportPrompt(content));
       if (!success) return;
       setCopied(true);
-      onMessage({ text: 'Đã sao chép prompt Universal JSON v2. Hãy gửi kèm ảnh/PDF đề và official answer key trong ChatGPT Web.' });
+      onMessage({ text: 'Đã sao chép prompt Universal JSON v2. ChatGPT sẽ trả một khối JSON có nút Copy; hãy sao chép rồi dán trực tiếp vào ô bên dưới.' });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? 'Đã sao chép prompt' : 'Sao chép prompt gửi ChatGPT'}</button>
     <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" data-exam-action="import-universal-whole" onClick={() => {
       try {
-        const parsed = JSON.parse(source);
+        const parsed = JSON.parse(stripUniversalExamJsonFence(source));
         if (parsed?.format === 'exam-bundle-import-v1' && content.moduleId === 'starter' && content.paperId === 'listening') {
           const legacy = importStarterExamBundle(content, source, definition);
           onChange(legacy.content);
@@ -134,13 +137,13 @@ export function UniversalPartImportPanel({
       const success = await copyPrompt(buildUniversalExamPartImportPrompt(content, partIndex));
       if (!success) return;
       setCopied(true);
-      onMessage({ text: `Đã sao chép prompt riêng Part ${partIndex + 1}. Prompt yêu cầu AI phân biệt từng hành động colour/draw và chỉ trả Part này.` });
+      onMessage({ text: `Đã sao chép prompt riêng Part ${partIndex + 1}. ChatGPT sẽ trả một khối JSON có nút Copy và chỉ chứa Part này.` });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? `Đã sao chép prompt Part ${partIndex + 1}` : `Sao chép prompt riêng Part ${partIndex + 1}`}</button>
     <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" onClick={() => {
       try {
-        const parsed = JSON.parse(source);
+        const parsed = JSON.parse(stripUniversalExamJsonFence(source));
         if ((parsed?.format === 'exam-bundle-import-v1' || parsed?.section) && content.moduleId === 'starter' && content.paperId === 'listening') {
           const legacy = importStarterSinglePart(content, partIndex, source, definition);
           onChange(legacy.part, false);
@@ -151,7 +154,7 @@ export function UniversalPartImportPanel({
           if (fixed?.questionCounts && result.part.questions.length !== fixed.questionCounts[partIndex]) {
             throw new Error(`${fixed.label} Part ${partIndex + 1} phải có đúng ${fixed.questionCounts[partIndex]} câu. JSON chưa được áp dụng.`);
           }
-          onChange(result.part, !((content.moduleId === 'starter' && content.paperId === 'reading-writing') || (content.moduleId === 'flyer' && (content.paperId === 'listening' || content.paperId === 'reading-writing')) || (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') || (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1')));
+          onChange(result.part, !((content.moduleId === 'starter' && content.paperId === 'reading-writing') || (content.moduleId === 'flyer' && (content.paperId === 'listening' || content.paperId === 'reading-writing')) || (content.moduleId === 'ket' && content.paperId === 'listening' && content.templateVersion === 'ket-listening-5-v1') || (content.moduleId === 'ket' && content.paperId === 'reading-writing' && content.templateVersion === 'ket-reading-writing-9-v1') || (content.moduleId === 'pet' && content.paperId === 'reading' && content.templateVersion === 'pet-reading-5-v1') || (content.moduleId === 'pet' && content.paperId === 'listening' && content.templateVersion === 'pet-listening-4-v1') || (content.moduleId === 'pet' && content.paperId === 'writing' && content.templateVersion === 'pet-writing-3-v1')));
           onMessage({ text: `Đã nhập Part ${partIndex + 1}: ${result.report.blockCount} dạng, ${result.report.questionCount} câu.${result.report.warnings.length ? ` ${result.report.warnings.length} mục cần xác nhận.` : ''}` });
         }
       } catch (reason: any) {

@@ -4,6 +4,7 @@ import { EXAM_PAPER_DEFINITIONS, createDefaultExamContent, getModuleExamPaperDef
 import { promoteExamPartToBlocks } from '../../features/exam-platform/examStructure';
 import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from '../../features/exam-platform/flyerListeningMigration';
 import { normalizeFixedKetReadingWritingContent } from '../../features/exam-platform/ketReadingWritingMigration';
+import { normalizeFixedPetWritingContent } from '../../features/exam-platform/petWritingMigration';
 import type { ExamPaperContent } from '../../features/exam-platform/types';
 import { applyAiWritingGrade, applyManualExamGrades, gradeExamAttempt } from './examGrader';
 import {
@@ -74,6 +75,15 @@ function completeDraft(content: ExamPaperContent) {
       }
       if ([4, 5].includes(part.part)) part.passage = `Printed KET Listening Part ${part.part} instructions and example.`;
     }
+    if (content.moduleId === 'pet' && content.paperId === 'reading' && content.templateVersion === 'pet-reading-5-v1') {
+      if (part.part === 1) part.questions.forEach((question, index) => { question.imageAssetId = `image-pet-reading-p1-${index + 1}`; });
+      if (part.part === 3) part.imageAssetId = 'image-pet-reading-p3';
+      if (part.part === 4) part.passage = 'A complete reading passage for PET Reading Part 4.';
+    }
+    if (content.moduleId === 'pet' && content.paperId === 'listening' && content.templateVersion === 'pet-listening-4-v1') {
+      if (part.part === 1) part.examples = [{ prompt: 'Where is the girl’s hat?', answer: 'B', imageAssetId: 'image-pet-listening-example' }];
+      if (part.part === 3) part.passage = 'Printed notes and worked example for PET Listening Part 3.';
+    }
     if (part.interactionLayout?.kind === 'starter-image-matching-v1') {
       part.imageAssetId = `image-${part.part}`;
       part.interactionLayout.leftItems.forEach(item => { item.geometryConfirmedByTeacher = true; });
@@ -119,7 +129,7 @@ function completeDraft(content: ExamPaperContent) {
         const nodeMatching = part.interactionLayout?.kind === 'starter-image-matching-v2' ? part.interactionLayout : undefined;
         const allowedMatching = legacyMatching?.rightItems.filter(item => item.id !== legacyMatching.exampleMapping?.rightItemId)
           || nodeMatching?.targetNodes.filter(node => node.id !== nodeMatching.exampleConnection?.targetNodeId);
-        question.correctOptionIds = [allowedMatching?.[questionIndex]?.id || (part.interactionLayout?.kind === 'flyer-name-placement-v1' ? question.options[questionIndex]?.id : undefined) || question.options[0].id];
+        question.correctOptionIds = [allowedMatching?.[questionIndex]?.id || (part.interactionLayout?.kind === 'flyer-name-placement-v1' ? question.options[questionIndex]?.id : undefined) || (content.moduleId === 'pet' && content.paperId === 'reading' && part.part === 2 ? question.options[questionIndex]?.id : undefined) || question.options[0].id];
       } else {
         const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
         question.acceptedAnswers = (content.moduleId === 'flyer' && part.part === 3) || (content.moduleId === 'ket' && ((content.paperId === 'listening' && part.part === 2) || (content.paperId === 'reading-writing' && (part.part === 1 || ketLetterIds.has(question.id))))) ? ['A'] : ['answer'];
@@ -167,6 +177,38 @@ test('standalone Writing keeps one ten-point task and flexible 25–30 to 6–70
   assert.deepEqual(validateExamPaperContent(content), []);
   content.parts[0].questions.push(structuredClone(writing));
   assert.ok(validateExamPaperContent(content).some(error => error.includes('đúng một bài viết')));
+});
+
+test('PET Writing uses the versioned 5–1–1 contract and preserves released two-Part papers', () => {
+  const definition = getModuleExamPaperDefinitions('pet').find(item => item.paperId === 'writing')!;
+  const content = createDefaultExamContent(definition);
+  assert.equal(content.templateVersion, 'pet-writing-3-v1');
+  assert.deepEqual(content.parts.map(part => part.questions.length), [5, 1, 1]);
+  assert.deepEqual(content.parts.map(part => part.interaction?.variant), ['sentence-transformation', 'guided-email-writing', 'choice-free-writing']);
+  assert.equal(content.parts[2].questions[0].options.length, 2);
+  assert.deepEqual(content.parts[2].questions[0].options.map(option => option.label), ['7', '8']);
+
+  content.parts[0].questions.forEach((question, index) => {
+    question.context = `Original ${index + 1}`;
+    question.prompt = `Rewritten ${index + 1}: ____`;
+    question.acceptedAnswers = index === 0 ? ["'ve"] : ['answer'];
+  });
+  assert.deepEqual(validateExamPaperContent(content), []);
+  const choice = content.parts[2].questions[0];
+  const sanitized = sanitizeExamAnswers({
+    [content.parts[0].questions[0].id]: '’ve',
+    [choice.id]: { optionId: choice.options[1].id, text: 'My selected story response.', injected: 'ignored' },
+  }, content);
+  assert.deepEqual(sanitized[choice.id], { optionId: choice.options[1].id, text: 'My selected story response.' });
+  assert.equal(gradeExamAttempt(content, sanitized).questions[0].correct, true);
+  assert.equal(sanitizeExamAnswers({ [choice.id]: { optionId: 'unknown-option', text: 'unsafe' } }, content)[choice.id], undefined);
+
+  const legacy = structuredClone(content);
+  delete legacy.templateVersion;
+  legacy.parts = legacy.parts.slice(1).map((part, index) => ({ ...part, part: index + 1 }));
+  assert.equal(legacy.parts.length, 2);
+  assert.equal(legacy.parts[0].questions[0].type, 'long-writing');
+  assert.deepEqual(normalizeFixedPetWritingContent(legacy), legacy);
 });
 
 test('Starters Listening Part 2 requires two separate unscored example lines', () => {

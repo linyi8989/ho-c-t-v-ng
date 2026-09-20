@@ -26,6 +26,10 @@ import {
 import { normalizeFixedFlyerListeningContent } from '../../features/exam-platform/flyerListeningMigration.js';
 import { normalizeFixedFlyerReadingWritingContent } from '../../features/exam-platform/flyerReadingWritingMigration.js';
 import { normalizeFixedKetReadingWritingContent } from '../../features/exam-platform/ketReadingWritingMigration.js';
+import { normalizeFixedKetListeningContent } from '../../features/exam-platform/ketListeningMigration.js';
+import { normalizeFixedPetReadingContent } from '../../features/exam-platform/petReadingMigration.js';
+import { normalizeFixedPetListeningContent } from '../../features/exam-platform/petListeningMigration.js';
+import { normalizeFixedPetWritingContent } from '../../features/exam-platform/petWritingMigration.js';
 import { countWritingWords } from '../../features/writing-library/writingWordPolicy.js';
 
 type Middleware = express.RequestHandler;
@@ -67,9 +71,9 @@ const EXAM_TICKET_CLOCK_SKEW_MS = 5 * 60_000;
 const WRITING_GRADING_RETRY_COOLDOWN_MS = 5 * 60_000;
 const WRITING_GRADING_LEASE_MS = 3 * 60_000;
 
-const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedKetReadingWritingContent(
-  normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)),
-);
+const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(
+  normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)))),
+)));
 
 function apiError(status: number, message: string, details?: unknown) {
   const error: any = new Error(message);
@@ -399,6 +403,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
     let leaseToken = '';
     let cycle = 0;
     let providerId = '';
+    let queueNextWriting = false;
     try {
       const attempt = await loadAttempt(attemptId);
       if (!attempt || attempt.status !== 'pending_review') return attempt;
@@ -418,7 +423,11 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
     const config = canonical?.writingGrading;
     if (!canonical || !config?.enabled) return attempt;
       providerId = String(config.providerId || '');
-    const essay = typeof detail.answers?.[canonical.id] === 'string' ? detail.answers[canonical.id] : '';
+    const storedAnswer = detail.answers?.[canonical.id];
+    const selectedOption = storedAnswer && typeof storedAnswer === 'object' && !Array.isArray(storedAnswer)
+      ? canonical.options.find((option: any) => option.id === storedAnswer.optionId)
+      : undefined;
+    const essay = typeof storedAnswer === 'string' ? storedAnswer : selectedOption ? String(storedAnswer.text || '') : '';
       leaseToken = crypto.randomUUID();
     const processingAt = nowIso();
       const processingAttempt = {
@@ -449,12 +458,13 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           canonicalPart?.instruction,
           canonicalPart?.passage,
           canonical.context,
+          selectedOption ? `Đề học sinh đã chọn (Question ${selectedOption.label}):\n${selectedOption.text}` : '',
         ].filter(Boolean).join('\n\n'),
         gradingInstructions: [
           canonical.rubric ? `Rubric:\n${canonical.rubric}` : '',
           config.gradingInstructions,
         ].filter(Boolean).join('\n\n'),
-        prompt: canonical.prompt,
+        prompt: selectedOption?.text || canonical.prompt,
         essay,
         minWords: Number(canonical.minWords || 1),
         maxWords: Number(canonical.maxWords || 50),
@@ -490,12 +500,14 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           const finalized = applyAiWritingGrade(currentDetail.grade, canonical.id, output);
           const timestamp = nowIso();
           const writingResult = finalized.questions.find((question: any) => question.questionId === canonical.id);
-          const nextAttempt = { ...currentAttempt, status: finalized.status, score: finalized.score, pendingManualCount: finalized.pendingManualCount, aiGradingStatus: 'completed', aiGradingMessage: 'Đã chấm Writing.', aiGradingRetryable: false, aiGradingNextRetryAt: '', aiGradingLeaseToken: '', aiGradingLeaseExpiresAt: '', writingScore: writingResult?.writingScore ?? writingResult?.pointsAwarded, writingWordCount: countWritingWords(essay), gradedBy: 'ai', gradedAt: timestamp, updatedAt: timestamp };
+          const hasNextWriting = finalized.pendingManualCount > 0;
+          const nextAttempt = { ...currentAttempt, status: finalized.status, score: finalized.score, pendingManualCount: finalized.pendingManualCount, aiGradingStatus: hasNextWriting ? 'queued' : 'completed', aiGradingMessage: hasNextWriting ? `Đã chấm một bài Writing. Còn ${finalized.pendingManualCount} bài đang chờ chấm.` : 'Đã chấm tất cả bài Writing.', aiGradingRetryable: false, aiGradingNextRetryAt: '', aiGradingLeaseToken: '', aiGradingLeaseExpiresAt: '', writingScore: writingResult?.writingScore ?? writingResult?.pointsAwarded, writingWordCount: countWritingWords(essay), gradedBy: 'ai', gradedAt: timestamp, updatedAt: timestamp };
           const nextDetail = { ...currentDetail, grade: finalized, questions: finalized.questions, finalAwarded: finalized.objectiveAwarded + finalized.manualAwarded, finalMaximum: finalized.objectiveMaximum + finalized.manualMaximum, updatedAt: timestamp };
           const batch = db.batch();
           batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
           batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
           await batch.commit();
+          queueNextWriting = hasNextWriting;
           return nextAttempt;
         });
     } catch (error) {
@@ -533,6 +545,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       }
     } finally {
       activeWritingGrades.delete(attemptId);
+      if (queueNextWriting) scheduleAiWritingGrade(attemptId, cycle);
     }
   };
 
@@ -877,7 +890,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           || !Number.isFinite(value)
           || value < 0
           || value > Number(question.maxPoints || 0)
-          || (((moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9) || moduleId === 'writing') && !Number.isInteger(value));
+          || (((moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9) || (moduleId === 'pet' && paperId === 'writing') || moduleId === 'writing') && !Number.isInteger(value));
       });
       if (invalidGrade) throw apiError(400, `Điểm Writing cho câu ${invalidGrade.number} bị thiếu hoặc ngoài phạm vi cho phép.`);
       const finalized = applyManualExamGrades(detail.grade, grades);

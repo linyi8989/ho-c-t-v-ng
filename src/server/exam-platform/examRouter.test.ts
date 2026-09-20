@@ -100,7 +100,9 @@ function correctAnswers(content: ExamPaperContent): ExamAnswers {
   return Object.fromEntries(content.parts.flatMap(part => part.questions.map(question => [
     question.id,
     question.type === 'long-writing'
-      ? 'A complete student response.'
+      ? question.options.length === 2
+        ? { optionId: question.options[0].id, text: 'A complete student response for the selected writing task.' }
+        : 'A complete student response.'
       : question.correctOptionIds[0] || question.acceptedAnswers[0],
   ])));
 }
@@ -145,6 +147,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
   };
   const pass: express.RequestHandler = (_req, _res, next) => next();
   let failWritingGrade = false;
+  const writingGradeRequests: any[] = [];
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use('/api/exam-platform', createExamRouter({
@@ -159,6 +162,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
       recoveryIntervalMs: 0,
       retryCooldownMs: 1_000,
       grade: async (request, options) => {
+        writingGradeRequests.push(request);
         await options?.onAttempt?.(1, 2);
         if (failWritingGrade) throw new TypeError('fetch failed');
         assert.equal(request.providerId, 'stali:gpt-5.6-sol');
@@ -467,6 +471,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
     body: JSON.stringify({ ...identity, clientRunId: 'writing-client-run', runSecret: 'writing-run-secret-12345678' }),
   });
   const writingTicket = await writingPrepare.json() as any;
+  const petRequestStart = writingGradeRequests.length;
   const writingSubmit = await fetch(`${baseUrl}/modules/pet/papers/writing/sets/${writingCreated.id}/attempts/submit`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...identity, ticket: writingTicket.ticket, runSecret: 'writing-run-secret-12345678', answers: correctAnswers(writingContent) }),
@@ -474,19 +479,22 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(writingSubmit.status, 201);
   const writingAttempt = await writingSubmit.json() as any;
   assert.equal(writingAttempt.status, 'pending_review');
-  assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 1);
-
-  const missingGrade = await fetch(`${baseUrl}/admin/modules/pet/papers/writing/sets/${writingCreated.id}/attempts/${writingAttempt.id}/manual-grade`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grades: {} }),
-  });
-  assert.equal(missingGrade.status, 400);
-  const writingResults = await (await fetch(`${baseUrl}/admin/modules/pet/papers/writing/sets/${writingCreated.id}/results`)).json() as any;
-  const gradePayload = Object.fromEntries(writingResults.attempts[0].questions.map((question: any) => [question.questionId, question.maxPoints]));
-  const manualGrade = await fetch(`${baseUrl}/admin/modules/pet/papers/writing/sets/${writingCreated.id}/attempts/${writingAttempt.id}/manual-grade`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grades: gradePayload }),
-  });
-  assert.equal(manualGrade.status, 200);
-  assert.equal((await manualGrade.json() as any).score, 100);
+  const writingCompleted = await waitForAttempt(
+    `${baseUrl}/modules/pet/papers/writing/sets/${writingCreated.id}/attempts/${writingAttempt.id}/status?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`,
+    { 'X-Exam-Run-Secret': 'writing-run-secret-12345678' },
+    value => value.aiGradingStatus === 'completed',
+  );
+  assert.equal(writingCompleted.status, 'completed');
+  assert.equal(writingCompleted.pendingManualCount, 0);
+  assert.equal(writingCompleted.score, 84);
+  const petRequests = writingGradeRequests.slice(petRequestStart);
+  assert.equal(petRequests.length, 2);
+  assert.match(petRequests[1].prompt, /Question 7|letter answering/i);
+  assert.match(petRequests[1].taskContext, /Đề học sinh đã chọn \(Question 7\)/);
+  const petWritingReviewResponse = await fetch(`${baseUrl}/modules/pet/papers/writing/sets/${writingCreated.id}/attempts/${writingAttempt.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } });
+  const petWritingReview = await petWritingReviewResponse.json() as any;
+  assert.equal(petWritingReviewResponse.status, 200);
+  assert.equal(petWritingReview.questions.filter((question: any) => question.type === 'long-writing' && question.writingScore === 8).length, 2);
   assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 2);
 
   const ketContent = completeContent('ket', 'reading-writing');
@@ -609,6 +617,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(retriedCompletedAttempt.aiGradingCycle, 2);
 
   const drawCurrent = createDefaultExamContent(getExamPaperDefinition('pet', 'reading')!);
+  delete drawCurrent.templateVersion;
   const drawContent = importUniversalExamBundle(drawCurrent, JSON.stringify({
     format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet' }, papers: [{ paperId: 'reading', parts: [{
       partNumber: 1, title: 'Draw', instruction: 'Draw on the picture.', blocks: [{

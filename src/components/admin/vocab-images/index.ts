@@ -5,5 +5,6 @@ export type {
   ManagedVocabImageAsset,
   VocabImageBatchProvider,
   VocabImageGenerationResult,
+  VocabImageBatchJob,
   VocabImageProviderOption,
 } from "./types";

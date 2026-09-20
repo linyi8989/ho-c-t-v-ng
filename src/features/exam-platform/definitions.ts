@@ -11,6 +11,9 @@ import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from './flyerListen
 import { normalizeFixedFlyerReadingWritingContent } from './flyerReadingWritingMigration';
 import { normalizeFixedKetReadingWritingContent } from './ketReadingWritingMigration';
 import { KET_LISTENING_TEMPLATE_VERSION, normalizeFixedKetListeningContent } from './ketListeningMigration';
+import { createDefaultPetReadingExample, PET_READING_PART_HEADERS, PET_READING_TEMPLATE_VERSION, normalizeFixedPetReadingContent } from './petReadingMigration';
+import { PET_LISTENING_TEMPLATE_VERSION, normalizeFixedPetListeningContent } from './petListeningMigration';
+import { PET_WRITING_TEMPLATE_VERSION, normalizeFixedPetWritingContent } from './petWritingMigration';
 import {
   DEFAULT_WRITING_GRADING_INSTRUCTIONS,
   DEFAULT_WRITING_RUBRIC,
@@ -131,22 +134,22 @@ export const EXAM_PAPER_DEFINITIONS = [
   ], { description: 'A2 Key Listening · 5 Part · số câu linh hoạt theo đề gốc' }),
 
   paper('pet', 'reading', 'Reading', 'B1 Preliminary', 45, [
-    part(5, 'Short texts: multiple choice', 'single-choice', readingTypes),
-    part(5, 'Multiple matching', 'matching', readingTypes),
-    part(5, 'Long text: multiple choice', 'single-choice', readingTypes),
-    part(5, 'Gapped text', 'matching', readingTypes),
-    part(6, 'Multiple-choice cloze', 'single-choice', readingTypes),
-    part(6, 'Open cloze', 'short-answer', readingTypes),
-  ], { description: 'B1 Preliminary Reading · 6 Part · 32 câu' }),
+    part(5, PET_READING_PART_HEADERS[0].title, 'single-choice', ['single-choice'], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[0].instruction }),
+    part(5, PET_READING_PART_HEADERS[1].title, 'single-choice', ['single-choice'], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[1].instruction }),
+    part(10, PET_READING_PART_HEADERS[2].title, 'true-false', ['true-false'], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[2].instruction }),
+    part(5, PET_READING_PART_HEADERS[3].title, 'single-choice', ['single-choice'], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[3].instruction }),
+    part(10, PET_READING_PART_HEADERS[4].title, 'single-choice', ['single-choice'], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[4].instruction }),
+  ], { description: 'B1 Preliminary Reading · 5 Part · số câu linh hoạt theo đề gốc' }),
   paper('pet', 'writing', 'Writing', 'B1 Preliminary', 45, [
-    part(1, 'Write an email', 'long-writing', ['long-writing'], { longWriting: true, minWords: 100, pointsPerQuestion: 20 }),
-    part(1, 'Write an article or story', 'long-writing', ['long-writing'], { longWriting: true, minWords: 100, pointsPerQuestion: 20 }),
-  ], { description: 'B1 Preliminary Writing · 2 bài' }),
+    part(5, 'Sentence transformations', 'short-answer', ['short-answer'], { pointsPerQuestion: 1 }),
+    part(1, 'Write an email', 'long-writing', ['long-writing'], { longWriting: true, minWords: 35, pointsPerQuestion: 10 }),
+    part(1, 'Choose one writing task', 'long-writing', ['long-writing'], { longWriting: true, minWords: 100, pointsPerQuestion: 10 }),
+  ], { description: 'B1 Preliminary Writing · 3 Part · 5 câu biến đổi + 2 bài viết' }),
   paper('pet', 'listening', 'Listening', 'B1 Preliminary', 30, [
-    part(7, 'Visual multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(6, 'Longer recording: multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
-    part(6, 'Gap fill', 'short-answer', listeningTypes, { requiresAudio: true }),
-    part(6, 'Multiple choice', 'single-choice', listeningTypes, { requiresAudio: true }),
+    part(7, 'Visual multiple choice', 'single-choice', listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, 'Longer recording: multiple choice', 'single-choice', listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, 'Gap fill', 'short-answer', listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, 'Yes or no statements', 'single-choice', listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
   ], { description: 'B1 Preliminary Listening · 4 Part · 25 câu' }),
 
   paper('fce', 'reading-use-of-english', 'Reading & Use of English', 'B2 First', 75, [
@@ -551,5 +554,16 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
   if (definition.moduleId === 'ket' && definition.paperId === 'listening') {
     content.templateVersion = KET_LISTENING_TEMPLATE_VERSION;
   }
-  return normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(content)));
+  if (definition.moduleId === 'pet' && definition.paperId === 'reading') {
+    content.templateVersion = PET_READING_TEMPLATE_VERSION;
+    content.parts[0].examples = [createDefaultPetReadingExample(1)];
+    content.parts[4].examples = [createDefaultPetReadingExample(5)];
+  }
+  if (definition.moduleId === 'pet' && definition.paperId === 'writing') {
+    content.templateVersion = PET_WRITING_TEMPLATE_VERSION;
+  }
+  if (definition.moduleId === 'pet' && definition.paperId === 'listening') {
+    content.templateVersion = PET_LISTENING_TEMPLATE_VERSION;
+  }
+  return normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(content))))));
 }

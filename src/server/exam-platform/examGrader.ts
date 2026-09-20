@@ -20,6 +20,15 @@ function answerEmpty(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
 }
 
+function writingAnswer(question: ExamPaperContent['parts'][number]['questions'][number], value: ExamAnswers[string]) {
+  if (typeof value === 'string') return { text: value, prompt: question.prompt };
+  if (value && typeof value === 'object' && !Array.isArray(value) && 'optionId' in value && 'text' in value) {
+    const selected = question.options.find(option => option.id === value.optionId);
+    return selected ? { text: String(value.text || ''), prompt: selected.text, optionLabel: selected.label } : { text: '', prompt: question.prompt };
+  }
+  return { text: '', prompt: question.prompt };
+}
+
 function gradeObjective(question: ExamPaperContent['parts'][number]['questions'][number], answer: string | string[] | undefined) {
   if (question.correctOptionIds.length) {
     const actual = new Set((Array.isArray(answer) ? answer : [answer || '']).filter(Boolean));
@@ -181,12 +190,13 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
     }
     unit.questions.forEach(question => {
     const rawAnswer = answers[question.id];
+    const writing = question.type === 'long-writing' ? writingAnswer(question, rawAnswer) : undefined;
     const answer = typeof rawAnswer === 'string'
       ? rawAnswer
       : Array.isArray(rawAnswer) && rawAnswer.every(value => typeof value === 'string')
         ? rawAnswer
         : undefined;
-    const unanswered = answerEmpty(answer);
+    const unanswered = question.type === 'long-writing' ? !normalizeExamText(writing?.text) : answerEmpty(answer);
     if (question.type === 'long-writing') {
       pendingManualCount += 1;
       questions.push({
@@ -194,8 +204,8 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
         part: part.part,
         number: question.number,
         type: question.type,
-        prompt: question.prompt,
-        userAnswer: displayUserAnswer(question, answer),
+        prompt: writing?.optionLabel ? `Question ${writing.optionLabel}: ${writing.prompt}` : question.prompt,
+        userAnswer: writing?.text || '',
         correct: null,
         unanswered,
         pointsAwarded: 0,

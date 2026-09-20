@@ -67,9 +67,9 @@ var DEFAULT_SQLITE_PATH = import_node_path.default.join(process.cwd(), ".data", 
 function parseBoolean(name, fallback) {
   const raw = process.env[name];
   if (raw === void 0 || raw.trim() === "") return fallback;
-  const normalized4 = raw.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized4)) return true;
-  if (["0", "false", "no", "off"].includes(normalized4)) return false;
+  const normalized6 = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized6)) return true;
+  if (["0", "false", "no", "off"].includes(normalized6)) return false;
   throw new Error(`${name} must be one of true/false, 1/0, yes/no, or on/off.`);
 }
 function parseInteger(name, fallback, minimum, maximum) {
@@ -470,6 +470,7 @@ var STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = "student-entry-hot-path-v1";
 var VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID = "vocab-image-assets-v1";
 var VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID = "vocab-image-providers-ai-v2";
 var VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID = "vocab-image-providers-seedvis-v3";
+var VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID = "vocab-image-batch-jobs-v1";
 var sqliteDb = null;
 var sqliteConfig = null;
 var sqliteDbPath = "";
@@ -486,6 +487,10 @@ var collectionTableMap = {
   vocabsets: "vocab_sets",
   vocab_image_assets: "vocab_image_assets",
   vocabimageassets: "vocab_image_assets",
+  vocab_image_batch_jobs: "vocab_image_batch_jobs",
+  vocabimagebatchjobs: "vocab_image_batch_jobs",
+  vocab_image_batch_job_results: "vocab_image_batch_job_results",
+  vocabimagebatchjobresults: "vocab_image_batch_job_results",
   classes: "classes",
   class_members: "class_members",
   classmembers: "class_members",
@@ -609,6 +614,21 @@ var sqlQueryFieldMap = {
     createdBy: "created_by",
     createdAt: "created_at",
     updatedAt: "updated_at"
+  },
+  vocab_image_batch_jobs: {
+    id: "id",
+    actorId: "actor_id",
+    status: "status",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+    expiresAt: "expires_at"
+  },
+  vocab_image_batch_job_results: {
+    id: "id",
+    jobId: "job_id",
+    index: "item_index",
+    createdAt: "created_at",
+    expiresAt: "expires_at"
   },
   game_results: {
     id: "id",
@@ -902,8 +922,8 @@ function firstDefined(data, ...keys) {
 }
 function optionalText(value) {
   if (value === void 0 || value === null) return null;
-  const normalized4 = String(value).trim();
-  return normalized4 || null;
+  const normalized6 = String(value).trim();
+  return normalized6 || null;
 }
 function finiteNumber(value, fallback = 0) {
   const number2 = Number(value);
@@ -1878,6 +1898,48 @@ function upsertDoc(collectionName, id2, inputData) {
         optionalText(firstDefined(data, "createdBy", "created_by")),
         createdAt,
         updatedAt,
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "vocab_image_batch_jobs") {
+    run(
+      `INSERT INTO vocab_image_batch_jobs (
+        id, actor_id, status, created_at, updated_at, expires_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "actorId", "actor_id")),
+        optionalText(firstDefined(data, "status")) || "queued",
+        createdAt,
+        updatedAt,
+        optionalText(firstDefined(data, "expiresAt", "expires_at")),
+        dataJson
+      ]
+    );
+    return;
+  }
+  if (table === "vocab_image_batch_job_results") {
+    run(
+      `INSERT INTO vocab_image_batch_job_results (
+        id, job_id, item_index, created_at, expires_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        item_index = excluded.item_index,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id2,
+        optionalText(firstDefined(data, "jobId", "job_id")),
+        nonNegativeInteger(firstDefined(data, "index", "item_index"), 0),
+        createdAt,
+        optionalText(firstDefined(data, "expiresAt", "expires_at")),
         dataJson
       ]
     );
@@ -3160,6 +3222,49 @@ function migrateVocabImageSeedvisProviderSchema() {
   );
   sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
 }
+function migrateVocabImageBatchJobSchema() {
+  if (hasMigration(VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID;
+    return;
+  }
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS vocab_image_batch_jobs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_jobs_actor_updated
+      ON vocab_image_batch_jobs(actor_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_jobs_expiry
+      ON vocab_image_batch_jobs(expires_at);
+
+    CREATE TABLE IF NOT EXISTS vocab_image_batch_job_results (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      item_index INTEGER NOT NULL CHECK(item_index >= 0),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(job_id) REFERENCES vocab_image_batch_jobs(id)
+        ON UPDATE CASCADE ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vocab_image_batch_job_results_order
+      ON vocab_image_batch_job_results(job_id, item_index);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_job_results_expiry
+      ON vocab_image_batch_job_results(expires_at);
+  `);
+  getDb().run(
+    "INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)",
+    [VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID;
+}
 function migrateMoverReadingWritingSchema() {
   if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
     sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
@@ -3541,6 +3646,7 @@ async function initializeSQLiteStorage() {
         migrateVocabImageAssetSchema();
         migrateVocabImageProviderSchema();
         migrateVocabImageSeedvisProviderSchema();
+        migrateVocabImageBatchJobSchema();
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();
@@ -4355,30 +4461,30 @@ function normalizeStudentDisplayName(value) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 function validateStudentDisplayName(value) {
-  const normalized4 = normalizeStudentDisplayName(value);
-  const length = Array.from(normalized4).length;
+  const normalized6 = normalizeStudentDisplayName(value);
+  const length = Array.from(normalized6).length;
   if (length < STUDENT_NAME_MIN_LENGTH) {
     return {
       valid: false,
-      value: normalized4,
+      value: normalized6,
       error: `T\xEAn hi\u1EC3n th\u1ECB ph\u1EA3i c\xF3 \xEDt nh\u1EA5t ${STUDENT_NAME_MIN_LENGTH} k\xFD t\u1EF1.`
     };
   }
   if (length > STUDENT_NAME_MAX_LENGTH) {
     return {
       valid: false,
-      value: normalized4,
+      value: normalized6,
       error: `T\xEAn hi\u1EC3n th\u1ECB kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${STUDENT_NAME_MAX_LENGTH} k\xFD t\u1EF1.`
     };
   }
-  if (!/^[\p{L}\p{M}\p{N}]+(?:[ '\u2019-][\p{L}\p{M}\p{N}]+)*$/u.test(normalized4)) {
+  if (!/^[\p{L}\p{M}\p{N}]+(?:[ '\u2019-][\p{L}\p{M}\p{N}]+)*$/u.test(normalized6)) {
     return {
       valid: false,
-      value: normalized4,
+      value: normalized6,
       error: "T\xEAn ch\u1EC9 \u0111\u01B0\u1EE3c ch\u1EE9a ch\u1EEF c\xE1i, ch\u1EEF s\u1ED1, kho\u1EA3ng tr\u1EAFng, d\u1EA5u nh\xE1y ho\u1EB7c d\u1EA5u g\u1EA1ch n\u1ED1i."
     };
   }
-  return { valid: true, value: normalized4, error: "" };
+  return { valid: true, value: normalized6, error: "" };
 }
 
 // src/lib/serverLearningRuns.ts
@@ -4513,9 +4619,9 @@ function isValidListeningRegion(region) {
   if (region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) return false;
   if (region.x + region.width > 1 + EPSILON || region.y + region.height > 1 + EPSILON) return false;
   if (region.shape !== "polygon") return true;
-  const normalized4 = regionFromPolygon(region.points || []);
-  if (!normalized4) return false;
-  return Math.abs(normalized4.x - region.x) <= EPSILON && Math.abs(normalized4.y - region.y) <= EPSILON && Math.abs(normalized4.width - region.width) <= EPSILON && Math.abs(normalized4.height - region.height) <= EPSILON;
+  const normalized6 = regionFromPolygon(region.points || []);
+  if (!normalized6) return false;
+  return Math.abs(normalized6.x - region.x) <= EPSILON && Math.abs(normalized6.y - region.y) <= EPSILON && Math.abs(normalized6.width - region.width) <= EPSILON && Math.abs(normalized6.height - region.height) <= EPSILON;
 }
 function pointInListeningRegion(point, region) {
   if (!isNormalizedPoint(point)) return false;
@@ -5250,8 +5356,354 @@ function normalizeFixedKetListeningContent(content) {
   return JSON.stringify(normalizedContent) === JSON.stringify(content) ? content : normalizedContent;
 }
 
+// src/features/exam-platform/petReadingMigration.ts
+var PET_READING_TEMPLATE_VERSION = "pet-reading-5-v1";
+var PET_READING_DEFAULT_COUNTS = [5, 5, 10, 5, 10];
+var PET_READING_VARIANTS = [
+  "notice-image-choice",
+  "people-text-matching",
+  "image-yes-no",
+  "passage-four-choice",
+  "multiple-choice-cloze-four"
+];
+var PET_READING_PART_HEADERS = [
+  {
+    title: "Questions 1\u20135",
+    instruction: "Look at the text in each question. What does it say? Mark the correct letter A, B or C on your answer sheet."
+  },
+  {
+    title: "Questions 6\u201310",
+    instruction: "The young people below all want to do an art course during their school holidays. On the opposite page there are descriptions of eight short art courses. Decide which course would be the most suitable for the following people. For questions 6\u201310, mark the correct letter (A\u2013H) on your answer sheet."
+  },
+  {
+    title: "Questions 11\u201320",
+    instruction: "Look at the sentences below about a family trip to see dolphins. Read the text on the opposite page to decide if each sentence is correct or incorrect. If it is correct, mark A on your answer sheet. If it is not correct, mark B on your answer sheet."
+  },
+  {
+    title: "Questions 21\u201325",
+    instruction: "Read the text and questions below. For each question, mark the correct letter A, B, C or D on your answer sheet."
+  },
+  {
+    title: "Questions 26\u201335",
+    instruction: "Read the text below and choose the correct word for each space. For each question, mark the correct letter A, B, C or D on your answer sheet."
+  }
+];
+var makeId4 = (prefix) => `${prefix}-${crypto.randomUUID()}`;
+var normalized4 = (value) => String(value ?? "").trim().normalize("NFKC").toLocaleLowerCase("en");
+function createDefaultPetReadingExample(part2) {
+  if (part2 === 1) {
+    return {
+      prompt: "LOST FLOPPY DISC\nLost on Tuesday \u2013 contains important schoolwork.\nHand in to office.",
+      options: [
+        { label: "A", text: "Go to the office if you have lost a floppy disc." },
+        { label: "B", text: "Make sure all schoolwork is given in on floppy disc to the office." },
+        { label: "C", text: "If you have found a floppy disc, please leave it at the office." }
+      ],
+      answer: "B"
+    };
+  }
+  return {
+    prompt: "0",
+    options: [
+      { label: "A", text: "which" },
+      { label: "B", text: "where" },
+      { label: "C", text: "who" },
+      { label: "D", text: "what" }
+    ],
+    answer: "A"
+  };
+}
+function normalizeExample(part2, example) {
+  const fallback = createDefaultPetReadingExample(part2);
+  const count = part2 === 1 ? 3 : 4;
+  const options = Array.from({ length: count }, (_, index) => {
+    const label = String.fromCharCode(65 + index);
+    const existing = example?.options?.find((option) => normalized4(option.label) === normalized4(label)) || example?.options?.[index];
+    return { label, text: existing?.text?.trim() || fallback.options?.[index]?.text || `Option ${label}` };
+  });
+  const requestedAnswer = String(example?.answer || "").trim();
+  const answerIndex = options.findIndex((option) => normalized4(option.label) === normalized4(requestedAnswer) || normalized4(option.text) === normalized4(requestedAnswer));
+  return {
+    ...example,
+    prompt: example?.prompt?.trim() || fallback.prompt,
+    options,
+    answer: answerIndex >= 0 ? options[answerIndex].label : fallback.answer
+  };
+}
+function descriptor4(part2) {
+  if (part2 === 1) return { family: "choice", subtype: "single", variant: PET_READING_VARIANTS[0], schemaVersion: 1, importReadiness: "content-ready" };
+  if (part2 === 2) return { family: "choice", subtype: "letter-matching", variant: PET_READING_VARIANTS[1], schemaVersion: 1, importReadiness: "content-ready" };
+  if (part2 === 3) return { family: "choice", subtype: "single", variant: PET_READING_VARIANTS[2], schemaVersion: 1, importReadiness: "needs-assets" };
+  if (part2 === 4) return { family: "choice", subtype: "single", variant: PET_READING_VARIANTS[3], schemaVersion: 1, importReadiness: "content-ready" };
+  return { family: "choice", subtype: "cloze", variant: PET_READING_VARIANTS[4], schemaVersion: 1, importReadiness: "content-ready" };
+}
+function defaultChoiceTexts(part2) {
+  if (part2 === 2) return Array.from({ length: 8 }, (_, index) => `Choice ${String.fromCharCode(65 + index)}`);
+  if (part2 === 3) return ["Yes", "No"];
+  if (part2 === 1) return ["Option A", "Option B", "Option C"];
+  return ["Option A", "Option B", "Option C", "Option D"];
+}
+function placeholderQuestion4(part2, number2) {
+  const options = defaultChoiceTexts(part2).map((text6, index) => ({
+    id: makeId4(`pet-reading-p${part2}-option`),
+    label: part2 === 3 ? text6.toUpperCase() : String.fromCharCode(65 + index),
+    text: text6
+  }));
+  return {
+    id: makeId4(`pet-reading-p${part2}-question`),
+    number: number2,
+    displayNumber: number2,
+    type: part2 === 3 ? "true-false" : "single-choice",
+    prompt: part2 === 2 ? `Person ${number2}` : part2 === 3 ? `Statement ${number2}` : `Question ${number2}`,
+    ...part2 === 1 ? { context: `NOTICE ${number2}
+Enter the notice or short message here.` } : {},
+    options,
+    correctOptionIds: [],
+    acceptedAnswers: [],
+    points: 1
+  };
+}
+function selectedIndex(question) {
+  const selectedId = question.correctOptionIds[0];
+  if (!selectedId) return -1;
+  return question.options.findIndex((option) => option.id === selectedId);
+}
+function normalizeChoiceQuestion(part2, question, number2, sharedTexts) {
+  const texts = sharedTexts || defaultChoiceTexts(part2);
+  const currentSelectedIndex = selectedIndex(question);
+  const selected = currentSelectedIndex >= 0 ? question.options[currentSelectedIndex] : void 0;
+  const options = texts.map((fallbackText, index) => {
+    const label = part2 === 3 ? fallbackText.toUpperCase() : String.fromCharCode(65 + index);
+    const existing = question.options.find((option) => normalized4(option.label) === normalized4(label)) || question.options[index];
+    return {
+      id: existing?.id || makeId4(`pet-reading-p${part2}-option`),
+      label,
+      text: part2 === 3 ? fallbackText : sharedTexts ? fallbackText : existing?.text || fallbackText,
+      ...existing?.imageAssetId ? { imageAssetId: existing.imageAssetId } : {},
+      ...existing?.imageUrl ? { imageUrl: existing.imageUrl } : {}
+    };
+  });
+  const selectedOption = selected ? options.find((option) => normalized4(option.label) === normalized4(selected.label)) || options[currentSelectedIndex] : void 0;
+  const displayNumber = Number.isInteger(question.displayNumber) && Number(question.displayNumber) > 0 ? Number(question.displayNumber) : Number.isInteger(question.number) && question.number > 0 ? question.number : number2;
+  return {
+    ...question,
+    number: number2,
+    displayNumber,
+    type: part2 === 3 ? "true-false" : "single-choice",
+    options,
+    correctOptionIds: selectedOption ? [selectedOption.id] : [],
+    acceptedAnswers: [],
+    points: 1
+  };
+}
+function normalizePart4(part2, partNumber, startNumber) {
+  const source = part2.blocks?.[0];
+  const canonicalHeader = PET_READING_PART_HEADERS[partNumber - 1];
+  const sourceExample = partNumber === 1 || partNumber === 5 ? part2.examples?.[0] || source?.examples?.[0] || createDefaultPetReadingExample(partNumber) : void 0;
+  const rows = part2.questions.length ? part2.questions : Array.from({ length: PET_READING_DEFAULT_COUNTS[partNumber - 1] }, (_, index) => placeholderQuestion4(partNumber, startNumber + index));
+  const sharedTexts = partNumber === 2 ? Array.from({ length: 8 }, (_, index) => rows[0]?.options[index]?.text || `Choice ${String.fromCharCode(65 + index)}`) : void 0;
+  const questions = rows.map((question, index) => normalizeChoiceQuestion(partNumber, question, startNumber + index, sharedTexts));
+  const next = {
+    ...part2,
+    part: partNumber,
+    title: canonicalHeader.title,
+    instruction: canonicalHeader.instruction,
+    interaction: descriptor4(partNumber),
+    questions,
+    ...part2.passage || source?.passage ? { passage: part2.passage || source?.passage } : {},
+    ...(partNumber === 1 || partNumber === 5) && sourceExample ? { examples: [normalizeExample(partNumber, sourceExample)] } : {}
+  };
+  delete next.blocks;
+  delete next.readingScenes;
+  if (partNumber !== 1 && partNumber !== 5 || !sourceExample) delete next.examples;
+  if (partNumber === 5 && !next.passage) {
+    next.passage = questions.map((question, index) => `[[${question.displayNumber || startNumber + index}]]`).join(" ");
+  }
+  if (partNumber !== 4 && partNumber !== 5) delete next.passage;
+  if (partNumber !== 3) {
+    delete next.imageAssetId;
+    delete next.imageUrl;
+  }
+  return next;
+}
+function isFixedPetReadingContent(content) {
+  return content.moduleId === "pet" && content.paperId === "reading" && content.templateVersion === PET_READING_TEMPLATE_VERSION;
+}
+function normalizeFixedPetReadingContent(content) {
+  if (!isFixedPetReadingContent(content)) return content;
+  let nextNumber = 1;
+  const parts = Array.from({ length: 5 }, (_, index) => {
+    const current = content.parts[index] || {
+      id: makeId4("pet-reading-part"),
+      part: index + 1,
+      title: PET_READING_PART_HEADERS[index].title,
+      instruction: PET_READING_PART_HEADERS[index].instruction,
+      questions: []
+    };
+    const next = normalizePart4(current, index + 1, nextNumber);
+    nextNumber += next.questions.length;
+    return next;
+  });
+  const normalizedContent = {
+    ...content,
+    schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
+    structureMode: "definition",
+    templateVersion: PET_READING_TEMPLATE_VERSION,
+    parts
+  };
+  return JSON.stringify(normalizedContent) === JSON.stringify(content) ? content : normalizedContent;
+}
+
+// src/features/exam-platform/petListeningMigration.ts
+var PET_LISTENING_TEMPLATE_VERSION = "pet-listening-4-v1";
+var PET_LISTENING_DEFAULT_COUNTS = [7, 6, 6, 6];
+var PET_LISTENING_VARIANTS = [
+  "image-options",
+  "dialogue-choice",
+  "image-form-fields",
+  "yes-no-statements"
+];
+var makeId5 = (prefix) => `${prefix}-${crypto.randomUUID()}`;
+var normalized5 = (value) => String(value ?? "").trim().normalize("NFKC").toLocaleLowerCase("en");
+function descriptor5(part2) {
+  if (part2 === 1) return { family: "choice", subtype: "single", variant: "image-options", schemaVersion: 1, importReadiness: "needs-assets" };
+  if (part2 === 2) return { family: "choice", subtype: "dialogue", variant: "dialogue-choice", schemaVersion: 1, importReadiness: "content-ready" };
+  if (part2 === 3) return { family: "text-entry", subtype: "form-completion", variant: "image-form-fields", schemaVersion: 1, importReadiness: "content-ready" };
+  return { family: "choice", subtype: "binary", variant: "yes-no-statements", schemaVersion: 1, importReadiness: "content-ready" };
+}
+function choiceOptions(question) {
+  return ["A", "B", "C"].map((label, index) => {
+    const existing = question?.options[index];
+    return {
+      id: existing?.id || makeId5("pet-listening-option"),
+      label,
+      text: existing?.text || `Option ${label}`,
+      ...existing?.imageAssetId ? { imageAssetId: existing.imageAssetId } : {},
+      ...existing?.imageUrl ? { imageUrl: existing.imageUrl } : {}
+    };
+  });
+}
+function yesNoOptions(question) {
+  return ["Yes", "No"].map((text6, index) => {
+    const existing = question?.options[index];
+    return {
+      id: existing?.id || makeId5("pet-listening-option"),
+      label: text6,
+      text: text6
+    };
+  });
+}
+function placeholderQuestion5(part2, number2) {
+  if (part2 === 1 || part2 === 2 || part2 === 4) {
+    const options = part2 === 4 ? yesNoOptions() : choiceOptions();
+    return {
+      id: makeId5("pet-listening-question"),
+      number: number2,
+      displayNumber: number2,
+      type: "single-choice",
+      prompt: part2 === 1 ? `Picture question ${number2}` : part2 === 2 ? `Question ${number2}` : `Statement ${number2}`,
+      options,
+      correctOptionIds: [],
+      acceptedAnswers: [],
+      points: 1
+    };
+  }
+  return {
+    id: makeId5("pet-listening-question"),
+    number: number2,
+    displayNumber: number2,
+    type: "short-answer",
+    prompt: `Field ${number2}`,
+    options: [],
+    correctOptionIds: [],
+    acceptedAnswers: [],
+    points: 1,
+    maxWords: 5
+  };
+}
+function normalizeChoice2(question, number2, displayNumber, binary = false) {
+  const selected = question.options.find((option) => question.correctOptionIds.includes(option.id));
+  const options = binary ? yesNoOptions(question) : choiceOptions(question);
+  const selectedOption = selected ? options.find((option) => normalized5(option.label) === normalized5(selected.label) || normalized5(option.text) === normalized5(selected.text)) : void 0;
+  return {
+    ...question,
+    number: number2,
+    displayNumber,
+    type: "single-choice",
+    options,
+    correctOptionIds: selectedOption ? [selectedOption.id] : [],
+    acceptedAnswers: [],
+    points: 1
+  };
+}
+function normalizeQuestion3(part2, question, number2) {
+  const displayNumber = Number.isInteger(question.displayNumber) && Number(question.displayNumber) > 0 ? Number(question.displayNumber) : number2;
+  if (part2 === 1 || part2 === 2) return normalizeChoice2(question, number2, displayNumber);
+  if (part2 === 4) return normalizeChoice2(question, number2, displayNumber, true);
+  return {
+    ...question,
+    number: number2,
+    displayNumber,
+    type: "short-answer",
+    options: [],
+    correctOptionIds: [],
+    points: 1,
+    maxWords: Math.max(1, Math.min(20, Number(question.maxWords) || 5)),
+    answerPrefix: question.answerPrefix || "",
+    answerSuffix: question.answerSuffix || ""
+  };
+}
+function normalizePart5(part2, partNumber, startNumber) {
+  const unit = part2.blocks?.[0];
+  const sourceQuestions = part2.questions.length ? part2.questions : Array.from({ length: PET_LISTENING_DEFAULT_COUNTS[partNumber - 1] }, (_, index) => placeholderQuestion5(partNumber, startNumber + index));
+  const questions = sourceQuestions.map((question, index) => normalizeQuestion3(partNumber, question, startNumber + index));
+  const importedPassage = part2.passage || unit?.passage;
+  const sourceExamples = part2.examples?.length ? part2.examples : unit?.examples;
+  const examples = partNumber === 1 ? sourceExamples?.length ? sourceExamples.slice(0, 1) : [{ prompt: "Example", answer: "" }] : void 0;
+  return {
+    ...part2,
+    part: partNumber,
+    title: part2.title || `Part ${partNumber}`,
+    instruction: part2.instruction || "",
+    interaction: descriptor5(partNumber),
+    questions,
+    blocks: void 0,
+    ...examples ? { examples } : { examples: void 0 },
+    ...importedPassage ? { passage: importedPassage } : { passage: void 0 },
+    readingScenes: void 0
+  };
+}
+function isFixedPetListeningContent(content) {
+  return content.moduleId === "pet" && content.paperId === "listening" && content.templateVersion === PET_LISTENING_TEMPLATE_VERSION;
+}
+function normalizeFixedPetListeningContent(content) {
+  if (!isFixedPetListeningContent(content)) return content;
+  let nextNumber = 1;
+  const parts = Array.from({ length: 4 }, (_, index) => {
+    const current = content.parts[index] || {
+      id: makeId5("pet-listening-part"),
+      part: index + 1,
+      title: `Part ${index + 1}`,
+      instruction: "",
+      questions: []
+    };
+    const next = normalizePart5(current, index + 1, nextNumber);
+    nextNumber += next.questions.length;
+    return next;
+  });
+  const normalizedContent = {
+    ...content,
+    schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
+    structureMode: "definition",
+    templateVersion: PET_LISTENING_TEMPLATE_VERSION,
+    parts
+  };
+  return JSON.stringify(normalizedContent) === JSON.stringify(content) ? content : normalizedContent;
+}
+
 // src/features/writing-library/writingWordPolicy.ts
 var STANDALONE_WRITING_TEMPLATE_VERSION = "standalone-writing-v1";
+var DEFAULT_WRITING_RUBRIC = "Ch\u1EA5m theo m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh y\xEAu c\u1EA7u, n\u1ED9i dung, t\u1ED5 ch\u1EE9c b\xE0i, t\u1EEB v\u1EF1ng v\xE0 ng\u1EEF ph\xE1p. \u0110i\u1EC3m nguy\xEAn t\u1EEB 0 \u0111\u1EBFn 10.";
 var DEFAULT_WRITING_GRADING_INSTRUCTIONS = [
   "Ch\u1EA5m \u0111i\u1EC3m nguy\xEAn t\u1EEB 0 \u0111\u1EBFn 10 d\u1EF1a tr\xEAn m\u1EE9c \u0111\u1ED9 ho\xE0n th\xE0nh y\xEAu c\u1EA7u, n\u1ED9i dung, t\u1ED5 ch\u1EE9c b\xE0i, t\u1EEB v\u1EF1ng v\xE0 ng\u1EEF ph\xE1p.",
   "Kho\u1EA3ng t\u1EEB m\u1EE5c ti\xEAu ch\u1EC9 l\xE0 h\u01B0\u1EDBng d\u1EABn, kh\xF4ng ph\u1EA3i \u0111i\u1EC1u ki\u1EC7n tr\u1EEB \u0111i\u1EC3m m\xE1y m\xF3c.",
@@ -5274,8 +5726,188 @@ function getFlexibleWritingWordPolicy(minWords, maxWords) {
   };
 }
 function countWritingWords(value) {
-  const normalized4 = String(value ?? "").trim();
-  return normalized4 ? normalized4.split(/\s+/).length : 0;
+  const normalized6 = String(value ?? "").trim();
+  return normalized6 ? normalized6.split(/\s+/).length : 0;
+}
+
+// src/features/exam-platform/petWritingMigration.ts
+var PET_WRITING_TEMPLATE_VERSION = "pet-writing-3-v1";
+var PET_WRITING_VARIANTS = [
+  "sentence-transformation",
+  "guided-email-writing",
+  "choice-free-writing"
+];
+var PET_GUIDED_EMAIL_GRADING_INSTRUCTIONS = [
+  DEFAULT_WRITING_GRADING_INSTRUCTIONS,
+  "\u0110\xE2y l\xE0 email ho\u1EB7c th\u01B0 ng\u1EAFn. \u01AFu ti\xEAn vi\u1EC7c ho\xE0n th\xE0nh \u0111\u1EE7 c\xE1c \xFD b\u1EAFt bu\u1ED9c trong khung n\u1ED9i dung do gi\xE1o vi\xEAn cung c\u1EA5p.",
+  "Ch\u1EA5p nh\u1EADn l\u1EDDi ch\xE0o, l\u1EDDi c\u1EA3m \u01A1n, c\xE2u h\u1ECFi th\xEAm v\xE0 l\u1EDDi mong h\u1ED3i \u0111\xE1p n\u1EBFu ph\xF9 h\u1EE3p v\u1EDBi ng\u01B0\u1EDDi nh\u1EADn v\xE0 th\u1EC3 lo\u1EA1i th\u01B0.",
+  "Kh\xF4ng \xE9p b\xE0i ph\u1EA3i d\u1EEBng \u0111\xFAng s\u1ED1 t\u1EEB m\u1EE5c ti\xEAu. B\xE0i d\xE0i h\u01A1n v\u1EABn c\xF3 th\u1EC3 \u0111\u1EA1t \u0111i\u1EC3m cao n\u1EBFu \u0111\xFAng tr\u1ECDng t\xE2m, t\u1EF1 nhi\xEAn, m\u1EA1ch l\u1EA1c v\xE0 d\xF9ng ti\u1EBFng Anh t\u1ED1t; ch\u1EC9 gi\u1EA3m \u0111i\u1EC3m khi n\u1ED9i dung lan man, l\u1EB7p \xFD, sai th\u1EC3 lo\u1EA1i ho\u1EB7c c\xF3 l\u1ED7i \u1EA3nh h\u01B0\u1EDFng ch\u1EA5t l\u01B0\u1EE3ng."
+].join(" ");
+var PET_FREE_WRITING_GRADING_INSTRUCTIONS = [
+  DEFAULT_WRITING_GRADING_INSTRUCTIONS,
+  "\u0110\xE2y l\xE0 b\xE0i vi\u1EBFt t\u1EF1 do theo m\u1ED9t trong hai \u0111\u1EC1 h\u1ECDc sinh \u0111\xE3 ch\u1ECDn. Ch\u1EA5m \u0111\xFAng ch\u1EE7 \u0111\u1EC1 v\xE0 \u0111\xFAng th\u1EC3 lo\u1EA1i c\u1EE7a l\u1EF1a ch\u1ECDn \u0111\xF3, \u0111\u1ED3ng th\u1EDDi \u0111\xE1nh gi\xE1 n\u1ED9i dung, b\u1ED1 c\u1EE5c, t\xEDnh m\u1EA1ch l\u1EA1c, t\u1EEB v\u1EF1ng v\xE0 ng\u1EEF ph\xE1p.",
+  "Kh\xF4ng b\u1EAFt bu\u1ED9c m\u1ED9t d\xE0n \xFD duy nh\u1EA5t. C\xE1c chi ti\u1EBFt s\xE1ng t\u1EA1o h\u1EE3p l\xFD \u0111\u01B0\u1EE3c khuy\u1EBFn kh\xEDch; b\xE0i d\xE0i h\u01A1n m\u1EE5c ti\xEAu v\u1EABn c\xF3 th\u1EC3 \u0111\u1EA1t \u0111i\u1EC3m cao n\u1EBFu hay, r\xF5 r\xE0ng v\xE0 kh\xF4ng lan man."
+].join(" ");
+var makeId6 = (prefix) => `${prefix}-${crypto.randomUUID()}`;
+var DEFAULT_PART_ONE_EXAMPLE = {
+  prompt: "The game is called Jotto.\nThe name ____ is Jotto.",
+  answer: "of the game"
+};
+function descriptor6(part2) {
+  if (part2 === 1) return { family: "text-entry", subtype: "short-answer", variant: PET_WRITING_VARIANTS[0], schemaVersion: 1, importReadiness: "content-ready" };
+  if (part2 === 2) return { family: "writing", subtype: "guided-email", variant: PET_WRITING_VARIANTS[1], schemaVersion: 1, importReadiness: "content-ready" };
+  return { family: "writing", subtype: "choice", variant: PET_WRITING_VARIANTS[2], schemaVersion: 1, importReadiness: "content-ready" };
+}
+function sentenceQuestion(number2) {
+  return {
+    id: makeId6("pet-writing-p1-question"),
+    number: number2,
+    displayNumber: number2,
+    type: "short-answer",
+    context: `Original sentence ${number2}.`,
+    prompt: `Rewritten sentence ${number2}: ____`,
+    options: [],
+    correctOptionIds: [],
+    acceptedAnswers: [],
+    points: 1,
+    maxWords: 5
+  };
+}
+function writingQuestion(part2) {
+  const options = part2 === 3 ? [
+    { id: makeId6("pet-writing-option"), label: "7", text: "Write a letter answering the question shown here." },
+    { id: makeId6("pet-writing-option"), label: "8", text: "Write a story with the title shown here." }
+  ] : [];
+  return {
+    id: makeId6(`pet-writing-p${part2}-question`),
+    number: part2 === 2 ? 6 : 7,
+    displayNumber: part2 === 2 ? 6 : 7,
+    type: "long-writing",
+    prompt: part2 === 2 ? "Write your email. Include all the points in the task." : "Choose one question and write your answer.",
+    context: part2 === 2 ? "1. C\u1EA3m \u01A1n ng\u01B0\u1EDDi nh\u1EADn v\u1EC1 m\xF3n qu\xE0\n2. N\xF3i em \u0111\u1ECBnh mua g\xEC\n3. Gi\u1EA3i th\xEDch v\xEC sao em ch\u1ECDn m\xF3n \u0111\xF3" : "Ch\u1EA5m theo \u0111\xFAng \u0111\u1EC1 m\xE0 h\u1ECDc sinh \u0111\xE3 ch\u1ECDn.",
+    options,
+    correctOptionIds: [],
+    acceptedAnswers: [],
+    points: 10,
+    minWords: part2 === 2 ? 35 : 100,
+    maxWords: part2 === 2 ? 45 : 120,
+    rubric: DEFAULT_WRITING_RUBRIC,
+    writingGrading: {
+      enabled: true,
+      providerId: "stali:gpt-5.6-sol",
+      taskContext: part2 === 2 ? "Writing task \u2013 c\xE1c \xFD b\u1EAFt bu\u1ED9c:\n1. C\u1EA3m \u01A1n ng\u01B0\u1EDDi nh\u1EADn v\u1EC1 m\xF3n qu\xE0\n2. N\xF3i em \u0111\u1ECBnh mua g\xEC\n3. Gi\u1EA3i th\xEDch v\xEC sao em ch\u1ECDn m\xF3n \u0111\xF3" : "Writing task \u2013 ch\u1EA5m theo \u0111\xFAng ch\u1EE7 \u0111\u1EC1, th\u1EC3 lo\u1EA1i v\xE0 y\xEAu c\u1EA7u c\u1EE7a \u0111\u1EC1 h\u1ECDc sinh \u0111\xE3 ch\u1ECDn.",
+      gradingInstructions: part2 === 2 ? PET_GUIDED_EMAIL_GRADING_INSTRUCTIONS : PET_FREE_WRITING_GRADING_INSTRUCTIONS,
+      scoreScale: 10
+    }
+  };
+}
+function defaultPart(part2) {
+  if (part2 === 1) return {
+    id: makeId6("pet-writing-part"),
+    part: part2,
+    title: "Questions 1\u20135",
+    instruction: "Here are some sentences about a game.\nFor each question, complete the second sentence so that it means the same as the first.\nUse no more than three words.\nWrite only the missing words on your answer sheet.\nYou may use this page for any rough work.",
+    interaction: descriptor6(part2),
+    examples: [DEFAULT_PART_ONE_EXAMPLE],
+    questions: Array.from({ length: 5 }, (_, index) => sentenceQuestion(index + 1))
+  };
+  if (part2 === 2) return {
+    id: makeId6("pet-writing-part"),
+    part: part2,
+    title: "Write an email",
+    instruction: "Read the task and write 35\u201345 words.",
+    passage: "Your English friend has written to you. Write an email and answer all the points.",
+    interaction: descriptor6(part2),
+    questions: [writingQuestion(2)]
+  };
+  return {
+    id: makeId6("pet-writing-part"),
+    part: part2,
+    title: "Questions 7\u20138",
+    instruction: "Write an answer to one of the questions (7 or 8) in this part.\nWrite your answer in about 100 words on your answer sheet.\nMark the question number in the box at the top of your answer sheet.",
+    interaction: descriptor6(part2),
+    questions: [writingQuestion(3)]
+  };
+}
+function normalizeSentencePart(part2) {
+  const source = part2.questions.length ? part2.questions : defaultPart(1).questions;
+  const questions = Array.from({ length: 5 }, (_, index) => {
+    const current = source[index] || sentenceQuestion(index + 1);
+    return {
+      ...current,
+      number: index + 1,
+      displayNumber: index + 1,
+      type: "short-answer",
+      context: current.context || `Original sentence ${index + 1}.`,
+      prompt: current.prompt || `Rewritten sentence ${index + 1}: ____`,
+      options: [],
+      correctOptionIds: [],
+      acceptedAnswers: current.acceptedAnswers || [],
+      points: 1,
+      maxWords: current.maxWords || 5
+    };
+  });
+  const importedExamples = part2.blocks?.[0]?.examples;
+  const examples = importedExamples?.length ? importedExamples : part2.examples?.length ? part2.examples : [DEFAULT_PART_ONE_EXAMPLE];
+  return { ...part2, part: 1, interaction: descriptor6(1), examples: examples.slice(0, 1), questions, blocks: void 0, readingScenes: void 0 };
+}
+function normalizeWritingPart(part2, partNumber) {
+  const fallback = writingQuestion(partNumber);
+  const fallbackPart = defaultPart(partNumber);
+  const current = part2.questions[0] || fallback;
+  const optionSource = partNumber === 3 && current.options.length >= 2 ? current.options.slice(0, 2) : fallback.options;
+  const options = optionSource.map((option, index) => ({
+    ...option,
+    id: option.id || makeId6("pet-writing-option"),
+    label: String(index + 7),
+    text: option.text || `Question ${index + 7}`
+  }));
+  const defaultInstructions = partNumber === 2 ? PET_GUIDED_EMAIL_GRADING_INSTRUCTIONS : PET_FREE_WRITING_GRADING_INSTRUCTIONS;
+  const question = {
+    ...current,
+    number: partNumber === 2 ? 6 : 7,
+    displayNumber: partNumber === 2 ? 6 : 7,
+    type: "long-writing",
+    options: partNumber === 3 ? options : [],
+    correctOptionIds: [],
+    acceptedAnswers: [],
+    points: 10,
+    minWords: current.minWords || fallback.minWords,
+    maxWords: Math.max(current.minWords || fallback.minWords || 1, current.maxWords || fallback.maxWords || 1),
+    rubric: current.rubric || DEFAULT_WRITING_RUBRIC,
+    writingGrading: {
+      enabled: true,
+      providerId: current.writingGrading?.providerId || fallback.writingGrading.providerId,
+      taskContext: current.writingGrading?.taskContext || current.context || fallback.writingGrading.taskContext,
+      gradingInstructions: current.writingGrading?.gradingInstructions || defaultInstructions,
+      scoreScale: 10
+    }
+  };
+  return {
+    ...part2,
+    part: partNumber,
+    ...partNumber === 2 ? { passage: part2.passage || part2.blocks?.[0]?.passage || fallbackPart.passage } : {},
+    interaction: descriptor6(partNumber),
+    questions: [question],
+    blocks: void 0,
+    readingScenes: void 0
+  };
+}
+function isFixedPetWritingContent(content) {
+  return content.moduleId === "pet" && content.paperId === "writing" && content.templateVersion === PET_WRITING_TEMPLATE_VERSION;
+}
+function normalizeFixedPetWritingContent(content) {
+  if (!isFixedPetWritingContent(content)) return content;
+  const current = Array.from({ length: 3 }, (_, index) => content.parts[index] || defaultPart(index + 1));
+  const parts = [normalizeSentencePart(current[0]), normalizeWritingPart(current[1], 2), normalizeWritingPart(current[2], 3)];
+  const next = {
+    ...content,
+    schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
+    structureMode: "definition",
+    templateVersion: PET_WRITING_TEMPLATE_VERSION,
+    parts
+  };
+  return JSON.stringify(next) === JSON.stringify(content) ? content : next;
 }
 
 // src/features/exam-platform/definitions.ts
@@ -5372,22 +6004,22 @@ var EXAM_PAPER_DEFINITIONS = [
     part(5, "Listen and complete the notes", "short-answer", ["short-answer"], { requiresAudio: true, questionCountFlexible: true })
   ], { description: "A2 Key Listening \xB7 5 Part \xB7 s\u1ED1 c\xE2u linh ho\u1EA1t theo \u0111\u1EC1 g\u1ED1c" }),
   paper("pet", "reading", "Reading", "B1 Preliminary", 45, [
-    part(5, "Short texts: multiple choice", "single-choice", readingTypes),
-    part(5, "Multiple matching", "matching", readingTypes),
-    part(5, "Long text: multiple choice", "single-choice", readingTypes),
-    part(5, "Gapped text", "matching", readingTypes),
-    part(6, "Multiple-choice cloze", "single-choice", readingTypes),
-    part(6, "Open cloze", "short-answer", readingTypes)
-  ], { description: "B1 Preliminary Reading \xB7 6 Part \xB7 32 c\xE2u" }),
+    part(5, PET_READING_PART_HEADERS[0].title, "single-choice", ["single-choice"], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[0].instruction }),
+    part(5, PET_READING_PART_HEADERS[1].title, "single-choice", ["single-choice"], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[1].instruction }),
+    part(10, PET_READING_PART_HEADERS[2].title, "true-false", ["true-false"], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[2].instruction }),
+    part(5, PET_READING_PART_HEADERS[3].title, "single-choice", ["single-choice"], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[3].instruction }),
+    part(10, PET_READING_PART_HEADERS[4].title, "single-choice", ["single-choice"], { questionCountFlexible: true, instruction: PET_READING_PART_HEADERS[4].instruction })
+  ], { description: "B1 Preliminary Reading \xB7 5 Part \xB7 s\u1ED1 c\xE2u linh ho\u1EA1t theo \u0111\u1EC1 g\u1ED1c" }),
   paper("pet", "writing", "Writing", "B1 Preliminary", 45, [
-    part(1, "Write an email", "long-writing", ["long-writing"], { longWriting: true, minWords: 100, pointsPerQuestion: 20 }),
-    part(1, "Write an article or story", "long-writing", ["long-writing"], { longWriting: true, minWords: 100, pointsPerQuestion: 20 })
-  ], { description: "B1 Preliminary Writing \xB7 2 b\xE0i" }),
+    part(5, "Sentence transformations", "short-answer", ["short-answer"], { pointsPerQuestion: 1 }),
+    part(1, "Write an email", "long-writing", ["long-writing"], { longWriting: true, minWords: 35, pointsPerQuestion: 10 }),
+    part(1, "Choose one writing task", "long-writing", ["long-writing"], { longWriting: true, minWords: 100, pointsPerQuestion: 10 })
+  ], { description: "B1 Preliminary Writing \xB7 3 Part \xB7 5 c\xE2u bi\u1EBFn \u0111\u1ED5i + 2 b\xE0i vi\u1EBFt" }),
   paper("pet", "listening", "Listening", "B1 Preliminary", 30, [
-    part(7, "Visual multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
-    part(6, "Longer recording: multiple choice", "single-choice", listeningTypes, { requiresAudio: true }),
-    part(6, "Gap fill", "short-answer", listeningTypes, { requiresAudio: true }),
-    part(6, "Multiple choice", "single-choice", listeningTypes, { requiresAudio: true })
+    part(7, "Visual multiple choice", "single-choice", listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, "Longer recording: multiple choice", "single-choice", listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, "Gap fill", "short-answer", listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
+    part(6, "Yes or no statements", "single-choice", listeningTypes, { requiresAudio: true, questionCountFlexible: true })
   ], { description: "B1 Preliminary Listening \xB7 4 Part \xB7 25 c\xE2u" }),
   paper("fce", "reading-use-of-english", "Reading & Use of English", "B2 First", 75, [
     part(8, "Multiple-choice cloze", "single-choice", readingTypes),
@@ -6319,8 +6951,8 @@ function optionAnswer(question, index) {
   return option ? `${String.fromCharCode(65 + index)}. ${reviewText(option.text, 1e3)}`.trim() : "";
 }
 function optionIndexFromAnswer(question, answer) {
-  const normalized4 = reviewText(answer, 1e3);
-  return question.options.findIndex((_option, index) => optionAnswer(question, index) === normalized4);
+  const normalized6 = reviewText(answer, 1e3);
+  return question.options.findIndex((_option, index) => optionAnswer(question, index) === normalized6);
 }
 function presentationTemplate(template, gaps) {
   return gaps.reduce(
@@ -7166,11 +7798,11 @@ function header(req, name) {
   return Array.isArray(value) ? "" : String(value || "").trim();
 }
 function safeGuestId(value) {
-  const normalized4 = value.normalize("NFKC").trim();
-  if (!normalized4 || normalized4.length > 120 || !/^[A-Za-z0-9._:-]+$/.test(normalized4)) {
+  const normalized6 = value.normalize("NFKC").trim();
+  if (!normalized6 || normalized6.length > 120 || !/^[A-Za-z0-9._:-]+$/.test(normalized6)) {
     throw new LearningHistoryAuthError(401, "GUEST_CAPABILITY_REQUIRED", "C\u1EA7n x\xE1c minh quy\u1EC1n xem l\u1ECBch s\u1EED.");
   }
-  return normalized4;
+  return normalized6;
 }
 function tokenMatches(token, expectedHash) {
   if (!token || token.length < 32 || token.length > 512) return false;
@@ -7359,10 +7991,10 @@ function normalizeLegacyDetail(actor, attempt, source, staffAuthorized = false) 
     },
     reviewPolicy
   };
-  const normalized4 = normalizeStoredDetail(actor, attempt, row, staffAuthorized);
+  const normalized6 = normalizeStoredDetail(actor, attempt, row, staffAuthorized);
   return {
-    ...normalized4,
-    warnings: [...warnings, ...normalized4.warnings]
+    ...normalized6,
+    warnings: [...warnings, ...normalized6.warnings]
   };
 }
 
@@ -9137,10 +9769,10 @@ function normalizePart32(raw, currentPart, warnings) {
   return { part: 3, answers: answers.slice(0, 7), pictures: pictures.slice(0, 6), ...example ? { example } : {}, connections, distractorLabel, ...distractorSource ? { distractorSource } : {} };
 }
 function optionIndex(value) {
-  const normalized4 = cleanText(value, 10).toUpperCase();
-  return normalized4 === "A" ? 0 : normalized4 === "B" ? 1 : normalized4 === "C" ? 2 : void 0;
+  const normalized6 = cleanText(value, 10).toUpperCase();
+  return normalized6 === "A" ? 0 : normalized6 === "B" ? 1 : normalized6 === "C" ? 2 : void 0;
 }
-function normalizePart4(raw, warnings) {
+function normalizePart42(raw, warnings) {
   const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
     const prompt = cleanText(entry?.prompt || entry?.question, 1e3);
     const crops = list(entry?.crops).slice(0, 3).map(normalizeCrop).filter(Boolean);
@@ -9190,7 +9822,7 @@ function explicitDrawActionFromPrompt(staffPrompt) {
     confidence: 0.5
   };
 }
-function normalizePart5(raw, currentPart, warnings) {
+function normalizePart52(raw, currentPart, warnings) {
   const seenPaletteItems = /* @__PURE__ */ new Set();
   const paletteItems = list(raw?.paletteItems).flatMap((entry) => {
     const objectType = cleanText(entry?.objectType, 120);
@@ -9287,8 +9919,8 @@ function normalizeData(part2, raw, currentPart, warnings) {
   if (part2 === 1) return normalizePart12(raw, warnings);
   if (part2 === 2) return normalizePart22(raw, warnings);
   if (part2 === 3) return normalizePart32(raw, currentPart, warnings);
-  if (part2 === 4) return normalizePart4(raw, warnings);
-  return normalizePart5(raw, currentPart, warnings);
+  if (part2 === 4) return normalizePart42(raw, warnings);
+  return normalizePart52(raw, currentPart, warnings);
 }
 function localFallback(part2, text6) {
   const rows = localNumberedLines(text6);
@@ -11708,6 +12340,95 @@ function validateKetListeningPart(part2, partIndex, errors) {
     if (unit.questions.some((question) => String(question.answerPrefix || "").length > 20 || String(question.answerSuffix || "").length > 80)) errors.push(`${label}: ch\u1EEF/k\xFD hi\u1EC7u tr\u01B0\u1EDBc ho\u1EB7c sau \xF4 nh\u1EADp v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n cho ph\xE9p.`);
   }
 }
+function validatePetListeningPart(part2, partIndex, errors) {
+  const number2 = partIndex + 1;
+  const label = `PET Listening Part ${number2}`;
+  const unit = examPartUnits(part2)[0] || part2;
+  if (!text2(part2.title, 240) || !text2(part2.instruction, 4e3)) errors.push(`${label}: thi\u1EBFu ti\xEAu \u0111\u1EC1 ho\u1EB7c h\u01B0\u1EDBng d\u1EABn \u0111\u01B0\u1EE3c ch\xE9p t\u1EEB \u0111\u1EC1 ngu\u1ED3n.`);
+  if (!part2.questions.length) errors.push(`${label}: ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u ch\u1EA5m \u0111i\u1EC3m.`);
+  if (examPartUnits(part2).length !== 1 || unit.interaction?.variant !== PET_LISTENING_VARIANTS[partIndex]) errors.push(`${label}: d\u1EA1ng b\xE0i kh\xF4ng \u0111\xFAng c\u1EA5u tr\xFAc PET Listening 4 Part.`);
+  if (number2 === 1) {
+    const example = unit.examples?.[0];
+    const exampleOptions = example?.options || [];
+    const croppedExample = exampleOptions.length === 3 && exampleOptions.map((option) => text2(option.label, 20).toUpperCase()).join("|") === "A|B|C" && exampleOptions.every((option) => text2(option.imageAssetId, 180));
+    const legacyCombinedExample = text2(example?.imageAssetId, 180);
+    if ((unit.examples || []).length !== 1 || !text2(example?.prompt, 2e3) || !/^[ABC]$/i.test(text2(example?.answer, 10)) || !croppedExample && !legacyCombinedExample) {
+      errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example g\u1ED3m c\xE2u h\u1ECFi, ba \u1EA3nh A/B/C \u0111\xE3 crop (ho\u1EB7c \u1EA3nh g\u1ED9p c\u1EE7a \u0111\u1EC1 c\u0169) v\xE0 \u0111\xE1p \xE1n A/B/C; example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m.`);
+    }
+    if (unit.questions.some((question) => question.type !== "single-choice" || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+    if (unit.questions.some((question) => question.options.some((option) => !text2(option.imageAssetId, 180)))) errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 \u0111\u1EE7 ba \u1EA3nh A/B/C \u0111\xE3 crop ho\u1EB7c t\u1EA3i l\xEAn.`);
+  }
+  if (number2 === 2) {
+    if ((unit.examples || []).length) errors.push(`${label}: Part n\xE0y kh\xF4ng \u0111\u01B0\u1EE3c c\xF3 example.`);
+    if (unit.questions.some((question) => !text2(question.prompt, 8e3) || question.type !== "single-choice" || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 n\u1ED9i dung, \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+  }
+  if (number2 === 3) {
+    if (!text2(unit.passage, 2e4)) errors.push(`${label}: thi\u1EBFu n\u1ED9i dung bi\u1EC3u m\u1EABu/ghi ch\xFA v\xE0 example in s\u1EB5n.`);
+    if (unit.questions.some((question) => question.type !== "short-answer" || !text2(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: m\u1ED7i h\xE0ng ph\u1EA3i c\xF3 s\u1ED1 in tr\xEAn \u0111\u1EC1, nh\xE3n v\xE0 \xF4 nh\u1EADp \u0111\xE1p \xE1n.`);
+    if (unit.questions.some((question) => String(question.answerPrefix || "").length > 20 || String(question.answerSuffix || "").length > 80)) errors.push(`${label}: ch\u1EEF tr\u01B0\u1EDBc ho\u1EB7c sau \xF4 nh\u1EADp v\u01B0\u1EE3t qu\xE1 gi\u1EDBi h\u1EA1n cho ph\xE9p.`);
+  }
+  if (number2 === 4) {
+    if (unit.questions.some((question) => question.type !== "single-choice" || question.options.length !== 2 || question.correctOptionIds.length !== 1 || normalizeExamText(question.options[0]?.text) !== "yes" || normalizeExamText(question.options[1]?.text) !== "no")) {
+      errors.push(`${label}: m\u1ED7i nh\u1EADn \u0111\u1ECBnh ph\u1EA3i c\xF3 \u0111\xFAng hai l\u1EF1a ch\u1ECDn Yes/No v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+    }
+  }
+}
+function validatePetReadingPart(part2, partIndex, errors) {
+  const partNumber = partIndex + 1;
+  const label = `PET Reading Part ${partNumber}`;
+  if (!part2.questions.length) errors.push(`${label}: ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u ch\u1EA5m \u0111i\u1EC3m.`);
+  if (examPartUnits(part2).length !== 1 || part2.interaction?.variant !== PET_READING_VARIANTS[partIndex]) {
+    errors.push(`${label}: d\u1EA1ng b\xE0i kh\xF4ng \u0111\xFAng c\u1EA5u tr\xFAc PET Reading 5 Part.`);
+  }
+  const requireChoices = (count, type = "single-choice") => {
+    if (part2.questions.some((question) => question.type !== type || question.options.length !== count || question.correctOptionIds.length !== 1)) {
+      errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 \u0111\xFAng ${count} l\u1EF1a ch\u1ECDn v\xE0 m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng.`);
+    }
+  };
+  const requireExample = (count) => {
+    const example = part2.examples?.[0];
+    const options = example?.options || [];
+    const expectedLabels = Array.from({ length: count }, (_, index) => String.fromCharCode(65 + index));
+    const answer = normalizeExamText(example?.answer);
+    if ((part2.examples || []).length !== 1 || !text2(example?.prompt, 8e3) || options.length !== count || options.some((option, index) => normalizeExamText(option.label) !== normalizeExamText(expectedLabels[index]) || !text2(option.text, 4e3)) || !options.some((option) => normalizeExamText(option.label) === answer)) {
+      errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m, \u0111\u1EE7 ${count} l\u1EF1a ch\u1ECDn v\xE0 \u0111\xE1p \xE1n m\u1EABu h\u1EE3p l\u1EC7.`);
+    }
+  };
+  if (partNumber === 1) {
+    requireChoices(3);
+    requireExample(3);
+    if (part2.questions.some((question) => !text2(question.context, 8e3) && !text2(question.imageAssetId, 180))) {
+      errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i c\xF3 n\u1ED9i dung notice/message \u0111\u1EC3 hi\u1EC3n th\u1ECB trong khung m\u1EB7c \u0111\u1ECBnh.`);
+    }
+  }
+  if (partNumber === 2) {
+    requireChoices(8);
+    const signatures = part2.questions.map((question) => question.options.map((option) => `${text2(option.label, 20).toUpperCase()}\0${text2(option.text, 4e3)}`).join(""));
+    if (new Set(signatures).size !== 1) errors.push(`${label}: m\u1ECDi c\xE2u ph\u1EA3i d\xF9ng chung \u0111\xFAng m\u1ED9t ng\xE2n h\xE0ng l\u1EF1a ch\u1ECDn A\u2013H.`);
+    const selectedIndexes = part2.questions.map((question) => question.options.findIndex((option) => question.correctOptionIds.includes(option.id)));
+    if (selectedIndexes.some((index) => index < 0) || new Set(selectedIndexes).size !== selectedIndexes.length) errors.push(`${label}: m\u1ED7i ng\u01B0\u1EDDi ph\u1EA3i \xE1nh x\u1EA1 t\u1EDBi m\u1ED9t l\u1EF1a ch\u1ECDn A\u2013H kh\xE1c nhau.`);
+  }
+  if (partNumber === 3) {
+    if (!text2(part2.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i t\u1EA3i \u1EA3nh t\xECnh hu\u1ED1ng hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.`);
+    requireChoices(2, "true-false");
+    if (part2.questions.some((question) => question.options.map((option) => text2(option.text, 20).toLowerCase()).join("|") !== "yes|no")) errors.push(`${label}: m\u1ED7i c\xE2u ph\u1EA3i d\xF9ng \u0111\xFAng hai l\u1EF1a ch\u1ECDn Yes/No.`);
+  }
+  if (partNumber === 4) {
+    if (!text2(part2.passage, 4e4)) errors.push(`${label}: thi\u1EBFu b\xE0i \u0111\u1ECDc hi\u1EC3n th\u1ECB ph\xEDa tr\xEAn.`);
+    requireChoices(4);
+  }
+  if (partNumber === 5) {
+    if (!text2(part2.passage, 4e4)) errors.push(`${label}: thi\u1EBFu b\xE0i \u0111\u1ECDc c\xF3 c\xE1c \xF4 tr\u1ED1ng \u0111\u01B0\u1EE3c \u0111\xE1nh s\u1ED1.`);
+    requireChoices(4);
+    requireExample(4);
+    const passage = part2.passage || "";
+    const expected = new Set(part2.questions.map((question) => question.displayNumber || question.number));
+    const markers = [...passage.matchAll(/\[\[(\d+)\]\]/g)].map((match) => Number(match[1]));
+    if (markers.length !== expected.size || new Set(markers).size !== markers.length || markers.some((number2) => !expected.has(number2)) || [...expected].some((number2) => !markers.includes(number2))) {
+      errors.push(`${label}: b\xE0i \u0111\u1ECDc ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t marker [[s\u1ED1 c\xE2u]] cho m\u1ED7i c\xE2u v\xE0 kh\xF4ng c\xF3 marker th\u1EEBa.`);
+    }
+  }
+}
 function validateStandaloneWriting(content, errors) {
   const part2 = content.parts?.[0];
   const question = part2?.questions?.[0];
@@ -11736,8 +12457,63 @@ function validateStandaloneWriting(content, errors) {
     errors.push("Kho \u0111\u1EC1 Writing: thi\u1EBFu c\u1EA5u h\xECnh AI, ng\u1EEF c\u1EA3nh ho\u1EB7c quy t\u1EAFc ch\u1EA5m h\u1EE3p l\u1EC7.");
   }
 }
+function validatePetWriting(content, errors) {
+  if (content.parts.length !== 3 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length !== [5, 1, 1][index])) {
+    errors.push("PET Writing m\u1EDBi ph\u1EA3i c\xF3 \u0111\xFAng 3 Part theo th\u1EE9 t\u1EF1 v\u1EDBi s\u1ED1 c\xE2u/task 5\u20131\u20131.");
+    return;
+  }
+  content.parts.forEach((part2, index) => {
+    const label = `PET Writing Part ${index + 1}`;
+    if (part2.interaction?.variant !== PET_WRITING_VARIANTS[index]) errors.push(`${label}: d\u1EA1ng b\xE0i kh\xF4ng \u0111\xFAng template PET Writing.`);
+  });
+  const first = content.parts[0];
+  const workedExample = first.examples?.[0];
+  if (first.examples?.length !== 1 || !text2(workedExample?.prompt, 2e3) || !text2(workedExample?.answer, 1e3) || !/_{2,}/.test(workedExample?.prompt || "")) {
+    errors.push("PET Writing Part 1: c\u1EA7n \u0111\xFAng m\u1ED9t example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m, g\u1ED3m c\xE2u vi\u1EBFt l\u1EA1i c\xF3 ____ v\xE0 \u0111\xE1p \xE1n hi\u1EC3n th\u1ECB.");
+  }
+  first.questions.forEach((question, index) => {
+    const label = `PET Writing Part 1, c\xE2u ${index + 1}`;
+    if (question.type !== "short-answer" || question.points !== 1 || question.options.length || question.correctOptionIds.length) errors.push(`${label}: ph\u1EA3i l\xE0 c\xE2u \u0111i\u1EC1n \u0111\xE1p \xE1n 1 \u0111i\u1EC3m.`);
+    if (!text2(question.context, 8e3) || !text2(question.prompt, 8e3)) errors.push(`${label}: thi\u1EBFu c\xE2u g\u1ED1c ho\u1EB7c c\xE2u vi\u1EBFt l\u1EA1i.`);
+    if (!question.acceptedAnswers.some((answer) => normalizeExamText(answer))) errors.push(`${label}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.`);
+  });
+  [content.parts[1], content.parts[2]].forEach((part2, offset) => {
+    const partNumber = offset + 2;
+    const question = part2.questions[0];
+    const label = `PET Writing Part ${partNumber}`;
+    if (question.type !== "long-writing" || question.points !== 10 || !text2(question.prompt, 8e3)) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t b\xE0i vi\u1EBFt 10 \u0111i\u1EC3m v\xE0 y\xEAu c\u1EA7u r\xF5 r\xE0ng.`);
+    if (!Number.isInteger(question.minWords) || !Number.isInteger(question.maxWords) || Number(question.minWords) < 1 || Number(question.maxWords) < Number(question.minWords)) errors.push(`${label}: kho\u1EA3ng t\u1EEB m\u1EE5c ti\xEAu kh\xF4ng h\u1EE3p l\u1EC7.`);
+    const config = question.writingGrading;
+    if (!config?.enabled || !["stali:gpt-5.6-sol", "devquota:gpt-5.6-sol"].includes(config.providerId) || config.scoreScale !== 10 || !text2(config.taskContext, 8e3) || !text2(config.gradingInstructions, 8e3)) errors.push(`${label}: thi\u1EBFu c\u1EA5u h\xECnh AI, khung n\u1ED9i dung ho\u1EB7c quy t\u1EAFc ch\u1EA5m h\u1EE3p l\u1EC7.`);
+    if (partNumber === 2 && !text2(part2.passage, 2e4)) errors.push(`${label}: thi\u1EBFu \u0111\u1EC1 email hi\u1EC3n th\u1ECB cho h\u1ECDc sinh.`);
+    if (partNumber === 3) {
+      if (question.options.length !== 2 || question.options.some((option, optionIndex2) => option.label !== String(optionIndex2 + 7) || !text2(option.text, 8e3)) || new Set(question.options.map((option) => option.id)).size !== 2) errors.push(`${label}: ph\u1EA3i c\xF3 \u0111\xFAng hai \u0111\u1EC1 l\u1EF1a ch\u1ECDn 7 v\xE0 8.`);
+    } else if (question.options.length) errors.push(`${label}: email h\u01B0\u1EDBng d\u1EABn kh\xF4ng d\xF9ng l\u1EF1a ch\u1ECDn \u0111\u1EC1.`);
+  });
+}
+var LEGACY_PET_READING_PARTS = [5, 5, 5, 5, 6, 6].map((questionCount, index) => ({
+  id: `part-${index + 1}`,
+  displayName: `Part ${index + 1}`,
+  title: `Legacy PET Reading Part ${index + 1}`,
+  instruction: "",
+  questionCount,
+  defaultQuestionType: index === 1 || index === 3 ? "matching" : index === 5 ? "short-answer" : "single-choice",
+  allowedQuestionTypes: ["single-choice", "multiple-choice", "short-answer", "true-false", "true-false-not-given", "yes-no-not-given", "matching"]
+}));
+var LEGACY_PET_WRITING_PARTS = [1, 1].map((questionCount, index) => ({
+  id: `part-${index + 1}`,
+  displayName: `Part ${index + 1}`,
+  title: `Legacy PET Writing Part ${index + 1}`,
+  instruction: "",
+  questionCount,
+  defaultQuestionType: "long-writing",
+  allowedQuestionTypes: ["long-writing"],
+  longWriting: true,
+  minWords: 100,
+  pointsPerQuestion: 20
+}));
 function validateExamPaperContent(content) {
-  content = normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))));
+  content = normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)))))));
   const errors = [];
   if (!content || typeof content !== "object") return ["N\u1ED9i dung \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7."];
   if (!EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS.includes(content.schemaVersion)) errors.push("Schema \u0111\u1EC1 thi kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
@@ -11749,6 +12525,7 @@ function validateExamPaperContent(content) {
   if (content.moduleId === "writing" && content.paperId === "writing") {
     validateStandaloneWriting(content, errors);
   }
+  if (isFixedPetWritingContent(content)) validatePetWriting(content, errors);
   if (content.moduleId === "starter" && content.paperId === "listening" && (content.parts.length !== 4 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length !== 5))) {
     errors.push("Starters Listening ph\u1EA3i c\xF3 \u0111\xFAng 4 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part \u0111\xFAng 5 c\xE2u.");
   }
@@ -11767,14 +12544,31 @@ function validateExamPaperContent(content) {
   if (isFixedKetListeningContent(content) && (content.parts.length !== 5 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length < 1))) {
     errors.push("KET Listening m\u1EDBi ph\u1EA3i c\xF3 \u0111\xFAng 5 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u ch\u1EA5m \u0111i\u1EC3m.");
   }
-  if (!dynamic && content.parts?.length !== definition.parts.length) {
+  if (isFixedPetReadingContent(content) && (content.parts.length !== 5 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length < 1))) {
+    errors.push("PET Reading m\u1EDBi ph\u1EA3i c\xF3 \u0111\xFAng 5 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u ch\u1EA5m \u0111i\u1EC3m.");
+  }
+  if (isFixedPetListeningContent(content) && (content.parts.length !== 4 || content.parts.some((part2, index) => part2.part !== index + 1 || part2.questions.length < 1))) {
+    errors.push("PET Listening m\u1EDBi ph\u1EA3i c\xF3 \u0111\xFAng 4 Part theo th\u1EE9 t\u1EF1 v\xE0 m\u1ED7i Part c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u ch\u1EA5m \u0111i\u1EC3m.");
+  }
+  const legacyPetReading = content.moduleId === "pet" && content.paperId === "reading" && !isFixedPetReadingContent(content);
+  const legacyPetWriting = content.moduleId === "pet" && content.paperId === "writing" && !isFixedPetWritingContent(content);
+  if (!dynamic && !legacyPetReading && !legacyPetWriting && content.parts?.length !== definition.parts.length) {
     errors.push(`${definition.displayName} ph\u1EA3i c\xF3 \u0111\xFAng ${definition.parts.length} Part/Section.`);
     return errors;
   }
   const allIds = /* @__PURE__ */ new Set();
   let totalQuestions = 0;
   content.parts.forEach((part2, partIndex) => {
-    const partDefinition = definition.parts[partIndex];
+    const partDefinition = (legacyPetReading ? LEGACY_PET_READING_PARTS[partIndex] : legacyPetWriting ? LEGACY_PET_WRITING_PARTS[partIndex] : definition.parts[partIndex]) || {
+      id: `part-${partIndex + 1}`,
+      displayName: `Part ${partIndex + 1}`,
+      title: part2?.title || `Part ${partIndex + 1}`,
+      instruction: "",
+      questionCount: part2?.questions?.length || 0,
+      questionCountFlexible: true,
+      defaultQuestionType: part2?.questions?.[0]?.type || "short-answer",
+      allowedQuestionTypes: ["single-choice", "multiple-choice", "short-answer", "true-false", "true-false-not-given", "yes-no-not-given", "matching"]
+    };
     if (!part2 || part2.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} kh\xF4ng \u0111\xFAng th\u1EE9 t\u1EF1.`);
     if (!text2(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
     if (content.moduleId === "starter" && content.paperId === "listening" && partIndex === 2 && !text2(part2?.imageAssetId, 180)) {
@@ -11797,6 +12591,12 @@ function validateExamPaperContent(content) {
     }
     if (isFixedKetListeningContent(content)) {
       validateKetListeningPart(part2, partIndex, errors);
+    }
+    if (isFixedPetReadingContent(content)) {
+      validatePetReadingPart(part2, partIndex, errors);
+    }
+    if (isFixedPetListeningContent(content)) {
+      validatePetListeningPart(part2, partIndex, errors);
     }
     if (content.moduleId === "flyer" && content.paperId === "listening") {
       const units = examPartUnits(part2);
@@ -11984,6 +12784,10 @@ function sanitizeExamContentForStudent(content) {
         delete safePart.imageAssetId;
         delete safePart.imageUrl;
       }
+      if (isFixedPetListeningContent(content) && part2.part === 1) {
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
       if (content.moduleId === "flyer" && content.paperId === "reading-writing" && part2.part === 6) {
         delete safePart.readingScenes;
       }
@@ -12064,6 +12868,13 @@ function sanitizeExamAnswers(raw, content) {
   for (const [questionId, question] of allowed) {
     if (v2MatchingQuestionIds.has(questionId) || drawTargets.has(questionId)) continue;
     const value = input[questionId];
+    if (question.type === "long-writing" && question.options.length === 2 && value && typeof value === "object" && !Array.isArray(value)) {
+      const submitted = record(value);
+      const optionId = text2(submitted.optionId, 180);
+      const selected = question.options.find((option) => option.id === optionId);
+      if (selected) answers[questionId] = { optionId: selected.id, text: text2(submitted.text, 2e4) };
+      continue;
+    }
     if (Array.isArray(value)) {
       answers[questionId] = [...new Set(value.filter((item) => typeof item === "string" || typeof item === "number").map((item) => text2(item, 500)).filter(Boolean))].slice(0, 20);
     } else {
@@ -12115,6 +12926,14 @@ function displayCorrectAnswer(question) {
 var EXAM_GRADING_VERSION = "exam-platform-objective-v2";
 function answerEmpty(value) {
   return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
+}
+function writingAnswer(question, value) {
+  if (typeof value === "string") return { text: value, prompt: question.prompt };
+  if (value && typeof value === "object" && !Array.isArray(value) && "optionId" in value && "text" in value) {
+    const selected = question.options.find((option) => option.id === value.optionId);
+    return selected ? { text: String(value.text || ""), prompt: selected.text, optionLabel: selected.label } : { text: "", prompt: question.prompt };
+  }
+  return { text: "", prompt: question.prompt };
 }
 function gradeObjective(question, answer) {
   if (question.correctOptionIds.length) {
@@ -12256,8 +13075,9 @@ function gradeExamAttempt(content, answers) {
       }
       unit.questions.forEach((question) => {
         const rawAnswer = answers[question.id];
+        const writing = question.type === "long-writing" ? writingAnswer(question, rawAnswer) : void 0;
         const answer = typeof rawAnswer === "string" ? rawAnswer : Array.isArray(rawAnswer) && rawAnswer.every((value) => typeof value === "string") ? rawAnswer : void 0;
-        const unanswered = answerEmpty(answer);
+        const unanswered = question.type === "long-writing" ? !normalizeExamText(writing?.text) : answerEmpty(answer);
         if (question.type === "long-writing") {
           pendingManualCount += 1;
           questions.push({
@@ -12265,8 +13085,8 @@ function gradeExamAttempt(content, answers) {
             part: part2.part,
             number: question.number,
             type: question.type,
-            prompt: question.prompt,
-            userAnswer: displayUserAnswer(question, answer),
+            prompt: writing?.optionLabel ? `Question ${writing.optionLabel}: ${writing.prompt}` : question.prompt,
+            userAnswer: writing?.text || "",
             correct: null,
             unanswered,
             pointsAwarded: 0,
@@ -12463,8 +13283,8 @@ function gradeMoverReadingWritingAttempt(inputContent, answers) {
   });
   content.parts[0].questions.forEach((question) => {
     const actual = String(answers.part1?.[question.id] || "");
-    const normalized4 = normalizeMoverReadingWritingText(actual);
-    push(1, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", Boolean(normalized4) && question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized4));
+    const normalized6 = normalizeMoverReadingWritingText(actual);
+    push(1, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", Boolean(normalized6) && question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized6));
   });
   content.parts[1].questions.forEach((question) => {
     const actual = String(answers.part2?.[question.id] || "");
@@ -12476,17 +13296,17 @@ function gradeMoverReadingWritingAttempt(inputContent, answers) {
   });
   content.parts[3].gaps.forEach((gap, index) => {
     const actual = String(answers.part4?.gaps?.[gap.id] || "");
-    const normalized4 = normalizeMoverReadingWritingText(actual);
-    push(4, gap.id, `Ch\u1ED7 tr\u1ED1ng ${index + 1}`, actual, gap.acceptedAnswers[0] || "", Boolean(normalized4) && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized4));
+    const normalized6 = normalizeMoverReadingWritingText(actual);
+    push(4, gap.id, `Ch\u1ED7 tr\u1ED1ng ${index + 1}`, actual, gap.acceptedAnswers[0] || "", Boolean(normalized6) && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized6));
   });
   const titleQuestion = content.parts[3].titleQuestion;
   const actualTitleId = String(answers.part4?.titleOptionId || "");
   push(4, titleQuestion.id, titleQuestion.prompt, displayOption(titleQuestion.options, actualTitleId), displayOption(titleQuestion.options, titleQuestion.correctOptionId), actualTitleId === titleQuestion.correctOptionId);
   content.parts[4].scenes.forEach((scene) => scene.questions.forEach((question) => {
     const actual = String(answers.part5?.[question.id] || "");
-    const normalized4 = normalizeMoverReadingWritingText(actual);
-    const wordCount = normalized4 ? normalized4.split(" ").length : 0;
-    const accepted = question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized4);
+    const normalized6 = normalizeMoverReadingWritingText(actual);
+    const wordCount = normalized6 ? normalized6.split(" ").length : 0;
+    const accepted = question.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized6);
     push(5, question.id, displayTextPrompt(question.prompt, question.id), actual, question.acceptedAnswers[0] || "", wordCount >= 1 && wordCount <= 3 && accepted);
   }));
   const part6 = content.parts[5];
@@ -12505,14 +13325,14 @@ function gradeMoverReadingWritingAttempt(inputContent, answers) {
   } else {
     part6.gaps.forEach((gap, index) => {
       const actual = String(answers.part6?.[gap.id] || "");
-      const normalized4 = normalizeMoverReadingWritingText(actual);
+      const normalized6 = normalizeMoverReadingWritingText(actual);
       push(
         6,
         gap.id,
         `Ch\u1ED7 tr\u1ED1ng ${index + 1}`,
         actual,
         gap.acceptedAnswers[0] || "",
-        Boolean(normalized4) && normalized4.split(" ").length === 1 && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized4)
+        Boolean(normalized6) && normalized6.split(" ").length === 1 && gap.acceptedAnswers.some((answer) => normalizeMoverReadingWritingText(answer) === normalized6)
       );
     });
   }
@@ -12732,6 +13552,15 @@ function sanitizeMoverReadingWritingAnswers(inputContent, input) {
 
 // src/server/mover-reading-writing/moverReadingWritingSmartImportService.ts
 var import_node_crypto6 = __toESM(require("node:crypto"), 1);
+
+// src/features/exam-platform/chatGptJsonOutput.ts
+var CHATGPT_COPYABLE_JSON_OUTPUT_INSTRUCTION = [
+  "\u0110\u1ECANH D\u1EA0NG PH\u1EA2N H\u1ED2I C\xD3 N\xDAT COPY",
+  "- To\xE0n b\u1ED9 c\xE2u tr\u1EA3 l\u1EDDi ph\u1EA3i n\u1EB1m trong \u0111\xFAng M\u1ED8T kh\u1ED1i m\xE3 Markdown c\xF3 nh\xE3n json: m\u1EDF b\u1EB1ng ```json v\xE0 \u0111\xF3ng b\u1EB1ng ```.",
+  "- Kh\xF4ng vi\u1EBFt ti\xEAu \u0111\u1EC1, l\u1EDDi d\u1EABn, nh\u1EADn x\xE9t ho\u1EB7c b\u1EA5t k\u1EF3 k\xFD t\u1EF1 n\xE0o b\xEAn ngo\xE0i kh\u1ED1i m\xE3.",
+  "- B\xEAn trong kh\u1ED1i m\xE3 ch\u1EC9 ch\u1EE9a \u0111\xFAng m\u1ED9t JSON object h\u1EE3p l\u1EC7 theo schema \u0111\xE3 y\xEAu c\u1EA7u; kh\xF4ng th\xEAm comment v\xE0 kh\xF4ng d\xF9ng d\u1EA5u ph\u1EA9y th\u1EEBa.",
+  "- C\xE1ch tr\xECnh b\xE0y n\xE0y \u0111\u1EC3 ChatGPT hi\u1EC7n n\xFAt Copy; n\u1ED9i dung \u0111\u01B0\u1EE3c sao ch\xE9p ph\u1EA3i c\xF3 th\u1EC3 d\xE1n tr\u1EF1c ti\u1EBFp v\xE0o \xF4 nh\u1EADp JSON c\u1EE7a Kho \u0111\u1EC1 luy\u1EC7n thi."
+].join("\n");
 
 // src/features/mover-reading-writing/smart-import/contracts.ts
 var schemaId = (part2) => `mover-rw-part${part2}-external-v${part2 === 6 ? 3 : part2 === 1 || part2 === 5 ? 2 : 1}`;
@@ -13051,7 +13880,7 @@ async function createMoverReadingWritingSmartImportCandidate(input) {
       throw providerRequestError(reason);
     }
     try {
-      const normalized4 = validateAndNormalizeMoverReadingWritingImport(input.part, parseJson5(result.text));
+      const normalized6 = validateAndNormalizeMoverReadingWritingImport(input.part, parseJson5(result.text));
       const providerWarnings = Array.isArray(result.errors) ? result.errors.map((error) => String(error).slice(0, 300)).filter(Boolean) : [];
       return {
         id: `mrw-import-${import_node_crypto6.default.randomUUID()}`,
@@ -13061,12 +13890,12 @@ async function createMoverReadingWritingSmartImportCandidate(input) {
         basePartHash: input.basePartHash,
         provider: result.provider,
         warnings: [
-          ...normalized4.warnings,
+          ...normalized6.warnings,
           ...providerWarnings,
           ...attempt > 1 ? ["Nh\xE0 cung c\u1EA5p \u0111\xE3 tr\u1EA3 c\u1EA5u tr\xFAc h\u1EE3p l\u1EC7 sau m\u1ED9t l\u1EA7n s\u1EEDa JSON t\u1EF1 \u0111\u1ED9ng."] : []
         ],
         createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-        data: normalized4.data
+        data: normalized6.data
       };
     } catch (reason) {
       if (reason?.name === "AbortError" || input.signal?.aborted) throw reason;
@@ -14437,9 +15266,9 @@ var EXAM_TICKET_RENEWAL_GRACE_MS = 7 * 24 * 60 * 6e4;
 var EXAM_TICKET_CLOCK_SKEW_MS = 5 * 6e4;
 var WRITING_GRADING_RETRY_COOLDOWN_MS = 5 * 6e4;
 var WRITING_GRADING_LEASE_MS = 3 * 6e4;
-var normalizeFixedExamContent = (content) => normalizeFixedKetReadingWritingContent(
-  normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))
-);
+var normalizeFixedExamContent = (content) => normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(
+  normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))))
+)));
 function apiError3(status, message, details) {
   const error = new Error(message);
   error.status = status;
@@ -14755,6 +15584,7 @@ function createExamRouter(dependencies) {
     let leaseToken = "";
     let cycle = 0;
     let providerId = "";
+    let queueNextWriting = false;
     try {
       const attempt = await loadAttempt(attemptId);
       if (!attempt || attempt.status !== "pending_review") return attempt;
@@ -14774,7 +15604,9 @@ function createExamRouter(dependencies) {
       const config = canonical?.writingGrading;
       if (!canonical || !config?.enabled) return attempt;
       providerId = String(config.providerId || "");
-      const essay = typeof detail.answers?.[canonical.id] === "string" ? detail.answers[canonical.id] : "";
+      const storedAnswer = detail.answers?.[canonical.id];
+      const selectedOption = storedAnswer && typeof storedAnswer === "object" && !Array.isArray(storedAnswer) ? canonical.options.find((option) => option.id === storedAnswer.optionId) : void 0;
+      const essay = typeof storedAnswer === "string" ? storedAnswer : selectedOption ? String(storedAnswer.text || "") : "";
       leaseToken = import_crypto3.default.randomUUID();
       const processingAt = nowIso4();
       const processingAttempt = {
@@ -14804,14 +15636,16 @@ function createExamRouter(dependencies) {
             canonicalPart?.title,
             canonicalPart?.instruction,
             canonicalPart?.passage,
-            canonical.context
+            canonical.context,
+            selectedOption ? `\u0110\u1EC1 h\u1ECDc sinh \u0111\xE3 ch\u1ECDn (Question ${selectedOption.label}):
+${selectedOption.text}` : ""
           ].filter(Boolean).join("\n\n"),
           gradingInstructions: [
             canonical.rubric ? `Rubric:
 ${canonical.rubric}` : "",
             config.gradingInstructions
           ].filter(Boolean).join("\n\n"),
-          prompt: canonical.prompt,
+          prompt: selectedOption?.text || canonical.prompt,
           essay,
           minWords: Number(canonical.minWords || 1),
           maxWords: Number(canonical.maxWords || 50)
@@ -14845,12 +15679,14 @@ ${canonical.rubric}` : "",
           const finalized = applyAiWritingGrade(currentDetail.grade, canonical.id, output);
           const timestamp = nowIso4();
           const writingResult = finalized.questions.find((question) => question.questionId === canonical.id);
-          const nextAttempt = { ...currentAttempt, status: finalized.status, score: finalized.score, pendingManualCount: finalized.pendingManualCount, aiGradingStatus: "completed", aiGradingMessage: "\u0110\xE3 ch\u1EA5m Writing.", aiGradingRetryable: false, aiGradingNextRetryAt: "", aiGradingLeaseToken: "", aiGradingLeaseExpiresAt: "", writingScore: writingResult?.writingScore ?? writingResult?.pointsAwarded, writingWordCount: countWritingWords(essay), gradedBy: "ai", gradedAt: timestamp, updatedAt: timestamp };
+          const hasNextWriting = finalized.pendingManualCount > 0;
+          const nextAttempt = { ...currentAttempt, status: finalized.status, score: finalized.score, pendingManualCount: finalized.pendingManualCount, aiGradingStatus: hasNextWriting ? "queued" : "completed", aiGradingMessage: hasNextWriting ? `\u0110\xE3 ch\u1EA5m m\u1ED9t b\xE0i Writing. C\xF2n ${finalized.pendingManualCount} b\xE0i \u0111ang ch\u1EDD ch\u1EA5m.` : "\u0110\xE3 ch\u1EA5m t\u1EA5t c\u1EA3 b\xE0i Writing.", aiGradingRetryable: false, aiGradingNextRetryAt: "", aiGradingLeaseToken: "", aiGradingLeaseExpiresAt: "", writingScore: writingResult?.writingScore ?? writingResult?.pointsAwarded, writingWordCount: countWritingWords(essay), gradedBy: "ai", gradedAt: timestamp, updatedAt: timestamp };
           const nextDetail = { ...currentDetail, grade: finalized, questions: finalized.questions, finalAwarded: finalized.objectiveAwarded + finalized.manualAwarded, finalMaximum: finalized.objectiveMaximum + finalized.manualMaximum, updatedAt: timestamp };
           const batch = db.batch();
           batch.set(db.collection("exam_attempts").doc(attempt.id), nextAttempt);
           batch.set(db.collection("exam_attempt_details").doc(attempt.id), nextDetail);
           await batch.commit();
+          queueNextWriting = hasNextWriting;
           return nextAttempt;
         });
       } catch (error) {
@@ -14886,6 +15722,7 @@ ${canonical.rubric}` : "",
       }
     } finally {
       activeWritingGrades.delete(attemptId);
+      if (queueNextWriting) scheduleAiWritingGrade(attemptId, cycle);
     }
   };
   const scheduleAiWritingGrade = (attemptId, cycle, delayMs = 0) => {
@@ -15231,7 +16068,7 @@ ${canonical.rubric}` : "",
       const pendingQuestions = (detail.grade?.questions || []).filter((question) => question.pendingManualReview);
       const invalidGrade = pendingQuestions.find((question) => {
         const value = Number(grades[question.questionId]);
-        return !Object.prototype.hasOwnProperty.call(grades, question.questionId) || !Number.isFinite(value) || value < 0 || value > Number(question.maxPoints || 0) || (moduleId === "ket" && paperId === "reading-writing" && question.part === 9 || moduleId === "writing") && !Number.isInteger(value);
+        return !Object.prototype.hasOwnProperty.call(grades, question.questionId) || !Number.isFinite(value) || value < 0 || value > Number(question.maxPoints || 0) || (moduleId === "ket" && paperId === "reading-writing" && question.part === 9 || moduleId === "pet" && paperId === "writing" || moduleId === "writing") && !Number.isInteger(value);
       });
       if (invalidGrade) throw apiError3(400, `\u0110i\u1EC3m Writing cho c\xE2u ${invalidGrade.number} b\u1ECB thi\u1EBFu ho\u1EB7c ngo\xE0i ph\u1EA1m vi cho ph\xE9p.`);
       const finalized = applyManualExamGrades(detail.grade, grades);
@@ -15540,9 +16377,9 @@ ${canonical.rubric}` : "",
       if (!currentPart || typeof currentPart !== "object" || !Array.isArray(currentPart.questions) || currentPart.part !== partIndex + 1) {
         throw apiError3(400, "B\u1EA3n nh\xE1p Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
       }
-      const normalized4 = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex]);
-      if (normalized4.errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", normalized4.errors);
-      const validationPart = structuredClone(normalized4.part);
+      const normalized6 = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex]);
+      if (normalized6.errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", normalized6.errors);
+      const validationPart = structuredClone(normalized6.part);
       if (definition.parts[partIndex].requiresAudio && !validationPart.audioAssetId) {
         validationPart.audioAssetId = "smart-import-placeholder-audio";
       }
@@ -15577,7 +16414,7 @@ ${canonical.rubric}` : "",
       const deferredAnswerMessages = validationMessages.filter((error) => error.includes("ch\u01B0a x\xE1c nh\u1EADn \u0111\xE1p \xE1n \u0111\xFAng") || error.includes("ch\u01B0a nh\u1EADp \u0111\xE1p \xE1n \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn") || error.includes("ph\u1EA3i c\xF3 \u0111\xFAng m\u1ED9t \u0111\xE1p \xE1n \u0111\xFAng"));
       const errors = validationMessages.filter((error) => !deferredAnswerMessages.includes(error));
       if (errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", errors);
-      res.json({ part: normalized4.part, warnings: [...normalized4.warnings, ...deferredAnswerMessages], validated: true });
+      res.json({ part: normalized6.part, warnings: [...normalized6.warnings, ...deferredAnswerMessages], validated: true });
     } catch (error) {
       sendError3(res, error);
     }
@@ -16508,7 +17345,22 @@ function createVocabImageRouter(options) {
     },
     message: "\u0110\xE3 \u0111\u1EA1t gi\u1EDBi h\u1EA1n t\u1EA1o \u1EA3nh t\u1EA1m th\u1EDDi. Vui l\xF2ng ch\u1EDD r\u1ED3i th\u1EED l\u1EA1i."
   });
-  router.use(options.authenticateUser, options.requireStaff, rateLimit);
+  const jobStatusRateLimit = createFixedWindowRateLimiter({
+    namespace: "vocab-image-generation-status",
+    windowMs: 10 * 60 * 1e3,
+    maxCost: 600,
+    message: "\u0110\xE3 ki\u1EC3m tra tr\u1EA1ng th\xE1i t\u1EA1o \u1EA3nh qu\xE1 th\u01B0\u1EDDng xuy\xEAn. Vui l\xF2ng ch\u1EDD r\u1ED3i th\u1EED l\u1EA1i."
+  });
+  router.use(options.authenticateUser, options.requireStaff);
+  router.get("/batch-generate/:jobId", jobStatusRateLimit, async (req, res) => {
+    try {
+      const user = req.user;
+      res.json(await options.service.getBatchGenerationJob(req.params.jobId, user.id));
+    } catch (error) {
+      sendError4(res, error);
+    }
+  });
+  router.use(rateLimit);
   router.get("/providers", (_req, res) => {
     res.json({ providers: options.service.listProviders() });
   });
@@ -16538,22 +17390,18 @@ function createVocabImageRouter(options) {
   router.post("/batch-generate", async (req, res) => {
     try {
       const user = req.user;
-      const items = await options.service.batchGenerate(req.body?.provider, req.body?.items, user.id);
-      const generated = items.filter((item) => item.asset).length;
-      await options.logAudit(
+      const job = await options.service.startBatchGenerationJob(req.body?.provider, req.body?.items, user.id);
+      void options.logAudit(
         user.id,
         user.name,
         user.email,
         "BATCH_GENERATE_VOCAB_IMAGES",
-        `Generated ${generated}/${items.length} reviewed vocabulary image candidates.`
-      );
-      const configuredProviders = options.service.listProviders().filter((provider2) => provider2.configured).length;
-      res.status(201).json({
-        items,
-        generated,
-        concurrencyPerProvider: options.service.batchConcurrencyPerProvider,
-        totalConcurrency: configuredProviders * options.service.batchConcurrencyPerProvider
-      });
+        `Queued vocabulary image batch ${job.jobId} with ${job.total} items.`
+      ).catch((error) => console.error("[Vocab image batch] Audit write failed:", {
+        jobId: job.jobId,
+        message: String(error?.message || error).slice(0, 300)
+      }));
+      res.status(202).json(job);
     } catch (error) {
       sendError4(res, error);
     }
@@ -16615,20 +17463,20 @@ function isPrivateIpv42(address) {
   return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 || a >= 224;
 }
 function isPrivateNetworkAddress(address) {
-  const normalized4 = address.trim().toLowerCase();
-  const family = import_node_net2.default.isIP(normalized4);
-  if (family === 4) return isPrivateIpv42(normalized4);
+  const normalized6 = address.trim().toLowerCase();
+  const family = import_node_net2.default.isIP(normalized6);
+  if (family === 4) return isPrivateIpv42(normalized6);
   if (family !== 6) return true;
-  if (normalized4 === "::" || normalized4 === "::1") return true;
-  if (normalized4.startsWith("fc") || normalized4.startsWith("fd") || normalized4.startsWith("fe8") || normalized4.startsWith("fe9") || normalized4.startsWith("fea") || normalized4.startsWith("feb")) return true;
-  const mapped = normalized4.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (normalized6 === "::" || normalized6 === "::1") return true;
+  if (normalized6.startsWith("fc") || normalized6.startsWith("fd") || normalized6.startsWith("fe8") || normalized6.startsWith("fe9") || normalized6.startsWith("fea") || normalized6.startsWith("feb")) return true;
+  const mapped = normalized6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   return mapped ? isPrivateIpv42(mapped[1]) : false;
 }
 function hostnameMatchesAllowlist(hostname, allowedHosts) {
-  const normalized4 = hostname.toLowerCase().replace(/\.$/, "");
+  const normalized6 = hostname.toLowerCase().replace(/\.$/, "");
   return allowedHosts.some((rawHost) => {
     const allowed = rawHost.toLowerCase().replace(/\.$/, "");
-    return normalized4 === allowed || normalized4.endsWith(`.${allowed}`);
+    return normalized6 === allowed || normalized6.endsWith(`.${allowed}`);
   });
 }
 async function defaultResolveHost(hostname) {
@@ -17022,6 +17870,12 @@ function validateVocabImageCustomPrompt(value) {
 }
 
 // src/server/vocab-images/service.ts
+var BATCH_JOB_COLLECTION = "vocab_image_batch_jobs";
+var BATCH_JOB_RESULT_COLLECTION = "vocab_image_batch_job_results";
+var BATCH_JOB_TTL_MS = 24 * 60 * 60 * 1e3;
+var BATCH_JOB_LEASE_MS = 60 * 1e3;
+var BATCH_JOB_HEARTBEAT_MS = 20 * 1e3;
+var BATCH_WORKER_INSTANCE_ID = `vimgworker-${process.pid}-${import_node_crypto11.default.randomUUID()}`;
 function httpError2(status, message) {
   return Object.assign(new Error(message), { status });
 }
@@ -17056,12 +17910,14 @@ function createConcurrencyLimiter(concurrency) {
 var VocabImageLibraryService = class {
   constructor(options) {
     this.options = options;
+    this.activeBatchJobIds = /* @__PURE__ */ new Set();
     this.providers = createVocabImageGenerationProviders(options.env, options.fetchImpl);
     this.now = options.now || (() => /* @__PURE__ */ new Date());
     this.timeoutMs = boundedInteger(options.env.VOCAB_IMAGE_GENERATION_TIMEOUT_MS, 12e4, 1e4, 3e5);
     this.downloadTimeoutMs = boundedInteger(options.env.VOCAB_IMAGE_DOWNLOAD_TIMEOUT_MS, 3e4, 2e3, 6e4);
     this.maxBytes = boundedInteger(options.env.VOCAB_IMAGE_MAX_BYTES, 8 * 1024 * 1024, 64 * 1024, 20 * 1024 * 1024);
     this.batchConcurrencyPerProvider = boundedInteger(options.env.VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER, 50, 1, 50);
+    this.batchTotalConcurrency = boundedInteger(options.env.VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY, 8, 1, 100);
     this.batchMaxItems = boundedInteger(options.env.VOCAB_IMAGE_BATCH_MAX_ITEMS, 500, 1, 1e3);
   }
   get uploadLimitBytes() {
@@ -17199,34 +18055,220 @@ var VocabImageLibraryService = class {
     });
   }
   async batchGenerate(rawProvider, rawItems, actorId) {
-    const items = Array.isArray(rawItems) ? rawItems.slice(0, this.batchMaxItems) : [];
-    if (items.length === 0) throw httpError2(400, "C\u1EA7n \xEDt nh\u1EA5t m\u1ED9t t\u1EEB v\u1EF1ng \u0111\u1EC3 t\u1EA1o \u1EA3nh h\xE0ng lo\u1EA1t.");
+    const prepared = this.prepareBatch(rawProvider, rawItems);
+    return this.executeBatch(prepared.providerChoice, prepared.items, prepared.configured, actorId);
+  }
+  async startBatchGenerationJob(rawProvider, rawItems, actorId) {
+    const prepared = this.prepareBatch(rawProvider, rawItems);
+    const now = this.now();
+    const job = {
+      id: `vimgjob-${import_node_crypto11.default.randomUUID()}`,
+      actorId: clean2(actorId, 200),
+      provider: prepared.providerChoice,
+      status: "queued",
+      total: prepared.items.length,
+      completed: 0,
+      succeeded: 0,
+      failed: 0,
+      inputs: prepared.items,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + BATCH_JOB_TTL_MS).toISOString()
+    };
+    await this.options.db.collection(BATCH_JOB_COLLECTION).doc(job.id).set(job);
+    this.scheduleBatchGenerationJob(job, prepared.configured);
+    return this.publicBatchJob(job, []);
+  }
+  async getBatchGenerationJob(rawJobId, actorId) {
+    const jobId = clean2(rawJobId, 200);
+    const doc = await this.options.db.collection(BATCH_JOB_COLLECTION).doc(jobId).get();
+    const job = doc.exists ? doc.data() : null;
+    if (!job || job.actorId !== clean2(actorId, 200)) {
+      throw httpError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t t\u1EA1o \u1EA3nh h\xE0ng lo\u1EA1t.");
+    }
+    const resultSnapshot = await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION).where("jobId", "==", jobId).get();
+    const results = (resultSnapshot.docs || []).map((resultDoc) => resultDoc.data()).sort((left, right) => Number(left.index) - Number(right.index)).map((entry) => entry.result);
+    const leaseExpired = !job.leaseExpiresAt || Date.parse(job.leaseExpiresAt) <= this.now().getTime();
+    if (job.status === "queued" || job.status === "running" && leaseExpired) {
+      const configured = ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].filter((id2) => this.providers[id2].configured);
+      if (configured.length > 0) this.scheduleBatchGenerationJob(job, configured);
+    }
+    return this.publicBatchJob(job, results);
+  }
+  prepareBatch(rawProvider, rawItems) {
+    const sourceItems = Array.isArray(rawItems) ? rawItems.slice(0, this.batchMaxItems) : [];
+    if (sourceItems.length === 0) throw httpError2(400, "C\u1EA7n \xEDt nh\u1EA5t m\u1ED9t t\u1EEB v\u1EF1ng \u0111\u1EC3 t\u1EA1o \u1EA3nh h\xE0ng lo\u1EA1t.");
     const providerChoice = rawProvider === "auto" ? "auto" : isGenerationProviderId(rawProvider) ? rawProvider : "auto";
     const configured = ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].filter((id2) => this.providers[id2].configured);
     if (configured.length === 0) throw httpError2(503, "Ch\u01B0a c\u1EA5u h\xECnh key c\u1EE7a d\u1ECBch v\u1EE5 t\u1EA1o \u1EA3nh tr\xEAn m\xE1y ch\u1EE7.");
+    if (providerChoice !== "auto") this.getProvider(providerChoice);
+    const items = sourceItems.map((rawItem, index) => ({
+      id: clean2(rawItem?.id, 160) || `item-${index + 1}`,
+      term: clean2(rawItem?.term, 120),
+      meaning: clean2(rawItem?.meaning, 160),
+      pos: clean2(rawItem?.partOfSpeech || rawItem?.pos, 40)
+    }));
+    return { providerChoice, configured, items };
+  }
+  async executeBatch(providerChoice, items, configured, actorId, onResult, originalIndexes) {
     const providerLimiters = Object.fromEntries(
       ["stali", "devquota", "seedvis-nano-banana-2", "seedvis-nano-banana-pro"].map((id2) => [id2, createConcurrencyLimiter(this.batchConcurrencyPerProvider)])
     );
+    const totalLimiter = createConcurrencyLimiter(this.batchTotalConcurrency);
     return Promise.all(items.map(async (rawItem, index) => {
-      const id2 = clean2(rawItem?.id, 160) || `item-${index + 1}`;
-      const preferred = providerChoice === "auto" ? configured[index % configured.length] : providerChoice;
+      const resultIndex = originalIndexes?.[index] ?? index;
+      const id2 = rawItem.id;
+      const preferred = providerChoice === "auto" ? configured[resultIndex % configured.length] : providerChoice;
       const attempts = [preferred, ...configured.filter((candidate) => candidate !== preferred)];
       let lastError = null;
+      let rowResult = null;
       for (const providerId of attempts) {
         try {
-          const result = await providerLimiters[providerId](() => this.generate(providerId, rawItem || {}, actorId));
-          return { id: id2, provider: providerId, asset: result.asset, prompt: result.prompt };
+          const result = await totalLimiter(() => providerLimiters[providerId](() => this.generate(providerId, rawItem, actorId)));
+          rowResult = { id: id2, provider: providerId, asset: result.asset, prompt: result.prompt };
+          break;
         } catch (error) {
           lastError = error;
           if (providerChoice !== "auto") break;
         }
       }
-      return {
-        id: id2,
-        provider: preferred,
-        error: String(lastError?.message || "Kh\xF4ng t\u1EA1o \u0111\u01B0\u1EE3c \u1EA3nh.").slice(0, 500)
-      };
+      if (!rowResult) {
+        rowResult = {
+          id: id2,
+          provider: preferred,
+          error: String(lastError?.message || "Kh\xF4ng t\u1EA1o \u0111\u01B0\u1EE3c \u1EA3nh.").slice(0, 500)
+        };
+      }
+      if (onResult) await onResult(resultIndex, rowResult);
+      return rowResult;
     }));
+  }
+  scheduleBatchGenerationJob(job, configured) {
+    if (this.activeBatchJobIds.has(job.id)) return;
+    this.activeBatchJobIds.add(job.id);
+    setImmediate(() => {
+      void this.runBatchGenerationJob(job, configured).catch((error) => {
+        console.error("[Vocab image batch] Background job failed:", {
+          jobId: job.id,
+          message: String(error?.message || error).slice(0, 300)
+        });
+      }).finally(() => this.activeBatchJobIds.delete(job.id));
+    });
+  }
+  async runBatchGenerationJob(job, configured) {
+    const jobDoc = this.options.db.collection(BATCH_JOB_COLLECTION).doc(job.id);
+    const latestDoc = await jobDoc.get();
+    const latest = latestDoc.exists ? latestDoc.data() : null;
+    if (!latest || latest.status === "completed" || latest.status === "failed") return;
+    if (latest.status === "running" && latest.leaseOwner && latest.leaseOwner !== BATCH_WORKER_INSTANCE_ID && Date.parse(latest.leaseExpiresAt || "") > this.now().getTime()) return;
+    job = { ...latest };
+    let persistence = Promise.resolve();
+    const persistJob = () => {
+      const snapshot = { ...job, inputs: job.inputs.map((item) => ({ ...item })) };
+      persistence = persistence.then(() => jobDoc.set(snapshot));
+      return persistence;
+    };
+    const renewLease = () => {
+      const now = this.now();
+      job.leaseOwner = BATCH_WORKER_INSTANCE_ID;
+      job.leaseExpiresAt = new Date(now.getTime() + BATCH_JOB_LEASE_MS).toISOString();
+      job.updatedAt = now.toISOString();
+    };
+    const resultSnapshot = await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION).where("jobId", "==", job.id).get();
+    const existingEntries = (resultSnapshot.docs || []).map((resultDoc) => resultDoc.data());
+    const completedIndexes = new Set(existingEntries.map((entry) => Number(entry.index)));
+    job.completed = completedIndexes.size;
+    job.succeeded = existingEntries.filter((entry) => Boolean(entry.result?.asset)).length;
+    job.failed = existingEntries.filter((entry) => !entry.result?.asset).length;
+    job.status = "running";
+    delete job.error;
+    renewLease();
+    await persistJob();
+    const heartbeat = setInterval(() => {
+      renewLease();
+      void persistJob().catch((error) => console.error("[Vocab image batch] Heartbeat write failed:", {
+        jobId: job.id,
+        message: String(error?.message || error).slice(0, 300)
+      }));
+    }, BATCH_JOB_HEARTBEAT_MS);
+    try {
+      const pendingIndexes = job.inputs.map((_item, index) => index).filter((index) => !completedIndexes.has(index));
+      const pendingItems = pendingIndexes.map((index) => job.inputs[index]);
+      await this.executeBatch(job.provider, pendingItems, configured, job.actorId, async (index, result) => {
+        const safeResult = this.publicBatchResult(result);
+        await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION).doc(`${job.id}:${index}`).set({
+          id: `${job.id}:${index}`,
+          jobId: job.id,
+          index,
+          result: safeResult,
+          createdAt: this.now().toISOString(),
+          expiresAt: job.expiresAt
+        });
+        job.completed += 1;
+        if (safeResult.asset) job.succeeded += 1;
+        else job.failed += 1;
+        renewLease();
+        await persistJob();
+      }, pendingIndexes);
+      job.status = "completed";
+      job.leaseOwner = "";
+      job.leaseExpiresAt = "";
+      job.updatedAt = this.now().toISOString();
+      await persistJob();
+    } catch (error) {
+      job.status = "failed";
+      job.error = String(error?.message || "L\u01B0\u1EE3t t\u1EA1o \u1EA3nh n\u1EC1n th\u1EA5t b\u1EA1i.").slice(0, 500);
+      job.leaseOwner = "";
+      job.leaseExpiresAt = "";
+      job.updatedAt = this.now().toISOString();
+      await persistJob();
+      throw error;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+  publicBatchResult(result) {
+    if (!result?.asset) return {
+      id: clean2(result?.id, 160),
+      provider: result?.provider,
+      error: String(result?.error || "Kh\xF4ng t\u1EA1o \u0111\u01B0\u1EE3c \u1EA3nh.").slice(0, 500)
+    };
+    const asset = result.asset;
+    return {
+      id: clean2(result.id, 160),
+      provider: result.provider,
+      asset: {
+        id: asset.id,
+        provider: asset.provider,
+        externalId: asset.externalId,
+        title: asset.title,
+        author: asset.author,
+        license: asset.license,
+        ...asset.licenseUrl ? { licenseUrl: asset.licenseUrl } : {},
+        ...asset.sourcePageUrl ? { sourcePageUrl: asset.sourcePageUrl } : {},
+        publicUrl: asset.publicUrl,
+        ...asset.width ? { width: asset.width } : {},
+        ...asset.height ? { height: asset.height } : {},
+        ...asset.model ? { model: asset.model } : {}
+      }
+    };
+  }
+  publicBatchJob(job, items) {
+    return {
+      jobId: job.id,
+      status: job.status,
+      total: job.total,
+      completed: job.completed,
+      succeeded: job.succeeded,
+      failed: job.failed,
+      items,
+      ...job.error ? { error: job.error } : {},
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      expiresAt: job.expiresAt,
+      concurrencyPerProvider: this.batchConcurrencyPerProvider,
+      totalConcurrency: this.batchTotalConcurrency
+    };
   }
 };
 
@@ -17510,14 +18552,14 @@ function normalizePhoneE164(value) {
   }
   const digits = compact.replace(/\D/g, "");
   if (!digits) return "";
-  let normalized4 = digits;
+  let normalized6 = digits;
   if (digits.startsWith("0")) {
-    normalized4 = `84${digits.slice(1)}`;
+    normalized6 = `84${digits.slice(1)}`;
   } else if (!digits.startsWith("84")) {
-    normalized4 = `84${digits}`;
+    normalized6 = `84${digits}`;
   }
-  if (normalized4.length < 10 || normalized4.length > 15) return "";
-  return `+${normalized4}`;
+  if (normalized6.length < 10 || normalized6.length > 15) return "";
+  return `+${normalized6}`;
 }
 function createHttpError2(status, message, details) {
   const err = new Error(message);
@@ -19463,8 +20505,8 @@ function parseAiJson(text6) {
   }
 }
 function getFallbackVocabulary(topic, count) {
-  const normalized4 = topic.toLowerCase().trim();
-  if (normalized4.includes("animal") || normalized4.includes("\u0111\u1ED9ng v\u1EADt") || normalized4.includes("con v\u1EADt")) {
+  const normalized6 = topic.toLowerCase().trim();
+  if (normalized6.includes("animal") || normalized6.includes("\u0111\u1ED9ng v\u1EADt") || normalized6.includes("con v\u1EADt")) {
     const pool = [
       { term: "Elephant", meaning: "Con voi", ipa: "/\u02C8el\u026Af\u0259nt/", pos: "Noun", example: "The elephant is very large.", exampleMeaning: "Con voi r\u1EA5t to l\u1EDBn." },
       { term: "Tiger", meaning: "Con h\u1ED5", ipa: "/\u02C8ta\u026A\u0261\u0259(r)/", pos: "Noun", example: "The tiger runs very fast.", exampleMeaning: "Con h\u1ED5 ch\u1EA1y r\u1EA5t nhanh." },
@@ -19474,7 +20516,7 @@ function getFallbackVocabulary(topic, count) {
     ];
     return pool.slice(0, count);
   }
-  if (normalized4.includes("school") || normalized4.includes("tr\u01B0\u1EDDng h\u1ECDc") || normalized4.includes("l\u1EDBp")) {
+  if (normalized6.includes("school") || normalized6.includes("tr\u01B0\u1EDDng h\u1ECDc") || normalized6.includes("l\u1EDBp")) {
     const pool = [
       { term: "Teacher", meaning: "Gi\xE1o vi\xEAn", ipa: "/\u02C8ti\u02D0t\u0283\u0259(r)/", pos: "Noun", example: "Our teacher is very kind.", exampleMeaning: "Gi\xE1o vi\xEAn c\u1EE7a ch\xFAng t\xF4i r\u1EA5t t\u1ED1t b\u1EE5ng." },
       { term: "Student", meaning: "H\u1ECDc sinh", ipa: "/\u02C8stju\u02D0dnt/", pos: "Noun", example: "The students are listening.", exampleMeaning: "C\xE1c h\u1ECDc sinh \u0111ang l\u1EAFng nghe." },
@@ -21069,7 +22111,7 @@ app2.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
 app2.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = makeId4("grammar-set");
+    const id2 = makeId7("grammar-set");
     const set = normalizeGrammarSetForSave({ ...req.body, id: id2 }, {}, req.user);
     await adminDb.collection("grammar_sets").doc(id2).set(set);
     await logAuditAction(
@@ -21134,7 +22176,7 @@ app2.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["t
     const existing = await getGrammarSetOr404(req.params.id);
     if (!existing) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
     if (!canViewGrammarSet(req.user, existing)) return res.status(403).json({ error: "Ban khong co quyen nhan ban bai nay." });
-    const cloneId = makeId4("grammar-set");
+    const cloneId = makeId7("grammar-set");
     const clone = normalizeGrammarSetForSave({
       ...existing,
       id: cloneId,
@@ -21307,7 +22349,7 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
       const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
       const options = questionType === "multiple_choice" && set.shuffleOptions ? fisherYates(question.options || []) : [...question.options || []];
       return {
-        id: makeId4(`grammar-attempt-question-${index + 1}`),
+        id: makeId7(`grammar-attempt-question-${index + 1}`),
         questionId: question.id,
         questionType,
         displayPosition: index + 1,
@@ -21321,7 +22363,7 @@ app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req
         acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
       };
     });
-    const attemptId = makeId4("grammar-attempt");
+    const attemptId = makeId7("grammar-attempt");
     const attemptToken = actor.isGuest ? createSessionToken() : "";
     const attempt = {
       id: attemptId,
@@ -21400,7 +22442,7 @@ app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, 
       attemptQuestion.acceptedAnswersSnapshot
     ) : selectedOptionId === attemptQuestion.correctOptionId;
     const answer = {
-      id: makeId4("grammar-answer"),
+      id: makeId7("grammar-answer"),
       attemptQuestionId: attemptQuestion.id,
       questionId: attemptQuestion.questionId,
       questionType,
@@ -22833,7 +23875,7 @@ function normalizeVocabSetForRead(set) {
   };
 }
 function normalizeVocabItemForSave(item, index, errors) {
-  const id2 = safeText2(item?.id, 160) || makeId4(`item-${index + 1}`);
+  const id2 = safeText2(item?.id, 160) || makeId7(`item-${index + 1}`);
   const term = safeText2(item?.term, 160);
   const meaning = safeText2(item?.meaning, 500);
   if (!term) errors.push(`Dong ${index + 1}: missing English word.`);
@@ -22858,7 +23900,7 @@ function normalizeVocabItemForSave(item, index, errors) {
   }
   const status = safeText2(item?.audioStatus, 20);
   const audioStatus = ["missing", "queued", "generating", "ready", "failed"].includes(status) ? status : void 0;
-  const normalized4 = {
+  const normalized6 = {
     id: id2,
     term,
     meaning,
@@ -22875,31 +23917,31 @@ function normalizeVocabItemForSave(item, index, errors) {
       errors.push(`Dong ${index + 1}: invalid managed image metadata.`);
     } else {
       try {
-        normalized4.imageAssetId = imageAssetId;
-        normalized4.imageUrl = imageUrl;
-        normalized4.imageAttribution = vocabImageAttributionFromAsset(item?.imageAttribution);
-        normalized4.imageAttachedAt = safeText2(item?.imageAttachedAt, 80) || (/* @__PURE__ */ new Date()).toISOString();
+        normalized6.imageAssetId = imageAssetId;
+        normalized6.imageUrl = imageUrl;
+        normalized6.imageAttribution = vocabImageAttributionFromAsset(item?.imageAttribution);
+        normalized6.imageAttachedAt = safeText2(item?.imageAttachedAt, 80) || (/* @__PURE__ */ new Date()).toISOString();
       } catch {
         errors.push(`Dong ${index + 1}: invalid image attribution.`);
       }
     }
   } else if (imageUrl) {
-    normalized4.imageUrl = imageUrl;
+    normalized6.imageUrl = imageUrl;
   }
-  if (audioUrl) normalized4.audioUrl = audioUrl;
-  if (audioHash) normalized4.audioHash = audioHash;
-  if (audioStatus) normalized4.audioStatus = audioStatus;
-  if (item?.audioError) normalized4.audioError = safeText2(item.audioError, 500);
-  if (Array.isArray(item?.audioWarnings)) normalized4.audioWarnings = item.audioWarnings.map((warning) => safeText2(warning, 200)).filter(Boolean).slice(0, 5);
-  if (item?.audioGeneratedAt) normalized4.audioGeneratedAt = safeText2(item.audioGeneratedAt, 80);
-  if (item?.audioUpdatedAt) normalized4.audioUpdatedAt = safeText2(item.audioUpdatedAt, 80);
-  if (ttsProvider) normalized4.ttsProvider = ttsProvider;
-  if (item?.ttsVoice) normalized4.ttsVoice = safeText2(item.ttsVoice, 200);
-  if (ttsLang) normalized4.ttsLang = ttsLang;
-  if (ttsSpeed !== void 0) normalized4.ttsSpeed = ttsSpeed;
-  if (item?.ttsText) normalized4.ttsText = safeText2(item.ttsText, 160);
-  if (item?.notes) normalized4.notes = safeText2(item.notes, 1e3);
-  return normalized4;
+  if (audioUrl) normalized6.audioUrl = audioUrl;
+  if (audioHash) normalized6.audioHash = audioHash;
+  if (audioStatus) normalized6.audioStatus = audioStatus;
+  if (item?.audioError) normalized6.audioError = safeText2(item.audioError, 500);
+  if (Array.isArray(item?.audioWarnings)) normalized6.audioWarnings = item.audioWarnings.map((warning) => safeText2(warning, 200)).filter(Boolean).slice(0, 5);
+  if (item?.audioGeneratedAt) normalized6.audioGeneratedAt = safeText2(item.audioGeneratedAt, 80);
+  if (item?.audioUpdatedAt) normalized6.audioUpdatedAt = safeText2(item.audioUpdatedAt, 80);
+  if (ttsProvider) normalized6.ttsProvider = ttsProvider;
+  if (item?.ttsVoice) normalized6.ttsVoice = safeText2(item.ttsVoice, 200);
+  if (ttsLang) normalized6.ttsLang = ttsLang;
+  if (ttsSpeed !== void 0) normalized6.ttsSpeed = ttsSpeed;
+  if (item?.ttsText) normalized6.ttsText = safeText2(item.ttsText, 160);
+  if (item?.notes) normalized6.notes = safeText2(item.notes, 1e3);
+  return normalized6;
 }
 function normalizeVocabSetForSave(payload, existing = {}) {
   const merged = {
@@ -22912,7 +23954,7 @@ function normalizeVocabSetForSave(payload, existing = {}) {
   if (errors.length > 0) throw createHttpError2(400, errors.join(" "), errors);
   const ttsSettings = merged.ttsSettings ? normalizeTtsSettings(merged.ttsSettings) : void 0;
   const visibility = getVocabVisibility(merged);
-  const normalized4 = {
+  const normalized6 = {
     ...merged,
     title: safeText2(merged.title, 240),
     description: safeText2(merged.description, 2e3),
@@ -22925,13 +23967,13 @@ function normalizeVocabSetForSave(payload, existing = {}) {
     status: toLegacyStatus(visibility)
   };
   if (visibility === "assignment") {
-    normalized4.shareToken = existing.shareToken || existing.assignmentSlug || createShareToken();
-    normalized4.assignmentSlug = normalized4.shareToken;
+    normalized6.shareToken = existing.shareToken || existing.assignmentSlug || createShareToken();
+    normalized6.assignmentSlug = normalized6.shareToken;
   } else {
-    delete normalized4.shareToken;
-    delete normalized4.assignmentSlug;
+    delete normalized6.shareToken;
+    delete normalized6.assignmentSlug;
   }
-  return normalized4;
+  return normalized6;
 }
 function getGrammarVisibility(set) {
   if (set?.visibility === "assignment" || set?.visibility === "public" || set?.visibility === "draft") {
@@ -23004,7 +24046,7 @@ function canAccessGrammarAttempt(attempt, actor, set, req, allowStaffReview = fa
 function safeText2(value, max = 2e3) {
   return String(value || "").normalize("NFKC").trim().slice(0, max);
 }
-function makeId4(prefix) {
+function makeId7(prefix) {
   return `${prefix}-${Date.now()}-${import_crypto4.default.randomBytes(4).toString("hex")}`;
 }
 function fisherYates(input) {
@@ -23172,7 +24214,7 @@ function normalizeAcceptedGrammarAnswers(value, correctAnswer) {
   return acceptedAnswers;
 }
 function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choice") {
-  const questionId = question.id || makeId4(`grammar-question-${index + 1}`);
+  const questionId = question.id || makeId7(`grammar-question-${index + 1}`);
   const questionType = getGrammarQuestionType(question.questionType, fallbackType);
   const rawOptions = questionType === "multiple_choice" && Array.isArray(question.options) ? question.options : [];
   const options = rawOptions.slice(0, 5).map((option, optionIndex2) => ({
@@ -23180,7 +24222,7 @@ function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choi
     text: safeText2(option.text, 1e3),
     originalPosition: Number.isFinite(Number(option.originalPosition)) ? Number(option.originalPosition) : optionIndex2 + 1
   }));
-  const normalized4 = {
+  const normalized6 = {
     id: questionId,
     questionType,
     questionText: safeText2(question.questionText || question.question, 4e3),
@@ -23190,16 +24232,16 @@ function normalizeGrammarQuestion(question, index, fallbackType = "multiple_choi
     position: Number.isFinite(Number(question.position)) ? Number(question.position) : index + 1
   };
   if (questionType === "rewrite") {
-    normalized4.correctOptionId = "";
-    normalized4.correctAnswer = safeText2(question.correctAnswer || question.answer, 4e3);
-    normalized4.acceptedAnswers = normalizeAcceptedGrammarAnswers(
+    normalized6.correctOptionId = "";
+    normalized6.correctAnswer = safeText2(question.correctAnswer || question.answer, 4e3);
+    normalized6.acceptedAnswers = normalizeAcceptedGrammarAnswers(
       question.acceptedAnswers,
-      normalized4.correctAnswer
+      normalized6.correctAnswer
     );
   } else {
-    normalized4.correctOptionId = String(question.correctOptionId || "");
+    normalized6.correctOptionId = String(question.correctOptionId || "");
   }
-  return normalized4;
+  return normalized6;
 }
 function validateGrammarQuestion(question, index) {
   const errors = [];
@@ -23251,7 +24293,7 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     throw err;
   }
   const visibility = getGrammarVisibility(payload);
-  const normalized4 = {
+  const normalized6 = {
     ...existing,
     ...payload,
     id: payload.id || existing.id,
@@ -23278,13 +24320,13 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
   };
   if (visibility === "assignment") {
     const token = existing.shareToken || existing.assignmentSlug || createShareToken();
-    normalized4.shareToken = String(token).replace(/^grammar-/, "");
-    normalized4.assignmentSlug = normalized4.shareToken;
+    normalized6.shareToken = String(token).replace(/^grammar-/, "");
+    normalized6.assignmentSlug = normalized6.shareToken;
   } else {
-    delete normalized4.shareToken;
-    delete normalized4.assignmentSlug;
+    delete normalized6.shareToken;
+    delete normalized6.assignmentSlug;
   }
-  return normalized4;
+  return normalized6;
 }
 function canManageGrammarSet(user, set) {
   return user?.role === "super_admin" || Boolean(set?.createdBy) && set.createdBy === user?.id;

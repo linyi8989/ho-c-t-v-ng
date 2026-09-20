@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   containedExamImageRect,
   examImageContentRectInStage,
@@ -17,6 +19,7 @@ import {
 import { starterPart2ExampleEditorLines } from './starterListeningPart2';
 import { resolveExamImageProfile, resolveExamTaskLayout } from './student/examPresentation';
 import { starterSpellingCharacters, updateStarterSpellingValue } from './student/StarterReadingWritingViews';
+import PetListeningPartView, { petListeningFormLayout } from './student/PetListeningViews';
 
 const adminSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../../../server.ts', import.meta.url), 'utf8');
@@ -48,6 +51,19 @@ const ketReadingMigrationSource = readFileSync(new URL('./ketReadingWritingMigra
 const ketListeningAuthoringSource = readFileSync(new URL('./admin/KetListeningAuthoring.tsx', import.meta.url), 'utf8');
 const ketListeningPlayerSource = readFileSync(new URL('./student/KetListeningViews.tsx', import.meta.url), 'utf8');
 const ketListeningMigrationSource = readFileSync(new URL('./ketListeningMigration.ts', import.meta.url), 'utf8');
+const petReadingAuthoringSource = readFileSync(new URL('./admin/PetReadingAuthoring.tsx', import.meta.url), 'utf8');
+const petReadingPlayerSource = readFileSync(new URL('./student/PetReadingViews.tsx', import.meta.url), 'utf8');
+const petReadingResultSource = readFileSync(new URL('./student/PetReadingResult.tsx', import.meta.url), 'utf8');
+const petReadingMigrationSource = readFileSync(new URL('./petReadingMigration.ts', import.meta.url), 'utf8');
+const petWritingAuthoringSource = readFileSync(new URL('./admin/PetWritingAuthoring.tsx', import.meta.url), 'utf8');
+const petWritingPlayerSource = readFileSync(new URL('./student/PetWritingViews.tsx', import.meta.url), 'utf8');
+const petWritingMigrationSource = readFileSync(new URL('./petWritingMigration.ts', import.meta.url), 'utf8');
+const petListeningAuthoringSource = readFileSync(new URL('./admin/PetListeningAuthoring.tsx', import.meta.url), 'utf8');
+const petListeningPlayerSource = readFileSync(new URL('./student/PetListeningViews.tsx', import.meta.url), 'utf8');
+const petListeningMigrationSource = readFileSync(new URL('./petListeningMigration.ts', import.meta.url), 'utf8');
+const petListeningCropSource = readFileSync(new URL('./petListeningCrops.ts', import.meta.url), 'utf8');
+const studentUnderlineInputSource = readFileSync(new URL('./student/StudentUnderlineInput.tsx', import.meta.url), 'utf8');
+const petNoticeFrameSource = readFileSync(new URL('./PetNoticeFrame.tsx', import.meta.url), 'utf8');
 const ketListeningCropSource = readFileSync(new URL('./ketListeningCrops.ts', import.meta.url), 'utf8');
 const writingGradingProviderSource = readFileSync(new URL('../../server/exam-platform/writingGradingProvider.ts', import.meta.url), 'utf8');
 const imageViewerSource = readFileSync(new URL('../exam-media/ExamImageViewer.tsx', import.meta.url), 'utf8');
@@ -61,6 +77,7 @@ const fixedRegionEditorSource = readFileSync(new URL('../listening-editor/region
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
 const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
+const audioPreviewButtonSource = readFileSync(new URL('../listening/admin/AudioPreviewButton.tsx', import.meta.url), 'utf8');
 const standaloneWritingAuthoringSource = readFileSync(new URL('../writing-library/admin/StandaloneWritingAuthoring.tsx', import.meta.url), 'utf8');
 const standaloneWritingPlayerSource = readFileSync(new URL('../writing-library/student/StandaloneWritingViews.tsx', import.meta.url), 'utf8');
 const writingWordPolicySource = readFileSync(new URL('../writing-library/writingWordPolicy.ts', import.meta.url), 'utf8');
@@ -303,13 +320,15 @@ test('Universal JSON owns dynamic Parts/blocks while Starter keeps teacher-owned
 test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor and player', () => {
   assert.match(genericAdminSource, /const starterListening = starter && content\.paperId === 'listening'/);
   assert.match(genericAdminSource, /const fixedListeningPart2 = \(starterListening \|\| flyerListening\) && part\.part === 2/);
-  assert.match(genericAdminSource, /!starterListening && !fixedListeningPart2 && !fixedReadingWritingAuthoring && !ketListening && <label[^>]*>Đoạn đọc\/nội dung chung của Part/);
+  assert.match(genericAdminSource, /!starterListening && !fixedListeningPart2 && !fixedReadingWritingAuthoring && !ketListening && !petListening && <label[^>]*>Đoạn đọc\/nội dung chung của Part/);
   assert.match(starterAuthoringSource, /data-starter-special-editor="text-entry"/);
   assert.match(starterAuthoringSource, /Dạng câu được cố định là short-answer/);
   assert.match(starterAuthoringSource, /data-starter-part2-example-editor/);
   assert.match(starterAuthoringSource, /Hai example không chấm điểm/);
   assert.match(starterPlayerSource, /data-starter-interaction="text-entry"/);
   assert.match(starterPlayerSource, /ListeningPart2View/);
+  assert.match(starterPlayerSource, /alignAnswersRight/);
+  assert.match(listeningPartViewsSource, /data-listening-part2-right-row/);
   assert.match(starterPlayerSource, /const moverPart: ListeningPart2/);
   assert.match(starterPlayerSource, /starterPart2Blank/);
   assert.match(genericPlayerSource, /starterListening && part\.part === 2 && unit\.interaction\.variant === 'inline-gap'/);
@@ -323,6 +342,38 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.match(genericPlayerSource, /hideStarterPart2DuplicateExample = starterListening && part\.part === 2 && special/);
   assert.match(listeningPartViewsSource, /data-starter-part2-example-lines/);
   assert.match(listeningPartViewsSource, /Example \{index \+ 1\}/);
+});
+
+test('requested Cambridge text fields share the PET Writing underline without placeholders', () => {
+  assert.match(studentUnderlineInputSource, /border-b border-dashed border-orange-400 bg-transparent/);
+  assert.match(studentUnderlineInputSource, /data-student-underline-answer/);
+  assert.doesNotMatch(studentUnderlineInputSource, /placeholder=/);
+  assert.match(globalCssSource, /input\.student-underline-answer \{/);
+  assert.match(globalCssSource, /border-bottom: 1px dashed #fb923c !important/);
+  assert.match(globalCssSource, /border-radius: 0 !important/);
+  assert.match(globalCssSource, /vertical-align: 0\.1em !important/);
+  assert.match(petWritingPlayerSource, /<StudentUnderlineInput/);
+  assert.match(listeningPartViewsSource, /StudentUnderlineInput/);
+  assert.match(starterReadingPlayerSource, /petUnderline/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-part5-right-row/);
+  assert.match(flyerReadingPlayerSource, /StudentUnderlineInput/);
+  assert.match(moverReadingPlayerSource, /StudentUnderlineInput/);
+  assert.match(moverReadingPlayerSource, /data-mover-rw-right-answer-row/);
+  assert.match(moverReadingPlayerSource, /data-mover-rw-part2-row/);
+  assert.match(moverReadingPlayerSource, /data-mover-rw-part6-inline-row/);
+});
+
+test('every Listening authoring audio upload exposes the shared adjacent preview control', () => {
+  assert.match(genericAdminSource, /AudioPreviewButton/);
+  assert.match(genericAdminSource, /previewUrl=\{unit\.audioUrl\}/);
+  assert.match(genericAdminSource, /previewUrl=\{part\.audioUrl\}/);
+  assert.match(starterAuthoringSource, /AudioPreviewButton src=\{part\.audioUrl/);
+  assert.match(listeningAssetPickerSource, /kind === 'audio' && <AudioPreviewButton/);
+  assert.match(audioPreviewButtonSource, /data-audio-preview-button/);
+  assert.match(audioPreviewButtonSource, /Nghe thử audio đã chọn/);
+  assert.match(audioPreviewButtonSource, /activePreview\.pause\(\)/);
+  assert.match(audioPreviewButtonSource, /await audio\.play\(\)/);
+  assert.doesNotMatch(audioPreviewButtonSource, /opacity-\d+/);
 });
 
 test('answer coordinates follow the rendered image pixels instead of letterboxed frame space', () => {
@@ -673,6 +724,126 @@ test('Flyers Reading & Writing keeps seven fixed Part types with flexible scored
   assert.match(globalCssSource, /#flyer-reading-review-screen button\.starter-reading-secondary-action/);
 });
 
+test('PET Reading keeps the versioned five-Part authoring and student layouts', () => {
+  assert.match(genericAdminSource, /PetReadingAuthoring/);
+  assert.match(genericAdminSource, /normalizeFixedPetReadingContent/);
+  assert.match(genericAdminSource, /legacyPetReading/);
+  assert.match(genericPlayerSource, /PetReadingPartView/);
+  assert.match(genericPlayerSource, /PetReadingResult/);
+  assert.match(genericPlayerSource, /isFixedPetReadingContent/);
+  for (const contract of [
+    "PET_READING_TEMPLATE_VERSION = 'pet-reading-5-v1'",
+    'PET_READING_DEFAULT_COUNTS = [5, 5, 10, 5, 10]',
+    "'notice-image-choice'",
+    "'people-text-matching'",
+    "'image-yes-no'",
+    "'passage-four-choice'",
+    "'multiple-choice-cloze-four'",
+    'Legacy six-Part PET papers remain untouched',
+  ]) assert.ok(petReadingMigrationSource.includes(contract), `PET Reading migration is missing: ${contract}`);
+  for (const contract of [
+    'id="pet-reading-authoring"',
+    'data-pet-reading-part1-authoring',
+    'Ngân hàng 8 lựa chọn A–H',
+    'data-pet-reading-part3-authoring',
+    'Bài đọc có ô trống',
+    'CountControls',
+    'ImagePicker',
+    'Năm mẫu khung màu được hệ thống dựng sẵn',
+    'Nội dung nằm trong khung mặc định',
+    'data-pet-reading-example-authoring',
+    'Example · không chấm điểm',
+  ]) assert.ok(petReadingAuthoringSource.includes(contract), `PET Reading authoring is missing: ${contract}`);
+  for (const contract of [
+    'id="pet-reading-player"',
+    'data-pet-reading-part1-player',
+    'data-pet-reading-part1-example-row',
+    'data-pet-reading-part1-row',
+    'fillFrame',
+    'data-pet-reading-part2-player',
+    'Choices A–H',
+    'data-pet-reading-part3-player',
+    'lg:grid-cols-[minmax(0,48%)_minmax(0,52%)]',
+    'data-pet-reading-passage-player',
+    'PetNoticeFrame',
+    'data-pet-reading-legacy-notice-image',
+    'data-pet-reading-worked-example',
+    'data-pet-reading-part5-answer-row',
+    'data-pet-reading-passage-frame',
+    'data-review-mode',
+  ]) assert.ok(petReadingPlayerSource.includes(contract), `PET Reading player is missing: ${contract}`);
+  for (const template of ['hanging-board', 'message-screen', 'pinned-note', 'taped-letter', 'school-plaque']) {
+    assert.match(petNoticeFrameSource, new RegExp(`data-pet-notice-template="${template}"`));
+  }
+  assert.match(universalPromptSource, /đúng 5 Part Reading/);
+  assert.match(universalPromptSource, /ngân hàng 8 đoạn chữ A–H/);
+  assert.match(universalPromptSource, /mỗi question bắt buộc có context/);
+  assert.match(universalPromptSource, /PET_READING_PART_HEADERS/);
+  for (const heading of ['Questions 1–5', 'Questions 6–10', 'Questions 11–20', 'Questions 21–25', 'Questions 26–35']) assert.match(petReadingMigrationSource, new RegExp(heading));
+  assert.match(universalPromptSource, /Part 1 và Part 5.*content\.examples/s);
+  assert.match(petReadingResultSource, /id="pet-reading-review-screen"/);
+  assert.match(petReadingResultSource, /PetReadingPartView/);
+  for (const hook of ['pet-reading-result-home', 'pet-reading-result-review', 'pet-reading-result-retry', 'pet-reading-review-part-tab', 'pet-reading-review-back']) {
+    assert.ok(petReadingResultSource.includes(hook), `PET Reading result action contrast hook is missing: ${hook}`);
+    assert.ok(globalCssSource.includes(hook), `PET Reading result action contrast CSS is missing: ${hook}`);
+  }
+  assert.match(petReadingPlayerSource, /border-emerald-600 bg-emerald-100/);
+  assert.match(petReadingPlayerSource, /border-rose-600 bg-rose-100/);
+  assert.equal((petNoticeFrameSource.match(/border-0 bg-transparent p-2/g) || []).length, 5);
+  assert.match(validationSource, /validatePetReadingPart/);
+  assert.match(validationSource, /example không chấm điểm/);
+});
+
+test('PET Writing keeps the versioned three-Part authoring, two-task player and readable actions', () => {
+  assert.match(genericAdminSource, /PetWritingAuthoring/);
+  assert.match(genericAdminSource, /normalizeFixedPetWritingContent/);
+  assert.match(genericAdminSource, /legacyPetWriting/);
+  assert.match(genericPlayerSource, /PetWritingPartView/);
+  assert.match(genericPlayerSource, /PetWritingResult/);
+  assert.match(genericPlayerSource, /isFixedPetWritingContent/);
+  for (const contract of [
+    "PET_WRITING_TEMPLATE_VERSION = 'pet-writing-3-v1'",
+    "'sentence-transformation'",
+    "'guided-email-writing'",
+    "'choice-free-writing'",
+    'Legacy two-Part sets remain untouched',
+    'PET_GUIDED_EMAIL_GRADING_INSTRUCTIONS',
+    'PET_FREE_WRITING_GRADING_INSTRUCTIONS',
+  ]) assert.ok(petWritingMigrationSource.includes(contract), `PET Writing migration is missing: ${contract}`);
+  for (const contract of [
+    'id="pet-writing-part-1-authoring"',
+    'acceptedAnswers.join',
+    "split('|')",
+    'Khung nội dung bắt buộc để AI chấm',
+    'Đề lựa chọn {option.label}',
+    'bg-amber-50',
+    'text-amber-950',
+  ]) assert.ok(petWritingAuthoringSource.includes(contract), `PET Writing authoring is missing: ${contract}`);
+  for (const contract of [
+    'id="pet-writing-part-1-player"',
+    'id="pet-writing-part-2-player"',
+    'id="pet-writing-part-3-player"',
+    'role="radiogroup"',
+    'data-typed-only-answer="true"',
+    'pet-writing-inline-gap',
+    'pet-writing-ruled-paper',
+    'bg-indigo-800 text-white',
+    'text-slate-900 hover:border-indigo-500',
+    'id="pet-writing-result"',
+    'grammarErrors',
+    'vocabularyErrors',
+    'Chấm lại sau',
+  ]) assert.ok(petWritingPlayerSource.includes(contract), `PET Writing player is missing: ${contract}`);
+  assert.doesNotMatch(petWritingPlayerSource, /placeholder="Nhập phần còn thiếu"/);
+  assert.match(globalCssSource, /\[data-pet-writing-player\] \.pet-writing-ruled-paper/);
+  assert.match(globalCssSource, /input\.pet-writing-inline-gap/);
+  assert.match(historyRepositorySource, /FROM exam_attempts\s+WHERE status = 'completed'/);
+  assert.match(universalPromptSource, /5 câu biến đổi câu/);
+  assert.match(universalPromptSource, /đúng hai options nhãn 7 và 8/);
+  assert.match(validationSource, /validatePetWriting/);
+  assert.match(examRouterSource, /queueNextWriting/);
+});
+
 test('KET Reading & Writing keeps nine fixed Part types with flexible rows and safe Writing grading', () => {
   assert.match(genericAdminSource, /KetReadingWritingAuthoring/);
   assert.match(genericAdminSource, /normalizeFixedKetReadingWritingContent/);
@@ -850,4 +1021,122 @@ test('KET Listening keeps five flexible Part types, special Part 1 crops and the
   assert.match(universalPromptSource, /answerSuffix "Road"/);
   assert.match(globalCssSource, /#ket-listening-authoring/);
   assert.match(globalCssSource, /#ket-listening-player/);
+});
+
+test('PET Listening keeps four versioned Parts, flexible crop rows and shared grading history', () => {
+  assert.match(petListeningMigrationSource, /PET_LISTENING_TEMPLATE_VERSION = 'pet-listening-4-v1'/);
+  assert.match(petListeningMigrationSource, /'image-options'/);
+  assert.match(petListeningMigrationSource, /'dialogue-choice'/);
+  assert.match(petListeningMigrationSource, /'image-form-fields'/);
+  assert.match(petListeningMigrationSource, /'yes-no-statements'/);
+  assert.match(petListeningCropSource, /detectedPrintedExample/);
+  assert.match(petListeningAuthoringSource, /data-pet-listening-example-editor/);
+  assert.match(petListeningAuthoringSource, /detectPetListeningPart1OptionFrames/);
+  assert.match(petListeningAuthoringSource, /đang crop ba ảnh A\/B\/C trước/);
+  assert.match(petListeningAuthoringSource, /Example: \{visibleExampleImages\}\/3 ảnh/);
+  assert.match(petListeningCropSource, /detectPart4FramesFromPixels/);
+  assert.match(petListeningCropSource, /loadPart4FramePixelSource/);
+  assert.match(petListeningAuthoringSource, /VisualCropEditor/);
+  assert.match(petListeningAuthoringSource, /Part này không có example/);
+  assert.match(petListeningPlayerSource, /data-pet-listening-part1-player/);
+  assert.match(petListeningPlayerSource, /Correct answer/);
+  assert.match(petListeningPlayerSource, /data-pet-listening-inline-form/);
+  assert.match(petListeningPlayerSource, /data-pet-listening-inline-answer/);
+  assert.match(petListeningPlayerSource, /data-pet-listening-part4-player/);
+  assert.match(petListeningPlayerSource, /data-pet-listening-part4-row/);
+  assert.doesNotMatch(petListeningPlayerSource, /mt-3 grid grid-cols-2 gap-3/);
+  assert.match(genericPlayerSource, /isFixedPetListeningContent/);
+  assert.match(genericPlayerSource, /petListening=\{petListening\}/);
+  assert.match(starterResultSource, /pet-listening-4-v1/);
+  assert.match(universalPromptSource, /Part 2 tuyệt đối không example/);
+  assert.match(universalPromptSource, /marker \[\[questionNumber\]\]/);
+  assert.match(starterResultSource, /PetFormResults/);
+  assert.match(starterResultSource, /PetYesNoResults/);
+  assert.match(validationSource, /PET Listening Part/);
+  assert.match(globalCssSource, /pet-listening-admin-button/);
+  assert.match(historyRepositorySource, /exam_attempts/);
+});
+
+test('PET Listening Part 3 places marked fields inline and keeps legacy unmarked fields in the same card', () => {
+  const question = (id: string, displayNumber: number) => ({
+    id,
+    number: displayNumber,
+    displayNumber,
+    type: 'short-answer' as const,
+    prompt: `Field ${displayNumber}`,
+    options: [],
+    correctOptionIds: [],
+    acceptedAnswers: ['answer'],
+    points: 1,
+  });
+  const unit = {
+    id: 'pet-part-3',
+    part: 3,
+    title: 'Questions 14–16',
+    instruction: 'Listen and complete the notes.',
+    passage: 'School trip\nExample: Tuesday\nPlace: (14) ....................\nTime: [[15]]',
+    questions: [question('q14', 14), question('q15', 15), question('q16', 16)],
+  };
+  const layout = petListeningFormLayout(unit);
+  assert.deepEqual(layout.segments.filter(segment => segment.type === 'question').map(segment => segment.question.id), ['q14', 'q15']);
+  assert.deepEqual(layout.fallbackQuestions.map(item => item.id), ['q16']);
+});
+
+test('PET Listening learner markup orders Part 3 inputs by printed form and aligns Part 4 Yes/No controls', () => {
+  const textQuestion = (id: string, displayNumber: number, answerPrefix = '', answerSuffix = '') => ({
+    id,
+    number: displayNumber,
+    displayNumber,
+    type: 'short-answer' as const,
+    prompt: `Field ${displayNumber}`,
+    options: [],
+    correctOptionIds: [],
+    acceptedAnswers: ['answer'],
+    points: 1,
+    answerPrefix,
+    answerSuffix,
+  });
+  const partThree = {
+    id: 'pet-listening-p3',
+    part: 3,
+    title: 'Questions 14–15',
+    instruction: 'Listen and complete the notes.',
+    passage: 'Activity name: (14) ....................\nAim: Discovering (15) ____ weeks\nItem: (16) ............ to take home.',
+    questions: [textQuestion('q16', 16, '', 'to take home.'), textQuestion('q15', 15, 'Discovering', 'weeks'), textQuestion('q14', 14)],
+  };
+  const partThreeMarkup = renderToStaticMarkup(createElement(PetListeningPartView, {
+    part: partThree,
+    answers: { q14: 'museum', q15: 'six', q16: 'camera' },
+    onAnswer: () => undefined,
+  }));
+  assert.equal(partThreeMarkup.match(/data-pet-listening-inline-answer=/g)?.length, 3);
+  assert.ok(partThreeMarkup.indexOf('value="museum"') < partThreeMarkup.indexOf('value="six"'));
+  assert.ok(partThreeMarkup.indexOf('value="six"') < partThreeMarkup.indexOf('value="camera"'));
+  assert.equal(partThreeMarkup.match(/Discovering/g)?.length, 1);
+  assert.equal(partThreeMarkup.match(/weeks/g)?.length, 1);
+  assert.equal(partThreeMarkup.match(/to take home\./g)?.length, 1);
+  assert.match(partThreeMarkup, /\nAim:/);
+  assert.match(partThreeMarkup, /\nItem:/);
+  assert.doesNotMatch(partThreeMarkup, /data-pet-listening-form-fallback/);
+
+  const yesNoQuestion = (id: string, displayNumber: number) => ({
+    id,
+    number: displayNumber,
+    displayNumber,
+    type: 'single-choice' as const,
+    prompt: `Statement ${displayNumber}`,
+    options: [{ id: `${id}-yes`, label: 'Yes', text: 'Yes' }, { id: `${id}-no`, label: 'No', text: 'No' }],
+    correctOptionIds: [`${id}-yes`],
+    acceptedAnswers: [],
+    points: 1,
+  });
+  const partFourMarkup = renderToStaticMarkup(createElement(PetListeningPartView, {
+    part: { id: 'pet-listening-p4', part: 4, title: 'Questions 20–21', instruction: 'Write Yes or No.', questions: [yesNoQuestion('q20', 20), yesNoQuestion('q21', 21)] },
+    answers: { q20: 'q20-yes' },
+    onAnswer: () => undefined,
+  }));
+  assert.equal(partFourMarkup.match(/data-pet-listening-part4-row/g)?.length, 2);
+  assert.equal(partFourMarkup.match(/type="radio"/g)?.length, 4);
+  assert.match(partFourMarkup, /grid-cols-\[minmax\(0,1fr\)_5rem_5rem\]/);
+  assert.match(partFourMarkup, /h-10 w-full/);
 });

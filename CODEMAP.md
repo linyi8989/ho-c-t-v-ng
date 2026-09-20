@@ -5348,3 +5348,411 @@ Rollout and verification:
   prompt can be edited even if preview loading failed. Regression coverage
   verifies formatting preservation, validation, API wiring, UI controls and
   the batch-isolation rule.
+
+## 103. PET Reading five-Part PE 1 workflow - 2026-09-18
+
+- New PET Reading drafts now use `templateVersion: pet-reading-5-v1` and the
+  five ordered structures in the supplied PE 1 source: notice/message image
+  choice, people-to-text A-H matching, picture statements Yes/No, four-option
+  reading comprehension and four-option multiple-choice cloze. The default
+  scored distribution is `5-5-10-5-10`, while every Part remains flexible so
+  teachers can add or remove rows to match the printed paper.
+- `src/features/exam-platform/petReadingMigration.ts` is the compatibility
+  boundary. It normalizes only explicitly versioned five-Part content, keeps
+  printed `displayNumber` values, preserves teacher media and application-owned
+  IDs, shares one eight-text bank across every Part 2 row and maintains Part 5
+  `[[printedNumber]]` markers. Existing unversioned six-Part PET sets and
+  immutable published versions remain unchanged. Their editor shows an
+  explicit confirmed conversion action instead of rewriting them on read.
+- `PetReadingAuthoring.tsx` owns all five teacher editors. Part 1 has one
+  upload/library/clipboard image picker plus A/B/C key per notice. Part 2 has
+  one editable A-H text bank and flexible person rows. Part 3 has one shared
+  picture and flexible Yes/No statements. Parts 4 and 5 own the visible passage
+  plus A-D questions; Part 5 updates/removes markers when a printed number or
+  final row changes. Whole-paper and focused-Part Universal JSON import use the
+  same fixed adapter, never import external media fields and preserve media
+  already attached by the teacher.
+- `PetReadingViews.tsx` renders the student contract. Part 1 uses equal-height
+  image frames on the left with each question and A/B/C options on the right.
+  Part 2 shows people at left, the eight text choices at right, then one simple
+  A-H letter field per person. Part 3 keeps the source image left and Yes/No
+  statements right. Parts 4 and 5 show the passage in a framed area above the
+  A-D rows; Part 5 renders its numbered markers as visible gaps. Mobile layouts
+  stack safely and every source image keeps the shared zoom/fullscreen viewer.
+- Publication validation requires one image for every Part 1 row, one Part 3
+  image, a single shared A-H bank with one-to-one official mappings, exact
+  Yes/No and A-D option shapes, visible passages and one Part 5 marker per
+  scored question. The existing backend objective grader remains authoritative;
+  student payload sanitization removes every official key while retaining only
+  public text and media. Generic post-submit review continues to show the
+  backend result without adding a second grading path.
+- Regression coverage verifies the five-Part UI dispatch, flexible Universal
+  JSON import, media preservation, prompt contract, malformed structure
+  blocking, student sanitization and an eight-row backend grading fixture.
+  Verification passes TypeScript lint, the complete exam-platform suite 88/88
+  and the production client/server build. Local HTTP smoke checks return 200
+  for both the application shell and the PET Reading set API.
+
+## 104. PET Reading Part 1 code-native notice frames - 2026-09-18
+
+- This section supersedes only the Part 1 image requirements described in
+  section 103. Part 1 no longer asks a teacher to upload, paste or select five
+  notice images. `PetNoticeFrame.tsx` renders five deterministic code-native
+  templates in rotation: hanging board, message screen, pinned note, taped
+  letter and school plaque. They use light blue, teal, orange and cream tones,
+  keep a consistent frame size and preserve selectable accessible text.
+- Each Part 1 question stores the complete text printed inside the notice in
+  the existing public `question.context` field. `question.prompt` remains the
+  question shown on the right, followed by the three A/B/C choices. The same
+  live frame preview and context textarea are shown in
+  `PetReadingAuthoring.tsx`; the student player uses the identical shared frame
+  component, so teachers no longer manage a presentation-only image asset.
+- The whole-paper and focused-Part Universal JSON prompts both require Part 1
+  `context`, retain line breaks, forbid media fields and continue to accept the
+  same `notice-image-choice` interaction identifier for stored-data
+  compatibility. The existing importer already treats `context` as public
+  bounded text, so both authoring paths pass through the same parser,
+  normalizer, sanitizer and backend grader.
+- Publication validation now requires Part 1 notice text instead of a new
+  image. A previously saved `pet-reading-5-v1` question that has no `context`
+  but still owns an image remains publishable and the student view keeps a
+  legacy image-only fallback; no released content or media reference is
+  deleted. New blank rows receive editable placeholder notice text and use the
+  code-native frame immediately. Part 3 remains the only PET Reading Part in
+  this change that requires a teacher-owned source image.
+
+## 105. Copyable ChatGPT JSON prompts in Kho đề luyện thi - 2026-09-18
+
+- Every teacher-facing prompt that is copied from Kho đề luyện thi now ends
+  with one shared response contract from
+  `src/features/exam-platform/chatGptJsonOutput.ts`. ChatGPT is instructed to
+  return exactly one Markdown code block labelled `json`, with no prose outside
+  it. This keeps the existing JSON object/schema unchanged while making
+  ChatGPT render its built-in Copy button.
+- The Universal whole-paper and focused-Part builders cover 15 papers:
+  Starters Listening and Reading & Writing; Flyers Listening and Reading &
+  Writing; KET Listening and Reading & Writing; PET Reading, Writing and
+  Listening; FCE Reading & Use of English, Writing and Listening; and IELTS
+  Academic Listening, Reading and Writing. The legacy Starters Listening
+  prompt uses the same output contract.
+- Movers remains on its dedicated authoring pipelines, so both were updated
+  explicitly: five per-Part Listening external-parameter prompts and six
+  per-Part Reading & Writing external Smart Import prompts. Their existing
+  strict parsers already accept either raw JSON or exactly one fenced JSON
+  block, so copied output remains directly pasteable and keeps all technical-ID,
+  unknown-field and answer-key validation.
+- `UniversalAuthoring.tsx` accepts either raw JSON or one `json` code block for
+  both whole-paper and focused-Part import. Surrounding prose is still rejected
+  and application-owned IDs/media remain protected. The teacher success text
+  and placeholders explain that the copied ChatGPT result can be pasted
+  directly.
+- Scope is intentionally limited to Kho đề luyện thi. The standalone Kho đề
+  Writing, vocabulary image/audio generation, grammar prompts and other module
+  prompts are unchanged. Regression coverage enumerates all 15 Universal
+  papers plus every dedicated Movers Part and rejects conflicting old
+  no-code-fence instructions.
+
+## 106. PET Writing three-Part PE 1 workflow - 2026-09-18
+
+- New PET Writing drafts use `templateVersion: pet-writing-3-v1` and the fixed
+  `5-1-1` structure from the supplied PE 1 material. Part 1 has five sentence
+  transformations, Part 2 has one guided email and Part 3 has one writing
+  response selected from exactly two public tasks labelled 7 and 8. Existing
+  unversioned two-Part PET Writing sets and immutable published versions remain
+  untouched. The editor exposes an explicit confirmed conversion action for an
+  old draft instead of rewriting it on load.
+- `petWritingMigration.ts` is the compatibility boundary. It owns the three
+  interaction variants, stable scoring (`1` point per Part 1 row and `10`
+  points for each writing task), default flexible word targets, AI grading
+  criteria and the two-choice task shape. Part 1 accepted answers remain a
+  private string array. The existing backend normalization converts NFKC and
+  smart/mobile apostrophes (`’`, `‘`, `` ` ``, `´`) to the straight apostrophe,
+  so alternatives such as `have | 've` can be authored with `|` and graded
+  consistently across keyboards.
+- `PetWritingAuthoring.tsx` owns all teacher controls. Part 1 shows the original
+  sentence, rewritten sentence and pipe-separated accepted answers for each of
+  five fixed rows. Part 2 stores the visible email task separately from the
+  teacher-owned mandatory-content framework used by the AI grader. Part 3
+  stores two complete public question texts and one common rubric. Both writing
+  Parts reuse the configured Writing providers, grammar/vocabulary feedback
+  contract and flexible-length policy; a relevant, coherent answer may score
+  highly beyond the recommended range, while rambling or genre errors reduce
+  quality rather than triggering a mechanical word-count penalty.
+- The specialized whole-paper and focused-Part Universal JSON prompts preserve
+  the same `exam-bundle-import-v2` envelope and ChatGPT Copy-button contract.
+  They require Part 1 `context`, rewritten `prompt` and official accepted-answer
+  arrays; Part 2 full visible task plus numbered mandatory framework; and Part
+  3 exactly two full options. External technical IDs and media remain rejected,
+  while application-owned question/option IDs survive re-import.
+- `PetWritingViews.tsx` renders the learner flow. Part 1 places the original
+  sentence above the rewritten sentence and its input. Part 2 uses the typed-only
+  flexible Writing surface. Part 3 presents two high-contrast task cards and
+  opens one shared textarea only after a selection. The submitted Part 3 value
+  contains the selected application-owned option ID and essay text; backend
+  sanitization rejects unknown IDs, and the AI receives only the selected task.
+- AI grading is now a durable sequential queue for attempts with multiple
+  Writing questions. After Part 2 succeeds, the attempt remains queued and the
+  worker automatically leases Part 3; only the final success marks the attempt
+  completed. Each question keeps its own 0-10 score, Vietnamese feedback,
+  sentence count and grammar/vocabulary notes. Provider failure keeps the
+  remaining work in pending review for the existing retry or manual-grade path.
+  The final PET result combines the five objective points and two ten-point
+  Writing scores into the existing 0-100 attempt percentage.
+- Publication validation locks the three variants, counts, answer shapes,
+  visible email task, word ranges, provider configuration and Part 3 labels.
+  Student payloads remove official answers and AI instructions while retaining
+  the public two-task text. Regression coverage exercises smart apostrophes,
+  malicious option IDs, JSON import, private-field sanitization, readable UI
+  actions, legacy preservation and the real two-step backend worker.
+
+## 107. PET Reading source headers, worked examples and inline review - 2026-09-18
+
+- `petReadingMigration.ts` now owns and enforces the five canonical PE 1
+  headings and instructions: Questions 1–5, 6–10, 11–20, 21–25 and 26–35.
+  New drafts start with one editable example in Part 1 and Part 5. The current
+  normalizer also supplies the same source-faithful default at read time when
+  an older `pet-reading-5-v1` payload omitted it; imported/teacher-edited
+  examples take precedence. Each example is public and display-only; examples
+  never enter `questions`, the submission payload or the objective score.
+- The PET Reading Universal whole-paper and focused-Part prompts require the
+  canonical heading/instruction strings. Part 1 must return one notice example
+  with A/B/C choices and its official answer; Part 5 must return one numbered
+  A/B/C/D example and its official answer. The importer continues to generate
+  application-owned IDs, preserve teacher-owned Part 3 media and pass every
+  imported example through the existing bounded public-example parser.
+- `PetReadingAuthoring.tsx` exposes editable example panels for Parts 1 and 5,
+  including a live code-native notice preview and a visible official example
+  answer. `PetReadingViews.tsx` renders those examples before scored rows. The
+  redundant visible shell around the first notice template is transparent,
+  while the Part 4/5 passage frame uses a restrained light-orange background
+  that expands naturally with the source text.
+- `PetReadingResult.tsx` is the dedicated post-submit review shell. It reuses
+  the same five learner layouts and overlays backend review results directly
+  on each question: official choices are green, an incorrect learner choice is
+  red, unanswered rows are amber and every incorrect/unanswered row exposes
+  the correct answer in context. The result API and authoritative backend
+  grader are unchanged; answers remain available only through the existing
+  owner-checked review endpoint and `showReviewAfterSubmit` policy.
+- Regression coverage checks canonical prompt headings/instructions, imported
+  Part 1/5 examples, zero impact on scored question counts, code-native
+  authoring/player examples, transparent notice framing, orange passage frames
+  and the dedicated inline review dispatch.
+
+## 108. cPanel-safe asynchronous vocabulary image batches - 2026-09-18
+
+- The former `POST /api/image-library/batch-generate` held one HTTP request open
+  until every paid generation, image validation, managed-file write and asset
+  metadata write had finished. At 50 in-flight calls per provider this also
+  allowed many large base64 responses to coexist in one Passenger process.
+  Provider jobs could therefore complete while the reverse proxy timed out or
+  the hosting worker exhausted memory before the browser received any asset.
+- Batch creation now returns HTTP 202 with an owner-scoped `jobId` immediately.
+  Work continues through the existing provider/download/storage boundary, and
+  each row result is persisted independently. Staff polling uses
+  `GET /api/image-library/batch-generate/:jobId`, a separate bounded status
+  limiter and a backend ownership check; another teacher receives 404 rather
+  than job metadata. Audit failure cannot orphan an already-created job.
+- `vocab-image-batch-jobs-v1` is an additive SQLite migration for job metadata
+  and per-row results. It stores no image bytes or API keys, indexes actor/job
+  and expiry fields, and leaves vocabulary sets and managed assets unchanged.
+  The same collection contract remains compatible with Firestore deployments.
+- The provider-specific ceiling remains configurable up to 50, but
+  `VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY` now defaults to 8 and is clamped to
+  1–100. This bounds aggregate base64/download memory on cPanel while preserving
+  independent provider scheduling and automatic fallback. Higher-resource
+  servers may explicitly raise the total ceiling after observing memory.
+- The vocabulary editor polls with bounded retry, updates progress and attaches
+  each managed 4:3 thumbnail as soon as its result is durable. A changed term
+  is not overwritten by a stale background result. Partial successes remain in
+  the draft, failed rows keep their previous image and expose the first useful
+  provider/storage error in the final teacher notification.
+- A running job owns a renewable 60-second worker lease. If cPanel/Passenger
+  replaces the Node process, the next owner polling request detects the expired
+  lease, reloads the durable row results and resumes only unfinished indexes.
+  Already-downloaded assets are therefore attached without being regenerated,
+  while a live worker is protected from a duplicate recovery runner.
+
+## 109. PET Writing source-faithful examples and typed-only answers - 2026-09-19
+
+- `pet-writing-3-v1` keeps its released compatibility boundary and scoring,
+  while new/default Part 1 content now includes one public display-only worked
+  example. Universal whole-paper and focused-Part prompts require ChatGPT to
+  transcribe each source `title` and multiline `instruction`, extract the Part
+  1 example plus printed answer and preserve the exact Question 7/8 guidance.
+  The normalizer promotes an imported block example before removing import-only
+  blocks, so it is no longer lost between JSON import and the learner view.
+- Part 1 authoring exposes the example separately from the five scored rows.
+  The learner view renders the answer directly at the `____` position for both
+  the worked example and each scored transformation; it no longer creates a
+  detached answer box. Part 2 hides the redundant generic heading and the
+  prompt/word-target paragraph above the textarea. Part 3 retains its imported
+  heading/instruction and uses a full-card selected state that survives the
+  legacy global glass-button theme.
+- PET Writing no longer exposes the unused per-task prompt field in Part 2/3
+  authoring. Recommended word bounds remain teacher-owned grading metadata,
+  but their inputs use an editable draft value so a teacher can select, clear
+  and type a complete number before it is clamped and committed on blur.
+- Student text-answer controls across the shared Exam Platform and Movers now
+  block copy, cut, paste, drag/drop insertion and before-input paste variants.
+  This applies only to learner answer inputs/textareas (including the standalone
+  Writing surface), not teacher authoring or the learner-name form. Mobile smart
+  apostrophes continue to be normalized by the authoritative backend grader.
+- Submit, review, retry, home and PET task-selection controls use stable scoped
+  hooks with opaque high-contrast colours, avoiding the legacy translucent
+  global button override without changing unrelated game surfaces.
+
+## 110. Listening authoring audio preview - 2026-09-19
+
+- Every audio intake surface inside Kho đề luyện thi now uses the shared
+  `AudioPreviewButton`: the generic Part/block audio field used by Starter,
+  Flyer, KET, FCE and IELTS Listening, Starter's quick MP3 attachment panel,
+  and the five Movers Listening Part editors through `ListeningAssetPicker`.
+- A compact, opaque `Nghe thử` button sits directly beside the upload control.
+  It previews the currently selected managed asset, including the asset returned
+  immediately after an upload, and remains visibly disabled until an audio URL
+  exists. The button toggles play/pause and starting another preview stops the
+  previous Part's audio, preventing overlapping checks during authoring.
+- Preview is browser-only and does not change upload, asset ownership, draft,
+  publish or student playback contracts. The previous large inline audio control
+  in the Movers asset summary is removed to avoid duplicate playback controls.
+
+## 111. PET Reading example and compact answer rows - 2026-09-19
+
+- The `pet-reading-5-v1` normalizer now supplies the source-faithful default
+  worked example for Parts 1 and 5 when an older stored draft or published
+  version has no `examples` field. An imported or teacher-edited example still
+  takes precedence. This is a display-only normalization and does not add a
+  scored question or rewrite an immutable published version.
+- Part 1 renders its example before Question 1 and removes the redundant outer
+  bordered shell from every scored notice row. All five code-native templates
+  also use a transparent outer media shell; only the actual board, message,
+  note, letter or plaque inside remains visible. The separate answer card stays,
+  so review colouring continues to apply only to the actual answer area.
+- Part 5 no longer prints generated labels such as `Gap 26`. Each printed
+  question number is aligned on the same row as its four A–D choices, while the
+  passage keeps the matching numbered placeholder in context.
+
+## 112. PET result contrast and Writing paper controls - 2026-09-19
+
+- PET Reading result and visual-review actions now use dedicated scoped hooks
+  for Home, visual review, retry, Parts 1–5 and return-to-summary. Opaque blue,
+  green and white states override the legacy glass-button theme without
+  changing controls in unrelated modules; disabled loading remains readable.
+- PET Writing Part 1 uses a transparent inline input with only a thin,
+  light-orange dashed baseline. The redundant visible placeholder and boxed
+  fill background are removed, while the same typed-only guards and backend
+  accepted-answer normalization remain in force.
+- PET Writing Parts 2 and 3 use a subtle 32px light-orange ruled-paper
+  background aligned with the textarea line height. This is presentation-only;
+  draft answers, no-paste guards and word counting are unchanged.
+- PET Writing continues to share the Exam Platform's persisted AI-grading
+  queue with the standalone Writing library: polling, safe pending state,
+  retryable failure and owner-checked review use the same endpoints. Its retry
+  button now exposes the server cooldown countdown, and completed attempts
+  continue to appear through the existing `exam_attempts` Learning History
+  adapter rather than a duplicate history store.
+
+## 113. PET Listening four-Part exam workflow - 2026-09-19
+
+- New PET Listening drafts use the explicit `pet-listening-4-v1` contract with
+  four fixed Part types and teacher-adjustable scored-row counts. Older PET
+  Listening papers remain on their released generic contract until a teacher
+  deliberately converts the draft, so published attempts and history are not
+  rewritten by the migration.
+- Part 1 provides a source-page intake, automatic A/B/C frame grouping and the
+  same manual crop editor used by established image-option listening tasks. It
+  stores one display-only worked example plus three managed option images per
+  scored row. Part 2 is a text A/B/C dialogue task without an example; Part 3
+  is an audio form-completion task with accepted-answer aliases; Part 4 is a
+  text-only Yes/No task without an image.
+- PET-specific authoring and learner views plug into the shared Exam Platform
+  shell rather than creating a second runtime. Audio upload/preview, immutable
+  publish, timed attempts, backend answer-key protection, grading, visual
+  green/red review, transcripts and Learning History continue to use the same
+  endpoints and persistence as the other Kho đề luyện thi papers.
+- Universal whole-paper and focused-Part prompts require ChatGPT to transcribe
+  the source title and multiline instruction exactly, emit four Parts in the
+  official order, include only the Part 1 worked example and return one
+  copyable JSON block. Server validation checks every variant, official answer
+  and managed crop before publishing, and strips the private full source image
+  plus all answer keys from the learner payload.
+- PET Listening editor and learner actions use scoped opaque contrast rules so
+  upload, crop, navigation and answer controls stay readable despite the legacy
+  global glass-button theme.
+
+## 114. PET Listening tall-scan Part 1 crop fallback - 2026-09-19
+
+- PET Listening Part 1 now has a module-scoped relaxed frame detector for pale,
+  one-pixel PDF borders and source images made by vertically joining several
+  complete pages. It preserves up to 3600 pixels while analysing the image and
+  derives vertical frame limits from page width, so large blank gaps between
+  pasted pages do not make valid A/B/C boxes look too small.
+- The fallback bridges tiny antialiasing gaps but still requires at least three
+  strong rectangle edges and neutral scan colours. Its candidates are merged
+  with the existing conservative black-frame detector; KET, Movers and other
+  crop workflows retain their previous detector behaviour.
+- PET row grouping no longer rejects a question merely because an illustration
+  contains extra rectangular objects such as a tray, table or clock. It selects
+  the three largest regular, evenly spaced outer frames for A/B/C, orders rows
+  from top to bottom and skips the first triplet when it is the printed example.
+- Regression coverage reproduces an example plus seven questions over a tall
+  three-page scan with pale broken borders and nested black rectangles. The
+  expected result is seven complete A/B/C crop groups (21 learner images).
+
+## 115. PET Listening Part 1 cropped worked example - 2026-09-19
+
+- Part 1 crop grouping now returns the first detected A/B/C triplet separately
+  as `exampleGroup` when the source contains an example plus all scored rows.
+  Batch processing uploads these three Example crops before the 21 scored
+  question crops. When no complete Example triplet is found, the scored rows
+  still crop normally and the existing Example media is left untouched.
+- `ExamDisplayExample.options` can now own three public managed image assets.
+  Universal JSON continues to contain only labels/descriptions, but later JSON
+  imports preserve teacher-created Example option images by label. Publish
+  validation accepts the new three-image representation and retains support for
+  immutable legacy papers that stored one combined Example image.
+- The authoring screen exposes separate A/B/C Example image slots and reports
+  progress as `Example 0/3` plus the scored-image count. Both the live learner
+  view and post-submit visual review render the Example in the same three-card
+  layout as a question, lock interaction, and mark the official option with an
+  emerald border, selected radio and explicit correct-answer label.
+
+## 116. PET Listening inline form and aligned Yes/No rows - 2026-09-20
+
+- Part 3 learner content is now one form card. Explicit `[[questionNumber]]`
+  markers and legacy printed blanks such as `(14) ....................` inside
+  the teacher-owned passage are replaced by protected text inputs at their
+  printed positions; the detached answer-card list has been removed. Papers
+  whose blanks cannot be identified remain playable because unmatched
+  questions are rendered as compact rows inside that same form card.
+- The PET Listening ChatGPT prompt and teacher editor now document the marker
+  contract, so newly imported forms preserve their printed line breaks and put
+  each input in the actual blank. Post-submit review uses the same inline model
+  and overlays the learner answer plus the correct answer when needed.
+- Part 4 learner and review rows use one fixed three-column grid: the numbered
+  statement on the left and aligned Yes/No controls on the right. This changes
+  presentation only; existing question IDs, submitted option IDs, backend
+  grading, immutable versions and Learning History remain unchanged.
+
+## 117. Shared Cambridge learner answer line - 2026-09-20
+
+- `StudentUnderlineInput` is the shared short-answer control modelled after PET
+  Writing Part 1: transparent background, one thin dashed pale-orange baseline,
+  no placeholder box and the existing copy/paste/drop guards. It is used by
+  Starters Listening Part 2, Movers Listening Part 2, Starters Reading &
+  Writing Parts 4/5, Movers Reading & Writing Parts 1/4/5 and Flyers Reading &
+  Writing Parts 1/4/5/7.
+- Starters Listening Part 2, Starters Reading & Writing Part 5 and Movers
+  Reading & Writing Part 1 keep the prompt on the left and align equal-width
+  answer lines to the right without creating a second answer panel.
+- Movers Reading & Writing Part 2 now places each statement and its compact
+  Yes/No controls on one fixed grid row. Part 6 image-choice mode places the
+  printed question number and all three A/B/C answers on the same row. Answer
+  IDs, grading data and stored submissions are unchanged.
+- The shared control now owns an explicit final CSS reset after every legacy
+  global input rule. Released papers therefore keep a transparent square
+  input with no surrounding border, background, radius or placeholder. Its
+  orange baseline is one shade stronger, the control is reduced to a 2rem
+  line box and baseline-aligned so inline blanks sit level with printed text.
+  PET Writing Part 1 also consumes this shared control instead of maintaining
+  a second copy of the same visual rules.

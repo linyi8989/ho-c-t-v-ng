@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import ExamImageViewer from '../../exam-media/ExamImageViewer';
 import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
 import type { ExamImageProfile } from '../../exam-media/imageProfiles';
+import StudentUnderlineInput from '../../exam-platform/student/StudentUnderlineInput';
 import type {
   MoverReadingWritingAnswers,
   MoverReadingWritingChoiceQuestion,
@@ -66,9 +67,20 @@ function InlineAnswerInput({ value, onChange, label, maxWords, width = 'w-40' }:
   return (
     <label>
       <span className="sr-only">{label}</span>
-      <input value={value} onChange={event => update(event.target.value)} autoComplete="off" className={`${width} max-w-full border-0 border-b-2 border-dotted border-blue-500 bg-blue-50 px-2 py-1 text-center font-black text-blue-900 outline-none focus:bg-blue-100 focus:ring-2 focus:ring-blue-200`} />
+      <StudentUnderlineInput value={value} onChange={event => update(event.target.value)} autoComplete="off" className={width} />
     </label>
   );
+}
+
+function templateWithoutGaps(template: string) {
+  return template.replace(/\{\{[^}]+\}\}/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+function RightAlignedTextQuestion({ number, prompt, value, onChange, maxWords }: { key?: string; number: number; prompt: string; value: string; onChange: (value: string) => void; maxWords?: number }) {
+  return <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-semibold leading-7 text-slate-800" data-mover-rw-right-answer-row>
+    <p className="min-w-0"><b className="mr-2 text-blue-700">{number}.</b>{templateWithoutGaps(prompt)}</p>
+    <InlineAnswerInput value={value} onChange={onChange} label={`Câu trả lời ${number}`} maxWords={maxWords} width="w-44" />
+  </div>;
 }
 
 function InlineTextQuestion({ number, questionId, prompt, value, onChange, maxWords }: { number: number; questionId: string; prompt: string; value: string; onChange: (value: string) => void; maxWords?: number }) {
@@ -121,11 +133,11 @@ function renderTemplate(template: string, renderGap: (id: string, index: number)
 }
 
 export function ReadingPart1View({ part, answers, onAnswers }: { part: MoverReadingWritingPart1 } & AnswerProps) {
-  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <div key={question.id} className="contents"><InlineTextQuestion number={index + 1} questionId={question.id} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} /></div>)}</div></Layout>;
+  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <RightAlignedTextQuestion key={question.id} number={index + 1} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} />)}</div></Layout>;
 }
 
 export function ReadingPart2View({ part, answers, onAnswers }: { part: MoverReadingWritingPart2 } & AnswerProps) {
-  return <Layout imageUrl={part.sceneUrl} imageAlt="Tranh tình huống Part 2" profile="illustration"><Examples items={part.examples} />{part.questions.map((question, index) => <fieldset key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><legend className="px-1 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{question.statement}</legend><div className="mt-3 grid grid-cols-2 gap-3">{(['yes', 'no'] as const).map(value => <label key={value} className={`cursor-pointer rounded-xl border p-3 text-center text-sm font-black uppercase ${answers.part2[question.id] === value ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'}`}><input className="sr-only" type="radio" name={`rw-p2-${question.id}`} checked={answers.part2[question.id] === value} onChange={() => onAnswers(current => ({ ...current, part2: { ...current.part2, [question.id]: value } }))} />{value}</label>)}</div></fieldset>)}</Layout>;
+  return <Layout imageUrl={part.sceneUrl} imageAlt="Tranh tình huống Part 2" profile="illustration"><Examples items={part.examples} /><div className="space-y-2" data-mover-rw-part2-rows>{part.questions.map((question, index) => <fieldset key={question.id} className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm" data-mover-rw-part2-row><legend className="sr-only">Câu {index + 1}: {question.statement}</legend><p className="min-w-0 text-sm font-bold leading-6 text-slate-800"><b className="mr-2 text-blue-700">{index + 1}.</b>{question.statement}</p>{(['yes', 'no'] as const).map(value => <label key={value} className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-lg border px-2 text-center text-xs font-black uppercase ${answers.part2[question.id] === value ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-slate-50 text-slate-800'}`}><input className="sr-only" type="radio" name={`rw-p2-${question.id}`} checked={answers.part2[question.id] === value} onChange={() => onAnswers(current => ({ ...current, part2: { ...current.part2, [question.id]: value } }))} />{value}</label>)}</fieldset>)}</div></Layout>;
 }
 
 export function ReadingPart3View({ part, answers, onAnswers }: { part: MoverReadingWritingPart3 } & AnswerProps) {
@@ -148,17 +160,11 @@ export function ReadingPart6View({ part, answers, onAnswers }: { part: MoverRead
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
           Chọn một đáp án A, B hoặc C tương ứng với từng số câu trên ảnh.
         </div>
-        {part.questions.map(question => (
-          <div key={question.id} className="contents">
-            <ChoiceQuestion
-              number={question.questionNumber}
-              question={question}
-              value={answers.part6[question.id] || ''}
-              layout="horizontal"
-              onChange={value => onAnswers(current => ({ ...current, part6: { ...current.part6, [question.id]: value } }))}
-            />
-          </div>
-        ))}
+        <div className="space-y-2" data-mover-rw-part6-inline-rows>{part.questions.map(question => <fieldset key={question.id} className="grid grid-cols-[2.75rem_repeat(3,minmax(0,1fr))] items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm" data-choice-layout="horizontal" data-mover-rw-part6-inline-row>
+          <legend className="sr-only">Câu {question.questionNumber}: {question.prompt}</legend>
+          <b className="text-center text-blue-700">{question.questionNumber}.</b>
+          {question.options.slice(0, 3).map((option, optionIndex) => <label key={option.id} className={`flex min-w-0 cursor-pointer items-center justify-center gap-1 rounded-lg border px-2 py-2 text-center text-sm font-semibold ${answers.part6[question.id] === option.id ? 'border-blue-500 bg-blue-50 text-blue-900' : 'border-slate-200 bg-slate-50 text-slate-700'}`}><input className="shrink-0" type="radio" name={`rw-p6-${question.id}`} checked={answers.part6[question.id] === option.id} onChange={() => onAnswers(current => ({ ...current, part6: { ...current.part6, [question.id]: option.id } }))} /><span className="min-w-0 break-words"><b>{String.fromCharCode(65 + optionIndex)}.</b> {option.text}</span></label>)}
+        </fieldset>)}</div>
       </Layout>
     );
   }

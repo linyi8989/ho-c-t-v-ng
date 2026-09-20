@@ -4,6 +4,8 @@ import type { ExamImageProfile } from '../../exam-media/imageProfiles';
 import { examPartUnits } from '../examStructure';
 import type { ExamAnswerValue, ExamAnswers, ExamPartContent, ExamQuestion } from '../types';
 import ExamImageViewer from './ExamImageViewer';
+import StudentUnderlineInput from './StudentUnderlineInput';
+import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 
 interface Props {
   part: ExamPartContent;
@@ -11,15 +13,21 @@ interface Props {
   onAnswer: (questionId: string, value: ExamAnswerValue) => void;
 }
 
-function TextInput({ question, value, onChange, width = 'w-40' }: { question: ExamQuestion; value: string; onChange: (value: string) => void; width?: string }) {
+function TextInput({ question, value, onChange, width = 'w-40', petUnderline = false }: { question: ExamQuestion; value: string; onChange: (value: string) => void; width?: string; petUnderline?: boolean }) {
   const update = (next: string) => {
     const words = next.trim().split(/\s+/).filter(Boolean);
     if (!question.maxWords || words.length <= question.maxWords) onChange(next);
   };
   return <label className="inline-block max-w-full align-middle">
     <span className="sr-only">Câu trả lời {question.number}</span>
-    <input value={value} autoComplete="off" onChange={event => update(event.target.value)} className={`${width} max-w-full border-0 border-b-2 border-dotted border-blue-500 bg-blue-50 px-2 py-1 text-center font-black text-blue-900 outline-none focus:bg-blue-100 focus:ring-2 focus:ring-blue-200`} />
+    {petUnderline
+      ? <StudentUnderlineInput value={value} autoComplete="off" onChange={event => update(event.target.value)} className={width} />
+      : <input {...studentTypedAnswerGuards} value={value} autoComplete="off" onChange={event => update(event.target.value)} className={`${width} max-w-full border-0 border-b-2 border-dotted border-blue-500 bg-blue-50 px-2 py-1 text-center font-black text-blue-900 outline-none focus:bg-blue-100 focus:ring-2 focus:ring-blue-200`} />}
   </label>;
+}
+
+function promptWithoutGap(prompt: string) {
+  return prompt.replace(/(\[\[\d+\]\]|\{\{[^}]+\}\}|_{3,}|(?:\.\s*){4,})/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
 function renderPrompt(question: ExamQuestion, input: ReactNode) {
@@ -146,7 +154,7 @@ function SpellingInput({ question, value, onChange }: { question: ExamQuestion; 
   };
   return <span className="flex min-w-0 flex-wrap items-center justify-center gap-1" role="group" data-starter-rw-spelling-cells aria-label={`Câu trả lời ${question.displayNumber || question.number}: ${question.prompt}`}>
     <span className="sr-only">Câu trả lời {question.number}: {question.prompt}</span>
-    {Array.from({ length }, (_, index) => <input key={index} value={characters[index] || ''} maxLength={length} inputMode="text" autoComplete="off" aria-label={`Chữ cái ${index + 1} câu ${question.displayNumber || question.number}`} onFocus={event => event.currentTarget.select()} onChange={event => handleChange(index, event)} onKeyDown={event => handleKeyDown(index, event)} className="starter-rw-spelling-cell h-10 w-8 border-0 border-b-2 text-center text-lg font-black lowercase outline-none" />)}
+    {Array.from({ length }, (_, index) => <input {...studentTypedAnswerGuards} key={index} value={characters[index] || ''} maxLength={length} inputMode="text" autoComplete="off" aria-label={`Chữ cái ${index + 1} câu ${question.displayNumber || question.number}`} onFocus={event => event.currentTarget.select()} onChange={event => handleChange(index, event)} onKeyDown={event => handleKeyDown(index, event)} className="starter-rw-spelling-cell h-10 w-8 border-0 border-b-2 text-center text-lg font-black lowercase outline-none" />)}
   </span>;
 }
 
@@ -192,7 +200,7 @@ function renderStory(unit: ExamPartContent, answers: ExamAnswers, onAnswer: Prop
     if (!match) return <span key={index} className="whitespace-pre-wrap">{segment}</span>;
     const question = byIndex[Number(match[1]) - 1];
     if (!question) return <span key={index} className="font-bold text-rose-700">[Thiếu ô]</span>;
-    return <span key={index} className="mx-1 inline-block"><TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} /></span>;
+    return <span key={index} className="mx-1 inline-block"><TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} petUnderline /></span>;
   });
 }
 
@@ -208,7 +216,7 @@ function PartFive({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<
     if (!question) return null;
     number += 1;
     const currentNumber = number;
-    return <div key={question.id} className="py-2 text-base font-semibold leading-10 text-slate-800"><b className="mr-2 text-blue-700">{currentNumber}.</b>{renderPrompt(question, <TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} />)}</div>;
+    return <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-semibold leading-7 text-slate-800" data-starter-rw-part5-right-row><p className="min-w-0"><b className="mr-2 text-blue-700">{currentNumber}.</b>{promptWithoutGap(question.prompt)}</p><TextInput question={question} value={typeof answers[question.id] === 'string' ? answers[question.id] as string : ''} onChange={value => onAnswer(question.id, value)} width="w-44" petUnderline /></div>;
   })}</div></div></ExamSplitTaskLayout></section>)}</div>;
 }
 

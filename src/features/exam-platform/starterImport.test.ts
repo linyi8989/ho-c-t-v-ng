@@ -30,7 +30,9 @@ test('Starter whole-import prompt describes the exact four-Part three-layer cont
   ]) assert.ok(prompt.includes(contract), `Whole-import prompt is missing: ${contract}`);
   assert.match(prompt, /Không tạo bất kỳ ID kỹ thuật nào/);
   assert.match(prompt, /Không đưa URL, đường dẫn tệp, base64, data URI, tọa độ, crop, hitbox, anchor, mask hoặc polygon/);
-  assert.match(prompt, /Chỉ trả về một JSON object hợp lệ/);
+  assert.match(prompt, /ĐỊNH DẠNG PHẢN HỒI CÓ NÚT COPY/);
+  assert.match(prompt, /mở bằng ```json và đóng bằng ```/);
+  assert.doesNotMatch(prompt, /Không Markdown|không dấu ```/i);
 });
 
 function starterBundle() {

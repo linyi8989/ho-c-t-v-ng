@@ -37,3 +37,19 @@ export interface BatchImageGenerationResult {
   prompt?: string;
   error?: string;
 }
+
+export interface VocabImageBatchJob {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  items: BatchImageGenerationResult[];
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  concurrencyPerProvider: number;
+  totalConcurrency: number;
+}

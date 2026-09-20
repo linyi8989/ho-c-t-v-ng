@@ -14,15 +14,17 @@ import {
   parseExternalParametersImport,
 } from './externalParametersImport';
 
-test('external parameter model guides cover all five strict schemas without Markdown wrappers', () => {
+test('external parameter model guides cover all five strict schemas with one copyable JSON block', () => {
   for (const part of [1, 2, 3, 4, 5] as const) {
     const guide = externalParametersModelInstructions(part);
     assert.match(guide, new RegExp(`mover-part${part}-external-v1`));
     assert.match(guide, new RegExp(`Listening Movers Part ${part}`));
     assert.match(guide, /Không sinh ID kỹ thuật, UUID, database ID/);
     assert.match(guide, /Không dùng audio hoặc transcript/);
-    assert.ok(guide.endsWith(externalParametersTemplate(part)));
-    assert.doesNotMatch(guide, /```/);
+    assert.match(guide, /ĐỊNH DẠNG PHẢN HỒI CÓ NÚT COPY/);
+    assert.match(guide, /```json/);
+    assert.ok(guide.includes(externalParametersTemplate(part)));
+    assert.doesNotMatch(guide, /Không dùng Markdown|không dùng code fence/i);
   }
   assert.match(externalParametersModelInstructions(1), /point: \{ x, y \}/);
   assert.match(externalParametersModelInstructions(3), /bảy|7 answer/iu);

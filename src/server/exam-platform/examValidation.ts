@@ -26,6 +26,21 @@ import {
   normalizeFixedKetListeningContent,
 } from '../../features/exam-platform/ketListeningMigration.js';
 import {
+  isFixedPetReadingContent,
+  PET_READING_VARIANTS,
+  normalizeFixedPetReadingContent,
+} from '../../features/exam-platform/petReadingMigration.js';
+import {
+  isFixedPetListeningContent,
+  PET_LISTENING_VARIANTS,
+  normalizeFixedPetListeningContent,
+} from '../../features/exam-platform/petListeningMigration.js';
+import {
+  isFixedPetWritingContent,
+  PET_WRITING_VARIANTS,
+  normalizeFixedPetWritingContent,
+} from '../../features/exam-platform/petWritingMigration.js';
+import {
   isExamMatchingConnection,
   starterMatchingModel,
   starterMatchingResponseKey,
@@ -641,6 +656,103 @@ function validateKetListeningPart(part: ExamPartContent, partIndex: number, erro
   }
 }
 
+function validatePetListeningPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const number = partIndex + 1;
+  const label = `PET Listening Part ${number}`;
+  const unit = examPartUnits(part)[0] || part;
+  if (!text(part.title, 240) || !text(part.instruction, 4_000)) errors.push(`${label}: thiếu tiêu đề hoặc hướng dẫn được chép từ đề nguồn.`);
+  if (!part.questions.length) errors.push(`${label}: phải có ít nhất một câu chấm điểm.`);
+  if (examPartUnits(part).length !== 1 || unit.interaction?.variant !== PET_LISTENING_VARIANTS[partIndex]) errors.push(`${label}: dạng bài không đúng cấu trúc PET Listening 4 Part.`);
+  if (number === 1) {
+    const example = unit.examples?.[0];
+    const exampleOptions = example?.options || [];
+    const croppedExample = exampleOptions.length === 3
+      && exampleOptions.map(option => text(option.label, 20).toUpperCase()).join('|') === 'A|B|C'
+      && exampleOptions.every(option => text(option.imageAssetId, 180));
+    const legacyCombinedExample = text(example?.imageAssetId, 180);
+    if ((unit.examples || []).length !== 1 || !text(example?.prompt, 2_000) || !/^[ABC]$/i.test(text(example?.answer, 10)) || (!croppedExample && !legacyCombinedExample)) {
+      errors.push(`${label}: phải có đúng một example gồm câu hỏi, ba ảnh A/B/C đã crop (hoặc ảnh gộp của đề cũ) và đáp án A/B/C; example không chấm điểm.`);
+    }
+    if (unit.questions.some(question => question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có đúng ba lựa chọn A/B/C và một đáp án đúng.`);
+    if (unit.questions.some(question => question.options.some(option => !text(option.imageAssetId, 180)))) errors.push(`${label}: mỗi câu phải có đủ ba ảnh A/B/C đã crop hoặc tải lên.`);
+  }
+  if (number === 2) {
+    if ((unit.examples || []).length) errors.push(`${label}: Part này không được có example.`);
+    if (unit.questions.some(question => !text(question.prompt, 8_000) || question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có nội dung, đúng ba lựa chọn A/B/C và một đáp án đúng.`);
+  }
+  if (number === 3) {
+    if (!text(unit.passage, 20_000)) errors.push(`${label}: thiếu nội dung biểu mẫu/ghi chú và example in sẵn.`);
+    if (unit.questions.some(question => question.type !== 'short-answer' || !text(question.prompt, 500) || !Number.isInteger(question.displayNumber))) errors.push(`${label}: mỗi hàng phải có số in trên đề, nhãn và ô nhập đáp án.`);
+    if (unit.questions.some(question => String(question.answerPrefix || '').length > 20 || String(question.answerSuffix || '').length > 80)) errors.push(`${label}: chữ trước hoặc sau ô nhập vượt quá giới hạn cho phép.`);
+  }
+  if (number === 4) {
+    if (unit.questions.some(question => question.type !== 'single-choice' || question.options.length !== 2 || question.correctOptionIds.length !== 1 || normalizeExamText(question.options[0]?.text) !== 'yes' || normalizeExamText(question.options[1]?.text) !== 'no')) {
+      errors.push(`${label}: mỗi nhận định phải có đúng hai lựa chọn Yes/No và một đáp án đúng.`);
+    }
+  }
+}
+
+function validatePetReadingPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const partNumber = partIndex + 1;
+  const label = `PET Reading Part ${partNumber}`;
+  if (!part.questions.length) errors.push(`${label}: phải có ít nhất một câu chấm điểm.`);
+  if (examPartUnits(part).length !== 1 || part.interaction?.variant !== PET_READING_VARIANTS[partIndex]) {
+    errors.push(`${label}: dạng bài không đúng cấu trúc PET Reading 5 Part.`);
+  }
+  const requireChoices = (count: number, type: 'single-choice' | 'true-false' = 'single-choice') => {
+    if (part.questions.some(question => question.type !== type || question.options.length !== count || question.correctOptionIds.length !== 1)) {
+      errors.push(`${label}: mỗi câu phải có đúng ${count} lựa chọn và một đáp án đúng.`);
+    }
+  };
+  const requireExample = (count: number) => {
+    const example = part.examples?.[0];
+    const options = example?.options || [];
+    const expectedLabels = Array.from({ length: count }, (_, index) => String.fromCharCode(65 + index));
+    const answer = normalizeExamText(example?.answer);
+    if ((part.examples || []).length !== 1
+      || !text(example?.prompt, 8_000)
+      || options.length !== count
+      || options.some((option, index) => normalizeExamText(option.label) !== normalizeExamText(expectedLabels[index]) || !text(option.text, 4_000))
+      || !options.some(option => normalizeExamText(option.label) === answer)) {
+      errors.push(`${label}: phải có đúng một example không chấm điểm, đủ ${count} lựa chọn và đáp án mẫu hợp lệ.`);
+    }
+  };
+  if (partNumber === 1) {
+    requireChoices(3);
+    requireExample(3);
+    if (part.questions.some(question => !text(question.context, 8_000) && !text(question.imageAssetId, 180))) {
+      errors.push(`${label}: mỗi câu phải có nội dung notice/message để hiển thị trong khung mặc định.`);
+    }
+  }
+  if (partNumber === 2) {
+    requireChoices(8);
+    const signatures = part.questions.map(question => question.options.map(option => `${text(option.label, 20).toUpperCase()}\u0000${text(option.text, 4_000)}`).join('\u0001'));
+    if (new Set(signatures).size !== 1) errors.push(`${label}: mọi câu phải dùng chung đúng một ngân hàng lựa chọn A–H.`);
+    const selectedIndexes = part.questions.map(question => question.options.findIndex(option => question.correctOptionIds.includes(option.id)));
+    if (selectedIndexes.some(index => index < 0) || new Set(selectedIndexes).size !== selectedIndexes.length) errors.push(`${label}: mỗi người phải ánh xạ tới một lựa chọn A–H khác nhau.`);
+  }
+  if (partNumber === 3) {
+    if (!text(part.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh tình huống hiển thị bên trái.`);
+    requireChoices(2, 'true-false');
+    if (part.questions.some(question => question.options.map(option => text(option.text, 20).toLowerCase()).join('|') !== 'yes|no')) errors.push(`${label}: mỗi câu phải dùng đúng hai lựa chọn Yes/No.`);
+  }
+  if (partNumber === 4) {
+    if (!text(part.passage, 40_000)) errors.push(`${label}: thiếu bài đọc hiển thị phía trên.`);
+    requireChoices(4);
+  }
+  if (partNumber === 5) {
+    if (!text(part.passage, 40_000)) errors.push(`${label}: thiếu bài đọc có các ô trống được đánh số.`);
+    requireChoices(4);
+    requireExample(4);
+    const passage = part.passage || '';
+    const expected = new Set(part.questions.map(question => question.displayNumber || question.number));
+    const markers = [...passage.matchAll(/\[\[(\d+)\]\]/g)].map(match => Number(match[1]));
+    if (markers.length !== expected.size || new Set(markers).size !== markers.length || markers.some(number => !expected.has(number)) || [...expected].some(number => !markers.includes(number))) {
+      errors.push(`${label}: bài đọc phải có đúng một marker [[số câu]] cho mỗi câu và không có marker thừa.`);
+    }
+  }
+}
+
 function validateStandaloneWriting(content: ExamPaperContent, errors: string[]) {
   const part = content.parts?.[0];
   const question = part?.questions?.[0];
@@ -675,8 +787,66 @@ function validateStandaloneWriting(content: ExamPaperContent, errors: string[]) 
   }
 }
 
+function validatePetWriting(content: ExamPaperContent, errors: string[]) {
+  if (content.parts.length !== 3 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== [5, 1, 1][index])) {
+    errors.push('PET Writing mới phải có đúng 3 Part theo thứ tự với số câu/task 5–1–1.');
+    return;
+  }
+  content.parts.forEach((part, index) => {
+    const label = `PET Writing Part ${index + 1}`;
+    if (part.interaction?.variant !== PET_WRITING_VARIANTS[index]) errors.push(`${label}: dạng bài không đúng template PET Writing.`);
+  });
+  const first = content.parts[0];
+  const workedExample = first.examples?.[0];
+  if (first.examples?.length !== 1 || !text(workedExample?.prompt, 2_000) || !text(workedExample?.answer, 1_000) || !/_{2,}/.test(workedExample?.prompt || '')) {
+    errors.push('PET Writing Part 1: cần đúng một example không chấm điểm, gồm câu viết lại có ____ và đáp án hiển thị.');
+  }
+  first.questions.forEach((question, index) => {
+    const label = `PET Writing Part 1, câu ${index + 1}`;
+    if (question.type !== 'short-answer' || question.points !== 1 || question.options.length || question.correctOptionIds.length) errors.push(`${label}: phải là câu điền đáp án 1 điểm.`);
+    if (!text(question.context, 8_000) || !text(question.prompt, 8_000)) errors.push(`${label}: thiếu câu gốc hoặc câu viết lại.`);
+    if (!question.acceptedAnswers.some(answer => normalizeExamText(answer))) errors.push(`${label}: chưa có đáp án được chấp nhận.`);
+  });
+  [content.parts[1], content.parts[2]].forEach((part, offset) => {
+    const partNumber = offset + 2;
+    const question = part.questions[0];
+    const label = `PET Writing Part ${partNumber}`;
+    if (question.type !== 'long-writing' || question.points !== 10 || !text(question.prompt, 8_000)) errors.push(`${label}: phải có đúng một bài viết 10 điểm và yêu cầu rõ ràng.`);
+    if (!Number.isInteger(question.minWords) || !Number.isInteger(question.maxWords) || Number(question.minWords) < 1 || Number(question.maxWords) < Number(question.minWords)) errors.push(`${label}: khoảng từ mục tiêu không hợp lệ.`);
+    const config = question.writingGrading;
+    if (!config?.enabled || !['stali:gpt-5.6-sol', 'devquota:gpt-5.6-sol'].includes(config.providerId) || config.scoreScale !== 10 || !text(config.taskContext, 8_000) || !text(config.gradingInstructions, 8_000)) errors.push(`${label}: thiếu cấu hình AI, khung nội dung hoặc quy tắc chấm hợp lệ.`);
+    if (partNumber === 2 && !text(part.passage, 20_000)) errors.push(`${label}: thiếu đề email hiển thị cho học sinh.`);
+    if (partNumber === 3) {
+      if (question.options.length !== 2 || question.options.some((option, optionIndex) => option.label !== String(optionIndex + 7) || !text(option.text, 8_000)) || new Set(question.options.map(option => option.id)).size !== 2) errors.push(`${label}: phải có đúng hai đề lựa chọn 7 và 8.`);
+    } else if (question.options.length) errors.push(`${label}: email hướng dẫn không dùng lựa chọn đề.`);
+  });
+}
+
+const LEGACY_PET_READING_PARTS: ExamPartDefinition[] = [5, 5, 5, 5, 6, 6].map((questionCount, index) => ({
+  id: `part-${index + 1}`,
+  displayName: `Part ${index + 1}`,
+  title: `Legacy PET Reading Part ${index + 1}`,
+  instruction: '',
+  questionCount,
+  defaultQuestionType: index === 1 || index === 3 ? 'matching' : index === 5 ? 'short-answer' : 'single-choice',
+  allowedQuestionTypes: ['single-choice', 'multiple-choice', 'short-answer', 'true-false', 'true-false-not-given', 'yes-no-not-given', 'matching'],
+}));
+
+const LEGACY_PET_WRITING_PARTS: ExamPartDefinition[] = [1, 1].map((questionCount, index) => ({
+  id: `part-${index + 1}`,
+  displayName: `Part ${index + 1}`,
+  title: `Legacy PET Writing Part ${index + 1}`,
+  instruction: '',
+  questionCount,
+  defaultQuestionType: 'long-writing',
+  allowedQuestionTypes: ['long-writing'],
+  longWriting: true,
+  minWords: 100,
+  pointsPerQuestion: 20,
+}));
+
 export function validateExamPaperContent(content: ExamPaperContent) {
-  content = normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))));
+  content = normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)))))));
   const errors: string[] = [];
   if (!content || typeof content !== 'object') return ['Nội dung đề không hợp lệ.'];
   if (!(EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS as readonly number[]).includes(content.schemaVersion)) errors.push('Schema đề thi không được hỗ trợ.');
@@ -688,6 +858,7 @@ export function validateExamPaperContent(content: ExamPaperContent) {
   if (content.moduleId === 'writing' && content.paperId === 'writing') {
     validateStandaloneWriting(content, errors);
   }
+  if (isFixedPetWritingContent(content)) validatePetWriting(content, errors);
   if (content.moduleId === 'starter' && content.paperId === 'listening' && (content.parts.length !== 4 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== 5))) {
     errors.push('Starters Listening phải có đúng 4 Part theo thứ tự và mỗi Part đúng 5 câu.');
   }
@@ -706,7 +877,15 @@ export function validateExamPaperContent(content: ExamPaperContent) {
   if (isFixedKetListeningContent(content) && (content.parts.length !== 5 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
     errors.push('KET Listening mới phải có đúng 5 Part theo thứ tự và mỗi Part có ít nhất một câu chấm điểm.');
   }
-  if (!dynamic && content.parts?.length !== definition.parts.length) {
+  if (isFixedPetReadingContent(content) && (content.parts.length !== 5 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
+    errors.push('PET Reading mới phải có đúng 5 Part theo thứ tự và mỗi Part có ít nhất một câu chấm điểm.');
+  }
+  if (isFixedPetListeningContent(content) && (content.parts.length !== 4 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
+    errors.push('PET Listening mới phải có đúng 4 Part theo thứ tự và mỗi Part có ít nhất một câu chấm điểm.');
+  }
+  const legacyPetReading = content.moduleId === 'pet' && content.paperId === 'reading' && !isFixedPetReadingContent(content);
+  const legacyPetWriting = content.moduleId === 'pet' && content.paperId === 'writing' && !isFixedPetWritingContent(content);
+  if (!dynamic && !legacyPetReading && !legacyPetWriting && content.parts?.length !== definition.parts.length) {
     errors.push(`${definition.displayName} phải có đúng ${definition.parts.length} Part/Section.`);
     return errors;
   }
@@ -714,7 +893,16 @@ export function validateExamPaperContent(content: ExamPaperContent) {
   const allIds = new Set<string>();
   let totalQuestions = 0;
   content.parts.forEach((part, partIndex) => {
-    const partDefinition = definition.parts[partIndex]!;
+    const partDefinition = (legacyPetReading ? LEGACY_PET_READING_PARTS[partIndex] : legacyPetWriting ? LEGACY_PET_WRITING_PARTS[partIndex] : definition.parts[partIndex]) || {
+      id: `part-${partIndex + 1}`,
+      displayName: `Part ${partIndex + 1}`,
+      title: part?.title || `Part ${partIndex + 1}`,
+      instruction: '',
+      questionCount: part?.questions?.length || 0,
+      questionCountFlexible: true,
+      defaultQuestionType: part?.questions?.[0]?.type || 'short-answer',
+      allowedQuestionTypes: ['single-choice', 'multiple-choice', 'short-answer', 'true-false', 'true-false-not-given', 'yes-no-not-given', 'matching'],
+    } satisfies ExamPartDefinition;
     if (!part || part.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} không đúng thứ tự.`);
     if (!text(part?.title, 240)) errors.push(`Part ${partIndex + 1}: thiếu tiêu đề.`);
     if (content.moduleId === 'starter' && content.paperId === 'listening' && partIndex === 2 && !text(part?.imageAssetId, 180)) {
@@ -737,6 +925,12 @@ export function validateExamPaperContent(content: ExamPaperContent) {
     }
     if (isFixedKetListeningContent(content)) {
       validateKetListeningPart(part, partIndex, errors);
+    }
+    if (isFixedPetReadingContent(content)) {
+      validatePetReadingPart(part, partIndex, errors);
+    }
+    if (isFixedPetListeningContent(content)) {
+      validatePetListeningPart(part, partIndex, errors);
     }
     if (content.moduleId === 'flyer' && content.paperId === 'listening') {
       const units = examPartUnits(part);
@@ -939,6 +1133,12 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         delete safePart.imageAssetId;
         delete safePart.imageUrl;
       }
+      if (isFixedPetListeningContent(content) && part.part === 1) {
+        // The full scanned page is teacher-only crop material. Students receive
+        // only the worked-example image and derived A/B/C option assets.
+        delete safePart.imageAssetId;
+        delete safePart.imageUrl;
+      }
       if (content.moduleId === 'flyer' && content.paperId === 'reading-writing' && part.part === 6) {
         delete safePart.readingScenes;
       }
@@ -1022,6 +1222,13 @@ export function sanitizeExamAnswers(raw: unknown, content: ExamPaperContent): Ex
   for (const [questionId, question] of allowed) {
     if (v2MatchingQuestionIds.has(questionId) || drawTargets.has(questionId)) continue;
     const value = input[questionId];
+    if (question.type === 'long-writing' && question.options.length === 2 && value && typeof value === 'object' && !Array.isArray(value)) {
+      const submitted = record(value);
+      const optionId = text(submitted.optionId, 180);
+      const selected = question.options.find(option => option.id === optionId);
+      if (selected) answers[questionId] = { optionId: selected.id, text: text(submitted.text, 20_000) };
+      continue;
+    }
     if (Array.isArray(value)) {
       answers[questionId] = [...new Set(value.filter(item => typeof item === 'string' || typeof item === 'number').map(item => text(item, 500)).filter(Boolean))].slice(0, 20);
     } else {

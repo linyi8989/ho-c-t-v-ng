@@ -5,6 +5,7 @@ import type {
   MoverReadingWritingSmartImportData,
   MoverReadingWritingSmartImportPartId,
 } from './types';
+import { withChatGptJsonCopyBlock } from '../../exam-platform/chatGptJsonOutput';
 
 export const MOVER_READING_WRITING_EXTERNAL_PROVIDER = 'external-parameters';
 
@@ -320,7 +321,7 @@ export const moverReadingWritingExternalHelp: Record<MoverReadingWritingSmartImp
   6: 'Chỉ đọc đúng năm hàng đánh số từ ảnh bảng lựa chọn và trả đúng ba options A/B/C cho mỗi hàng. correctOption chỉ được ánh xạ từ ảnh đáp án chính thức cùng số câu; không OCR bài đọc và tuyệt đối không tự giải.',
 };
 
-export const moverReadingWritingExternalInstructions = (part: MoverReadingWritingSmartImportPartId) => [
+export const moverReadingWritingExternalInstructions = (part: MoverReadingWritingSmartImportPartId) => withChatGptJsonCopyBlock([
   `Bạn đang trích xuất Movers Reading & Writing Part ${part}.`,
   'Hãy đọc đúng chữ nhìn thấy trong ảnh và nguồn đáp án. Không tự giải, không đoán dữ liệu bị thiếu.',
   'Nếu không đọc được một trường chữ, dùng chuỗi rỗng; nếu không xác định được đáp án, dùng "unknown" hoặc mảng rỗng.',
@@ -329,7 +330,7 @@ export const moverReadingWritingExternalInstructions = (part: MoverReadingWritin
   moverReadingWritingExternalHelp[part],
   '',
   moverReadingWritingExternalTemplate(part),
-].join('\n');
+].join('\n'));
 
 function schemaFromTemplate(value: unknown): any {
   if (Array.isArray(value)) return { type: 'array', items: schemaFromTemplate(value[0] ?? ''), maxItems: 20 };

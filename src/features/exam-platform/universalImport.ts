@@ -17,6 +17,9 @@ import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from './flyerListen
 import { normalizeFixedFlyerReadingWritingContent } from './flyerReadingWritingMigration';
 import { normalizeFixedKetReadingWritingContent } from './ketReadingWritingMigration';
 import { isFixedKetListeningContent, normalizeFixedKetListeningContent } from './ketListeningMigration';
+import { isFixedPetReadingContent, normalizeFixedPetReadingContent } from './petReadingMigration';
+import { isFixedPetListeningContent, normalizeFixedPetListeningContent } from './petListeningMigration';
+import { isFixedPetWritingContent, normalizeFixedPetWritingContent } from './petWritingMigration';
 
 const MAX_PARTS = 20;
 const MAX_BLOCKS_PER_PART = 20;
@@ -28,6 +31,13 @@ const technicalFields = new Set([
 ]);
 
 type Row = Record<string, any>;
+
+/** Accepts raw JSON or exactly one ChatGPT ```json code block; surrounding prose remains invalid. */
+export function stripUniversalExamJsonFence(source: string) {
+  const trimmed = source.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
 
 export interface UniversalImportReport {
   part: number;
@@ -394,12 +404,22 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
       const example = row(value);
       const previous = currentBlock?.examples?.[index]
         || (!current?.blocks?.length ? current?.examples?.[index] : undefined);
-      const options = Array.isArray(example.options)
-        ? example.options.slice(0, 10).map((optionValue: unknown) => {
+      const exampleOptionSource = Array.isArray(example.options)
+        ? example.options
+        : previous?.options?.some(option => option.imageAssetId)
+          ? previous.options
+          : [];
+      const options = exampleOptionSource.length
+        ? exampleOptionSource.slice(0, 10).map((optionValue: unknown, optionIndex: number) => {
             const option = row(optionValue);
+            const label = cleanText(option.label, 20);
+            const previousOption = previous?.options?.find(item => item.label.toUpperCase() === label.toUpperCase())
+              || previous?.options?.[optionIndex];
             return {
-              label: cleanText(option.label, 20),
+              label,
               text: cleanText(option.text, 1_000),
+              ...(previousOption?.imageAssetId ? { imageAssetId: previousOption.imageAssetId } : {}),
+              ...(previousOption?.imageUrl ? { imageUrl: previousOption.imageUrl } : {}),
             };
           }).filter(option => option.label && option.text)
         : [];
@@ -649,7 +669,7 @@ function normalizeFlyerListeningPart(part: ExamPartContent, current: ExamPartCon
 
 export function importUniversalExamBundle(current: ExamPaperContent, source: string): UniversalImportResult {
   let parsed: unknown;
-  try { parsed = JSON.parse(source); } catch { throw new Error('JSON tổng không hợp lệ.'); }
+  try { parsed = JSON.parse(stripUniversalExamJsonFence(source)); } catch { throw new Error('JSON tổng không hợp lệ.'); }
   const technical = findTechnicalField(parsed);
   if (technical) throw new Error(`JSON ngoài không được chứa trường kỹ thuật "${technical}".`);
   const { exam, paper } = extractPaper(row(parsed), current);
@@ -663,14 +683,21 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   const fixedStarterReadingWriting = current.moduleId === 'starter' && current.paperId === 'reading-writing';
   const fixedKetListening = isFixedKetListeningContent(current);
   const fixedKetReadingWriting = current.moduleId === 'ket' && current.paperId === 'reading-writing' && current.templateVersion === 'ket-reading-writing-9-v1';
+  const fixedPetReading = isFixedPetReadingContent(current);
+  const fixedPetListening = isFixedPetListeningContent(current);
+  const fixedPetWriting = isFixedPetWritingContent(current);
   if (fixedFlyerListening && rawParts.length !== 5) throw new Error('Flyers Listening phải có đúng 5 Part.');
   if (fixedFlyerReadingWriting && rawParts.length !== 7) throw new Error('Flyers Reading & Writing phải có đúng 7 Part.');
   if (fixedStarterReadingWriting && rawParts.length !== 5) throw new Error('Starters Reading & Writing phải có đúng 5 Part.');
   if (fixedKetReadingWriting && rawParts.length !== 9) throw new Error('KET Reading & Writing phải có đúng 9 Part.');
   if (fixedKetListening && rawParts.length !== 5) throw new Error('KET Listening phải có đúng 5 Part.');
+  if (fixedPetReading && rawParts.length !== 5) throw new Error('PET Reading phải có đúng 5 Part.');
+  if (fixedPetListening && rawParts.length !== 4) throw new Error('PET Listening phải có đúng 4 Part.');
+  if (fixedPetWriting && rawParts.length !== 3) throw new Error('PET Writing phải có đúng 3 Part.');
   const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
+  if (fixedPetWriting && built.some((item, index) => item.part.questions.length !== [5, 1, 1][index])) throw new Error('PET Writing yêu cầu số câu theo Part là 5–1–1.');
   const builtParts = fixedFlyerListening
     ? built.map((item, index) => normalizeFlyerListeningPart(item.part, current.parts[index]))
     : built.map(item => item.part);
@@ -680,13 +707,19 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
       ? normalizeFixedKetListeningContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
       : fixedKetReadingWriting
         ? normalizeFixedKetReadingWritingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
-        : undefined;
+        : fixedPetReading
+          ? normalizeFixedPetReadingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+          : fixedPetListening
+            ? normalizeFixedPetListeningContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+            : fixedPetWriting
+              ? normalizeFixedPetWritingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+          : undefined;
   const parts = fixedContent?.parts || builtParts;
   return {
     content: {
       ...current,
       schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
-      ...(fixedStarterReadingWriting || fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
+      ...(fixedStarterReadingWriting || fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting || fixedPetReading || fixedPetListening || fixedPetWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
       title: cleanText(paper.title || exam.title, 240) || current.title,
       description: cleanText(paper.description || exam.description, 4_000) || current.description,
       level: cleanText(paper.level || exam.level, 240) || current.level,
@@ -699,7 +732,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
 
 export function importUniversalExamPart(currentContent: ExamPaperContent, partIndex: number, source: string): { part: ExamPartContent; report: UniversalImportReport } {
   let parsed: unknown;
-  try { parsed = JSON.parse(source); } catch { throw new Error('JSON Part không hợp lệ.'); }
+  try { parsed = JSON.parse(stripUniversalExamJsonFence(source)); } catch { throw new Error('JSON Part không hợp lệ.'); }
   const technical = findTechnicalField(parsed);
   if (technical) throw new Error(`JSON ngoài không được chứa trường kỹ thuật "${technical}".`);
   const parsedRow = row(parsed);
@@ -733,6 +766,25 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
     if (!built.part.questions.length) throw new Error(`KET Reading & Writing Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
     const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
     const normalizedContent = normalizeFixedKetReadingWritingContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (isFixedPetReadingContent(currentContent)) {
+    if (!built.part.questions.length) throw new Error(`PET Reading Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedPetReadingContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (isFixedPetListeningContent(currentContent)) {
+    if (!built.part.questions.length) throw new Error(`PET Listening Part ${partIndex + 1} phải có ít nhất một câu chấm điểm.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedPetListeningContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (isFixedPetWritingContent(currentContent)) {
+    const expected = [5, 1, 1][partIndex];
+    if (built.part.questions.length !== expected) throw new Error(`PET Writing Part ${partIndex + 1} phải có đúng ${expected} câu/task.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedPetWritingContent({ ...currentContent, parts });
     return { ...built, part: normalizedContent.parts[partIndex] };
   }
   return built;

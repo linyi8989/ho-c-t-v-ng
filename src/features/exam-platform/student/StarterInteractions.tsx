@@ -12,6 +12,7 @@ import {
   starterMatchingResponseKey,
 } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
+import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 
 function RegionShape({ region, fill, stroke = 'rgba(37,99,235,.85)', onClick, label }: { key?: string; region: ExamInteractionRegion; fill: string; stroke?: string; onClick?: () => void; label?: string }) {
   const onKeyDown = (event: KeyboardEvent<SVGElement>) => {
@@ -95,7 +96,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     const value = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(' ') : '';
     return [question.id, { answer: value }];
   }));
-  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} onAnswers={next => {
+  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} alignAnswersRight onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part2[question.id]?.answer || '';
       if (nextValue !== moverAnswers.part2[question.id]?.answer) onAnswer(question.id, nextValue);
@@ -345,10 +346,10 @@ function SceneColourView({ part, answers, onAnswer }: { part: ExamPartContent; a
 
 function isScenePlacement(value: ExamAnswerValue | undefined): value is ExamScenePlacement {
   return Boolean(value && !Array.isArray(value) && typeof value === 'object'
-    && typeof value.actionId === 'string'
-    && typeof value.object === 'string'
-    && Number.isFinite(value.x)
-    && Number.isFinite(value.y));
+    && 'actionId' in value && typeof value.actionId === 'string'
+    && 'object' in value && typeof value.object === 'string'
+    && 'x' in value && Number.isFinite(value.x)
+    && 'y' in value && Number.isFinite(value.y));
 }
 
 function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
@@ -442,7 +443,7 @@ export default function StarterInteractionView(props: { part: ExamPartContent; a
       {props.part.imageUrl ? <ExamImageViewer src={props.part.imageUrl} alt="Ảnh bài tập điền đáp án" profile="interactive-scene" interactionMode="answer-surface" className="border border-slate-200/80 bg-white">{layout.targets.map((target, index) => {
         const raw = props.answers[target.questionId];
         const value = typeof raw === 'string' ? raw : Array.isArray(raw) && typeof raw[0] === 'string' ? raw[0] : '';
-        return <label key={target.id} className="absolute" style={{ left: `${target.region.x * 100}%`, top: `${target.region.y * 100}%`, width: `${target.region.width * 100}%`, height: `${target.region.height * 100}%` }}><span className="sr-only">{target.label || `Câu ${index + 1}`}</span><input value={value} onChange={event => props.onAnswer(target.questionId, event.target.value)} className="h-full w-full rounded-md border-2 border-indigo-400 bg-white/95 px-2 text-center text-sm font-black text-slate-900 shadow-sm outline-none focus:border-indigo-600" /></label>;
+        return <label key={target.id} className="absolute" style={{ left: `${target.region.x * 100}%`, top: `${target.region.y * 100}%`, width: `${target.region.width * 100}%`, height: `${target.region.height * 100}%` }}><span className="sr-only">{target.label || `Câu ${index + 1}`}</span><input {...studentTypedAnswerGuards} value={value} onChange={event => props.onAnswer(target.questionId, event.target.value)} className="h-full w-full rounded-md border-2 border-indigo-400 bg-white/95 px-2 text-center text-sm font-black text-slate-900 shadow-sm outline-none focus:border-indigo-600" /></label>;
       })}</ExamImageViewer> : <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Dạng bài chưa có ảnh.</p>}
     </div>;
   }

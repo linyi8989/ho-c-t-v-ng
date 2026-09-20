@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Image, Music, Sparkles } from 'lucide-react';
 import FileDropPasteInput from '../shared/FileDropPasteInput';
 import type { ListeningAsset, ListeningAssetKind } from '../types';
+import AudioPreviewButton from './AudioPreviewButton';
 
 interface ListeningAssetPickerProps {
   label: string;
@@ -67,14 +68,17 @@ export function ListeningAssetPicker({
           </select>
         </label>
         {selected && kind === 'image' && <img src={selected.url} alt="" className="h-9 w-9 rounded-lg border border-slate-200 object-contain" />}
-        <FileDropPasteInput
-          compact
-          accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
-          disabled={uploading}
-          pasteImages={kind === 'image' && pasteImages}
-          uploadLabel={kind === 'image' ? 'Tải ảnh' : 'Tải audio'}
-          onFiles={handleUpload}
-        />
+        <div className="flex items-center gap-2">
+          <FileDropPasteInput
+            compact
+            accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
+            disabled={uploading}
+            pasteImages={kind === 'image' && pasteImages}
+            uploadLabel={kind === 'image' ? 'Tải ảnh' : 'Tải audio'}
+            onFiles={handleUpload}
+          />
+          {kind === 'audio' && <AudioPreviewButton src={selected?.url} compact />}
+        </div>
       </div>
     );
   }
@@ -107,13 +111,16 @@ export function ListeningAssetPicker({
           </button>
         )}
       </div>
-      <FileDropPasteInput
-        accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
-        disabled={uploading}
-        pasteImages={kind === 'image'}
-        uploadLabel={kind === 'image' ? 'Chọn ảnh' : 'Chọn audio'}
-        onFiles={handleUpload}
-      />
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1"><FileDropPasteInput
+          accept={allowedMimeTypes?.join(',') || (kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif' : 'audio/mpeg,audio/wav,audio/ogg,audio/mp4')}
+          disabled={uploading}
+          pasteImages={kind === 'image'}
+          uploadLabel={kind === 'image' ? 'Chọn ảnh' : 'Chọn audio'}
+          onFiles={handleUpload}
+        /></div>
+        {kind === 'audio' && <AudioPreviewButton src={selected?.url} />}
+      </div>
       {selected && (
         <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-2">
           {kind === 'image' ? (
@@ -127,7 +134,7 @@ export function ListeningAssetPicker({
             <p className="truncate text-xs font-bold text-slate-800">{selected.name}</p>
             <p className="text-[10px] text-slate-400">{Math.round(selected.size / 1024)} KB</p>
           </div>
-          {kind === 'image' ? <Image size={16} className="text-slate-400" /> : <audio src={selected.url} controls className="h-8 max-w-52" />}
+          {kind === 'image' ? <Image size={16} className="text-slate-400" /> : null}
         </div>
       )}
     </div>

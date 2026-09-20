@@ -27,7 +27,10 @@ test("editor exposes automatic batch, single regenerate, clipboard and local-upl
   assert.match(dashboardSource, /prompt,/);
   assert.match(dashboardSource, /handleGenerateAllVocabImages/);
   assert.match(dashboardSource, /generateVocabImagesBatch\('auto', targetItems\)/);
-  assert.match(dashboardSource, /applyVocabImageBatchResults\(results\)/);
+  assert.match(dashboardSource, /pollVocabImageBatchJob\(startedJob, expectedTerms\)/);
+  assert.match(dashboardSource, /\/api\/image-library\/batch-generate\/\$\{encodeURIComponent\(job\.jobId\)\}/);
+  assert.match(dashboardSource, /applyVocabImageBatchResults\(newResults, expectedTerms\)/);
+  assert.match(dashboardSource, /vocabImageBatchProgress/);
   assert.doesNotMatch(dashboardSource, /VocabImageBatchGenerationDialog/);
 });
 

@@ -3,6 +3,7 @@ import type { ExamAnswerValue, ExamAnswers, ExamPartContent } from '../types';
 import { FlyerLetterMatchingView } from './FlyerListeningViews';
 import { StarterImageOptionsView } from './StarterInteractions';
 import ExamImageViewer from './ExamImageViewer';
+import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 
 interface Props {
   part: ExamPartContent;
@@ -72,7 +73,7 @@ function FormPart({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<
   const bodyPassage = ketListeningFormBodyPassage(unit.passage);
   return <div className="mx-auto max-w-5xl space-y-5">
     {bodyPassage && <section className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-4 sm:p-5" data-ket-listening-text-source><p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Content and example</p><div className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-950">{bodyPassage}</div></section>}
-    <div className="space-y-2" data-ket-listening-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(120px,.8fr)_minmax(190px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-950">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-700 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-300"><b className="shrink-0 pl-3 text-slate-900">{question.answerPrefix}</b><input value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Answer ${question.prompt}`} className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /><b className="shrink-0 pr-3 text-slate-900">{question.answerSuffix}</b></span></label>)}</div>
+    <div className="space-y-2" data-ket-listening-form-rows>{unit.questions.map((question, index) => <label key={question.id} className="grid items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[3.5rem_minmax(120px,.8fr)_minmax(190px,1fr)]"><b className="text-right text-blue-700">{question.displayNumber || index + 1}.</b><span className="min-w-0 break-words text-sm font-bold text-slate-950">{question.prompt}</span><span className="flex min-w-0 items-center overflow-hidden rounded-lg border-b-2 border-dotted border-blue-700 bg-blue-50 focus-within:ring-2 focus-within:ring-blue-300"><b className="shrink-0 pl-3 text-slate-900">{question.answerPrefix}</b><input {...studentTypedAnswerGuards} value={stringAnswer(answers[question.id])} onChange={event => onAnswer(question.id, event.target.value)} autoComplete="off" aria-label={`Answer ${question.prompt}`} className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2 font-black text-blue-950 outline-none" /><b className="shrink-0 pr-3 text-slate-900">{question.answerSuffix}</b></span></label>)}</div>
   </div>;
 }
 

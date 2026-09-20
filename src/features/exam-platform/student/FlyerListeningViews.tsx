@@ -4,6 +4,7 @@ import { examPartUnits } from '../examStructure';
 import type { ExamAnswerValue, ExamAnswers, ExamPartContent } from '../types';
 import ExamImageViewer from './ExamImageViewer';
 import { StarterImageOptionsView, StarterListeningPart4View, StarterTextEntryView } from './StarterInteractions';
+import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 
 const answerShell = (): ListeningAnswers => ({ part1: {}, part2: {}, part3: {}, part4: {}, part5: {} });
 
@@ -51,7 +52,7 @@ export function FlyerLetterMatchingView({ part, answers, onAnswer, singleImage =
           const raw = answers[question.id];
           const value = typeof raw === 'string' ? raw : '';
           const personName = question.prompt.trim() || `Người ${index + 1}`;
-          return <label key={question.id} data-flyer-part3-answer-name={personName} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm font-black text-slate-800"><span className="min-w-0 flex-1 break-words text-left text-blue-800">{personName}</span><input value={value} maxLength={1} inputMode="text" autoComplete="off" aria-label={`Chữ cái đáp án cho ${personName}`} onChange={event => onAnswer(question.id, event.target.value.toUpperCase().replace(/[^A-H]/g, '').slice(0, 1))} className="h-10 w-14 shrink-0 rounded-lg border-2 border-blue-300 bg-white text-center text-xl font-black uppercase text-blue-900" /></label>;
+          return <label key={question.id} data-flyer-part3-answer-name={personName} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm font-black text-slate-800"><span className="min-w-0 flex-1 break-words text-left text-blue-800">{personName}</span><input {...studentTypedAnswerGuards} value={value} maxLength={1} inputMode="text" autoComplete="off" aria-label={`Chữ cái đáp án cho ${personName}`} onChange={event => onAnswer(question.id, event.target.value.toUpperCase().replace(/[^A-H]/g, '').slice(0, 1))} className="h-10 w-14 shrink-0 rounded-lg border-2 border-blue-300 bg-white text-center text-xl font-black uppercase text-blue-900" /></label>;
         })}</div>
       </div>
     </div>

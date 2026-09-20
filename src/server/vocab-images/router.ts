@@ -46,8 +46,25 @@ export function createVocabImageRouter(options: VocabImageRouterOptions) {
     },
     message: "Đã đạt giới hạn tạo ảnh tạm thời. Vui lòng chờ rồi thử lại.",
   });
+  const jobStatusRateLimit = createFixedWindowRateLimiter({
+    namespace: "vocab-image-generation-status",
+    windowMs: 10 * 60 * 1000,
+    maxCost: 600,
+    message: "Đã kiểm tra trạng thái tạo ảnh quá thường xuyên. Vui lòng chờ rồi thử lại.",
+  });
 
-  router.use(options.authenticateUser, options.requireStaff, rateLimit);
+  router.use(options.authenticateUser, options.requireStaff);
+
+  router.get("/batch-generate/:jobId", jobStatusRateLimit, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      res.json(await options.service.getBatchGenerationJob(req.params.jobId, user.id));
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.use(rateLimit);
 
   router.get("/providers", (_req, res) => {
     res.json({ providers: options.service.listProviders() });
@@ -81,22 +98,18 @@ export function createVocabImageRouter(options: VocabImageRouterOptions) {
   router.post("/batch-generate", async (req, res) => {
     try {
       const user = (req as any).user;
-      const items = await options.service.batchGenerate(req.body?.provider, req.body?.items, user.id);
-      const generated = items.filter(item => item.asset).length;
-      await options.logAudit(
+      const job = await options.service.startBatchGenerationJob(req.body?.provider, req.body?.items, user.id);
+      void options.logAudit(
         user.id,
         user.name,
         user.email,
         "BATCH_GENERATE_VOCAB_IMAGES",
-        `Generated ${generated}/${items.length} reviewed vocabulary image candidates.`
-      );
-      const configuredProviders = options.service.listProviders().filter(provider => provider.configured).length;
-      res.status(201).json({
-        items,
-        generated,
-        concurrencyPerProvider: options.service.batchConcurrencyPerProvider,
-        totalConcurrency: configuredProviders * options.service.batchConcurrencyPerProvider,
-      });
+        `Queued vocabulary image batch ${job.jobId} with ${job.total} items.`
+      ).catch(error => console.error("[Vocab image batch] Audit write failed:", {
+        jobId: job.jobId,
+        message: String(error?.message || error).slice(0, 300),
+      }));
+      res.status(202).json(job);
     } catch (error) {
       sendError(res, error);
     }

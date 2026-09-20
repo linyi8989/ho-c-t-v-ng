@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { ListeningRegionEditor } from '../../listening/admin/ListeningRegionEditor';
 import { ListeningAssetPicker } from '../../listening/admin/ListeningAssetPicker';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
+import AudioPreviewButton from '../../listening/admin/AudioPreviewButton';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset } from '../../listening/types';
 import { cropListeningImage } from '../../listening-editor/smart-import/cropImage';
@@ -168,7 +169,7 @@ export function StarterWholeImportPanel({
       const copied = await copyStarterPrompt(buildStarterListeningBundlePrompt(content));
       if (!copied) return;
       setPromptCopied(true);
-      onMessage({ text: 'Đã sao chép prompt JSON tổng. Hãy dán vào ChatGPT Web và đính kèm ảnh/PDF đề cùng official answer key.' });
+      onMessage({ text: 'Đã sao chép prompt JSON tổng. ChatGPT sẽ trả một khối JSON có nút Copy để dán trực tiếp vào ô nhập.' });
       window.setTimeout(() => setPromptCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{promptCopied ? 'Đã sao chép prompt tổng' : 'Sao chép prompt gửi ChatGPT'}</button>
     <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
@@ -255,7 +256,7 @@ export function StarterQuickAssetPanel({
     <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-black text-sky-900">Ảnh và MP3 theo Part</p><p className="text-xs font-semibold text-sky-700">Tải, kéo thả hoặc dán ảnh; media được gắn vào Part đang chọn.</p></div><select value={selectedPartNumber} onChange={event => setPartNumber(Number(event.target.value))} className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-black text-sky-800">{content.parts.map(item => <option key={item.part} value={item.part}>Part {item.part}</option>)}</select></div>
     <div className={`mt-3 grid gap-3 ${content.paperId === 'listening' ? 'lg:grid-cols-2' : ''}`}>
       <div className="rounded-xl bg-white p-3"><p className="mb-2 flex items-center gap-2 text-xs font-black text-slate-700"><ImageIcon size={15} />Ảnh Part {partNumber}</p><select value={part.imageAssetId || ''} onChange={event => { const asset = activeImages.find(item => item.id === event.target.value); if (asset) attach(asset); }} className={fieldClass}><option value="">Chưa chọn ảnh</option>{activeImages.map(asset => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}</select><div className="mt-2"><FileDropPasteInput accept="image/png,image/jpeg,image/webp" pasteImages uploadLabel="Tải ảnh" onFiles={files => upload(files, 'image')} /></div></div>
-      {content.paperId === 'listening' && <div className="rounded-xl bg-white p-3"><p className="mb-2 flex items-center gap-2 text-xs font-black text-slate-700"><Music2 size={15} />MP3 Part {partNumber}</p><select value={part.audioAssetId || ''} onChange={event => { const asset = activeAudio.find(item => item.id === event.target.value); if (asset) attach(asset); }} className={fieldClass}><option value="">Chưa chọn MP3</option>{activeAudio.map(asset => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}</select><div className="mt-2"><FileDropPasteInput accept="audio/mpeg,audio/mp3,.mp3" uploadLabel="Tải MP3" onFiles={files => upload(files, 'audio')} /></div></div>}
+      {content.paperId === 'listening' && <div className="rounded-xl bg-white p-3"><p className="mb-2 flex items-center gap-2 text-xs font-black text-slate-700"><Music2 size={15} />MP3 Part {partNumber}</p><select value={part.audioAssetId || ''} onChange={event => { const asset = activeAudio.find(item => item.id === event.target.value); if (asset) attach(asset); }} className={fieldClass}><option value="">Chưa chọn MP3</option>{activeAudio.map(asset => <option key={asset.id} value={asset.id}>{asset.name || asset.id}</option>)}</select><div className="mt-2 flex items-start gap-2"><div className="min-w-0 flex-1"><FileDropPasteInput accept="audio/mpeg,audio/mp3,.mp3" uploadLabel="Tải MP3" onFiles={files => upload(files, 'audio')} /></div><AudioPreviewButton src={part.audioUrl || activeAudio.find(asset => asset.id === part.audioAssetId)?.url} /></div></div>}
     </div>
   </div>;
 }

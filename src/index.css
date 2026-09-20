@@ -3086,6 +3086,44 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+/* PET Listening authoring actions must stay opaque against the light editor,
+   despite the legacy global glass-button rule near the top of this file. */
+#pet-listening-authoring button.pet-listening-admin-button:not(:disabled),
+button.pet-listening-admin-button:not(:disabled) {
+  opacity: 1 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-image: none !important;
+  text-shadow: none !important;
+}
+
+#pet-listening-authoring button.pet-listening-admin-button:not(:disabled) *,
+button.pet-listening-admin-button:not(:disabled) * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#pet-listening-authoring button.pet-listening-admin-button.bg-white:not(:disabled),
+button.pet-listening-admin-button.bg-white:not(:disabled) {
+  background: #ffffff !important;
+}
+
+#pet-listening-authoring button.pet-listening-admin-button.bg-blue-700:not(:disabled) {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+#pet-listening-authoring button.pet-listening-admin-button.bg-emerald-700:not(:disabled) {
+  background: #047857 !important;
+  color: #ffffff !important;
+}
+
+#pet-listening-authoring button.pet-listening-admin-button.text-sky-900:not(:disabled) { color: #0c4a6e !important; }
+#pet-listening-authoring button.pet-listening-admin-button.text-rose-800:not(:disabled) { color: #9f1239 !important; }
+#pet-listening-authoring button.pet-listening-admin-button.text-blue-800:not(:disabled) { color: #1e40af !important; }
+button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03 !important; }
+
 /* Generic exam-platform controls are shared by Starters, Flyers, KET, PET
    and IELTS. Keep this scope separate from the reviewed Movers players. */
 #generic-exam-player button.exam-platform-result-review:not(:disabled),
@@ -3181,6 +3219,150 @@ textarea::placeholder {
 #listening-review-screen button.listening-secondary-action * {
   color: currentColor !important;
   opacity: 1 !important;
+}
+
+/* PET Writing task cards and result actions must win over the legacy global
+   glass-button theme so selected content and primary actions stay readable. */
+#generic-exam-player button.pet-writing-task-option[data-selected="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#generic-exam-player button.pet-writing-task-option[data-selected="true"]:not(:disabled) {
+  background: #e0e7ff !important;
+  border: 3px solid #3730a3 !important;
+  color: #1e1b4b !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 10px 24px rgba(55, 48, 163, 0.2) !important;
+}
+
+#generic-exam-player button.pet-writing-task-option * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#pet-writing-result button.exam-platform-result-review:not(:disabled),
+#pet-writing-result button.exam-platform-result-home:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #2563eb !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.16) !important;
+}
+
+#pet-writing-result button.exam-platform-result-retry:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 8px 18px rgba(4, 120, 87, 0.22) !important;
+}
+
+#pet-writing-result button.exam-platform-grade-retry:not(:disabled) {
+  background: #b45309 !important;
+  border: 2px solid #92400e !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#pet-writing-result button.exam-platform-grade-retry:disabled,
+#pet-writing-result button.exam-platform-result-review:disabled {
+  background: #fef3c7 !important;
+  border: 2px solid #b45309 !important;
+  color: #78350f !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#pet-writing-result button.exam-platform-result-review *,
+#pet-writing-result button.exam-platform-result-home *,
+#pet-writing-result button.exam-platform-result-retry *,
+#pet-writing-result button.exam-platform-grade-retry * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+/* PET Reading result/review lives outside #generic-exam-player. Give every
+   action its own opaque contrast contract so the legacy glass-button theme
+   cannot wash out tabs or navigation after the learner opens visual review. */
+#pet-reading-result-screen button.pet-reading-result-home:not(:disabled) {
+  background: #1e40af !important;
+  border: 2px solid #1e3a8a !important;
+  color: #ffffff !important;
+}
+
+#pet-reading-result-screen button.pet-reading-result-retry:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+}
+
+#pet-reading-result-screen button.pet-reading-result-review:not(:disabled),
+#pet-reading-review-screen button.pet-reading-review-back:not(:disabled),
+#pet-reading-review-screen button.pet-reading-review-part-tab[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #2563eb !important;
+  color: #1d4ed8 !important;
+}
+
+#pet-reading-review-screen button.pet-reading-review-part-tab[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e3a8a !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, 0.24) !important;
+}
+
+#pet-reading-result-screen button.pet-reading-result-review:disabled {
+  background: #dbeafe !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+}
+
+#pet-reading-result-screen button,
+#pet-reading-review-screen button {
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#pet-reading-result-screen button *,
+#pet-reading-review-screen button * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#pet-reading-result-screen button:focus-visible,
+#pet-reading-review-screen button:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
 }
 
 #generic-exam-player button.exam-platform-image-expand:not(:disabled),
@@ -4181,6 +4363,34 @@ textarea::placeholder {
   filter: none !important;
 }
 
+#generic-exam-player [data-pet-writing-player] .pet-writing-ruled-paper {
+  background-color: #fffdf8 !important;
+  background-image: linear-gradient(to bottom, transparent 31px, rgba(251, 146, 60, 0.28) 31px, rgba(251, 146, 60, 0.28) 32px) !important;
+  background-size: 100% 32px !important;
+  background-position: 0 10px !important;
+  line-height: 32px !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+#generic-exam-player [data-pet-writing-player] input.pet-writing-inline-gap {
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-bottom: 1px dashed #fb923c !important;
+  border-radius: 0 !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+#generic-exam-player [data-pet-writing-player] input.pet-writing-inline-gap:focus {
+  border-bottom-color: #ea580c !important;
+  outline: none !important;
+  box-shadow: 0 2px 0 rgba(249, 115, 22, 0.12) !important;
+}
+
 #standalone-writing-result button.writing-result-review:not(:disabled) {
   background: #ffffff !important;
   border: 2px solid #6d28d9 !important;
@@ -4274,4 +4484,38 @@ textarea::placeholder {
   #generic-exam-player [data-standalone-writing-player] .writing-lined-textarea {
     min-height: 18rem;
   }
+}
+
+/* Shared Cambridge short-answer line. This must remain after every legacy
+   input rule so old released papers cannot regain a white box, rounded
+   corners or a low baseline through an `!important` override. */
+input.student-underline-answer {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  height: 2rem !important;
+  min-height: 2rem !important;
+  padding: 0 0.5rem !important;
+  vertical-align: 0.1em !important;
+  line-height: 1.5rem !important;
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-bottom: 1px dashed #fb923c !important;
+  border-radius: 0 !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+}
+
+input.student-underline-answer:focus,
+input.student-underline-answer:focus-visible {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px dashed #ea580c !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: 0 2px 0 rgba(234, 88, 12, 0.16) !important;
 }

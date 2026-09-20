@@ -32,6 +32,7 @@ const STUDENT_ENTRY_HOT_PATH_MIGRATION_ID = 'student-entry-hot-path-v1';
 const VOCAB_IMAGE_ASSET_SCHEMA_MIGRATION_ID = 'vocab-image-assets-v1';
 const VOCAB_IMAGE_PROVIDER_SCHEMA_MIGRATION_ID = 'vocab-image-providers-ai-v2';
 const VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID = 'vocab-image-providers-seedvis-v3';
+const VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID = 'vocab-image-batch-jobs-v1';
 
 let sqliteDb: SQLiteDriverAdapter | null = null;
 let sqliteConfig: SQLiteStorageConfig | null = null;
@@ -50,6 +51,10 @@ const collectionTableMap: Record<string, string> = {
   vocabsets: 'vocab_sets',
   vocab_image_assets: 'vocab_image_assets',
   vocabimageassets: 'vocab_image_assets',
+  vocab_image_batch_jobs: 'vocab_image_batch_jobs',
+  vocabimagebatchjobs: 'vocab_image_batch_jobs',
+  vocab_image_batch_job_results: 'vocab_image_batch_job_results',
+  vocabimagebatchjobresults: 'vocab_image_batch_job_results',
   classes: 'classes',
   class_members: 'class_members',
   classmembers: 'class_members',
@@ -174,6 +179,21 @@ const sqlQueryFieldMap: Record<string, Record<string, string>> = {
     createdBy: 'created_by',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+  },
+  vocab_image_batch_jobs: {
+    id: 'id',
+    actorId: 'actor_id',
+    status: 'status',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    expiresAt: 'expires_at',
+  },
+  vocab_image_batch_job_results: {
+    id: 'id',
+    jobId: 'job_id',
+    index: 'item_index',
+    createdAt: 'created_at',
+    expiresAt: 'expires_at',
   },
   game_results: {
     id: 'id',
@@ -1549,6 +1569,50 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
     return;
   }
 
+  if (table === 'vocab_image_batch_jobs') {
+    run(
+      `INSERT INTO vocab_image_batch_jobs (
+        id, actor_id, status, created_at, updated_at, expires_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        updated_at = excluded.updated_at,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'actorId', 'actor_id')),
+        optionalText(firstDefined(data, 'status')) || 'queued',
+        createdAt,
+        updatedAt,
+        optionalText(firstDefined(data, 'expiresAt', 'expires_at')),
+        dataJson,
+      ]
+    );
+    return;
+  }
+
+  if (table === 'vocab_image_batch_job_results') {
+    run(
+      `INSERT INTO vocab_image_batch_job_results (
+        id, job_id, item_index, created_at, expires_at, data_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        item_index = excluded.item_index,
+        expires_at = excluded.expires_at,
+        data_json = excluded.data_json`,
+      [
+        id,
+        optionalText(firstDefined(data, 'jobId', 'job_id')),
+        nonNegativeInteger(firstDefined(data, 'index', 'item_index'), 0),
+        createdAt,
+        optionalText(firstDefined(data, 'expiresAt', 'expires_at')),
+        dataJson,
+      ]
+    );
+    return;
+  }
+
   if (
     table === 'listening_sets'
     || table === 'listening_set_versions'
@@ -2917,6 +2981,52 @@ function migrateVocabImageSeedvisProviderSchema() {
   sqliteLastMigration = VOCAB_IMAGE_SEEDVIS_PROVIDER_SCHEMA_MIGRATION_ID;
 }
 
+function migrateVocabImageBatchJobSchema() {
+  if (hasMigration(VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID)) {
+    sqliteLastMigration = VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID;
+    return;
+  }
+
+  getDb().run(`
+    CREATE TABLE IF NOT EXISTS vocab_image_batch_jobs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      data_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_jobs_actor_updated
+      ON vocab_image_batch_jobs(actor_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_jobs_expiry
+      ON vocab_image_batch_jobs(expires_at);
+
+    CREATE TABLE IF NOT EXISTS vocab_image_batch_job_results (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      item_index INTEGER NOT NULL CHECK(item_index >= 0),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      FOREIGN KEY(job_id) REFERENCES vocab_image_batch_jobs(id)
+        ON UPDATE CASCADE ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vocab_image_batch_job_results_order
+      ON vocab_image_batch_job_results(job_id, item_index);
+    CREATE INDEX IF NOT EXISTS idx_vocab_image_batch_job_results_expiry
+      ON vocab_image_batch_job_results(expires_at);
+  `);
+
+  getDb().run(
+    'INSERT OR REPLACE INTO migrations (id, applied_at) VALUES (?, ?)',
+    [VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID, nowIso()]
+  );
+  sqliteLastMigration = VOCAB_IMAGE_BATCH_JOB_SCHEMA_MIGRATION_ID;
+}
+
 function migrateMoverReadingWritingSchema() {
   if (hasMigration(MOVER_READING_WRITING_SCHEMA_MIGRATION_ID)) {
     sqliteLastMigration = MOVER_READING_WRITING_SCHEMA_MIGRATION_ID;
@@ -3328,6 +3438,7 @@ export async function initializeSQLiteStorage() {
         migrateVocabImageAssetSchema();
         migrateVocabImageProviderSchema();
         migrateVocabImageSeedvisProviderSchema();
+        migrateVocabImageBatchJobSchema();
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
         migrateActivityReadIndexes();

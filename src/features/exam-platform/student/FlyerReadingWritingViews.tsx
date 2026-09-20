@@ -3,6 +3,7 @@ import { examPartUnits } from '../examStructure';
 import type { ExamAnswerValue, ExamAnswers, ExamPartContent, ExamQuestion } from '../types';
 import ExamImageViewer from './ExamImageViewer';
 import { FlyerLetterMatchingView } from './FlyerListeningViews';
+import StudentUnderlineInput from './StudentUnderlineInput';
 
 interface Props {
   part: ExamPartContent;
@@ -27,7 +28,7 @@ function ShortInput({ question, value, onChange }: { key?: number; question: Exa
     const words = next.trim().split(/\s+/).filter(Boolean).length;
     if (!question.maxWords || words <= question.maxWords) onChange(next);
   };
-  return <input aria-label={`Trả lời câu ${question.number}`} value={value} onChange={event => update(event.target.value)} autoComplete="off" className="mx-2 inline-block w-40 max-w-full border-0 border-b-2 border-dotted border-blue-500 bg-blue-50 px-2 py-1 text-center font-black text-blue-900 outline-none focus:ring-2 focus:ring-blue-200" />;
+  return <StudentUnderlineInput aria-label={`Trả lời câu ${question.number}`} value={value} onChange={event => update(event.target.value)} autoComplete="off" className="mx-2 inline-block w-40" />;
 }
 
 function InlineQuestion({ question, index, value, onChange }: { key?: string; question: ExamQuestion; index: number; value: string; onChange: (value: string) => void }) {
@@ -41,7 +42,7 @@ function DefinitionQuestion({ question, index, value, onChange }: { key?: string
     const words = next.trim().split(/\s+/).filter(Boolean).length;
     if (!question.maxWords || words <= question.maxWords) onChange(next);
   };
-  return <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_9rem] items-start gap-3 border-b border-slate-100 py-2 last:border-b-0"><p className="flex min-w-0 items-start gap-2 pt-2 text-base font-semibold leading-6 text-slate-800"><b className="shrink-0 text-blue-700">{index + 1}.</b><span className="min-w-0 break-words">{prompt}</span></p><input aria-label={`Trả lời câu ${question.number}`} value={value} onChange={event => update(event.target.value)} autoComplete="off" className="h-10 w-full self-start border-0 border-b-2 border-dotted border-blue-500 bg-blue-50 px-2 text-center font-black text-blue-900 outline-none focus:ring-2 focus:ring-blue-200" /></div>;
+  return <div className="grid min-h-12 grid-cols-[minmax(0,1fr)_9rem] items-start gap-3 border-b border-slate-100 py-2 last:border-b-0"><p className="flex min-w-0 items-start gap-2 pt-2 text-base font-semibold leading-6 text-slate-800"><b className="shrink-0 text-blue-700">{index + 1}.</b><span className="min-w-0 break-words">{prompt}</span></p><StudentUnderlineInput aria-label={`Trả lời câu ${question.number}`} value={value} onChange={event => update(event.target.value)} autoComplete="off" className="h-10 w-full self-start" /></div>;
 }
 
 function Definitions({ unit, answers, onAnswer, optionalImage = false }: { unit: ExamPartContent; answers: ExamAnswers; onAnswer: Props['onAnswer']; optionalImage?: boolean }) {

@@ -10,10 +10,13 @@ const serverSource = readFileSync(new URL("../../../server.ts", import.meta.url)
 const storageSource = readFileSync(new URL("../../lib/sqliteStorage.ts", import.meta.url), "utf8");
 
 test("image generation and upload routes are staff-only and old search routes are gone", () => {
-  assert.match(routerSource, /router\.use\(options\.authenticateUser, options\.requireStaff, rateLimit\)/);
+  assert.match(routerSource, /router\.use\(options\.authenticateUser, options\.requireStaff\)/);
   for (const route of ["/providers", "/prompt", "/generate", "/batch-generate", "/upload"]) {
     assert.ok(routerSource.includes(`"${route}"`), `missing route ${route}`);
   }
+  assert.match(routerSource, /router\.get\("\/batch-generate\/:jobId", jobStatusRateLimit/);
+  assert.match(routerSource, /startBatchGenerationJob/);
+  assert.match(routerSource, /res\.status\(202\)\.json\(job\)/);
   for (const removed of ["/search", "/preview/:token", "/batch-preview", "/import", "/batch-import"]) {
     assert.equal(routerSource.includes(`"${removed}"`), false, `obsolete route remains: ${removed}`);
   }
@@ -38,10 +41,12 @@ test("generation uses only Stali and DevQuota exact requested models then stores
   assert.match(serviceSource, /createHash\("sha256"\)\.update\(input\.bytes\)/);
   assert.match(serviceSource, /\.tmp-/);
   assert.match(serviceSource, /VOCAB_IMAGE_BATCH_CONCURRENCY_PER_PROVIDER, 50, 1, 50/);
+  assert.match(serviceSource, /VOCAB_IMAGE_BATCH_TOTAL_CONCURRENCY, 8, 1, 100/);
   assert.match(serviceSource, /createConcurrencyLimiter\(this\.batchConcurrencyPerProvider\)/);
+  assert.match(serviceSource, /createConcurrencyLimiter\(this\.batchTotalConcurrency\)/);
   assert.match(serviceSource, /Promise\.all\(items\.map/);
-  assert.match(routerSource, /concurrencyPerProvider/);
-  assert.match(routerSource, /totalConcurrency/);
+  assert.match(serviceSource, /vocab_image_batch_jobs/);
+  assert.match(serviceSource, /vocab_image_batch_job_results/);
   assert.match(serverSource, /app\.use\(VOCAB_IMAGE_PUBLIC_PREFIX, express\.static\(VOCAB_IMAGE_DIR/);
 });
 

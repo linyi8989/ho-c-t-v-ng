@@ -214,6 +214,9 @@ export interface ExamDisplayExample {
   options?: Array<{
     label: string;
     text: string;
+    /** Optional public image for an unscored image-choice example. */
+    imageAssetId?: string;
+    imageUrl?: string;
   }>;
   imageAssetId?: string;
   imageUrl?: string;
@@ -322,7 +325,12 @@ export interface ExamPlayableSet extends Omit<ExamSetSummary, 'shareToken' | 'dr
 }
 
 export type ExamQuestionAnswerValue = string | string[];
-export type ExamAnswerValue = ExamQuestionAnswerValue | ExamMatchingConnection[] | ExamScenePlacement;
+export interface ExamWritingAnswer {
+  optionId: string;
+  text: string;
+}
+
+export type ExamAnswerValue = ExamQuestionAnswerValue | ExamMatchingConnection[] | ExamScenePlacement | ExamWritingAnswer;
 export type ExamAnswers = Record<string, ExamAnswerValue>;
 
 export interface ExamQuestionResult {

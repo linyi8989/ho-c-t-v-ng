@@ -6,6 +6,7 @@ import { starterColourValue } from '../starterImport';
 import { readExamMatchingConnections, starterMatchingModel, starterMatchingResponseKey } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
 import { ketListeningFormBodyPassage } from './KetListeningViews';
+import { petListeningFormLayout, PetListeningExampleView } from './PetListeningViews';
 
 type State = 'correct' | 'incorrect' | 'unanswered';
 
@@ -98,6 +99,58 @@ function KetFormResults({ part, results }: { part: ExamPartContent; results: Exa
   return <div className="space-y-4">{bodyPassage && <section className="rounded-2xl border border-blue-300 bg-blue-50 p-4"><p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Content and example</p><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-900">{bodyPassage}</p></section>}<TextResults part={unit} results={results} /></div>;
 }
 
+function PetFormResultAnswer({ question, result, showNumber = false }: { key?: string; question: ExamPartContent['questions'][number]; result?: ExamQuestionResult; showNumber?: boolean }) {
+  const state = stateOf(result);
+  const userAnswer = answerText(result?.userAnswer);
+  const correctAnswer = answerText(result?.correctAnswer);
+  return <span className={`mx-1 inline-flex max-w-full flex-wrap items-center justify-center gap-1 rounded-lg border-2 px-2 py-1 align-middle text-sm font-black ${stateClasses(state)}`} data-pet-listening-inline-result>
+    <StateIcon state={state} size={15} />
+    {showNumber && <span>({question.displayNumber || question.number})</span>}
+    {!showNumber && question.answerPrefix && <span>{question.answerPrefix}</span>}
+    <span>{userAnswer || '—'}</span>
+    {!showNumber && question.answerSuffix && <span>{question.answerSuffix}</span>}
+    {state !== 'correct' && <span className="ml-1 text-emerald-800">· đúng: {showNumber ? correctAnswer : [question.answerPrefix, correctAnswer, question.answerSuffix].filter(Boolean).join(' ')}</span>}
+  </span>;
+}
+
+function PetFormResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+  const unit = examPartUnits(part)[0] || part;
+  const layout = petListeningFormLayout(unit);
+  const resultFor = (questionId: string) => results.find(item => item.questionId === questionId);
+  return <section className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-4 shadow-sm sm:p-6" data-pet-listening-inline-form-result>
+    <p className="text-[10px] font-black uppercase tracking-wide text-blue-800">Content and example</p>
+    <div className="mt-3 rounded-xl border border-blue-200 bg-white/75 p-4 text-sm font-semibold leading-9 text-slate-950 sm:p-5">
+      <div className="whitespace-pre-wrap">{layout.segments.map((segment, index) => segment.type === 'text'
+        ? <span key={`text-${index}`}>{segment.text}</span>
+        : <PetFormResultAnswer key={segment.question.id} question={segment.question} result={resultFor(segment.question.id)} showNumber />)}</div>
+      {layout.fallbackQuestions.length > 0 && <div className="mt-4 divide-y divide-blue-100 border-t border-blue-200">{layout.fallbackQuestions.map((question, index) => <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3">
+        <p className="min-w-0 text-sm font-bold leading-6"><b className="mr-2 text-blue-700">{question.displayNumber || index + 1}.</b>{question.prompt}</p>
+        <PetFormResultAnswer question={question} result={resultFor(question.id)} />
+      </div>)}</div>}
+    </div>
+  </section>;
+}
+
+function PetYesNoResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
+  const unit = examPartUnits(part)[0] || part;
+  return <div className="space-y-2" data-pet-listening-part4-result>{unit.questions.map((question, index) => {
+    const result = results.find(item => item.questionId === question.id);
+    const user = normalized(answerText(result?.userAnswer));
+    const correct = normalized(answerText(result?.correctAnswer));
+    return <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:grid-cols-[minmax(0,1fr)_6rem_6rem] sm:gap-3 sm:p-3">
+      <p className="min-w-0 break-words text-sm font-bold leading-6 text-slate-900"><b className="mr-2 text-blue-700">{question.displayNumber || index + 1}.</b>{question.prompt}</p>
+      {question.options.slice(0, 2).map(option => {
+        const values = [normalized(option.label), normalized(option.text)];
+        const selected = values.includes(user);
+        const right = values.includes(correct);
+        return <div key={option.id} className={`flex h-10 items-center justify-center gap-1 rounded-lg border-2 px-2 text-center text-xs font-black uppercase sm:h-11 sm:text-sm ${right ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : selected ? 'border-rose-600 bg-rose-50 text-rose-900' : 'border-slate-300 bg-slate-50 text-slate-700'}`}>
+          {option.text}{right ? <CheckCircle2 size={16} /> : selected ? <XCircle size={16} /> : null}
+        </div>;
+      })}
+    </div>;
+  })}</div>;
+}
+
 function FlyerNameResults({ part, results }: { part: ExamPartContent; results: ExamQuestionResult[] }) {
   const unit = examPartUnits(part)[0] || part;
   const layout = unit.interactionLayout?.kind === 'flyer-name-placement-v1' ? unit.interactionLayout : undefined;
@@ -184,6 +237,7 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
   }), [results]);
   const transcript = review.transcripts?.find(item => item.part === part.part)?.text;
   const ketListening = playable.content.moduleId === 'ket' && playable.content.paperId === 'listening' && playable.content.templateVersion === 'ket-listening-5-v1';
+  const petListening = playable.content.moduleId === 'pet' && playable.content.paperId === 'listening' && playable.content.templateVersion === 'pet-listening-4-v1';
 
   return <div id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
     <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
@@ -193,7 +247,15 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
           <div className="sticky top-0 z-40 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-2" role="tablist" aria-label="Chọn Part để xem kết quả">{playable.content.parts.map(item => <button key={item.part} type="button" role="tab" aria-selected={item.part === activePart} data-active={item.part === activePart ? 'true' : 'false'} onClick={() => setActivePart(item.part)} className="listening-review-part-tab h-10 min-w-14 rounded-full px-4 text-sm font-black">Part {item.part}</button>)}</div><p className="text-xs font-black text-slate-600"><span className="text-emerald-700">{summary.correct} đúng</span> · <span className="text-rose-700">{summary.incorrect} sai</span> · <span className="text-amber-700">{summary.unanswered} bỏ trống</span></p></div></div>
           <div className="relative px-12 sm:px-16">
             <button type="button" disabled={partIndex === 0} onClick={() => setActivePart(playable.content.parts[partIndex - 1]?.part || activePart)} className="listening-review-part-nav absolute left-0 top-1/2 z-50 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full" aria-label="Part trước"><ChevronLeft size={30} /></button>
-            {ketListening
+            {petListening
+              ? part.part === 1
+                ? <div className="space-y-4"><PetListeningExampleView example={(examPartUnits(part)[0] || part).examples?.[0]} /><ImageOptionResults part={part} results={results} showSource={false} /></div>
+                : part.part === 2
+                  ? <ImageOptionResults part={part} results={results} showSource={false} />
+                : part.part === 3
+                  ? <PetFormResults part={part} results={results} />
+                  : <PetYesNoResults part={part} results={results} />
+              : ketListening
               ? part.part === 1
                 ? <ImageOptionResults part={part} results={results} showSource={false} />
                 : part.part === 2

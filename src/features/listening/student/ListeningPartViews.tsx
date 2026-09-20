@@ -13,6 +13,7 @@ import type {
   ListeningRegion,
 } from '../types';
 import { pointInListeningRegion } from '../geometry';
+import StudentUnderlineInput from '../../exam-platform/student/StudentUnderlineInput';
 import {
   getUnusedAnswerIds,
   placeSingleUseAnswer,
@@ -175,12 +176,12 @@ function renderPrompt(
     if (!match) return <React.Fragment key={`${token}-${index}`}>{token}</React.Fragment>;
     const blankId = match[1];
     return (
-      <input
+      <StudentUnderlineInput
         key={blankId}
         value={values[blankId] || ''}
         onChange={event => onChange(blankId, event.target.value)}
         aria-label={`Ô trống ${blankId}`}
-        className="mx-1 inline-block min-w-32 max-w-56 border-0 border-b-2 border-orange-400 bg-orange-50/60 px-2 py-1 text-center font-black text-slate-900 outline-none focus:border-blue-600"
+        className="mx-1 inline-block min-w-40 max-w-56"
         autoComplete="off"
         autoCorrect="off"
         autoCapitalize="off"
@@ -190,7 +191,15 @@ function renderPrompt(
   });
 }
 
-export function ListeningPart2View({ part, answers, onAnswers, exampleLines }: PartProps<ListeningPart2> & { exampleLines?: string[] }) {
+function part2BlankIds(question: ListeningPart2['questions'][number]) {
+  return [...question.prompt.matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map(match => match[1]);
+}
+
+function part2PromptWithoutBlanks(question: ListeningPart2['questions'][number]) {
+  return question.prompt.replace(/\{\{[a-zA-Z0-9_-]+\}\}/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+export function ListeningPart2View({ part, answers, onAnswers, exampleLines, alignAnswersRight = false }: PartProps<ListeningPart2> & { exampleLines?: string[]; alignAnswersRight?: boolean }) {
   const starterExampleLines = exampleLines === undefined ? undefined : [exampleLines[0] || '—', exampleLines[1] || '—'];
   return (
     <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
@@ -204,19 +213,26 @@ export function ListeningPart2View({ part, answers, onAnswers, exampleLines }: P
       </div>
       <div>
         <h3 className="mb-4 text-center text-2xl font-black uppercase text-rose-500">{part.heading}</h3>
-        <div className="space-y-3">
-          {part.questions.map((question, index) => (
-            <div key={question.id} className="rounded-2xl border border-slate-100 bg-white p-4 text-base font-bold leading-9 text-slate-800 shadow-sm">
-              <span className="mr-2 text-rose-500">{index + 1}.</span>
-              {renderPrompt(question, answers.part2[question.id] || {}, (blankId, value) => onAnswers({
+        <div className={alignAnswersRight ? 'space-y-1' : 'space-y-3'} data-listening-part2-right-answers={alignAnswersRight ? 'true' : undefined}>
+          {part.questions.map((question, index) => {
+            const values = answers.part2[question.id] || {};
+            const updateBlank = (blankId: string, value: string) => onAnswers({
                 ...answers,
                 part2: {
                   ...answers.part2,
                   [question.id]: { ...(answers.part2[question.id] || {}), [blankId]: value },
                 },
-              }))}
-            </div>
-          ))}
+              });
+            return alignAnswersRight
+              ? <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-bold leading-7 text-slate-800" data-listening-part2-right-row>
+                  <p className="min-w-0"><span className="mr-2 text-rose-500">{index + 1}.</span>{part2PromptWithoutBlanks(question)}</p>
+                  <div className="flex shrink-0 items-center justify-end gap-2">{part2BlankIds(question).map(blankId => <StudentUnderlineInput key={blankId} value={values[blankId] || ''} onChange={event => updateBlank(blankId, event.target.value)} aria-label={`Ô trống ${blankId}`} className="w-44" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />)}</div>
+                </div>
+              : <div key={question.id} className="rounded-2xl border border-slate-100 bg-white p-4 text-base font-bold leading-9 text-slate-800 shadow-sm">
+                  <span className="mr-2 text-rose-500">{index + 1}.</span>
+                  {renderPrompt(question, values, updateBlank)}
+                </div>;
+          })}
         </div>
       </div>
     </div>

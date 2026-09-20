@@ -5,7 +5,7 @@ export interface Part4DetectedFrame {
   score: number;
 }
 
-interface PixelSource {
+export interface PixelSource {
   width: number;
   height: number;
   data: ArrayLike<number>;
@@ -212,9 +212,8 @@ const loadImage = (url: string) => new Promise<HTMLImageElement>((resolve, rejec
   image.src = url;
 });
 
-export async function detectPart4Frames(imageUrl: string) {
+export async function loadPart4FramePixelSource(imageUrl: string, maximumDimension = 2400): Promise<PixelSource> {
   const image = await loadImage(imageUrl);
-  const maximumDimension = 2400;
   const scale = Math.min(1, maximumDimension / Math.max(image.naturalWidth, image.naturalHeight));
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -224,5 +223,9 @@ export async function detectPart4Frames(imageUrl: string) {
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('Trình duyệt không hỗ trợ phân tích pixel ảnh.');
   context.drawImage(image, 0, 0, width, height);
-  return detectPart4FramesFromPixels(context.getImageData(0, 0, width, height));
+  return context.getImageData(0, 0, width, height);
+}
+
+export async function detectPart4Frames(imageUrl: string) {
+  return detectPart4FramesFromPixels(await loadPart4FramePixelSource(imageUrl));
 }

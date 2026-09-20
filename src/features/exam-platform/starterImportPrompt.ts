@@ -1,11 +1,12 @@
 import type { ExamPaperContent } from './types';
+import { withChatGptJsonCopyBlock } from './chatGptJsonOutput';
 
 const clean = (value: unknown, max = 1_000) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 export function buildStarterListeningBundlePrompt(content?: Pick<ExamPaperContent, 'title' | 'description'>) {
   const title = clean(content?.title, 240) || 'Pre A1 Starters Listening';
   const description = clean(content?.description, 1_000) || 'Bộ đề Cambridge Pre A1 Starters Listening gồm 4 Part và 20 câu chấm điểm.';
-  return `Bạn là chuyên gia số hóa đề Cambridge Pre A1 Starters Listening.
+  return withChatGptJsonCopyBlock(`Bạn là chuyên gia số hóa đề Cambridge Pre A1 Starters Listening.
 
 NHIỆM VỤ
 Đọc toàn bộ ảnh/PDF đề bài và official answer key mà tôi đính kèm. Trả về MỘT JSON tổng cho cả bài Listening, gồm đúng 4 Part và đúng 20 câu chấm điểm. JSON sẽ được dán trực tiếp vào hệ thống soạn đề.
@@ -23,7 +24,7 @@ NGUYÊN TẮC PHÂN LOẠI
 - Không tự đổi dạng bài theo suy đoán nếu số Part đã xác định. Hãy dùng nội dung trang đề và answer key để điền đúng schema của Part tương ứng.
 
 QUY TẮC ĐẦU RA BẮT BUỘC
-- Chỉ trả về một JSON object hợp lệ. Không Markdown, không dấu \`\`\`, không lời giải thích trước hoặc sau JSON.
+- Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 - Dùng đúng format "exam-bundle-import-v1", formatVersion 1, exam.moduleId "starter" và paperId "listening".
 - Không tạo bất kỳ ID kỹ thuật nào. Cấm các trường id, questionId, optionId, assetId, targetId, choiceId, blankId, sourceNodeId, targetNodeId, interactionSourceNodeId và responseKey.
 - Không đưa URL, đường dẫn tệp, base64, data URI, tọa độ, crop, hitbox, anchor, mask hoặc polygon vào JSON.
@@ -167,5 +168,5 @@ MẪU CẤU TRÚC PHẢI ĐIỀN ĐỦ
   "warnings": []
 }
 
-Trước khi trả lời, tự kiểm tra: đủ 4 slot, mỗi Part đúng 5 câu chấm điểm, interaction đúng ba lớp, mọi tham chiếu label tồn tại, Part 1 ánh xạ một-một, Part 2 mỗi câu đúng một gap, Part 3 mỗi câu đúng A/B/C, Part 4 mỗi câu đúng một action. Sau đó chỉ in JSON đã hoàn chỉnh.`;
+Trước khi trả lời, tự kiểm tra: đủ 4 slot, mỗi Part đúng 5 câu chấm điểm, interaction đúng ba lớp, mọi tham chiếu label tồn tại, Part 1 ánh xạ một-một, Part 2 mỗi câu đúng một gap, Part 3 mỗi câu đúng A/B/C, Part 4 mỗi câu đúng một action. Sau đó chỉ in JSON đã hoàn chỉnh.`);
 }
