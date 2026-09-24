@@ -127,6 +127,93 @@
   }
 }
 
+/* Home lesson-list structure */
+.home-lesson-list {
+  overflow: hidden;
+}
+
+.home-lesson-list-header,
+.home-lesson-list-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1.55fr) minmax(6.5rem, 0.75fr) minmax(0, 1fr) 7.25rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.home-lesson-list-row {
+  min-height: 4rem;
+}
+
+.home-lesson-list-title,
+.home-lesson-list-grade,
+.home-lesson-list-topic {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-lesson-mobile-label {
+  display: none;
+}
+
+.home-lesson-list-action-cell {
+  justify-self: end;
+}
+
+.home-lesson-list-action {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.8rem !important;
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  .home-lesson-list-header {
+    display: none;
+  }
+
+  .home-lesson-list-row {
+    grid-template-areas:
+      "index title action"
+      "index grade action"
+      "index topic action";
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    gap: 0.25rem 0.65rem;
+    padding: 0.85rem 0.75rem;
+  }
+
+  .home-lesson-list-index {
+    grid-area: index;
+    align-self: start;
+    padding-top: 0.1rem;
+  }
+
+  .home-lesson-list-title {
+    grid-area: title;
+  }
+
+  .home-lesson-list-grade {
+    grid-area: grade;
+  }
+
+  .home-lesson-list-topic {
+    grid-area: topic;
+  }
+
+  .home-lesson-mobile-label {
+    display: inline;
+  }
+
+  .home-lesson-list-action-cell {
+    grid-area: action;
+    align-self: center;
+  }
+}
+
 /* Home surface palette */
 #app-root {
   background: radial-gradient(circle at 8% 9%, rgba(255, 190, 167, 0.42), transparent 28%), radial-gradient(circle at 88% 13%, rgba(135, 221, 204, 0.38), transparent 31%), var(--phase3-canvas) !important;
@@ -189,84 +276,104 @@
   border-color: var(--phase3-border) !important;
 }
 
-#home-sets-grid > div {
-  background: var(--phase3-peach) !important;
-  border-color: #f4c6b4 !important;
-  color: var(--phase3-ink) !important;
-  box-shadow: 0 10px 26px rgba(194, 65, 59, 0.08) !important;
-}
-
-#home-sets-grid > div:nth-child(4n + 2) {
-  background: var(--phase3-sun) !important;
-  border-color: #eadb89 !important;
-}
-
-#home-sets-grid > div:nth-child(4n + 3) {
-  background: var(--phase3-mint) !important;
-  border-color: #9edbcf !important;
-}
-
-#home-sets-grid > div:nth-child(4n + 4) {
-  background: var(--phase3-blue-soft) !important;
-  border-color: #b8cdf4 !important;
-}
-
-#home-sets-grid > div:hover,
-#home-grammar-directory > .grid > div:hover {
-  border-color: #75bfb2 !important;
-  box-shadow: 0 16px 34px rgba(23, 37, 84, 0.12) !important;
-}
-
-#home-sets-grid h3,
-#home-sets-grid p,
-#home-sets-grid span,
 #home-grammar-directory h2,
-#home-grammar-directory h3,
-#home-grammar-directory p,
-#home-grammar-directory span {
+#home-grammar-directory h2 span {
   color: var(--phase3-ink) !important;
 }
 
-#home-sets-grid > div button {
-  background: var(--phase3-coral) !important;
-  border-color: #9f332f !important;
+.home-lesson-list {
+  background: #ffffff !important;
+  border: 1px solid var(--phase3-border) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 10px 26px rgba(23, 37, 84, 0.06) !important;
+}
+
+.home-lesson-list-header {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.home-lesson-list-row {
+  background: #ffffff !important;
+  border-top: 1px solid #e2e8f0 !important;
+  color: var(--phase3-ink) !important;
+  font-size: 0.8125rem;
+  transition: background-color 160ms ease;
+}
+
+.home-lesson-list-vocab .home-lesson-list-row:hover {
+  background: #f8faff !important;
+}
+
+.home-lesson-list-grammar .home-lesson-list-row:hover {
+  background: #f3fcf8 !important;
+}
+
+.home-lesson-list-index {
+  color: #64748b !important;
+  font-weight: 800;
+}
+
+.home-lesson-list-title {
+  color: var(--phase3-ink) !important;
+  font-weight: 900;
+}
+
+.home-lesson-list-grade,
+.home-lesson-list-topic {
+  color: #475569 !important;
+  font-weight: 700;
+}
+
+.home-lesson-mobile-label {
+  color: #64748b !important;
+  font-weight: 700;
+}
+
+.home-lesson-list-action {
+  border-style: solid !important;
+  border-width: 1px !important;
+  border-radius: 0.75rem !important;
   color: #ffffff !important;
-  box-shadow: 0 9px 20px rgba(194, 65, 59, 0.2) !important;
+  filter: none !important;
+  font-size: 0.75rem;
+  font-weight: 900;
+  opacity: 1 !important;
+  box-shadow: 0 7px 16px rgba(37, 99, 235, 0.18) !important;
 }
 
-#home-sets-grid > div button:hover {
-  background: #9f332f !important;
-  border-color: #842a27 !important;
+#home-sets-grid button.home-lesson-list-action:not([disabled]),
+#home-sets-grid button.home-lesson-list-action:not([disabled]) span,
+#home-sets-grid button.home-lesson-list-action:not([disabled]) svg,
+#home-grammar-list button.home-lesson-list-action:not([disabled]),
+#home-grammar-list button.home-lesson-list-action:not([disabled]) span,
+#home-grammar-list button.home-lesson-list-action:not([disabled]) svg {
   color: #ffffff !important;
+  opacity: 1 !important;
 }
 
-#home-sets-grid > div button *,
-#home-grammar-directory > .grid > div button * {
-  color: #ffffff !important;
+#home-sets-grid button.home-lesson-list-action:not([disabled]) {
+  background: #2563eb !important;
+  border-color: #1d4ed8 !important;
 }
 
-#home-grammar-directory > .grid > div {
-  background: var(--phase3-mint) !important;
-  border-color: #9edbcf !important;
-  box-shadow: 0 10px 26px rgba(15, 118, 110, 0.08) !important;
+#home-sets-grid button.home-lesson-list-action:not([disabled]):hover {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
 }
 
-#home-grammar-directory > .grid > div:nth-child(even) {
-  background: var(--phase3-sun) !important;
-  border-color: #eadb89 !important;
+#home-grammar-list button.home-lesson-list-action:not([disabled]) {
+  background: #047857 !important;
+  border-color: #065f46 !important;
 }
 
-#home-grammar-directory > .grid > div button {
-  background: var(--phase3-teal) !important;
-  border-color: #0b5f59 !important;
-  color: #ffffff !important;
-  box-shadow: 0 9px 20px rgba(15, 118, 110, 0.18) !important;
-}
-
-#home-grammar-directory > .grid > div button:hover {
-  background: #0b5f59 !important;
-  border-color: #084c48 !important;
-  color: #ffffff !important;
+#home-grammar-list button.home-lesson-list-action:not([disabled]):hover {
+  background: #065f46 !important;
+  border-color: #064e3b !important;
 }
 
 #student-golden-board {

@@ -5,6 +5,7 @@ import {
   expandHomeSearchTerms,
   filterPublicGrammarSets,
   filterPublicVocabSets,
+  getGrammarGradeOptions,
   getHomeGradeOptions,
   normalizeHomeSearchText,
 } from './homeSearch';
@@ -93,6 +94,7 @@ test('vocabulary search still covers item term, meaning, IPA, example, notes and
 
 test('grammar filters and grade options keep the existing public-home contract', () => {
   const grammar = grammarSet();
+  assert.deepEqual(filterPublicGrammarSets([grammar], 'present simple', ''), [grammar]);
   assert.deepEqual(filterPublicGrammarSets([grammar], 'daily routines', ''), [grammar]);
   assert.deepEqual(filterPublicGrammarSets([grammar], '', 'Lớp 3'), []);
   assert.deepEqual(filterPublicGrammarSets([grammarSet({ visibility: 'draft' })], '', ''), []);
@@ -104,5 +106,13 @@ test('grammar filters and grade options keep the existing public-home contract',
       [{ level: 'Lớp 5' }],
     ),
     ['Lớp 3', 'Lớp 6', 'Lớp 10', 'Lớp 8', 'Lớp 5'],
+  );
+
+  assert.deepEqual(
+    getGrammarGradeOptions(
+      [{ id: 'class-1', name: 'Lớp 8', code: '8A', teacherId: 'teacher-1' }],
+      [grammarSet({ gradeLevel: 'Lớp 9' })],
+    ),
+    ['Lớp 3', 'Lớp 6', 'Lớp 10', 'Lớp 8', 'Lớp 9'],
   );
 });

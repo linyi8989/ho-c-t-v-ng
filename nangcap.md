@@ -869,3 +869,52 @@ Trạng thái: **hoàn thành kỹ thuật ngày 2026-09-24; chưa deploy produc
   nội dung của `dist` bằng rỗng. Localhost hiện hữu không bị dừng.
 - Checkpoint cũ: **Bước 1 hoàn thành; sau đó người dùng đã duyệt và Bước 2 đã
   được thực hiện ở nhật ký phía trên**.
+
+## Bổ sung sau nâng cấp: sửa Bảng vàng học sinh - 2026-09-24
+
+- [x] Tái hiện lỗi trên localhost: summary trả `503
+  LEADERBOARD_NOT_READY` trong khi endpoint tương thích vẫn đọc được kết quả
+  cũ với `200`; xác nhận lỗi nằm ở readiness boundary, không phải do
+  học sinh không có điểm.
+- [x] Giữ đường nhanh `leaderboard_events` là ưu tiên; khi marker chưa sẵn
+  sàng thì chỉ sau thao tác `Xem bảng vàng` mới chạy fallback đọc-only từ
+  nguồn cũ. Không ghi database, không tự backfill và không tự đặt marker.
+- [x] Sửa `Thử lại` dùng refresh key thật sự; thêm `aria-expanded` và
+  trạng thái DOM để browser test theo dõi đúng chu kỳ request.
+- [x] Khóa visual nút `Xem/Ẩn bảng vàng`: nền `#b45309`, chữ trắng,
+  opacity `1`, không filter; không đổi bố cục hay breakpoint.
+- [x] Contract test cho service fallback, performance boundary, retry UI và CSS
+  đều đạt. Browser smoke xác nhận cả desktop/mobile không overflow, nút
+  không mờ, API chuyển `ready` và hiển thị được dòng xếp hạng local.
+- Trạng thái: **đã sửa và xác minh trên localhost; chưa deploy
+  production. Backfill production vẫn nên thực hiện theo quy trình backup/quiesce
+  để loại chi phí fallback khi nhiều người cùng mở bảng.**
+
+## Bổ sung sau nâng cấp: bộ lọc Luyện ngữ pháp - 2026-09-24
+
+- [x] Tách state tìm kiếm/lớp của Ngữ pháp khỏi state của Từ vựng; hai danh mục
+  không còn lọc lẫn nhau.
+- [x] Thêm ô `Tìm bài ngữ pháp theo tên...` và dropdown `Tất cả khối lớp` tại
+  giao diện học sinh; danh sách lớp có cả lớp mặc định, lớp đã tải và
+  `gradeLevel` thực tế của bài Grammar.
+- [x] Giữ nguyên endpoint, route, dữ liệu, visibility `public` và thao tác mở bài
+  ngữ pháp.
+- [x] Home contract đạt 13/13, lint đạt; browser QA desktop 1440 px/mobile 390 px
+  xác nhận tiêu đề không bị ngắt chữ, control không tràn ngang và trên mobile cả
+  hai control cùng rộng 358 px.
+
+## Bổ sung sau nâng cấp: danh sách bài học công khai - 2026-09-24
+
+- [x] Bỏ hai dòng hướng dẫn dưới tiêu đề `Luyện từ vựng` và `Luyện ngữ pháp`;
+  bỏ hoàn toàn badge đếm số bài Grammar.
+- [x] Thay card công khai của cả hai danh mục bằng một cấu trúc danh sách dùng
+  chung gồm `STT`, `Tên`, `Khối lớp`, `Chủ đề`, `Thao tác`.
+- [x] Nút mở bài giữ nguyên callback/luồng điều hướng, chỉ đổi phần trình bày
+  thành biểu tượng Play kèm chữ `Học Bài`.
+- [x] Giữ nguyên tìm kiếm, lọc lớp, visibility `public`, empty state, API,
+  route, schema và dữ liệu. Không xóa mô tả/tác giả/số từ/số câu khỏi record;
+  chỉ không còn hiển thị các trường ngoài yêu cầu trong danh sách Home.
+- [x] Danh sách có cột đồng đều trên desktop và chuyển sang hàng gọn có nhãn
+  trên mobile; nút Vocabulary/Grammar có màu riêng, opacity `1` và không filter.
+- Trạng thái: **đã triển khai trong source và bổ sung contract/browser QA;
+  chưa deploy production**.

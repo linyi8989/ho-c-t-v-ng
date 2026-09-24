@@ -18,3 +18,10 @@ test('vocabulary name validation stays below the input instead of becoming a fle
   assert.match(source, /aria-describedby=\{nameError \? 'student-name-error' : undefined\}/);
   assert.match(source, /className="w-full sm:w-auto py-4 px-8/);
 });
+
+test('student leaderboard toggle exposes its state and retry refreshes the active request', () => {
+  assert.match(source, /data-leaderboard-status=\{leaderboardOpen \? leaderboardStatus : 'closed'\}/);
+  assert.match(source, /id="learning-golden-toggle"[\s\S]*?aria-expanded=\{leaderboardOpen\}/);
+  assert.match(source, /onClick=\{\(\) => setLeaderboardRefreshKey\(key => key \+ 1\)\}/);
+  assert.doesNotMatch(source, /setLeaderboardOpen\(false\);[\s\S]*?setTimeout\(\(\) => setLeaderboardOpen\(true\)/);
+});

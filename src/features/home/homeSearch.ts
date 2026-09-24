@@ -109,3 +109,11 @@ export function getHomeGradeOptions(
     ...listeningSets.map(set => set.level).filter((value): value is string => Boolean(value)),
   ]));
 }
+
+export function getGrammarGradeOptions(classes: Class[], grammarSets: GrammarSet[]) {
+  return Array.from(new Set([
+    ...DEFAULT_HOME_GRADE_OPTIONS,
+    ...classes.map(cls => cls.name).filter(Boolean),
+    ...grammarSets.map(set => set.gradeLevel).filter(Boolean),
+  ]));
+}

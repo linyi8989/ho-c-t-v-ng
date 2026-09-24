@@ -132,8 +132,11 @@ export function createResultsService(options: ResultsServiceOptions) {
       timing?.mark('memory_cache');
       return { body: cached.value, headers };
     }
-    const events = await options.repository.loadReadyLeaderboardEvents(timing);
-    if (!events) return { status: 503, body: { error: 'Bảng vàng đang được chuẩn bị.', code: 'LEADERBOARD_NOT_READY' } };
+    let events = await options.repository.loadReadyLeaderboardEvents(timing);
+    if (!events) {
+      timing?.mark('read_model_fallback');
+      events = await options.repository.loadLeaderboardEvents(timing);
+    }
     const publicEvents = events.map(options.sanitizePublicStudentRecord);
     const classesById = new Map<string, string>();
     for (const event of publicEvents) {

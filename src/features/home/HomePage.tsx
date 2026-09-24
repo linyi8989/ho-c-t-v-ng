@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  ArrowRight,
   Award,
   BookOpen,
   FileText,
   GraduationCap,
   History,
   LogOut,
+  Play,
   Search,
   Sparkles,
   Star,
@@ -32,12 +32,79 @@ interface HomeLeaderboardEntry {
   studyDays: number;
 }
 
+interface HomeLessonListProps<T extends { id: string }> {
+  ariaLabel: string;
+  getGrade: (item: T) => string;
+  getTitle: (item: T) => string;
+  getTopic: (item: T) => string;
+  id: string;
+  items: T[];
+  onOpen: (item: T) => void;
+  rowIdPrefix: string;
+  tone: 'vocab' | 'grammar';
+}
+
+function HomeLessonList<T extends { id: string }>({
+  ariaLabel,
+  getGrade,
+  getTitle,
+  getTopic,
+  id,
+  items,
+  onOpen,
+  rowIdPrefix,
+  tone,
+}: HomeLessonListProps<T>) {
+  return (
+    <div className={`home-lesson-list home-lesson-list-${tone}`} id={id} role="table" aria-label={ariaLabel}>
+      <div className="home-lesson-list-header" role="row">
+        <span role="columnheader">STT</span>
+        <span role="columnheader">Tên</span>
+        <span role="columnheader">Khối lớp</span>
+        <span role="columnheader">Chủ đề</span>
+        <span role="columnheader">Thao tác</span>
+      </div>
+      {items.map((item, index) => {
+        const title = getTitle(item);
+        return (
+          <div className="home-lesson-list-row" id={`${rowIdPrefix}-${item.id}`} role="row" key={item.id}>
+            <span className="home-lesson-list-index" role="cell">{index + 1}</span>
+            <span className="home-lesson-list-title" role="cell">{title}</span>
+            <span className="home-lesson-list-grade" role="cell">
+              <span className="home-lesson-mobile-label">Khối lớp: </span>
+              {formatGradeLabel(getGrade(item)) || '—'}
+            </span>
+            <span className="home-lesson-list-topic" role="cell">
+              <span className="home-lesson-mobile-label">Chủ đề: </span>
+              {getTopic(item) || '—'}
+            </span>
+            <div className="home-lesson-list-action-cell" role="cell">
+              <button
+                type="button"
+                className="home-lesson-list-action"
+                onClick={() => onOpen(item)}
+                aria-label={`Học bài ${title}`}
+              >
+                <Play size={14} aria-hidden="true" />
+                <span>Học Bài</span>
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface HomePageProps {
   adminMode: boolean;
   filteredGrammarSets: GrammarSet[];
   filteredVocabSets: VocabSet[];
   grade: string;
   gradeOptions: string[];
+  grammarGrade: string;
+  grammarGradeOptions: string[];
+  grammarSearch: string;
   isStaff: boolean;
   leaderboard: HomeLeaderboardEntry[];
   leaderboardPeriod: LeaderboardPeriod;
@@ -49,6 +116,8 @@ interface HomePageProps {
   onOpenVocab: (set: VocabSet) => void;
   search: string;
   setGrade: (value: string) => void;
+  setGrammarGrade: (value: string) => void;
+  setGrammarSearch: (value: string) => void;
   setLeaderboardPeriod: (value: LeaderboardPeriod) => void;
   setSearch: (value: string) => void;
   user: HomeUser | null;
@@ -60,6 +129,9 @@ export default function HomePage({
   filteredVocabSets,
   grade,
   gradeOptions,
+  grammarGrade,
+  grammarGradeOptions,
+  grammarSearch,
   isStaff,
   leaderboard,
   leaderboardPeriod,
@@ -71,6 +143,8 @@ export default function HomePage({
   onOpenVocab,
   search,
   setGrade,
+  setGrammarGrade,
+  setGrammarSearch,
   setLeaderboardPeriod,
   setSearch,
   user,
@@ -185,13 +259,10 @@ export default function HomePage({
           <ListeningLibraryHome embedded onNavigate={onNavigate} />
 
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pt-8 pb-4 border-t border-b border-gray-200">
-            <div className="space-y-0.5">
-              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                <GraduationCap className="text-indigo-600" size={24} />
-                <span>Luyện từ vựng</span>
-              </h2>
-              <p className="text-gray-400 text-xs font-medium">Bấm vào bất kỳ bộ bài học nào dưới đây để chọn game luyện tập.</p>
-            </div>
+            <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+              <GraduationCap className="text-indigo-600" size={24} />
+              <span>Luyện từ vựng</span>
+            </h2>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
               <div className="relative w-full sm:w-72">
                 <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -219,63 +290,64 @@ export default function HomePage({
               Chưa có bộ từ vựng công khai nào phù hợp.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="home-sets-grid">
-              {filteredVocabSets.map(set => (
-                <div key={set.id} className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col justify-between" id={`home-set-${set.id}`}>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">{formatGradeLabel(set.gradeLevel)}</span>
-                      <span className="text-xs text-gray-400 font-semibold">{set.items.length} từ</span>
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="font-extrabold text-gray-800 text-base leading-tight group-hover:text-indigo-600 transition-colors">{set.title}</h3>
-                      <p className="text-xs text-gray-400 font-medium">Chủ đề: {set.subject}</p>
-                      <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed mt-1">{set.description}</p>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-4 border-t border-gray-50 flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-gray-400">Tác giả: {set.creatorName || 'Cô Diệu Tiếng Anh'}</span>
-                    <button onClick={() => onOpenVocab(set)} className="py-2 px-4 !bg-indigo-600 hover:!bg-indigo-700 !text-white !border !border-indigo-700 font-extrabold rounded-xl transition-all shadow-sm hover:shadow flex items-center space-x-1 cursor-pointer text-xs">
-                      <span>Vào học ngay</span>
-                      <ArrowRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <HomeLessonList
+              ariaLabel="Danh sách bài học từ vựng"
+              getGrade={set => set.gradeLevel}
+              getTitle={set => set.title}
+              getTopic={set => set.subject}
+              id="home-sets-grid"
+              items={filteredVocabSets}
+              onOpen={onOpenVocab}
+              rowIdPrefix="home-set"
+              tone="vocab"
+            />
           )}
 
           <div className="pt-8 space-y-4 border-t border-gray-200" id="home-grammar-directory">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                  <FileText className="text-emerald-600" size={22} />
-                  <span>Luyện ngữ pháp</span>
-                </h2>
-                <p className="text-gray-400 text-xs font-medium">Chọn bài ngữ pháp để luyện trắc nghiệm và xem lại lời giải sau khi nộp.</p>
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                <FileText className="text-emerald-600" size={22} />
+                <span className="whitespace-nowrap">Luyện ngữ pháp</span>
+              </h2>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-72">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+                  <input
+                    id="home-grammar-search"
+                    type="search"
+                    value={grammarSearch}
+                    onChange={(event) => setGrammarSearch(event.target.value)}
+                    placeholder="Tìm bài ngữ pháp theo tên..."
+                    aria-label="Tìm bài ngữ pháp theo tên"
+                    className="w-full p-2.5 pl-10 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 placeholder-gray-400 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50"
+                  />
+                </div>
+                <select
+                  id="home-grammar-grade-filter"
+                  value={grammarGrade}
+                  onChange={(event) => setGrammarGrade(event.target.value)}
+                  aria-label="Lọc bài ngữ pháp theo khối lớp"
+                  className="p-2.5 px-4 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-50"
+                >
+                  <option value="">Tất cả khối lớp</option>
+                  {grammarGradeOptions.map(option => <option key={option} value={option}>{formatGradeLabel(option)}</option>)}
+                </select>
               </div>
-              <span className="text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-3 py-1">{filteredGrammarSets.length} bài</span>
             </div>
             {filteredGrammarSets.length === 0 ? (
               <div className="p-8 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">Chưa có bài ngữ pháp công khai phù hợp.</div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredGrammarSets.map(set => (
-                  <div key={set.id} className="bg-white rounded-3xl p-6 border border-emerald-100 shadow-sm hover:shadow-md transition-all">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">{formatGradeLabel(set.gradeLevel)}</span>
-                      <span className="text-xs text-gray-400 font-semibold">{set.questions.length} câu</span>
-                    </div>
-                    <h3 className="mt-3 font-extrabold text-gray-800 text-base leading-tight">{set.title}</h3>
-                    <p className="text-xs text-gray-400 font-medium">Chủ đề: {set.topic || set.subject}</p>
-                    <p className="mt-2 text-xs text-gray-500 line-clamp-2 leading-relaxed">{set.description}</p>
-                    <button onClick={() => onOpenGrammar(set)} className="mt-5 w-full py-3 !bg-emerald-600 hover:!bg-emerald-700 !text-white !border !border-emerald-700 font-extrabold rounded-xl transition-all shadow-sm flex items-center justify-center space-x-1 cursor-pointer text-xs">
-                      <span>Bắt đầu luyện ngữ pháp</span>
-                      <ArrowRight size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <HomeLessonList
+                ariaLabel="Danh sách bài học ngữ pháp"
+                getGrade={set => set.gradeLevel}
+                getTitle={set => set.title}
+                getTopic={set => set.topic || set.subject}
+                id="home-grammar-list"
+                items={filteredGrammarSets}
+                onOpen={onOpenGrammar}
+                rowIdPrefix="home-grammar"
+                tone="grammar"
+              />
             )}
           </div>
         </section>

@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // server.ts
-var import_express7 = __toESM(require("express"), 1);
+var import_express21 = __toESM(require("express"), 1);
 var import_path5 = __toESM(require("path"), 1);
 var import_crypto4 = __toESM(require("crypto"), 1);
 
@@ -46,7 +46,7 @@ function isGrammarTextAnswerCorrect(studentAnswer, correctAnswer, acceptedAnswer
 // server.ts
 var import_fs5 = __toESM(require("fs"), 1);
 var import_vite = require("vite");
-var import_genai = require("@google/genai");
+var import_genai2 = require("@google/genai");
 var import_dotenv = __toESM(require("dotenv"), 1);
 
 // src/lib/firebaseAdmin.ts
@@ -10503,6 +10503,10 @@ var SMART_IMPORT_TIMEOUT_MS = Math.min(
   18e4,
   Math.max(15e3, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 18e4)
 );
+var LISTENING_TICKET_DEFAULT_TTL_MS = 7 * 24 * 60 * 6e4;
+var LISTENING_TICKET_RENEWAL_TTL_MS = 15 * 6e4;
+var LISTENING_TICKET_RENEWAL_GRACE_MS = 7 * 24 * 60 * 6e4;
+var LISTENING_TICKET_CLOCK_SKEW_MS = 5 * 6e4;
 var MIME_EXTENSIONS = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -10579,21 +10583,40 @@ function encodeTicket(payload, secret) {
   const signature = import_crypto.default.createHmac("sha256", secret).update(encoded).digest("base64url");
   return `${encoded}.${signature}`;
 }
-function decodeTicket(ticket, secret) {
+function decodeTicket(ticket, secret, options = {}) {
   const [encoded, providedSignature, extra] = String(ticket || "").split(".");
   if (!encoded || !providedSignature || extra) throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   const expected = import_crypto.default.createHmac("sha256", secret).update(encoded).digest("base64url");
   if (!timingSafeEqual(providedSignature, expected)) throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   try {
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-    if (Number(payload.ticketExpiresAt || 0) < Date.now()) {
-      throw apiError(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt th\u1EDDi gian g\u1EEDi l\u1EA1i.");
+    const expiresAt = Number(payload.ticketExpiresAt);
+    if (!options.allowExpired && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) {
+      throw apiError(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.", { code: "LISTENING_ATTEMPT_TICKET_EXPIRED" });
     }
     return payload;
   } catch (error) {
     if (error?.status) throw error;
     throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   }
+}
+function validateRecoverableTicket(ticket) {
+  const startedAt = new Date(ticket.startedAt).getTime();
+  const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+  if (!text(ticket.versionId, 180) || !text(ticket.clientRunId, 180) || !/^[a-f0-9]{64}$/i.test(String(ticket.runSecretHash || "")) || !Number.isFinite(startedAt) || startedAt > Date.now() + LISTENING_TICKET_CLOCK_SKEW_MS) {
+    throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  const originalExpiry = Number.isFinite(ticketExpiresAt) && ticketExpiresAt > startedAt ? ticketExpiresAt : startedAt + LISTENING_TICKET_DEFAULT_TTL_MS;
+  const maximumRecoveryEndsAt = originalExpiry + LISTENING_TICKET_RENEWAL_GRACE_MS;
+  const claimedRecoveryEndsAt = Number(ticket.ticketRecoveryEndsAt);
+  const recoveryEndsAt = Number.isFinite(claimedRecoveryEndsAt) && claimedRecoveryEndsAt >= originalExpiry ? Math.min(claimedRecoveryEndsAt, maximumRecoveryEndsAt) : maximumRecoveryEndsAt;
+  if (Date.now() >= recoveryEndsAt) {
+    throw apiError(410, "L\u01B0\u1EE3t l\xE0m b\xE0i \u0111\xE3 qu\xE1 th\u1EDDi h\u1EA1n kh\xF4i ph\u1EE5c.", {
+      code: "LISTENING_ATTEMPT_TICKET_RECOVERY_EXPIRED",
+      recoverable: false
+    });
+  }
+  return { recoveryEndsAt };
 }
 function hasValidMagic(buffer, mimeType) {
   if (mimeType === "image/jpeg") return buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
@@ -10755,9 +10778,10 @@ async function resolveLearningAccess(db, set, req) {
   }
   throw apiError(403, "Link b\u1ED9 \u0111\u1EC1 nghe kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp.");
 }
-async function resolveActor(req, resolveGuestProfile2, classInfo = {}) {
+async function resolveActor(req, resolveGuestProfile2, classInfo = {}, expectedOwnerKey = "") {
   if (req.authBlocked) throw apiError(403, "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB kh\xF3a.");
-  if (req.user) {
+  const ticketOwnsGuestRun = String(expectedOwnerKey).startsWith("guest:");
+  if (req.user && !ticketOwnsGuestRun) {
     return {
       ownerKey: `user:${req.user.id}`,
       userId: req.user.id,
@@ -11591,7 +11615,7 @@ function createListeningRouter(dependencies) {
       if (!version) throw apiError(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
       const startedAt = nowIso2();
       const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 6e4).toISOString() : void 0;
-      const ticketExpiresAt = Date.now() + (deadlineAt ? 24 * 60 * 6e4 : 7 * 24 * 60 * 6e4);
+      const ticketExpiresAt = Date.now() + (deadlineAt ? 24 * 60 * 6e4 : LISTENING_TICKET_DEFAULT_TTL_MS);
       const payload = {
         schemaVersion: LISTENING_LIBRARY_SCHEMA_VERSION,
         moduleId: DEFAULT_LISTENING_MODULE_ID,
@@ -11606,7 +11630,8 @@ function createListeningRouter(dependencies) {
         runSecretHash: sha256(runSecret),
         startedAt,
         deadlineAt,
-        ticketExpiresAt
+        ticketExpiresAt,
+        ticketRecoveryEndsAt: ticketExpiresAt + LISTENING_TICKET_RENEWAL_GRACE_MS
       };
       res.json({
         ticket: encodeTicket(payload, ticketSecret),
@@ -11619,15 +11644,48 @@ function createListeningRouter(dependencies) {
       sendError(res, error);
     }
   });
+  router.post("/sets/:id/attempts/renew", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
+      if (ticket.setId !== req.params.id) throw apiError(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
+      const runSecret = text(req.body?.runSecret, 300);
+      const actor = await resolveActor(req, resolveGuestProfile2, {
+        classId: ticket.classId,
+        className: ticket.className,
+        verified: Boolean(ticket.assignmentId)
+      }, ticket.ownerKey);
+      if (actor.ownerKey !== ticket.ownerKey || !runSecret || !timingSafeEqual(sha256(runSecret), String(ticket.runSecretHash || ""))) {
+        throw apiError(401, "Kh\xF4ng c\xF3 quy\u1EC1n kh\xF4i ph\u1EE5c l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+      }
+      const { recoveryEndsAt } = validateRecoverableTicket(ticket);
+      const set = await getSet(db, ticket.setId);
+      const version = await getVersion(db, ticket.versionId);
+      if (!set || !version || version.setId !== set.id) throw apiError(409, "Phi\xEAn b\u1EA3n b\u1ED9 \u0111\u1EC1 kh\xF4ng c\xF2n h\u1EE3p l\u1EC7.");
+      const renewedTicket = encodeTicket({
+        ...ticket,
+        ticketExpiresAt: Math.min(Date.now() + LISTENING_TICKET_RENEWAL_TTL_MS, recoveryEndsAt),
+        ticketRecoveryEndsAt: recoveryEndsAt
+      }, ticketSecret);
+      res.json({
+        ticket: renewedTicket,
+        clientRunId: ticket.clientRunId,
+        versionId: ticket.versionId,
+        startedAt: ticket.startedAt,
+        ...ticket.deadlineAt ? { deadlineAt: ticket.deadlineAt } : {}
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
   router.post("/sets/:id/attempts/submit", authenticateOptionalUser2, async (req, res) => {
     try {
-      const ticket = decodeTicket(req.body?.ticket, ticketSecret);
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
       if (ticket.setId !== req.params.id) throw apiError(400, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng thu\u1ED9c b\u1ED9 \u0111\u1EC1 n\xE0y.");
       const runSecret = text(req.body?.runSecret, 300);
       if (!runSecret || !timingSafeEqual(sha256(runSecret), ticket.runSecretHash)) {
         throw apiError(401, "M\xE3 x\xE1c nh\u1EADn l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
       }
-      const actor = await resolveActor(req, resolveGuestProfile2);
+      const actor = await resolveActor(req, resolveGuestProfile2, {}, ticket.ownerKey);
       if (actor.ownerKey !== ticket.ownerKey) throw apiError(403, "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng thu\u1ED9c h\u1ECDc sinh n\xE0y.");
       const attemptId = `lattempt-${sha256(`${ticket.ownerKey}:${ticket.setId}:${ticket.clientRunId}`).slice(0, 40)}`;
       const existingDocument = await db.collection("listening_attempts").doc(attemptId).get();
@@ -11638,6 +11696,10 @@ function createListeningRouter(dependencies) {
         }
         const { runSecretHash: _secret2, ...safeAttempt2 } = existing;
         return res.json({ ...safeAttempt2, idempotentReplay: true });
+      }
+      const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+      if (!Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
+        throw apiError(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.", { code: "LISTENING_ATTEMPT_TICKET_EXPIRED" });
       }
       const version = await getVersion(db, ticket.versionId);
       if (!version || version.setId !== ticket.setId) throw apiError(404, "Phi\xEAn b\u1EA3n l\xE0m b\xE0i kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng.");
@@ -13919,6 +13981,10 @@ var SMART_IMPORT_TIMEOUT_MS2 = Math.min(
   18e4,
   Math.max(15e3, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 18e4)
 );
+var MOVER_READING_TICKET_DEFAULT_TTL_MS = 7 * 24 * 60 * 6e4;
+var MOVER_READING_TICKET_RENEWAL_TTL_MS = 15 * 6e4;
+var MOVER_READING_TICKET_RENEWAL_GRACE_MS = 7 * 24 * 60 * 6e4;
+var MOVER_READING_TICKET_CLOCK_SKEW_MS = 5 * 6e4;
 function hasValidImageMagic(buffer, mimeType) {
   if (mimeType === "image/jpeg") return buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255;
   if (mimeType === "image/png") return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
@@ -13964,19 +14030,40 @@ function encodeTicket2(payload, secret) {
   const signature = import_crypto2.default.createHmac("sha256", secret).update(encoded).digest("base64url");
   return `${encoded}.${signature}`;
 }
-function decodeTicket2(ticket, secret) {
+function decodeTicket2(ticket, secret, options = {}) {
   const [encoded, signature, extra] = String(ticket || "").split(".");
   if (!encoded || !signature || extra) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   const expected = import_crypto2.default.createHmac("sha256", secret).update(encoded).digest("base64url");
   if (!timingSafeEqual2(signature, expected)) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   try {
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-    if (Number(payload.ticketExpiresAt || 0) < Date.now()) throw apiError2(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.");
+    const expiresAt = Number(payload.ticketExpiresAt);
+    if (!options.allowExpired && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) {
+      throw apiError2(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.", { code: "MOVER_READING_ATTEMPT_TICKET_EXPIRED" });
+    }
     return payload;
   } catch (error) {
     if (error?.status) throw error;
     throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   }
+}
+function validateRecoverableTicket2(ticket) {
+  const startedAt = new Date(ticket.startedAt).getTime();
+  const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+  if (!text3(ticket.versionId, 180) || !text3(ticket.clientRunId, 180) || !/^[a-f0-9]{64}$/i.test(String(ticket.runSecretHash || "")) || !Number.isFinite(startedAt) || startedAt > Date.now() + MOVER_READING_TICKET_CLOCK_SKEW_MS) {
+    throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  const originalExpiry = Number.isFinite(ticketExpiresAt) && ticketExpiresAt > startedAt ? ticketExpiresAt : startedAt + MOVER_READING_TICKET_DEFAULT_TTL_MS;
+  const maximumRecoveryEndsAt = originalExpiry + MOVER_READING_TICKET_RENEWAL_GRACE_MS;
+  const claimedRecoveryEndsAt = Number(ticket.ticketRecoveryEndsAt);
+  const recoveryEndsAt = Number.isFinite(claimedRecoveryEndsAt) && claimedRecoveryEndsAt >= originalExpiry ? Math.min(claimedRecoveryEndsAt, maximumRecoveryEndsAt) : maximumRecoveryEndsAt;
+  if (Date.now() >= recoveryEndsAt) {
+    throw apiError2(410, "L\u01B0\u1EE3t l\xE0m b\xE0i \u0111\xE3 qu\xE1 th\u1EDDi h\u1EA1n kh\xF4i ph\u1EE5c.", {
+      code: "MOVER_READING_ATTEMPT_TICKET_RECOVERY_EXPIRED",
+      recoverable: false
+    });
+  }
+  return { recoveryEndsAt };
 }
 async function getSet2(db, id2) {
   const document = await db.collection("mover_reading_sets").doc(id2).get();
@@ -14022,9 +14109,10 @@ async function resolveLearningAccess2(db, set, req) {
   if (assignment?.resourceType === "mover_reading_writing" && resourceId === set.id) return { assignment };
   throw apiError2(403, "Link b\u1ED9 \u0111\u1EC1 Reading & Writing kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp.");
 }
-async function resolveActor2(req, resolveGuestProfile2, classInfo = {}) {
+async function resolveActor2(req, resolveGuestProfile2, classInfo = {}, expectedOwnerKey = "") {
   if (req.authBlocked) throw apiError2(403, "T\xE0i kho\u1EA3n \u0111\xE3 b\u1ECB kh\xF3a.");
-  if (req.user) {
+  const ticketOwnsGuestRun = String(expectedOwnerKey).startsWith("guest:");
+  if (req.user && !ticketOwnsGuestRun) {
     return {
       ownerKey: `user:${req.user.id}`,
       userId: req.user.id,
@@ -14654,6 +14742,7 @@ function createMoverReadingWritingRouter(dependencies) {
       if (!version) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n.");
       const startedAt = nowIso3();
       const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 6e4).toISOString() : void 0;
+      const ticketExpiresAt = Date.now() + (deadlineAt ? 24 * 60 * 6e4 : MOVER_READING_TICKET_DEFAULT_TTL_MS);
       const payload = {
         schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
         paperId: MOVER_READING_WRITING_PAPER_ID,
@@ -14669,7 +14758,8 @@ function createMoverReadingWritingRouter(dependencies) {
         runSecretHash: sha2562(runSecret),
         startedAt,
         deadlineAt,
-        ticketExpiresAt: Date.now() + (deadlineAt ? 24 * 60 * 6e4 : 7 * 24 * 60 * 6e4)
+        ticketExpiresAt,
+        ticketRecoveryEndsAt: ticketExpiresAt + MOVER_READING_TICKET_RENEWAL_GRACE_MS
       };
       res.json({
         ticket: encodeTicket2(payload, ticketSecret),
@@ -14681,13 +14771,50 @@ function createMoverReadingWritingRouter(dependencies) {
       sendError2(res, error);
     }
   });
+  router.post("/sets/:id/attempts/renew", authenticateOptionalUser2, async (req, res) => {
+    try {
+      const ticket = decodeTicket2(req.body?.ticket, ticketSecret, { allowExpired: true });
+      if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) {
+        throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
+      }
+      const runSecret = text3(req.body?.runSecret, 300);
+      const actor = await resolveActor2(req, resolveGuestProfile2, {
+        classId: ticket.classId,
+        className: ticket.className,
+        verified: Boolean(ticket.assignmentId)
+      }, ticket.ownerKey);
+      if (actor.ownerKey !== ticket.ownerKey || !runSecret || !timingSafeEqual2(sha2562(runSecret), String(ticket.runSecretHash || ""))) {
+        throw apiError2(401, "Kh\xF4ng c\xF3 quy\u1EC1n kh\xF4i ph\u1EE5c l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+      }
+      const { recoveryEndsAt } = validateRecoverableTicket2(ticket);
+      const set = await getSet2(db, ticket.setId);
+      const version = await getVersion2(db, ticket.versionId);
+      if (!set || !version || version.setId !== set.id) {
+        throw apiError2(409, "Phi\xEAn b\u1EA3n b\u1ED9 \u0111\u1EC1 kh\xF4ng c\xF2n h\u1EE3p l\u1EC7.");
+      }
+      const renewedTicket = encodeTicket2({
+        ...ticket,
+        ticketExpiresAt: Math.min(Date.now() + MOVER_READING_TICKET_RENEWAL_TTL_MS, recoveryEndsAt),
+        ticketRecoveryEndsAt: recoveryEndsAt
+      }, ticketSecret);
+      res.json({
+        ticket: renewedTicket,
+        clientRunId: ticket.clientRunId,
+        versionId: ticket.versionId,
+        startedAt: ticket.startedAt,
+        ...ticket.deadlineAt ? { deadlineAt: ticket.deadlineAt } : {}
+      });
+    } catch (error) {
+      sendError2(res, error);
+    }
+  });
   router.post("/sets/:id/attempts/submit", authenticateOptionalUser2, async (req, res) => {
     try {
-      const ticket = decodeTicket2(req.body?.ticket, ticketSecret);
+      const ticket = decodeTicket2(req.body?.ticket, ticketSecret, { allowExpired: true });
       if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) throw apiError2(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
       const runSecret = text3(req.body?.runSecret, 300);
       if (!runSecret || !timingSafeEqual2(sha2562(runSecret), String(ticket.runSecretHash))) throw apiError2(401, "M\xE3 b\u1EA3o v\u1EC7 l\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
-      const actor = await resolveActor2(req, resolveGuestProfile2);
+      const actor = await resolveActor2(req, resolveGuestProfile2, {}, ticket.ownerKey);
       if (actor.ownerKey !== ticket.ownerKey) throw apiError2(404, "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t l\xE0m b\xE0i.");
       const set = await getSet2(db, ticket.setId);
       const version = await getVersion2(db, ticket.versionId);
@@ -14699,6 +14826,10 @@ function createMoverReadingWritingRouter(dependencies) {
         if (!timingSafeEqual2(String(existing.runSecretHash), sha2562(runSecret))) throw apiError2(409, "M\xE3 l\u01B0\u1EE3t l\xE0m b\xE0i \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng.");
         const { runSecretHash: _secret2, ownerKey: _owner2, userId: _user2, guestId: _guest2, ...summary2 } = existing;
         return res.json(summary2);
+      }
+      const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+      if (!Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
+        throw apiError2(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.", { code: "MOVER_READING_ATTEMPT_TICKET_EXPIRED" });
       }
       const content = version.content;
       const answers = sanitizeMoverReadingWritingAnswers(content, req.body?.answers);
@@ -15339,7 +15470,7 @@ function decodeTicket3(value, secret, options = {}) {
     throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng h\u1EE3p l\u1EC7.");
   }
 }
-function validateRecoverableTicket(ticket) {
+function validateRecoverableTicket3(ticket) {
   const startedAt = new Date(ticket.startedAt).getTime();
   const ticketExpiresAt = Number(ticket.ticketExpiresAt);
   if (!text4(ticket.versionId, 180) || !text4(ticket.clientRunId, 180) || !/^[a-f0-9]{64}$/i.test(String(ticket.runSecretHash || "")) || !Number.isFinite(startedAt) || startedAt > Date.now() + EXAM_TICKET_CLOCK_SKEW_MS) {
@@ -16175,7 +16306,7 @@ ${canonical.rubric}` : "",
       if (actor.ownerKey !== ticket.ownerKey || !safeEqual2(String(ticket.runSecretHash || ""), sha2563(runSecret))) {
         throw apiError3(401, "Kh\xF4ng c\xF3 quy\u1EC1n kh\xF4i ph\u1EE5c l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
       }
-      const { recoveryEndsAt } = validateRecoverableTicket(ticket);
+      const { recoveryEndsAt } = validateRecoverableTicket3(ticket);
       const version = await getVersion3(db, ticket.versionId);
       if (!version || version.setId !== set.id || version.moduleId !== moduleId || version.paperId !== paperId) throw apiError3(409, "Phi\xEAn b\u1EA3n \u0111\u1EC1 thi kh\xF4ng c\xF2n h\u1EE3p l\u1EC7.");
       const renewedTicket = encodeTicket3({
@@ -16197,7 +16328,7 @@ ${canonical.rubric}` : "",
   router.post("/modules/:moduleId/papers/:paperId/sets/:setId/attempts/submit", authenticateOptionalUser2, async (req, res) => {
     try {
       const { moduleId, paperId } = routeIdentity(req);
-      const ticket = decodeTicket3(req.body?.ticket, ticketSecret);
+      const ticket = decodeTicket3(req.body?.ticket, ticketSecret, { allowExpired: true });
       if (ticket.moduleId !== moduleId || ticket.paperId !== paperId || ticket.setId !== req.params.setId) throw apiError3(401, "Phi\u1EBFu l\xE0m b\xE0i kh\xF4ng kh\u1EDBp b\u1ED9 \u0111\u1EC1.");
       const set = await getSet3(db, req.params.setId);
       assertRouteSet(set, moduleId, paperId);
@@ -16215,6 +16346,10 @@ ${canonical.rubric}` : "",
           scheduleAiWritingGrade(existing.id, Number(existing.aiGradingCycle || 1), delay2);
         }
         return res.json(attemptSummary(existing));
+      }
+      const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+      if (!Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
+        throw apiError3(410, "Phi\u1EBFu l\xE0m b\xE0i \u0111\xE3 h\u1EBFt h\u1EA1n.", { code: "EXAM_ATTEMPT_TICKET_EXPIRED" });
       }
       const version = await getVersion3(db, ticket.versionId);
       if (!version || version.setId !== set.id || version.moduleId !== moduleId || version.paperId !== paperId) throw apiError3(409, "Phi\xEAn b\u1EA3n \u0111\u1EC1 thi kh\xF4ng c\xF2n h\u1EE3p l\u1EC7.");
@@ -17480,8 +17615,8 @@ function hostnameMatchesAllowlist(hostname, allowedHosts) {
   });
 }
 async function defaultResolveHost(hostname) {
-  const records = await import_promises.default.lookup(hostname, { all: true, verbatim: true });
-  return records.map((record2) => ({ address: record2.address, family: record2.family }));
+  const records3 = await import_promises.default.lookup(hostname, { all: true, verbatim: true });
+  return records3.map((record2) => ({ address: record2.address, family: record2.family }));
 }
 async function assertSafeUrl(value, allowedHosts, resolveHost) {
   let url;
@@ -18362,6 +18497,3698 @@ async function resolveVocabImageReferencesForSave(payload, existing, db, now = (
   return { ...payload, items };
 }
 
+// src/server/admin-data/repository.ts
+function vocabVisibility(record2) {
+  if (record2?.visibility === "public" || record2?.visibility === "assignment" || record2?.visibility === "draft") {
+    return record2.visibility;
+  }
+  if (record2?.status === "private") return "assignment";
+  return record2?.status === "public" ? "public" : "draft";
+}
+function grammarVisibility(record2) {
+  if (record2?.visibility === "public" || record2?.visibility === "assignment" || record2?.visibility === "draft") {
+    return record2.visibility;
+  }
+  if (record2?.status === "private") return "assignment";
+  return record2?.status === "public" ? "public" : "draft";
+}
+function canSeeOwnedOrPublic(actor, record2, visibility) {
+  return actor.role === "super_admin" || record2?.createdBy === actor.id || visibility === "public";
+}
+function matchesSearch(record2, search, fields) {
+  if (!search) return true;
+  const needle = search.toLocaleLowerCase("vi-VN");
+  return fields.some((field) => String(record2?.[field] || "").toLocaleLowerCase("vi-VN").includes(needle));
+}
+function sortNewestFirst(a, b) {
+  const timeCompare = String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""));
+  return timeCompare || String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+function paginate(records3, request, facets) {
+  const total = records3.length;
+  const totalPages = Math.max(1, Math.ceil(total / request.pageSize));
+  const page = Math.min(request.page, totalPages);
+  const offset = (page - 1) * request.pageSize;
+  return {
+    items: records3.slice(offset, offset + request.pageSize),
+    page,
+    pageSize: request.pageSize,
+    total,
+    totalPages,
+    ...facets ? { facets } : {}
+  };
+}
+function toVocabSummary(record2) {
+  return {
+    id: String(record2?.id || ""),
+    title: String(record2?.title || ""),
+    description: String(record2?.description || ""),
+    subject: String(record2?.subject || ""),
+    tags: Array.isArray(record2?.tags) ? record2.tags.map(String) : [],
+    gradeLevel: String(record2?.gradeLevel || ""),
+    createdAt: String(record2?.createdAt || ""),
+    createdBy: String(record2?.createdBy || ""),
+    creatorName: String(record2?.creatorName || ""),
+    status: String(record2?.status || "draft"),
+    visibility: vocabVisibility(record2),
+    ...record2?.shareToken ? { shareToken: String(record2.shareToken) } : {},
+    ...record2?.assignmentSlug ? { assignmentSlug: String(record2.assignmentSlug) } : {},
+    itemCount: Array.isArray(record2?.items) ? record2.items.length : Number(record2?.itemCount || 0)
+  };
+}
+function toGrammarSummary(record2) {
+  return {
+    id: String(record2?.id || ""),
+    title: String(record2?.title || ""),
+    description: String(record2?.description || ""),
+    gradeLevel: String(record2?.gradeLevel || ""),
+    subject: String(record2?.subject || ""),
+    topic: String(record2?.topic || ""),
+    tags: Array.isArray(record2?.tags) ? record2.tags.map(String) : [],
+    visibility: grammarVisibility(record2),
+    ...record2?.status ? { status: String(record2.status) } : {},
+    ...record2?.shareToken ? { shareToken: String(record2.shareToken) } : {},
+    ...record2?.assignmentSlug ? { assignmentSlug: String(record2.assignmentSlug) } : {},
+    ...record2?.questionType ? { questionType: String(record2.questionType) } : {},
+    timeLimitMinutes: Number(record2?.timeLimitMinutes || 0),
+    maxAttempts: Math.max(1, Number(record2?.maxAttempts || 1)),
+    shuffleQuestions: record2?.shuffleQuestions !== false,
+    shuffleOptions: record2?.shuffleOptions !== false,
+    showExplanationImmediately: Boolean(record2?.showExplanationImmediately),
+    showReviewAfterSubmit: record2?.showReviewAfterSubmit !== false,
+    createdBy: String(record2?.createdBy || ""),
+    ...record2?.creatorName ? { creatorName: String(record2.creatorName) } : {},
+    createdAt: String(record2?.createdAt || ""),
+    updatedAt: String(record2?.updatedAt || ""),
+    questionCount: Array.isArray(record2?.questions) ? record2.questions.length : Number(record2?.questionCount || 0)
+  };
+}
+function parseRow(row) {
+  try {
+    return { ...JSON.parse(String(row?.data_json || "{}")), id: String(row?.id || "") };
+  } catch {
+    return { id: String(row?.id || "") };
+  }
+}
+var ACTIVE_SQL = "COALESCE(json_extract(data_json, '$.lifecycleStatus'), '') != 'archived' AND COALESCE(json_extract(data_json, '$.status'), '') != 'archived' AND json_extract(data_json, '$.archivedAt') IS NULL";
+var VISIBILITY_SQL = "CASE WHEN json_extract(data_json, '$.visibility') IN ('public', 'assignment', 'draft') THEN json_extract(data_json, '$.visibility') WHEN json_extract(data_json, '$.status') = 'private' THEN 'assignment' WHEN json_extract(data_json, '$.status') = 'public' THEN 'public' ELSE 'draft' END";
+function jsonArray(raw) {
+  try {
+    const value = JSON.parse(String(raw || "[]"));
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+function sqliteVocabSummary(row) {
+  return {
+    id: String(row.id || ""),
+    title: String(row.title || ""),
+    description: String(row.description || ""),
+    subject: String(row.subject || ""),
+    tags: jsonArray(row.tags_json),
+    gradeLevel: String(row.grade_level || ""),
+    createdAt: String(row.created_at || ""),
+    createdBy: String(row.created_by || ""),
+    creatorName: String(row.creator_name || ""),
+    status: String(row.status || "draft"),
+    visibility: String(row.visibility || "draft"),
+    ...row.share_token ? { shareToken: String(row.share_token) } : {},
+    ...row.assignment_slug ? { assignmentSlug: String(row.assignment_slug) } : {},
+    itemCount: Number(row.item_count || 0)
+  };
+}
+function sqliteGrammarSummary(row) {
+  return {
+    id: String(row.id || ""),
+    title: String(row.title || ""),
+    description: String(row.description || ""),
+    gradeLevel: String(row.grade_level || ""),
+    subject: String(row.subject || ""),
+    topic: String(row.topic || ""),
+    tags: jsonArray(row.tags_json),
+    visibility: String(row.visibility || "draft"),
+    ...row.status ? { status: String(row.status) } : {},
+    ...row.share_token ? { shareToken: String(row.share_token) } : {},
+    ...row.assignment_slug ? { assignmentSlug: String(row.assignment_slug) } : {},
+    ...row.question_type ? { questionType: String(row.question_type) } : {},
+    timeLimitMinutes: Number(row.time_limit_minutes || 0),
+    maxAttempts: Math.max(1, Number(row.max_attempts || 1)),
+    shuffleQuestions: Boolean(row.shuffle_questions),
+    shuffleOptions: Boolean(row.shuffle_options),
+    showExplanationImmediately: Boolean(row.show_explanation_immediately),
+    showReviewAfterSubmit: Boolean(row.show_review_after_submit),
+    createdBy: String(row.created_by || ""),
+    ...row.creator_name ? { creatorName: String(row.creator_name) } : {},
+    createdAt: String(row.created_at || ""),
+    updatedAt: String(row.updated_at || ""),
+    questionCount: Number(row.question_count || 0)
+  };
+}
+var VOCAB_SUMMARY_SQL = `
+  SELECT id,
+    COALESCE(title, json_extract(data_json, '$.title'), '') AS title,
+    COALESCE(description, json_extract(data_json, '$.description'), '') AS description,
+    COALESCE(json_extract(data_json, '$.subject'), '') AS subject,
+    COALESCE(json_extract(data_json, '$.tags'), '[]') AS tags_json,
+    COALESCE(json_extract(data_json, '$.gradeLevel'), '') AS grade_level,
+    COALESCE(created_at, json_extract(data_json, '$.createdAt'), '') AS created_at,
+    COALESCE(owner_id, json_extract(data_json, '$.createdBy'), '') AS created_by,
+    COALESCE(json_extract(data_json, '$.creatorName'), '') AS creator_name,
+    COALESCE(json_extract(data_json, '$.status'), 'draft') AS status,
+    ${VISIBILITY_SQL} AS visibility,
+    COALESCE(share_token, json_extract(data_json, '$.shareToken'), '') AS share_token,
+    COALESCE(json_extract(data_json, '$.assignmentSlug'), '') AS assignment_slug,
+    COALESCE(json_array_length(json_extract(data_json, '$.items')), 0) AS item_count
+  FROM vocab_sets`;
+var GRAMMAR_SUMMARY_SQL = `
+  SELECT id,
+    COALESCE(json_extract(data_json, '$.title'), '') AS title,
+    COALESCE(json_extract(data_json, '$.description'), '') AS description,
+    COALESCE(json_extract(data_json, '$.gradeLevel'), '') AS grade_level,
+    COALESCE(json_extract(data_json, '$.subject'), '') AS subject,
+    COALESCE(json_extract(data_json, '$.topic'), '') AS topic,
+    COALESCE(json_extract(data_json, '$.tags'), '[]') AS tags_json,
+    ${VISIBILITY_SQL} AS visibility,
+    COALESCE(json_extract(data_json, '$.status'), '') AS status,
+    COALESCE(json_extract(data_json, '$.shareToken'), '') AS share_token,
+    COALESCE(json_extract(data_json, '$.assignmentSlug'), '') AS assignment_slug,
+    COALESCE(json_extract(data_json, '$.questionType'), '') AS question_type,
+    COALESCE(json_extract(data_json, '$.timeLimitMinutes'), 0) AS time_limit_minutes,
+    COALESCE(json_extract(data_json, '$.maxAttempts'), 1) AS max_attempts,
+    COALESCE(json_extract(data_json, '$.shuffleQuestions'), 1) AS shuffle_questions,
+    COALESCE(json_extract(data_json, '$.shuffleOptions'), 1) AS shuffle_options,
+    COALESCE(json_extract(data_json, '$.showExplanationImmediately'), 0) AS show_explanation_immediately,
+    COALESCE(json_extract(data_json, '$.showReviewAfterSubmit'), 1) AS show_review_after_submit,
+    COALESCE(json_extract(data_json, '$.createdBy'), '') AS created_by,
+    COALESCE(json_extract(data_json, '$.creatorName'), '') AS creator_name,
+    COALESCE(created_at, json_extract(data_json, '$.createdAt'), '') AS created_at,
+    COALESCE(updated_at, json_extract(data_json, '$.updatedAt'), '') AS updated_at,
+    COALESCE(json_array_length(json_extract(data_json, '$.questions')), 0) AS question_count
+  FROM grammar_sets`;
+function createAdminDataRepository(options) {
+  const readCollection = async (name) => {
+    const snapshot = await options.db.collection(name).get();
+    return (snapshot.docs || []).map((doc) => ({ id: doc.id, ...doc.data() }));
+  };
+  const readSqliteCollection = async (table) => {
+    const rows = await sqliteQueryAll(`SELECT id, data_json FROM ${table}`);
+    return rows.map(parseRow);
+  };
+  const readRecords = async (collection, table) => {
+    return options.storageMode === "sqlite" ? readSqliteCollection(table) : readCollection(collection);
+  };
+  const listVocabSets = async (actor, request) => {
+    if (options.storageMode === "sqlite") {
+      const clauses = [ACTIVE_SQL];
+      const params = [];
+      if (actor.role !== "super_admin") {
+        clauses.push(`(COALESCE(owner_id, json_extract(data_json, '$.createdBy'), '') = ? OR ${VISIBILITY_SQL} = 'public')`);
+        params.push(actor.id);
+      }
+      if (request.grade) {
+        clauses.push("COALESCE(json_extract(data_json, '$.gradeLevel'), '') = ?");
+        params.push(request.grade);
+      }
+      if (request.status) {
+        clauses.push(`${VISIBILITY_SQL} = ?`);
+        params.push(request.status);
+      }
+      const whereSql = clauses.join(" AND ");
+      const facetClauses = [ACTIVE_SQL];
+      const facetParams = [];
+      if (actor.role !== "super_admin") {
+        facetClauses.push(`(COALESCE(owner_id, json_extract(data_json, '$.createdBy'), '') = ? OR ${VISIBILITY_SQL} = 'public')`);
+        facetParams.push(actor.id);
+      }
+      const gradeRows = await sqliteQueryAll(
+        `SELECT DISTINCT COALESCE(json_extract(data_json, '$.gradeLevel'), '') AS grade FROM vocab_sets WHERE ${facetClauses.join(" AND ")} ORDER BY grade`,
+        facetParams
+      );
+      const grades2 = gradeRows.map((row) => String(row.grade || "")).filter(Boolean);
+      if (request.search) {
+        const rows2 = await sqliteQueryAll(`${VOCAB_SUMMARY_SQL} WHERE ${whereSql} ORDER BY created_at DESC, id ASC`, params);
+        const matches = rows2.map(sqliteVocabSummary).filter((record2) => matchesSearch(record2, request.search, ["title", "description", "subject"]));
+        return paginate(matches, request, { grades: grades2 });
+      }
+      const count = await sqliteQueryOne(`SELECT COUNT(*) AS count FROM vocab_sets WHERE ${whereSql}`, params);
+      const total = Number(count?.count || 0);
+      const totalPages = Math.max(1, Math.ceil(total / request.pageSize));
+      const page = Math.min(request.page, totalPages);
+      const rows = await sqliteQueryAll(
+        `${VOCAB_SUMMARY_SQL} WHERE ${whereSql} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
+        [...params, request.pageSize, (page - 1) * request.pageSize]
+      );
+      return { items: rows.map(sqliteVocabSummary), page, pageSize: request.pageSize, total, totalPages, facets: { grades: grades2 } };
+    }
+    const records3 = (await readRecords("vocab_sets", "vocab_sets")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => canSeeOwnedOrPublic(actor, record2, vocabVisibility(record2))).sort(sortNewestFirst);
+    const grades = Array.from(new Set(records3.map((record2) => String(record2?.gradeLevel || "")).filter(Boolean))).sort();
+    const filtered = records3.filter((record2) => matchesSearch(record2, request.search, ["title", "description", "subject"])).filter((record2) => !request.grade || record2?.gradeLevel === request.grade).filter((record2) => !request.status || vocabVisibility(record2) === request.status).map(toVocabSummary);
+    return paginate(filtered, request, { grades });
+  };
+  const listGrammarSets = async (actor, request) => {
+    if (options.storageMode === "sqlite") {
+      const clauses = [ACTIVE_SQL];
+      const params = [];
+      if (actor.role !== "super_admin") {
+        clauses.push(`(COALESCE(json_extract(data_json, '$.createdBy'), '') = ? OR ${VISIBILITY_SQL} = 'public')`);
+        params.push(actor.id);
+      }
+      if (request.grade) {
+        clauses.push("COALESCE(json_extract(data_json, '$.gradeLevel'), '') = ?");
+        params.push(request.grade);
+      }
+      if (request.status) {
+        clauses.push(`${VISIBILITY_SQL} = ?`);
+        params.push(request.status);
+      }
+      const whereSql = clauses.join(" AND ");
+      const facetClauses = [ACTIVE_SQL];
+      const facetParams = [];
+      if (actor.role !== "super_admin") {
+        facetClauses.push(`(COALESCE(json_extract(data_json, '$.createdBy'), '') = ? OR ${VISIBILITY_SQL} = 'public')`);
+        facetParams.push(actor.id);
+      }
+      const gradeRows = await sqliteQueryAll(
+        `SELECT DISTINCT COALESCE(json_extract(data_json, '$.gradeLevel'), '') AS grade FROM grammar_sets WHERE ${facetClauses.join(" AND ")} ORDER BY grade`,
+        facetParams
+      );
+      const grades2 = gradeRows.map((row) => String(row.grade || "")).filter(Boolean);
+      if (request.search) {
+        const rows2 = await sqliteQueryAll(`${GRAMMAR_SUMMARY_SQL} WHERE ${whereSql} ORDER BY created_at DESC, id ASC`, params);
+        const matches = rows2.map(sqliteGrammarSummary).filter((record2) => matchesSearch(record2, request.search, ["title", "description", "subject", "topic"]));
+        return paginate(matches, request, { grades: grades2 });
+      }
+      const count = await sqliteQueryOne(`SELECT COUNT(*) AS count FROM grammar_sets WHERE ${whereSql}`, params);
+      const total = Number(count?.count || 0);
+      const totalPages = Math.max(1, Math.ceil(total / request.pageSize));
+      const page = Math.min(request.page, totalPages);
+      const rows = await sqliteQueryAll(
+        `${GRAMMAR_SUMMARY_SQL} WHERE ${whereSql} ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
+        [...params, request.pageSize, (page - 1) * request.pageSize]
+      );
+      return { items: rows.map(sqliteGrammarSummary), page, pageSize: request.pageSize, total, totalPages, facets: { grades: grades2 } };
+    }
+    const records3 = (await readRecords("grammar_sets", "grammar_sets")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => canSeeOwnedOrPublic(actor, record2, grammarVisibility(record2))).sort(sortNewestFirst);
+    const grades = Array.from(new Set(records3.map((record2) => String(record2?.gradeLevel || "")).filter(Boolean))).sort();
+    const filtered = records3.filter((record2) => matchesSearch(record2, request.search, ["title", "description", "subject", "topic"])).filter((record2) => !request.grade || record2?.gradeLevel === request.grade).filter((record2) => !request.status || grammarVisibility(record2) === request.status).map(toGrammarSummary);
+    return paginate(filtered, request, { grades });
+  };
+  const listClasses = async (actor, request) => {
+    const records3 = (await readRecords("classes", "classes")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => actor.role === "super_admin" || record2?.teacherId === actor.id).filter((record2) => matchesSearch(record2, request.search, ["name", "code"])).sort(sortNewestFirst);
+    return paginate(records3, request);
+  };
+  const listClassMembers = async (actor, requestedClassIds) => {
+    const classes = (await readRecords("classes", "classes")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => actor.role === "super_admin" || record2?.teacherId === actor.id);
+    const allowedClassIds = new Set(classes.map((record2) => String(record2.id || "")));
+    const requested = new Set(requestedClassIds.filter((id2) => allowedClassIds.has(id2)));
+    if (requested.size === 0) return [];
+    return (await readRecords("class_members", "class_members")).filter((record2) => requested.has(String(record2?.classId || ""))).sort((a, b) => String(a?.studentName || "").localeCompare(String(b?.studentName || ""), "vi"));
+  };
+  const listAssignments = async (actor, request) => {
+    const classes = (await readRecords("classes", "classes")).filter((record2) => !isArchivedRecord(record2));
+    const manageableClassIds = new Set(classes.filter((record2) => actor.role === "super_admin" || record2?.teacherId === actor.id).map((record2) => String(record2.id || "")));
+    const records3 = (await readRecords("assignments", "assignments")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => actor.role === "super_admin" || record2?.createdBy === actor.id || manageableClassIds.has(String(record2?.classId || ""))).filter((record2) => matchesSearch(record2, request.search, ["title", "className", "resourceTitle", "vocabSetTitle"])).sort(sortNewestFirst);
+    return paginate(records3, request);
+  };
+  const listAssignmentOptions = async (actor) => {
+    const classes = (await readRecords("classes", "classes")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => actor.role === "super_admin" || record2?.teacherId === actor.id).sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || ""), "vi")).map((record2) => ({ id: String(record2.id || ""), name: String(record2.name || ""), code: String(record2.code || ""), teacherId: String(record2.teacherId || "") }));
+    const vocabSets = (await readRecords("vocab_sets", "vocab_sets")).filter((record2) => !isArchivedRecord(record2)).filter((record2) => canSeeOwnedOrPublic(actor, record2, vocabVisibility(record2))).filter((record2) => vocabVisibility(record2) !== "draft").sort(sortNewestFirst).map(toVocabSummary);
+    return { classes, vocabSets };
+  };
+  const getDashboardCounts = async (actor) => {
+    if (options.storageMode === "sqlite") {
+      const ownerClause = actor.role === "super_admin" ? "1 = 1" : "(json_extract(data_json, '$.createdBy') = ? OR json_extract(data_json, '$.visibility') = 'public' OR json_extract(data_json, '$.status') = 'public')";
+      const classClause = actor.role === "super_admin" ? "1 = 1" : "teacher_id = ?";
+      const assignmentClause = actor.role === "super_admin" ? "1 = 1" : `(json_extract(assignments.data_json, '$.createdBy') = ? OR EXISTS (
+            SELECT 1
+            FROM classes AS managed_class
+            WHERE managed_class.id = assignments.class_id
+              AND managed_class.teacher_id = ?
+              AND COALESCE(json_extract(managed_class.data_json, '$.lifecycleStatus'), '') != 'archived'
+              AND COALESCE(json_extract(managed_class.data_json, '$.status'), '') != 'archived'
+              AND json_extract(managed_class.data_json, '$.archivedAt') IS NULL
+          ))`;
+      const ownerParams = actor.role === "super_admin" ? [] : [actor.id];
+      const assignmentParams = actor.role === "super_admin" ? [] : [actor.id, actor.id];
+      const [vocab2, grammar2, classes2, assignments2] = await Promise.all([
+        sqliteQueryOne(`SELECT COUNT(*) AS count FROM vocab_sets WHERE ${ACTIVE_SQL} AND ${ownerClause}`, ownerParams),
+        sqliteQueryOne(`SELECT COUNT(*) AS count FROM grammar_sets WHERE ${ACTIVE_SQL} AND ${ownerClause}`, ownerParams),
+        sqliteQueryOne(`SELECT COUNT(*) AS count FROM classes WHERE ${ACTIVE_SQL} AND ${classClause}`, ownerParams),
+        sqliteQueryOne(`SELECT COUNT(*) AS count FROM assignments WHERE ${ACTIVE_SQL} AND ${assignmentClause}`, assignmentParams)
+      ]);
+      return {
+        vocabSets: Number(vocab2?.count || 0),
+        grammarSets: Number(grammar2?.count || 0),
+        classes: Number(classes2?.count || 0),
+        assignments: Number(assignments2?.count || 0)
+      };
+    }
+    const [vocab, grammar, classes, assignments] = await Promise.all([
+      readCollection("vocab_sets"),
+      readCollection("grammar_sets"),
+      readCollection("classes"),
+      readCollection("assignments")
+    ]);
+    const manageableClassIds = new Set(classes.filter((record2) => !isArchivedRecord(record2) && (actor.role === "super_admin" || record2.teacherId === actor.id)).map((record2) => String(record2.id || "")));
+    return {
+      vocabSets: vocab.filter((record2) => !isArchivedRecord(record2) && canSeeOwnedOrPublic(actor, record2, vocabVisibility(record2))).length,
+      grammarSets: grammar.filter((record2) => !isArchivedRecord(record2) && canSeeOwnedOrPublic(actor, record2, grammarVisibility(record2))).length,
+      classes: classes.filter((record2) => !isArchivedRecord(record2) && (actor.role === "super_admin" || record2.teacherId === actor.id)).length,
+      assignments: assignments.filter((record2) => !isArchivedRecord(record2) && (actor.role === "super_admin" || record2.createdBy === actor.id || manageableClassIds.has(String(record2.classId || "")))).length
+    };
+  };
+  return { getDashboardCounts, listAssignmentOptions, listAssignments, listClasses, listClassMembers, listGrammarSets, listVocabSets };
+}
+
+// src/server/admin-data/service.ts
+function notFound(message) {
+  const error = new Error(message);
+  error.status = 404;
+  return error;
+}
+function createAdminDataService(options) {
+  const getVocabSetDetail = async (actor, id2) => {
+    const snapshot = await options.db.collection("vocab_sets").doc(id2).get();
+    if (!snapshot.exists) throw notFound("Vocabulary set not found.");
+    const record2 = { id: snapshot.id, ...snapshot.data() };
+    if (!options.canViewVocabSet(actor, record2)) throw notFound("Vocabulary set not found.");
+    return options.sanitizeVocabSet(record2);
+  };
+  const getGrammarSetDetail = async (actor, id2) => {
+    const snapshot = await options.db.collection("grammar_sets").doc(id2).get();
+    if (!snapshot.exists) throw notFound("Grammar set not found.");
+    const record2 = { id: snapshot.id, ...snapshot.data() };
+    if (!options.canViewGrammarSet(actor, record2)) throw notFound("Grammar set not found.");
+    return record2;
+  };
+  const getDashboardSummary = async (actor) => {
+    const [counts, activity] = await Promise.all([
+      options.repository.getDashboardCounts(actor),
+      options.loadDashboardActivity(actor)
+    ]);
+    return {
+      counts: {
+        ...counts,
+        activities: activity.total,
+        honoredStudents: activity.goldRows.length
+      },
+      recentActivities: activity.recentActivities,
+      goldRows: activity.goldRows
+    };
+  };
+  const listAssignments = async (actor, request) => {
+    const page = await options.repository.listAssignments(actor, request);
+    if (!options.prepareAssignment) return page;
+    return { ...page, items: await Promise.all(page.items.map(options.prepareAssignment)) };
+  };
+  return {
+    getDashboardSummary,
+    getGrammarSetDetail,
+    getVocabSetDetail,
+    listAssignmentOptions: (actor) => options.repository.listAssignmentOptions(actor),
+    listAssignments,
+    listAccounts: (actor, request) => options.loadAccountsPage(actor, request),
+    listAuditLogs: (actor, request) => options.loadAuditPage(actor, request),
+    listClasses: (actor, request) => options.repository.listClasses(actor, request),
+    listClassMembers: (actor, classIds) => options.repository.listClassMembers(actor, classIds),
+    listGrammarSets: (actor, request) => options.repository.listGrammarSets(actor, request),
+    listVocabSets: (actor, request) => options.repository.listVocabSets(actor, request)
+  };
+}
+
+// src/server/admin-data/router.ts
+var import_express7 = __toESM(require("express"), 1);
+
+// src/server/admin-data/contracts.ts
+function parseAdminPageRequest(query) {
+  const requestedPage = Number(query.page || 1);
+  const requestedPageSize = Number(query.pageSize || 10);
+  return {
+    page: Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1,
+    pageSize: Number.isFinite(requestedPageSize) ? Math.min(100, Math.max(1, Math.floor(requestedPageSize))) : 10,
+    search: String(query.search || "").trim().slice(0, 200),
+    grade: String(query.grade || "").trim().slice(0, 80),
+    status: String(query.status || "").trim().slice(0, 40),
+    role: String(query.role || "").trim().slice(0, 40)
+  };
+}
+
+// src/server/admin-data/router.ts
+function actorFromRequest(req) {
+  const user = req.user;
+  if (!user || user.role !== "teacher" && user.role !== "super_admin") return null;
+  return user;
+}
+function createAdminDataRouter(options) {
+  const router = import_express7.default.Router();
+  router.use(options.authenticateUser);
+  router.use((req, res, next) => {
+    if (!actorFromRequest(req)) return res.status(403).json({ error: "Staff access required." });
+    next();
+  });
+  const handler = (action) => {
+    return async (req, res) => {
+      try {
+        const actor = actorFromRequest(req);
+        if (!actor) return res.status(403).json({ error: "Staff access required." });
+        return res.json(await action(actor, req));
+      } catch (error) {
+        console.error("Admin data request failed:", error);
+        return res.status(Number(error?.status || 500)).json({ error: error?.message || "Admin data request failed." });
+      }
+    };
+  };
+  router.get("/dashboard-summary", handler((actor) => options.service.getDashboardSummary(actor)));
+  router.get("/vocab-sets", handler((actor, req) => options.service.listVocabSets(actor, parseAdminPageRequest(req.query))));
+  router.get("/vocab-sets/:id", handler((actor, req) => options.service.getVocabSetDetail(actor, String(req.params.id || ""))));
+  router.get("/grammar-sets", handler((actor, req) => options.service.listGrammarSets(actor, parseAdminPageRequest(req.query))));
+  router.get("/grammar-sets/:id", handler((actor, req) => options.service.getGrammarSetDetail(actor, String(req.params.id || ""))));
+  router.get("/classes", handler((actor, req) => options.service.listClasses(actor, parseAdminPageRequest(req.query))));
+  router.get("/class-members", handler((actor, req) => {
+    const classIds = String(req.query.classIds || "").split(",").map((value) => value.trim()).filter(Boolean).slice(0, 100);
+    return options.service.listClassMembers(actor, classIds);
+  }));
+  router.get("/assignments", handler((actor, req) => options.service.listAssignments(actor, parseAdminPageRequest(req.query))));
+  router.get("/assignment-options", handler((actor) => options.service.listAssignmentOptions(actor)));
+  router.get("/accounts-page", handler((actor, req) => options.service.listAccounts(actor, parseAdminPageRequest(req.query))));
+  router.get("/audit-logs-page", handler((actor, req) => options.service.listAuditLogs(actor, parseAdminPageRequest(req.query))));
+  return router;
+}
+
+// src/server/classes/repository.ts
+function snapshotRecords(snapshot) {
+  const records3 = [];
+  snapshot.forEach((document) => records3.push({ id: document.id, ...document.data() }));
+  return records3;
+}
+function createClassManagementRepository({ db }) {
+  return {
+    async listActiveClasses() {
+      const snapshot = await db.collection("classes").get();
+      return snapshotRecords(snapshot).filter((record2) => !isArchivedRecord(record2));
+    },
+    async getClass(id2) {
+      const document = await db.collection("classes").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async createClass(record2) {
+      await db.collection("classes").doc(record2.id).set(record2);
+    },
+    async archiveClassAndAssignments(record2, actorId, archivedAt) {
+      const classRef = db.collection("classes").doc(record2.id);
+      const assignmentsSnapshot = await db.collection("assignments").where("classId", "==", record2.id).get();
+      const batch = db.batch();
+      batch.set(classRef, archiveResourceRecord(record2, actorId, archivedAt));
+      assignmentsSnapshot.forEach((document) => {
+        batch.set(
+          document.ref,
+          archiveResourceRecord({ id: document.id, ...document.data() }, actorId, archivedAt, {
+            revokeShareToken: true
+          })
+        );
+      });
+      await batch.commit();
+    },
+    async listClassMembers() {
+      return snapshotRecords(await db.collection("class_members").get());
+    },
+    async getClassMember(id2) {
+      const document = await db.collection("class_members").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async createClassMember(record2) {
+      await db.collection("class_members").doc(record2.id).set(record2);
+    },
+    async deleteClassMember(id2) {
+      await db.collection("class_members").doc(id2).delete();
+    }
+  };
+}
+
+// src/server/classes/contracts.ts
+function classHttpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// src/server/classes/service.ts
+function createClassManagementService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const random = options.random || Math.random;
+  const requireActor = (actor) => {
+    if (!actor) throw classHttpError(401, "Unauthenticated");
+    return actor;
+  };
+  const getExistingClass = async (classId) => {
+    const classRecord = await options.repository.getClass(classId);
+    if (!classRecord) throw classHttpError(404, "Class not found.");
+    return classRecord;
+  };
+  const listClasses = async (actor) => {
+    const classes = await options.repository.listActiveClasses();
+    return classes.filter((record2) => options.canViewClass(actor, record2));
+  };
+  const createClass = async (actorValue, payload) => {
+    const actor = requireActor(actorValue);
+    const createdAt = now();
+    const id2 = `class-${createdAt.getTime()}`;
+    const newClass = {
+      ...payload,
+      id: id2,
+      code: random().toString(36).substring(2, 8).toUpperCase(),
+      teacherId: actor.id,
+      createdAt: createdAt.toISOString()
+    };
+    await options.repository.createClass(newClass);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "CREATE_CLASS",
+      `\u0110\xE3 t\u1EA1o l\u1EDBp h\u1ECDc m\u1EDBi: "${newClass.name}" (M\xE3 m\u1EDDi: ${newClass.code})`
+    );
+    return newClass;
+  };
+  const archiveClass = async (actorValue, classId) => {
+    const actor = requireActor(actorValue);
+    const classRecord = await options.repository.getClass(classId);
+    if (!classRecord) throw classHttpError(404, "L\u1EDBp h\u1ECDc kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!options.canManageClass(actor, classRecord)) {
+      throw classHttpError(403, "Ban khong co quyen xoa lop hoc nay.");
+    }
+    await options.repository.archiveClassAndAssignments(classRecord, actor.id, now().toISOString());
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "ARCHIVE_CLASS",
+      `\u0110\xE3 l\u01B0u tr\u1EEF l\u1EDBp h\u1ECDc v\xE0 thu h\u1ED3i b\xE0i giao: "${classRecord.name}"`
+    );
+    return { success: true, archived: true };
+  };
+  const listClassMembers = async (actor) => {
+    const [classes, members] = await Promise.all([
+      options.repository.listActiveClasses(),
+      options.repository.listClassMembers()
+    ]);
+    const classesById = new Map(classes.map((record2) => [record2.id, record2]));
+    return members.filter((member) => {
+      const classRecord = member.classId ? classesById.get(member.classId) : null;
+      return Boolean(classRecord && options.canViewClass(actor, classRecord));
+    });
+  };
+  const addClassMember = async (actor, classId, payload) => {
+    const classRecord = await getExistingClass(classId);
+    if (options.isArchivedRecord(classRecord)) throw classHttpError(409, "Class is archived.");
+    if (!options.canManageClass(actor, classRecord)) {
+      throw classHttpError(403, "Ban khong co quyen them hoc sinh vao lop nay.");
+    }
+    const id2 = `member-${now().getTime()}`;
+    const newMember = { id: id2, classId, studentName: payload?.studentName };
+    await options.repository.createClassMember(newMember);
+    return newMember;
+  };
+  const removeClassMember = async (actor, classId, memberId) => {
+    const classRecord = await getExistingClass(classId);
+    if (options.isArchivedRecord(classRecord)) throw classHttpError(409, "Class is archived.");
+    if (!options.canManageClass(actor, classRecord)) {
+      throw classHttpError(403, "Ban khong co quyen xoa hoc sinh khoi lop nay.");
+    }
+    const member = await options.repository.getClassMember(memberId);
+    if (!member || member.classId !== classId) throw classHttpError(404, "Class member not found.");
+    await options.repository.deleteClassMember(memberId);
+    return { success: true };
+  };
+  return {
+    addClassMember,
+    archiveClass,
+    createClass,
+    listClasses,
+    listClassMembers,
+    removeClassMember
+  };
+}
+
+// src/server/classes/router.ts
+var import_express8 = __toESM(require("express"), 1);
+function createClassManagementRouter(options) {
+  const router = import_express8.default.Router();
+  const actor = (request) => request.user;
+  const handle = (action, status = 200) => async (request, response) => {
+    try {
+      const body = await action(request);
+      response.status(status).json(body);
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/classes", options.authenticateUser, handle(
+    (request) => options.service.listClasses(actor(request))
+  ));
+  router.post("/classes", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.createClass(actor(request), request.body),
+    201
+  ));
+  router.delete("/classes/:id", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.archiveClass(actor(request), String(request.params.id || ""))
+  ));
+  router.get("/class-members", options.authenticateUser, handle(
+    (request) => options.service.listClassMembers(actor(request))
+  ));
+  router.post("/classes/:classId/members", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.addClassMember(actor(request), String(request.params.classId || ""), request.body),
+    201
+  ));
+  router.delete("/classes/:classId/members/:memberId", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.removeClassMember(
+      actor(request),
+      String(request.params.classId || ""),
+      String(request.params.memberId || "")
+    )
+  ));
+  return router;
+}
+
+// src/server/assignments/repository.ts
+function snapshotRecords2(snapshot) {
+  const records3 = [];
+  for (const document of snapshot.docs || []) {
+    records3.push({ id: document.id, ...document.data() });
+  }
+  return records3;
+}
+function createAssignmentManagementRepository({ db }) {
+  return {
+    async listActiveClasses() {
+      return snapshotRecords2(await db.collection("classes").get()).filter((record2) => !isArchivedRecord(record2));
+    },
+    async listActiveAssignments() {
+      return snapshotRecords2(await db.collection("assignments").get()).filter((record2) => !isArchivedRecord(record2));
+    },
+    async getClass(id2) {
+      const document = await db.collection("classes").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async getResource(collection, id2) {
+      const document = await db.collection(collection).doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async saveAssignment(record2) {
+      await db.collection("assignments").doc(record2.id).set(record2);
+    },
+    async getAssignment(id2) {
+      const document = await db.collection("assignments").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async archiveAssignment(record2, actorId, archivedAt) {
+      await db.collection("assignments").doc(record2.id).set(
+        archiveResourceRecord(record2, actorId, archivedAt, { revokeShareToken: true })
+      );
+    }
+  };
+}
+
+// src/server/assignments/contracts.ts
+function assignmentHttpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// src/server/assignments/service.ts
+var RESOURCE_CONFIG = {
+  listening: {
+    collection: "listening_sets",
+    missingMessage: "Listening set not found.",
+    forbiddenMessage: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 nghe n\xE0y."
+  },
+  mover_reading_writing: {
+    collection: "mover_reading_sets",
+    missingMessage: "Movers Reading & Writing set not found.",
+    forbiddenMessage: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 Movers Reading & Writing n\xE0y."
+  },
+  exam: {
+    collection: "exam_sets",
+    missingMessage: "Exam set not found.",
+    forbiddenMessage: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 thi n\xE0y."
+  }
+};
+function normalizeResourceType(value) {
+  return value === "listening" ? "listening" : value === "mover_reading_writing" ? "mover_reading_writing" : value === "exam" ? "exam" : "vocabulary";
+}
+function resourceIdFromPayload(resourceType, payload) {
+  if (resourceType === "listening") return String(payload.resourceId || payload.listeningSetId || "");
+  if (resourceType === "mover_reading_writing") {
+    return String(payload.resourceId || payload.moverReadingWritingSetId || "");
+  }
+  if (resourceType === "vocabulary") return String(payload.vocabSetId || payload.resourceId || "");
+  return String(payload.resourceId || "");
+}
+function createAssignmentManagementService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const requireActor = (actor) => {
+    if (!actor) throw assignmentHttpError(401, "Unauthenticated");
+    return actor;
+  };
+  const ensureShareToken = async (assignment) => {
+    const existingToken = String(assignment?.shareToken || assignment?.assignmentSlug || "").trim();
+    if (existingToken) {
+      return { ...assignment, shareToken: existingToken, assignmentSlug: existingToken };
+    }
+    const shareToken = options.createShareToken();
+    const upgraded = { ...assignment, shareToken, assignmentSlug: shareToken };
+    await options.repository.saveAssignment(upgraded);
+    return upgraded;
+  };
+  const listAssignments = async (actorValue) => {
+    const actor = requireActor(actorValue);
+    const [classes, assignments] = await Promise.all([
+      options.repository.listActiveClasses(),
+      options.repository.listActiveAssignments()
+    ]);
+    const classesById = new Map(classes.map((record2) => [record2.id, record2]));
+    const visible = [];
+    for (const rawAssignment of assignments) {
+      const assignment = await ensureShareToken(rawAssignment);
+      const classRecord = assignment.classId ? classesById.get(assignment.classId) : null;
+      if (options.canManageAssignment(actor, assignment, classRecord)) visible.push(assignment);
+    }
+    return visible;
+  };
+  const loadResource = async (actor, resourceType, payload) => {
+    const resourceId = resourceIdFromPayload(resourceType, payload);
+    if (resourceType === "vocabulary") {
+      const resource2 = await options.repository.getResource("vocab_sets", resourceId);
+      if (!resource2) throw assignmentHttpError(404, "Vocabulary set not found.");
+      if (!options.canViewVocabSet(actor, resource2) || options.getVocabVisibility(resource2) === "draft") {
+        throw assignmentHttpError(403, "Ban khong co quyen giao bo tu vung nay.");
+      }
+      return resource2;
+    }
+    const config = RESOURCE_CONFIG[resourceType];
+    const resource = await options.repository.getResource(config.collection, resourceId);
+    if (!resource) throw assignmentHttpError(404, config.missingMessage);
+    const canManage2 = actor.role === "super_admin" || actor.role === "teacher" && resource.ownerId === actor.id;
+    if (!canManage2 || resource.status !== "published" || resource.visibility === "draft") {
+      throw assignmentHttpError(403, config.forbiddenMessage);
+    }
+    return resource;
+  };
+  const createAssignment = async (actorValue, payloadValue) => {
+    const actor = requireActor(actorValue);
+    const payload = payloadValue || {};
+    const classRecord = await options.repository.getClass(String(payload.classId || ""));
+    if (!classRecord) throw assignmentHttpError(404, "Class not found.");
+    if (classRecord.lifecycleStatus === "archived" || classRecord.status === "archived" || classRecord.archivedAt) {
+      throw assignmentHttpError(409, "Class is archived.");
+    }
+    if (!options.canManageClass(actor, classRecord)) {
+      throw assignmentHttpError(403, "Ban khong co quyen giao bai cho lop nay.");
+    }
+    const resourceType = normalizeResourceType(payload.resourceType);
+    const resource = await loadResource(actor, resourceType, payload);
+    const shareToken = options.createShareToken();
+    const id2 = `assign-${now().getTime()}`;
+    const resourceFields = resourceType === "vocabulary" ? {
+      vocabSetId: resource.id,
+      vocabSetTitle: resource.title || payload.vocabSetTitle || ""
+    } : resourceType === "listening" ? {
+      listeningSetId: resource.id,
+      listeningSetTitle: resource.title || payload.resourceTitle || "",
+      gameId: "listening-five-part"
+    } : resourceType === "mover_reading_writing" ? {
+      moverReadingWritingSetId: resource.id,
+      moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
+      gameId: "mover-reading-writing"
+    } : {
+      examSetId: resource.id,
+      examModuleId: resource.moduleId,
+      examPaperId: resource.paperId,
+      gameId: `exam:${resource.moduleId}:${resource.paperId}`
+    };
+    const assignment = {
+      ...payload,
+      id: id2,
+      shareToken,
+      assignmentSlug: shareToken,
+      classId: classRecord.id,
+      className: classRecord.name || payload.className || "",
+      resourceType,
+      resourceId: resource.id,
+      resourceTitle: resource.title || payload.resourceTitle || "",
+      ...resourceFields,
+      createdAt: now().toISOString(),
+      createdBy: actor.id
+    };
+    await options.repository.saveAssignment(assignment);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "CREATE_ASSIGNMENT",
+      `\u0110\xE3 giao b\xE0i t\u1EADp m\u1EDBi: "${assignment.title}" cho l\u1EDBp: ${assignment.className}`
+    );
+    return assignment;
+  };
+  const archiveAssignment = async (actorValue, assignmentId) => {
+    const actor = requireActor(actorValue);
+    const assignment = await options.repository.getAssignment(assignmentId);
+    if (!assignment) throw assignmentHttpError(404, "B\xE0i t\u1EADp kh\xF4ng t\u1ED3n t\u1EA1i.");
+    const classRecord = assignment.classId ? await options.repository.getClass(assignment.classId) : null;
+    if (!options.canManageAssignment(actor, assignment, classRecord)) {
+      throw assignmentHttpError(403, "Ban khong co quyen xoa bai giao nay.");
+    }
+    await options.repository.archiveAssignment(assignment, actor.id, now().toISOString());
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "ARCHIVE_ASSIGNMENT",
+      `\u0110\xE3 l\u01B0u tr\u1EEF/thu h\u1ED3i b\xE0i t\u1EADp: "${assignment?.title}" c\u1EE7a l\u1EDBp: ${assignment?.className}`
+    );
+    return { success: true, archived: true };
+  };
+  return { archiveAssignment, createAssignment, listAssignments };
+}
+
+// src/server/assignments/router.ts
+var import_express9 = __toESM(require("express"), 1);
+function createAssignmentManagementRouter(options) {
+  const router = import_express9.default.Router();
+  const actor = (request) => request.user;
+  const handle = (action, status = 200) => async (request, response) => {
+    try {
+      response.status(status).json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/assignments", options.authenticateUser, handle(
+    (request) => options.service.listAssignments(actor(request))
+  ));
+  router.post("/assignments", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.createAssignment(actor(request), request.body),
+    201
+  ));
+  router.delete("/assignments/:id", options.authenticateUser, options.requireStaff, handle(
+    (request) => options.service.archiveAssignment(actor(request), String(request.params.id || ""))
+  ));
+  return router;
+}
+
+// src/server/diagnostics/repository.ts
+function createDiagnosticsRepository(options) {
+  return {
+    async countProbeUsers() {
+      const snapshot = await options.db.collection("users").limit(1).get();
+      return snapshot.size;
+    },
+    getStorageDiagnostics() {
+      return options.loadStorageDiagnostics();
+    }
+  };
+}
+
+// src/server/diagnostics/service.ts
+function createDiagnosticsService(options) {
+  return {
+    async getAuthDebug() {
+      return {
+        success: true,
+        docsCount: await options.repository.countProbeUsers(),
+        storageReady: true
+      };
+    },
+    getStorageDiagnostics() {
+      return options.repository.getStorageDiagnostics();
+    }
+  };
+}
+
+// src/server/diagnostics/router.ts
+var import_express10 = __toESM(require("express"), 1);
+function createDiagnosticsRouter(options) {
+  const router = import_express10.default.Router();
+  const handle = (action) => async (_request, response) => {
+    try {
+      response.json(await action());
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/auth/debug", options.requireDiagnosticAccess, handle(
+    () => options.service.getAuthDebug()
+  ));
+  router.get("/diagnostics/storage", options.requireDiagnosticAccess, handle(
+    () => options.service.getStorageDiagnostics()
+  ));
+  return router;
+}
+
+// src/server/auth-profile/repository.ts
+function createAuthProfileRepository({ db }) {
+  return {
+    async findUserByPhone(normalizedPhone, rawPhone = "") {
+      const candidates = Array.from(new Set([
+        normalizedPhone,
+        rawPhone.trim(),
+        rawPhone.replace(/[^\d+]/g, "").trim()
+      ].filter(Boolean)));
+      for (const candidate of candidates) {
+        const snapshot = await db.collection("users").where("phone", "==", candidate).limit(1).get();
+        if (!snapshot.empty) {
+          const document = snapshot.docs[0];
+          return { id: document.id, ...document.data() };
+        }
+      }
+      return null;
+    },
+    async saveUser(record2) {
+      await db.collection("users").doc(record2.id).set(record2);
+    }
+  };
+}
+
+// src/server/auth-profile/contracts.ts
+function authProfileHttpError(status, message, details) {
+  const error = new Error(message);
+  error.status = status;
+  if (details) Object.assign(error, details);
+  return error;
+}
+
+// src/server/auth-profile/provider.ts
+function createAuthProfileProvider(options) {
+  const fetchImpl = options.fetchImpl || fetch;
+  return {
+    async verifyPassword(email, password) {
+      if (!options.apiKey) throw authProfileHttpError(503, "Phone password login is not configured.");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1e4);
+      try {
+        const response = await fetchImpl(
+          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(options.apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password, returnSecureToken: true }),
+            signal: controller.signal
+          }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.localId) {
+          throw authProfileHttpError(401, "Phone number or password is incorrect.");
+        }
+        return data;
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    createCustomToken(userId) {
+      return options.auth.createCustomToken(userId);
+    }
+  };
+}
+
+// src/server/auth-profile/service.ts
+function createAuthProfileService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const assertPhoneAttempt = (networkKey, phone) => {
+    const result = options.consumePhoneAttempt(`${networkKey}:${phone}`);
+    if (!result.allowed) {
+      throw authProfileHttpError(
+        429,
+        "Too many phone login attempts. Please wait and try again.",
+        { retryAfterSeconds: result.retryAfterSeconds }
+      );
+    }
+  };
+  const getPhoneLoginHint = async (phoneValue, networkKey) => {
+    const normalizedPhone = options.normalizePhone(phoneValue);
+    if (!normalizedPhone) throw authProfileHttpError(400, "Invalid phone number.");
+    assertPhoneAttempt(networkKey, normalizedPhone);
+    return {
+      ok: true,
+      message: "Use /api/auth/login-by-phone to sign in without exposing account email."
+    };
+  };
+  const loginByPhone = async (phoneValue, passwordValue, networkKey) => {
+    const rawPhone = String(phoneValue || "");
+    const password = String(passwordValue || "");
+    const normalizedPhone = options.normalizePhone(rawPhone);
+    if (!normalizedPhone || !password) {
+      throw authProfileHttpError(400, "Phone number and password are required.");
+    }
+    assertPhoneAttempt(networkKey, normalizedPhone);
+    const user = await options.repository.findUserByPhone(normalizedPhone, rawPhone);
+    const email = options.normalizeEmail(user?.email);
+    if (!user || !email) throw authProfileHttpError(401, "Phone number or password is incorrect.");
+    const verified = await options.provider.verifyPassword(email, password);
+    if (verified.localId !== user.id) {
+      throw authProfileHttpError(401, "Phone number or password is incorrect.");
+    }
+    if (user.phone !== normalizedPhone) {
+      await options.repository.saveUser({
+        ...user,
+        phone: normalizedPhone,
+        phoneVerified: Boolean(user.phoneVerified)
+      });
+    }
+    return { customToken: await options.provider.createCustomToken(verified.localId) };
+  };
+  const registerProfile = async (actor, payload) => {
+    if (!actor) throw authProfileHttpError(401, "Ch\u01B0a \u0111\u0103ng nh\u1EADp.");
+    const requestedPhone = payload?.phone ? options.normalizePhone(payload.phone) : "";
+    const existingPhone = options.normalizePhone(actor.phone);
+    if (payload?.phone && !requestedPhone) throw authProfileHttpError(400, "Invalid phone number.");
+    if (requestedPhone && existingPhone && actor.phoneVerified && requestedPhone !== existingPhone) {
+      throw authProfileHttpError(
+        400,
+        "Verified phone number cannot be replaced without a new OTP verification."
+      );
+    }
+    const nameValidation = options.validateDisplayName(payload?.name || actor.name);
+    if (!nameValidation.valid) {
+      throw authProfileHttpError(400, nameValidation.error || "Invalid display name.");
+    }
+    const normalizedPhone = requestedPhone || existingPhone;
+    const updatedProfile = {
+      ...actor,
+      name: nameValidation.value,
+      phone: normalizedPhone || void 0,
+      phoneVerified: Boolean(actor.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
+      role: actor.role,
+      status: actor.status,
+      updatedAt: now().toISOString()
+    };
+    await options.repository.saveUser(updatedProfile);
+    options.invalidateStudentNameCache();
+    return updatedProfile;
+  };
+  return { getPhoneLoginHint, loginByPhone, registerProfile };
+}
+
+// src/server/auth-profile/router.ts
+var import_express11 = __toESM(require("express"), 1);
+function createAuthProfileRouter(options) {
+  const router = import_express11.default.Router();
+  const handle = (action) => async (request, response) => {
+    try {
+      response.json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.post("/auth/email-by-phone", handle((request) => options.service.getPhoneLoginHint(request.body?.phone, options.getRequestNetworkKey(request))));
+  router.post("/auth/login-by-phone", handle((request) => options.service.loginByPhone(
+    request.body?.phone,
+    request.body?.password,
+    options.getRequestNetworkKey(request)
+  )));
+  router.get("/me", options.authenticateUser, (request, response) => response.json(request.user));
+  router.post("/register", options.authenticateUser, handle((request) => options.service.registerProfile(request.user, request.body)));
+  return router;
+}
+
+// src/server/guest-identity/repository.ts
+function createGuestIdentityRepository({ db }) {
+  return {
+    async getProfile(id2) {
+      const document = await db.collection("guest_profiles").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async setProfile(record2) {
+      await db.collection("guest_profiles").doc(record2.id).set(record2);
+    },
+    async updateProfile(id2, patch) {
+      await db.collection("guest_profiles").doc(id2).update(patch);
+    }
+  };
+}
+
+// src/server/guest-identity/service.ts
+function createGuestIdentityService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const nowMs = options.nowMs || Date.now;
+  const getGuestProfileId2 = (value) => options.safeText(value, 120);
+  const isGuestOwnedRecord2 = (data) => {
+    const guestId = getGuestProfileId2(data?.guestId);
+    const userId = options.safeText(data?.userId, 120);
+    return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
+  };
+  const findExistingGuestIdentity2 = async (guestIdValue, timing) => {
+    const guestId = getGuestProfileId2(guestIdValue);
+    if (!guestId) return null;
+    const stored = await options.repository.getProfile(guestId);
+    timing?.mark("guest_profile");
+    if (!stored) return null;
+    if (stored.status === "blocked") {
+      throw options.createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+    }
+    const displayName = options.safeText(stored.displayName || stored.name, 120);
+    if (!displayName) return null;
+    return {
+      ...stored,
+      guestId,
+      displayName,
+      name: displayName,
+      status: stored.status || "active",
+      legacy: !options.validateDisplayName(displayName).valid
+    };
+  };
+  const resolveGuestProfile2 = async (guestIdValue, studentNameValue, touchActivity = true, classInfo = {}, timing) => {
+    const guestId = getGuestProfileId2(guestIdValue);
+    if (!guestId) throw options.createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
+    const existing = await options.repository.getProfile(guestId);
+    timing?.mark("guest_profile");
+    const currentDate = now();
+    const timestamp = currentDate.toISOString();
+    if (existing) {
+      if (existing.status === "blocked") {
+        throw options.createHttpError(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
+      }
+      const displayName = options.safeText(existing.displayName || existing.name, 120);
+      if (!displayName) {
+        const validation2 = options.validateDisplayName(studentNameValue);
+        if (!validation2.valid) throw options.createHttpError(400, validation2.error || "Invalid display name.");
+        const repaired = {
+          ...existing,
+          displayName: validation2.value,
+          name: validation2.value,
+          normalizedName: options.normalizePersonName(validation2.value || ""),
+          updatedAt: timestamp,
+          lastActiveAt: touchActivity ? timestamp : existing.lastActiveAt || timestamp,
+          needsReview: false
+        };
+        await options.repository.setProfile(repaired);
+        timing?.mark("profile_write");
+        options.invalidateStudentNameCache();
+        return repaired;
+      }
+      const classId = classInfo.verified ? options.safeText(classInfo.classId, 160) : "";
+      const className = classInfo.verified ? options.safeText(classInfo.className, 240) : "";
+      const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
+      const shouldTouchActivity = Boolean(
+        touchActivity && (!Number.isFinite(lastActiveAtMs) || nowMs() - lastActiveAtMs >= options.activityTouchIntervalMs)
+      );
+      const shouldUpdateClassId = Boolean(classId && classId !== options.safeText(existing.classId, 160));
+      const shouldUpdateClassName = Boolean(className && className !== options.safeText(existing.className, 240));
+      if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
+        await options.repository.updateProfile(guestId, {
+          ...shouldTouchActivity ? { lastActiveAt: timestamp } : {},
+          ...shouldUpdateClassId ? { classId } : {},
+          ...shouldUpdateClassName ? { className } : {}
+        });
+        timing?.mark("profile_write");
+      }
+      return {
+        ...existing,
+        displayName,
+        name: displayName,
+        lastActiveAt: shouldTouchActivity ? timestamp : existing.lastActiveAt,
+        classId: classId || existing.classId,
+        className: className || existing.className
+      };
+    }
+    const validation = options.validateDisplayName(studentNameValue);
+    if (!validation.valid) throw options.createHttpError(400, validation.error || "Invalid display name.");
+    const guestAccessToken = options.createSessionToken();
+    const guestAccessTokenVersion = 1;
+    const profile = {
+      id: guestId,
+      guestId,
+      accountType: "guest",
+      displayName: validation.value,
+      name: validation.value,
+      normalizedName: options.normalizePersonName(validation.value || ""),
+      role: "student",
+      status: "active",
+      classId: classInfo.verified ? options.safeText(classInfo.classId, 160) : "",
+      className: classInfo.verified ? options.safeText(classInfo.className, 240) : "",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastActiveAt: timestamp,
+      needsReview: false,
+      accessTokenHash: options.hashSessionToken(guestAccessToken),
+      accessTokenVersion: guestAccessTokenVersion,
+      accessTokenCreatedAt: timestamp
+    };
+    await options.repository.setProfile(profile);
+    timing?.mark("profile_write");
+    options.invalidateStudentNameCache();
+    return {
+      ...options.omitCapabilitySecrets(profile),
+      guestAccessToken,
+      guestAccessTokenVersion
+    };
+  };
+  return { findExistingGuestIdentity: findExistingGuestIdentity2, getGuestProfileId: getGuestProfileId2, isGuestOwnedRecord: isGuestOwnedRecord2, resolveGuestProfile: resolveGuestProfile2 };
+}
+
+// src/server/guest-identity/router.ts
+var import_express12 = __toESM(require("express"), 1);
+function createGuestIdentityRouter(options) {
+  const router = import_express12.default.Router();
+  router.post("/guest-profiles/resolve", options.rateLimit, async (request, response) => {
+    const timing = options.createApiTiming(request, "POST /api/guest-profiles/resolve");
+    try {
+      const profile = await options.service.resolveGuestProfile(
+        request.body?.guestId,
+        request.body?.displayName || request.body?.studentName,
+        true,
+        { classId: request.body?.classId, className: request.body?.className },
+        timing
+      );
+      timing.finish(response);
+      response.json({
+        id: profile.id,
+        guestId: profile.guestId || profile.id,
+        displayName: profile.displayName || profile.name,
+        status: profile.status,
+        ...profile.guestAccessToken ? {
+          guestAccessToken: profile.guestAccessToken,
+          guestAccessTokenVersion: profile.guestAccessTokenVersion || 1
+        } : {}
+      });
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  });
+  router.post("/guest-profiles/identify", options.rateLimit, async (request, response) => {
+    const timing = options.createApiTiming(request, "POST /api/guest-profiles/identify");
+    try {
+      const profile = await options.service.findExistingGuestIdentity(request.body?.guestId, timing);
+      timing.finish(response);
+      if (!profile) {
+        return response.status(404).json({
+          error: "Kh\xF4ng t\xECm th\u1EA5y h\u1ED3 s\u01A1 h\u1ECDc sinh \u0111\xE3 \u0111\u0103ng k\xFD.",
+          code: "GUEST_PROFILE_NOT_FOUND"
+        });
+      }
+      response.json({
+        id: profile.id,
+        guestId: profile.guestId || profile.id,
+        displayName: profile.displayName || profile.name,
+        status: profile.status || "active",
+        legacy: Boolean(profile.legacy)
+      });
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  });
+  return router;
+}
+
+// src/server/vocabulary-ai/service.ts
+var import_genai = require("@google/genai");
+var ALLOWED_PARTS_OF_SPEECH = [
+  "Noun",
+  "Pronoun",
+  "Verb",
+  "Adjective",
+  "Adverb",
+  "Preposition",
+  "Conjunction",
+  "Interjection",
+  "Article",
+  "Determiner"
+];
+function httpError4(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function parseAiJson(text6) {
+  const trimmed = String(text6 || "").trim();
+  if (!trimmed) throw new Error("AI returned empty text.");
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (match?.[1]) return JSON.parse(match[1].trim());
+    throw new Error("AI returned invalid JSON.");
+  }
+}
+function normalizePartOfSpeech(value) {
+  const text6 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text6);
+  if (match) return match;
+  if (text6.includes("pronoun")) return "Pronoun";
+  if (text6.includes("adjective")) return "Adjective";
+  if (text6.includes("adverb")) return "Adverb";
+  if (text6.includes("preposition")) return "Preposition";
+  if (text6.includes("conjunction")) return "Conjunction";
+  if (text6.includes("interjection")) return "Interjection";
+  if (text6.includes("article")) return "Article";
+  if (text6.includes("determiner")) return "Determiner";
+  if (text6.includes("verb")) return "Verb";
+  return "Noun";
+}
+function normalizeForExampleCheck(value) {
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+function isWeakVocabularyExample(example, word) {
+  const normalizedExample = normalizeForExampleCheck(example);
+  const normalizedWord = normalizeForExampleCheck(word);
+  if (!normalizedExample || !normalizedWord || !normalizedExample.includes(normalizedWord)) return true;
+  return normalizedExample.startsWith("the word ") || normalizedExample.startsWith("this word ") || normalizedExample.includes("appears often in everyday english") || normalizedExample.includes("students should practice") || normalizedExample.includes("is a vocabulary word");
+}
+function hashText(value) {
+  return Array.from(value || "").reduce((hash, char) => (hash << 5) - hash + char.charCodeAt(0) | 0, 0);
+}
+function buildFallbackExample(word, meaning) {
+  const wordForSentence = String(word || "").trim() || "learning";
+  const meaningForSentence = String(meaning || "").trim() || wordForSentence;
+  const templates2 = [
+    {
+      example: `During a lively class discussion, ${wordForSentence} helped everyone connect the lesson with something useful in daily life.`,
+      exampleMeaning: `Trong m\u1ED9t bu\u1ED5i th\u1EA3o lu\u1EADn s\xF4i n\u1ED5i tr\xEAn l\u1EDBp, ${meaningForSentence} \u0111\xE3 gi\xFAp m\u1ECDi ng\u01B0\u1EDDi li\xEAn h\u1EC7 b\xE0i h\u1ECDc v\u1EDBi \u0111i\u1EC1u h\u1EEFu \xEDch trong \u0111\u1EDDi s\u1ED1ng h\u1EB1ng ng\xE0y.`
+    },
+    {
+      example: `After school, I wrote ${wordForSentence} in my notebook and used it in a sentence about my own day.`,
+      exampleMeaning: `Sau gi\u1EDD h\u1ECDc, t\xF4i vi\u1EBFt ${meaningForSentence} v\xE0o v\u1EDF v\xE0 d\xF9ng n\xF3 trong m\u1ED9t c\xE2u n\xF3i v\u1EC1 ng\xE0y c\u1EE7a ch\xEDnh m\xECnh.`
+    },
+    {
+      example: `When the group project became difficult, ${wordForSentence} gave us a clear idea to explain our work with more confidence.`,
+      exampleMeaning: `Khi b\xE0i l\xE0m nh\xF3m tr\u1EDF n\xEAn kh\xF3 h\u01A1n, ${meaningForSentence} \u0111\xE3 cho ch\xFAng t\xF4i m\u1ED9t \xFD t\u01B0\u1EDFng r\xF5 r\xE0ng \u0111\u1EC3 gi\u1EA3i th\xEDch b\xE0i l\xE0m t\u1EF1 tin h\u01A1n.`
+    },
+    {
+      example: `At home, my younger brother asked about ${wordForSentence}, so I tried to explain it with a simple and funny example.`,
+      exampleMeaning: `\u1EDE nh\xE0, em trai t\xF4i h\u1ECFi v\u1EC1 ${meaningForSentence}, n\xEAn t\xF4i c\u1ED1 gi\u1EA3i th\xEDch b\u1EB1ng m\u1ED9t v\xED d\u1EE5 \u0111\u01A1n gi\u1EA3n v\xE0 th\xFA v\u1ECB.`
+    },
+    {
+      example: `In the middle of the lesson, the teacher used ${wordForSentence} to turn a normal question into an interesting challenge.`,
+      exampleMeaning: `Gi\u1EEFa gi\u1EDD h\u1ECDc, gi\xE1o vi\xEAn \u0111\xE3 d\xF9ng ${meaningForSentence} \u0111\u1EC3 bi\u1EBFn m\u1ED9t c\xE2u h\u1ECFi b\xECnh th\u01B0\u1EDDng th\xE0nh m\u1ED9t th\u1EED th\xE1ch th\xFA v\u1ECB.`
+    },
+    {
+      example: `Before the quiz, I reviewed ${wordForSentence} carefully because small details can make a big difference in learning.`,
+      exampleMeaning: `Tr\u01B0\u1EDBc b\xE0i ki\u1EC3m tra, t\xF4i \xF4n l\u1EA1i ${meaningForSentence} th\u1EADt c\u1EA9n th\u1EADn v\xEC nh\u1EEFng chi ti\u1EBFt nh\u1ECF c\xF3 th\u1EC3 t\u1EA1o n\xEAn kh\xE1c bi\u1EC7t l\u1EDBn trong h\u1ECDc t\u1EADp.`
+    },
+    {
+      example: `My friend smiled when she finally understood ${wordForSentence}, and the whole exercise suddenly felt much easier.`,
+      exampleMeaning: `B\u1EA1n t\xF4i m\u1EC9m c\u01B0\u1EDDi khi cu\u1ED1i c\xF9ng \u0111\xE3 hi\u1EC3u ${meaningForSentence}, v\xE0 c\u1EA3 b\xE0i luy\u1EC7n t\u1EADp b\u1ED7ng tr\u1EDF n\xEAn d\u1EC5 h\u01A1n nhi\u1EC1u.`
+    },
+    {
+      example: `On the classroom board, ${wordForSentence} became the key idea that helped us remember the story behind the lesson.`,
+      exampleMeaning: `Tr\xEAn b\u1EA3ng l\u1EDBp, ${meaningForSentence} tr\u1EDF th\xE0nh \xFD ch\xEDnh gi\xFAp ch\xFAng t\xF4i nh\u1EDB c\xE2u chuy\u1EC7n ph\xEDa sau b\xE0i h\u1ECDc.`
+    }
+  ];
+  return templates2[Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates2.length];
+}
+function getFallbackVocabulary(topic, count) {
+  const normalized6 = topic.toLowerCase().trim();
+  if (normalized6.includes("animal") || normalized6.includes("\u0111\u1ED9ng v\u1EADt") || normalized6.includes("con v\u1EADt")) {
+    return [
+      { term: "Elephant", meaning: "Con voi", ipa: "/\u02C8el\u026Af\u0259nt/", pos: "Noun", example: "The elephant is very large.", exampleMeaning: "Con voi r\u1EA5t to l\u1EDBn." },
+      { term: "Tiger", meaning: "Con h\u1ED5", ipa: "/\u02C8ta\u026A\u0261\u0259(r)/", pos: "Noun", example: "The tiger runs very fast.", exampleMeaning: "Con h\u1ED5 ch\u1EA1y r\u1EA5t nhanh." },
+      { term: "Monkey", meaning: "Con kh\u1EC9", ipa: "/\u02C8m\u028C\u014Bki/", pos: "Noun", example: "The monkey loves eating bananas.", exampleMeaning: "Con kh\u1EC9 th\xEDch \u0103n chu\u1ED1i." },
+      { term: "Dolphin", meaning: "C\xE1 heo", ipa: "/\u02C8d\u0252lf\u026An/", pos: "Noun", example: "Dolphins are very friendly.", exampleMeaning: "C\xE1 heo r\u1EA5t th\xE2n thi\u1EC7n." },
+      { term: "Giraffe", meaning: "H\u01B0\u01A1u cao c\u1ED5", ipa: "/d\u0292\u026A\u02C8r\u0251\u02D0f/", pos: "Noun", example: "The giraffe has a very long neck.", exampleMeaning: "H\u01B0\u01A1u cao c\u1ED5 c\xF3 chi\u1EBFc c\u1ED5 r\u1EA5t d\xE0i." }
+    ].slice(0, count);
+  }
+  if (normalized6.includes("school") || normalized6.includes("tr\u01B0\u1EDDng h\u1ECDc") || normalized6.includes("l\u1EDBp")) {
+    return [
+      { term: "Teacher", meaning: "Gi\xE1o vi\xEAn", ipa: "/\u02C8ti\u02D0t\u0283\u0259(r)/", pos: "Noun", example: "Our teacher is very kind.", exampleMeaning: "Gi\xE1o vi\xEAn c\u1EE7a ch\xFAng t\xF4i r\u1EA5t t\u1ED1t b\u1EE5ng." },
+      { term: "Student", meaning: "H\u1ECDc sinh", ipa: "/\u02C8stju\u02D0dnt/", pos: "Noun", example: "The students are listening.", exampleMeaning: "C\xE1c h\u1ECDc sinh \u0111ang l\u1EAFng nghe." },
+      { term: "Classroom", meaning: "Ph\xF2ng h\u1ECDc", ipa: "/\u02C8kl\u0251\u02D0sru\u02D0m/", pos: "Noun", example: "Our classroom has a big board.", exampleMeaning: "Ph\xF2ng h\u1ECDc c\u1EE7a ch\xFAng t\xF4i c\xF3 b\u1EA3ng l\u1EDBn." }
+    ].slice(0, count);
+  }
+  return [{
+    term: topic.charAt(0).toUpperCase() + topic.slice(1),
+    meaning: `T\u1EEB v\u1EC1 ${topic}`,
+    ipa: "/\u02C8t\u0252p\u026Ak/",
+    pos: "Noun",
+    example: "This is an example.",
+    exampleMeaning: "\u0110\xE2y l\xE0 v\xED d\u1EE5."
+  }];
+}
+function createVocabularyAiService(options) {
+  const warn = options.warn || console.warn;
+  const generateIpa = async (wordValue) => {
+    if (!wordValue || typeof wordValue !== "string") {
+      throw httpError4(400, "Tham s\u1ED1 'word' l\xE0 b\u1EAFt bu\u1ED9c.");
+    }
+    const word = wordValue;
+    try {
+      const result = await options.provider.generateText(
+        `Provide the standard American English IPA phonetic transcription for the word/phrase: "${word}". Output ONLY the IPA string surrounded by slashes. Do not add any extra explanations or formatting.`
+      );
+      return {
+        ipa: result.text || `/${word.toLowerCase()}/`,
+        aiProvider: result.provider,
+        isFallback: result.provider === "fallback",
+        aiErrors: result.errors
+      };
+    } catch (error) {
+      warn("AI IPA generator service unavailable, returning fallback:", error.message);
+      return {
+        ipa: `/${word.toLowerCase()}/`,
+        isFallback: true,
+        aiProvider: "fallback",
+        aiErrors: [options.provider.sanitizeError("AI", error)]
+      };
+    }
+  };
+  const generateVocabDetail = async (wordValue, meaningValue, gradeValue) => {
+    if (!wordValue || typeof wordValue !== "string") {
+      throw httpError4(400, "Tham s\u1ED1 'word' l\xE0 b\u1EAFt bu\u1ED9c.");
+    }
+    const word = wordValue;
+    const meaning = meaningValue;
+    const fallbackExample = buildFallbackExample(word, meaning);
+    const fallback = {
+      term: word,
+      meaning: meaning || "",
+      ipa: `/${word.toLowerCase()}/`,
+      pos: "Noun",
+      example: fallbackExample.example,
+      exampleMeaning: fallbackExample.exampleMeaning,
+      audioUrl: ""
+    };
+    const prompt = `Complete missing English vocabulary learning details for this row.
+Word or phrase: "${word}"
+Existing Vietnamese meaning, if any: "${meaning || ""}"
+Target level: "${gradeValue || "primary school"}"
+
+Return ONLY one valid JSON object with meaning, ipa, pos, example, exampleMeaning and audioUrl. The example must contain the exact vocabulary word or phrase, use it naturally in a specific daily-life context, and not define or discuss the word itself. Choose pos from: ${ALLOWED_PARTS_OF_SPEECH.join(", ")}.`;
+    try {
+      const result = await options.provider.generateText(prompt, {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: import_genai.Type.OBJECT,
+          properties: {
+            meaning: { type: import_genai.Type.STRING },
+            ipa: { type: import_genai.Type.STRING },
+            pos: { type: import_genai.Type.STRING },
+            example: { type: import_genai.Type.STRING },
+            exampleMeaning: { type: import_genai.Type.STRING },
+            audioUrl: { type: import_genai.Type.STRING }
+          },
+          required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
+        }
+      });
+      if (result.provider === "fallback") {
+        return { ...fallback, isFallback: true, aiProvider: "fallback", aiErrors: result.errors };
+      }
+      const parsedData = parseAiJson(result.text);
+      const exampleData = isWeakVocabularyExample(parsedData.example, word) ? buildFallbackExample(word, parsedData.meaning || meaning) : { example: parsedData.example, exampleMeaning: parsedData.exampleMeaning };
+      return {
+        ...fallback,
+        ...parsedData,
+        pos: normalizePartOfSpeech(parsedData.pos),
+        example: exampleData.example,
+        exampleMeaning: exampleData.exampleMeaning || parsedData.exampleMeaning || fallback.exampleMeaning,
+        term: word,
+        aiProvider: result.provider,
+        aiErrors: result.errors
+      };
+    } catch (error) {
+      warn("AI vocab detail service unavailable, returning fallback:", error.message);
+      return {
+        ...fallback,
+        isFallback: true,
+        aiProvider: "fallback",
+        aiErrors: [options.provider.sanitizeError("AI", error)]
+      };
+    }
+  };
+  const generateVocabulary = async (topicValue, gradeValue, countValue = 5) => {
+    if (!topicValue || typeof topicValue !== "string") {
+      throw httpError4(400, "Tham s\u1ED1 'topic' l\xE0 b\u1EAFt bu\u1ED9c.");
+    }
+    const topic = topicValue;
+    const wordsCount = countValue;
+    const prompt = `Generate a JSON array of exactly ${wordsCount} English vocabulary words for topic: "${topic}" targeted for students at grade level: "${gradeValue || "primary school"}". Each item must contain term, Vietnamese meaning, IPA, one allowed part of speech, one varied daily-life example containing the exact term, and its Vietnamese translation. Return ONLY valid JSON.`;
+    try {
+      const result = await options.provider.generateText(prompt, {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: import_genai.Type.ARRAY,
+          items: {
+            type: import_genai.Type.OBJECT,
+            properties: {
+              term: { type: import_genai.Type.STRING },
+              meaning: { type: import_genai.Type.STRING },
+              ipa: { type: import_genai.Type.STRING },
+              pos: { type: import_genai.Type.STRING },
+              example: { type: import_genai.Type.STRING },
+              exampleMeaning: { type: import_genai.Type.STRING }
+            },
+            required: ["term", "meaning", "ipa", "pos", "example", "exampleMeaning"]
+          }
+        }
+      });
+      if (result.provider === "fallback") {
+        return getFallbackVocabulary(topic, wordsCount).map((item) => ({
+          ...item,
+          isFallback: true,
+          aiProvider: "fallback",
+          aiErrors: result.errors
+        }));
+      }
+      const parsedData = parseAiJson(result.text);
+      return Array.isArray(parsedData) ? parsedData.map((item) => {
+        const fallbackExample = buildFallbackExample(item.term, item.meaning);
+        const exampleData = isWeakVocabularyExample(item.example, item.term) ? fallbackExample : { example: item.example, exampleMeaning: item.exampleMeaning };
+        return {
+          ...item,
+          pos: normalizePartOfSpeech(item.pos),
+          example: exampleData.example,
+          exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning,
+          aiProvider: result.provider,
+          aiErrors: result.errors
+        };
+      }) : [];
+    } catch (error) {
+      warn("AI generation service unavailable, returning fallback:", error.message);
+      return getFallbackVocabulary(topic, wordsCount).map((item) => ({
+        ...item,
+        isFallback: true,
+        aiProvider: "fallback",
+        aiErrors: [options.provider.sanitizeError("AI", error)]
+      }));
+    }
+  };
+  return { generateIpa, generateVocabDetail, generateVocabulary };
+}
+
+// src/server/vocabulary-ai/router.ts
+var import_express13 = __toESM(require("express"), 1);
+function createVocabularyAiRouter(options) {
+  const router = import_express13.default.Router();
+  const handle = (action) => async (request, response) => {
+    try {
+      response.json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.post("/ai/ipa", options.authenticateUser, options.rateLimit, handle((request) => options.service.generateIpa(request.body?.word)));
+  router.post("/ai/vocab-detail", options.authenticateUser, options.rateLimit, handle((request) => options.service.generateVocabDetail(request.body?.word, request.body?.meaning, request.body?.grade)));
+  router.post("/ai/generate", options.authenticateUser, options.requireStaff, options.rateLimit, handle((request) => options.service.generateVocabulary(request.body?.topic, request.body?.grade, request.body?.wordsCount ?? 5)));
+  return router;
+}
+
+// src/server/vocabulary/repository.ts
+function snapshotRecords3(snapshot) {
+  const records3 = [];
+  snapshot.forEach((document) => records3.push({ id: document.id, ...document.data() }));
+  return records3;
+}
+function createVocabularyRepository(options) {
+  return {
+    async listActiveSets() {
+      return snapshotRecords3(await options.db.collection("vocab_sets").get()).filter((record2) => !isArchivedRecord(record2));
+    },
+    async getSet(id2) {
+      const document = await options.db.collection("vocab_sets").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    resolveImageReferences(payload, existing) {
+      return options.resolveImageReferences(payload, existing, options.db);
+    },
+    async saveSet(record2) {
+      await options.db.collection("vocab_sets").doc(record2.id).set(record2);
+    },
+    async listAssignmentsForVocab(vocabSetId) {
+      const snapshot = await options.db.collection("assignments").where("vocabSetId", "==", vocabSetId).get();
+      return (snapshot.docs || []).map((document) => ({
+        record: { id: document.id, ...document.data() },
+        ref: document.ref
+      }));
+    },
+    async listActiveClasses() {
+      return snapshotRecords3(await options.db.collection("classes").get()).filter((record2) => !isArchivedRecord(record2));
+    },
+    async listGameSessions(vocabSetId) {
+      return snapshotRecords3(
+        await options.db.collection("game_sessions").where("vocabSetId", "==", vocabSetId).get()
+      );
+    },
+    async archiveSetAndAssignments(set, assignments, actorId, archivedAt) {
+      const batch = options.db.batch();
+      batch.set(
+        options.db.collection("vocab_sets").doc(set.id),
+        archiveResourceRecord(set, actorId, archivedAt, {
+          forceDraftVisibility: true,
+          revokeShareToken: true
+        })
+      );
+      for (const assignment of assignments) {
+        batch.set(
+          assignment.ref,
+          archiveResourceRecord(assignment.record, actorId, archivedAt, { revokeShareToken: true })
+        );
+      }
+      await batch.commit();
+    }
+  };
+}
+
+// src/server/vocabulary/service.ts
+function vocabularyHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createVocabularyService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const requireActor = (actor) => {
+    if (!actor) throw vocabularyHttpError(401, "Unauthenticated");
+    return actor;
+  };
+  const getExisting = async (id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set) throw vocabularyHttpError(404, "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i.");
+    return set;
+  };
+  const openSharedSet = async (tokenValue, timing) => {
+    const token = String(tokenValue || "").trim();
+    if (!token) throw vocabularyHttpError(404, "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7");
+    const access = await options.resolveLearningAccess(token, timing);
+    if (!access) throw vocabularyHttpError(404, "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7");
+    const found = access.assignment ? {
+      ...options.normalizeForRead(access.set),
+      accessType: access.accessType,
+      assignmentId: access.assignment.id,
+      assignmentGameId: access.assignment.gameId,
+      assignmentTitle: access.assignment.title,
+      classId: access.assignment.classId,
+      className: access.assignment.className
+    } : {
+      ...options.normalizeForRead(access.set),
+      accessType: access.accessType
+    };
+    return options.stripPrivateFields(found);
+  };
+  const listPublicSets = async () => {
+    const sets = await options.repository.listActiveSets();
+    return sets.filter((set) => options.getVisibility(set) === "public").map((set) => {
+      const visibility = options.getVisibility(set);
+      return options.stripPrivateFields({
+        ...set,
+        visibility,
+        status: options.toLegacyStatus(visibility)
+      });
+    });
+  };
+  const listSets = async (actor, filters) => {
+    let list2 = (await options.repository.listActiveSets()).map((set) => {
+      const visibility = options.getVisibility(set);
+      return options.stripPrivateFields({
+        ...set,
+        visibility,
+        status: options.toLegacyStatus(visibility)
+      });
+    });
+    if (filters.search) {
+      const search = String(filters.search).toLowerCase();
+      list2 = list2.filter((set) => set.title.toLowerCase().includes(search) || set.description.toLowerCase().includes(search) || set.subject.toLowerCase().includes(search));
+    }
+    if (filters.grade) list2 = list2.filter((set) => set.gradeLevel === filters.grade);
+    if (filters.status) list2 = list2.filter((set) => set.status === filters.status);
+    if (filters.visibility) list2 = list2.filter((set) => options.getVisibility(set) === filters.visibility);
+    return list2.filter((set) => options.canViewSet(actor, set));
+  };
+  const createSet = async (actorValue, payload) => {
+    const actor = requireActor(actorValue);
+    const resolved = await options.repository.resolveImageReferences(payload, {});
+    const id2 = `set-${now().getTime()}`;
+    const set = options.normalizeForSave({
+      ...resolved,
+      id: id2,
+      createdAt: now().toISOString(),
+      createdBy: actor.id,
+      creatorName: actor.name
+    });
+    await options.repository.saveSet(set);
+    if (set.ttsSettings?.autoGenerate) options.enqueueAudio(id2, set.ttsSettings);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "CREATE_VOCAB_SET",
+      `\u0110\xE3 t\u1EA1o b\u1ED9 t\u1EEB v\u1EF1ng m\u1EDBi: "${set.title}" (${set.items.length} t\u1EEB)`
+    );
+    return options.stripPrivateFields(set);
+  };
+  const updateSet = async (actorValue, id2, payload) => {
+    const actor = requireActor(actorValue);
+    const existing = await getExisting(id2);
+    if (!options.canManageSet(actor, existing)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen sua bo tu vung nay.");
+    }
+    const resolved = await options.repository.resolveImageReferences(payload, existing);
+    const set = options.normalizeForSave({ ...resolved, id: id2 }, existing);
+    await options.repository.saveSet(set);
+    if (set.ttsSettings?.autoGenerate) options.enqueueAudio(id2, set.ttsSettings);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "UPDATE_VOCAB_SET",
+      `\u0110\xE3 ch\u1EC9nh s\u1EEDa b\u1ED9 t\u1EEB v\u1EF1ng: "${set.title}"`
+    );
+    return options.stripPrivateFields(set);
+  };
+  const getAudioStatus = async (actor, id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set) throw vocabularyHttpError(404, "Vocabulary set not found.");
+    if (!options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen xem trang thai audio cua bo tu vung nay.");
+    }
+    const items = Array.isArray(set.items) ? set.items : [];
+    return {
+      id: set.id,
+      items: items.map((item) => ({
+        id: item.id,
+        term: item.term,
+        audioUrl: item.audioUrl,
+        audioHash: item.audioHash,
+        audioStatus: item.audioStatus || (item.audioUrl ? "ready" : "missing"),
+        audioError: item.audioError || "",
+        ttsProvider: item.ttsProvider,
+        ttsVoice: item.ttsVoice,
+        ttsLang: item.ttsLang,
+        ttsSpeed: item.ttsSpeed,
+        ttsText: item.ttsText,
+        audioWarnings: item.audioWarnings || [],
+        audioGeneratedAt: item.audioGeneratedAt,
+        audioUpdatedAt: item.audioUpdatedAt
+      }))
+    };
+  };
+  const getImageStatus = async (actor, id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set) throw vocabularyHttpError(404, "Vocabulary set not found.");
+    if (!options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen xem trang thai anh cua bo tu vung nay.");
+    }
+    const items = Array.isArray(set.items) ? set.items : [];
+    return {
+      id: set.id,
+      items: items.map((item) => ({
+        id: item.id,
+        term: item.term,
+        imageAssetId: item.imageAssetId,
+        imageUrl: item.imageUrl,
+        imageAttribution: item.imageAttribution,
+        imageAttachedAt: item.imageAttachedAt,
+        imageStatus: item.imageAssetId && item.imageUrl ? "ready" : item.imageUrl ? "legacy" : "missing"
+      }))
+    };
+  };
+  const queueMissingAudio = async (actor, id2, payload) => {
+    const set = await options.repository.getSet(id2);
+    if (!set) throw vocabularyHttpError(404, "Vocabulary set not found.");
+    if (!options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen tao audio cho bo tu vung nay.");
+    }
+    const settings = options.normalizeTtsSettings(payload?.settings || set.ttsSettings || {});
+    const itemIds = Array.isArray(payload?.itemIds) ? payload.itemIds.map(String) : void 0;
+    const force = Boolean(payload?.force);
+    options.enqueueAudio(id2, settings, itemIds, force);
+    return { queued: true, itemIds: itemIds || null, force };
+  };
+  const archiveSet = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const set = await getExisting(id2);
+    if (!options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen xoa bo tu vung nay.");
+    }
+    const assignments = await options.repository.listAssignmentsForVocab(id2);
+    if (!options.isSuperAdmin(actor)) {
+      const classes = await options.repository.listActiveClasses();
+      const classesById = new Map(classes.map((item) => [item.id, item]));
+      for (const assignment of assignments) {
+        const classRecord = assignment.record.classId ? classesById.get(assignment.record.classId) : null;
+        if (!options.canManageAssignment(actor, assignment.record, classRecord)) {
+          throw vocabularyHttpError(403, "Bo tu vung nay dang duoc giao cho lop ban khong quan ly.");
+        }
+      }
+    }
+    await options.repository.archiveSetAndAssignments(set, assignments, actor.id, now().toISOString());
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "ARCHIVE_VOCAB_SET",
+      `\u0110\xE3 l\u01B0u tr\u1EEF b\u1ED9 t\u1EEB v\u1EF1ng v\xE0 thu h\u1ED3i link: "${set?.title}"`
+    );
+    return { success: true, archived: true };
+  };
+  const cloneSet = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const original = await getExisting(id2);
+    if (!options.canViewSet(actor, original)) {
+      throw vocabularyHttpError(403, "Ban khong co quyen nhan ban bo tu vung nay.");
+    }
+    const cloneId = `set-${now().getTime()}`;
+    const clone = options.normalizeForSave({
+      ...original,
+      id: cloneId,
+      title: `${original.title} (Nh\xE2n b\u1EA3n)`,
+      visibility: "draft",
+      status: "draft",
+      createdAt: now().toISOString(),
+      createdBy: actor.id,
+      creatorName: actor.name
+    });
+    await options.repository.saveSet(clone);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "CLONE_VOCAB_SET",
+      `\u0110\xE3 nh\xE2n b\u1EA3n b\u1ED9 t\u1EEB v\u1EF1ng: "${original.title}" th\xE0nh "${clone.title}"`
+    );
+    return options.stripPrivateFields(clone);
+  };
+  const previewSet = async (actor, id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set || !options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(404, "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i.");
+    }
+    return options.stripPrivateFields(set);
+  };
+  const getResults = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const set = await options.repository.getSet(id2);
+    if (!set) throw vocabularyHttpError(404, "Vocabulary set not found.");
+    if (!options.canManageSet(actor, set)) {
+      throw vocabularyHttpError(403, "You do not have permission to view results for this vocabulary set.");
+    }
+    const sessions = (await options.repository.listGameSessions(set.id)).filter((session) => session.vocabSetId === set.id).map((session) => {
+      const interrupted = !session.completedAt && now().getTime() - new Date(session.lastSavedAt || session.startedAt || session.createdAt || 0).getTime() >= 24 * 60 * 60 * 1e3;
+      const shaped = {
+        ...session,
+        displayStatus: session.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress"
+      };
+      return options.omitSensitiveSessionFields ? options.omitSensitiveSessionFields(shaped) : shaped;
+    });
+    sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
+    return {
+      set,
+      sessions: options.enrichStudentNames ? await options.enrichStudentNames(sessions) : sessions
+    };
+  };
+  return {
+    archiveSet,
+    cloneSet,
+    createSet,
+    getAudioStatus,
+    getImageStatus,
+    getResults,
+    listPublicSets,
+    listSets,
+    openSharedSet,
+    previewSet,
+    queueMissingAudio,
+    updateSet
+  };
+}
+
+// src/server/vocabulary/router.ts
+var import_express14 = __toESM(require("express"), 1);
+function createVocabularyRouter(options) {
+  const router = import_express14.default.Router();
+  const handle = (action, status = 200) => async (request, response) => {
+    try {
+      response.status(status).json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/vocab-sets/share/:token", async (request, response) => {
+    const timing = options.createApiTiming(request, "GET /api/vocab-sets/share/:token");
+    try {
+      const result = await options.service.openSharedSet(request.params.token, timing);
+      timing.mark("shape");
+      timing.finish(response);
+      response.json(result);
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  });
+  router.get("/public/vocab-sets", handle(() => options.service.listPublicSets()));
+  router.get("/vocab-sets", options.authenticateUser, handle((request) => options.service.listSets(request.user, request.query)));
+  router.post("/vocab-sets", options.authenticateUser, options.requireStaff, handle((request) => options.service.createSet(request.user, request.body), 201));
+  router.put("/vocab-sets/:id", options.authenticateUser, options.requireStaff, handle((request) => options.service.updateSet(request.user, String(request.params.id || ""), request.body)));
+  router.get("/vocab-sets/:id/audio/status", options.authenticateUser, options.requireStaff, handle((request) => options.service.getAudioStatus(request.user, String(request.params.id || ""))));
+  router.get("/vocab-sets/:id/images/status", options.authenticateUser, options.requireStaff, handle((request) => options.service.getImageStatus(request.user, String(request.params.id || ""))));
+  router.post("/vocab-sets/:id/audio/generate-missing", options.authenticateUser, options.requireStaff, options.ttsRateLimit, handle((request) => options.service.queueMissingAudio(request.user, String(request.params.id || ""), request.body)));
+  router.delete("/vocab-sets/:id", options.authenticateUser, options.requireStaff, handle((request) => options.service.archiveSet(request.user, String(request.params.id || ""))));
+  router.post("/vocab-sets/:id/clone", options.authenticateUser, options.requireStaff, handle((request) => options.service.cloneSet(request.user, String(request.params.id || ""))));
+  router.get("/admin/vocab-sets/:id/preview", options.authenticateUser, options.requireStaff, handle((request) => options.service.previewSet(request.user, String(request.params.id || ""))));
+  router.get("/admin/vocab-sets/:id/results", options.authenticateUser, options.requireStaff, handle((request) => options.service.getResults(request.user, String(request.params.id || ""))));
+  return router;
+}
+
+// src/server/tts/provider.ts
+function createTtsVoiceProvider(options) {
+  return {
+    async listVoices(query) {
+      const apiKey = options.getApiKey();
+      if (!apiKey) {
+        throw Object.assign(new Error("AI33_API_KEY/TTS_API_KEY is not configured."), { status: 500 });
+      }
+      const params = new URLSearchParams();
+      params.set("provider", String(query.provider || "edge"));
+      if (query.language) params.set("language", String(query.language));
+      if (query.gender) params.set("gender", String(query.gender));
+      if (query.search || query.q) params.set("q", String(query.search || query.q));
+      params.set("page_size", String(query.page_size || query.limit || 50));
+      const upstream = await options.fetchWithTimeout(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
+        headers: { "xi-api-key": apiKey }
+      });
+      return {
+        status: upstream.status,
+        data: await upstream.json().catch(() => ({}))
+      };
+    }
+  };
+}
+
+// src/server/tts/service.ts
+function ttsHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createTtsService(options) {
+  const preview = async (payload) => {
+    const settings = options.normalizeSettings(payload?.settings || payload || {});
+    const text6 = String(payload?.text || "apple").trim();
+    const force = Boolean(payload?.force);
+    if (!text6) throw ttsHttpError(400, "Missing preview text.");
+    const result = await options.generateCachedAudio(text6, settings, force);
+    return {
+      audioUrl: result.audioUrl,
+      audioHash: result.audioHash,
+      cached: result.cached,
+      ttsText: result.ttsText,
+      warnings: result.warnings
+    };
+  };
+  const batchPreview = async (payload) => {
+    const settings = options.normalizeSettings(payload?.settings || {});
+    const force = Boolean(payload?.force);
+    const rawItems = Array.isArray(payload?.items) ? payload.items.slice(0, 200) : [];
+    if (rawItems.length === 0) throw ttsHttpError(400, "Missing TTS items.");
+    const prepared = rawItems.map((item, index) => {
+      const text6 = String(item?.text || item?.term || "").trim();
+      const sanitized = options.sanitizeInput(text6);
+      return {
+        id: String(item?.id || `item-${index + 1}`),
+        text: text6,
+        sanitized,
+        audioHash: sanitized.text ? options.createAudioHash(sanitized.text, settings) : ""
+      };
+    });
+    const grouped = /* @__PURE__ */ new Map();
+    const invalidResults = /* @__PURE__ */ new Map();
+    for (const item of prepared) {
+      if (!item.sanitized.text) {
+        invalidResults.set(item.id, {
+          id: item.id,
+          audioStatus: "failed",
+          audioError: "Missing TTS text after cleanup.",
+          ttsText: "",
+          warnings: item.sanitized.warnings
+        });
+        continue;
+      }
+      const group = grouped.get(item.audioHash) || [];
+      group.push(item);
+      grouped.set(item.audioHash, group);
+    }
+    const generated = await options.runWithConcurrency(
+      [...grouped.entries()],
+      options.concurrency,
+      async ([audioHash, group]) => {
+        try {
+          const result = await options.generateCachedAudio(group[0].sanitized.text, settings, force);
+          return { audioHash, result, error: null };
+        } catch (error) {
+          return { audioHash, result: null, error };
+        }
+      }
+    );
+    const generatedByHash = new Map(generated.map((item) => [item.audioHash, item]));
+    const items = prepared.map((item) => {
+      const invalid = invalidResults.get(item.id);
+      if (invalid) return invalid;
+      const generatedResult = generatedByHash.get(item.audioHash);
+      if (!generatedResult || generatedResult.error) {
+        return {
+          id: item.id,
+          audioHash: item.audioHash,
+          audioStatus: "failed",
+          audioError: generatedResult?.error?.message || "TTS generation failed.",
+          ttsText: item.sanitized.text,
+          warnings: item.sanitized.warnings,
+          ttsProvider: settings.provider,
+          ttsVoice: settings.voice,
+          ttsLang: settings.lang,
+          ttsSpeed: settings.speed
+        };
+      }
+      return {
+        id: item.id,
+        audioUrl: generatedResult.result.audioUrl,
+        audioHash: generatedResult.result.audioHash,
+        audioStatus: "ready",
+        audioError: "",
+        cached: generatedResult.result.cached,
+        ttsText: generatedResult.result.ttsText,
+        warnings: generatedResult.result.warnings,
+        ttsProvider: settings.provider,
+        ttsVoice: settings.voice,
+        ttsLang: settings.lang,
+        ttsSpeed: settings.speed
+      };
+    });
+    return { items, concurrency: options.concurrency };
+  };
+  return {
+    batchPreview,
+    listVoices: (query) => options.voiceProvider.listVoices(query),
+    preview
+  };
+}
+
+// src/server/tts/router.ts
+var import_express15 = __toESM(require("express"), 1);
+function createTtsRouter(options) {
+  const router = import_express15.default.Router();
+  const handle = (action) => async (request, response) => {
+    try {
+      response.json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.post("/tts/preview", options.authenticateUser, options.requireStaff, options.rateLimit, handle((request) => options.service.preview(request.body)));
+  router.post("/tts/batch-preview", options.authenticateUser, options.requireStaff, options.rateLimit, handle((request) => options.service.batchPreview(request.body)));
+  router.get("/tts/voices", options.authenticateUser, options.requireStaff, options.rateLimit, async (request, response) => {
+    try {
+      const result = await options.service.listVoices(request.query);
+      response.status(result.status).json(result.data);
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  });
+  return router;
+}
+
+// src/server/grammar/repository.ts
+function snapshotRecords4(snapshot) {
+  const records3 = [];
+  snapshot.forEach((document) => records3.push({ id: document.id, ...document.data() }));
+  return records3;
+}
+function createGrammarLibraryRepository({ db }) {
+  return {
+    async listActiveSets() {
+      return snapshotRecords4(await db.collection("grammar_sets").get()).filter((record2) => !isArchivedRecord(record2));
+    },
+    async getSet(id2) {
+      const document = await db.collection("grammar_sets").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async saveSet(record2) {
+      await db.collection("grammar_sets").doc(record2.id).set(record2);
+    },
+    async archiveSet(record2, actorId, archivedAt) {
+      await db.collection("grammar_sets").doc(record2.id).set(
+        archiveResourceRecord(record2, actorId, archivedAt, {
+          forceDraftVisibility: true,
+          revokeShareToken: true
+        })
+      );
+    },
+    async listAttempts(grammarSetId) {
+      return snapshotRecords4(
+        await db.collection("grammar_attempts").where("grammarSetId", "==", grammarSetId).get()
+      );
+    }
+  };
+}
+
+// src/server/grammar/service.ts
+function grammarHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function sortSets(list2) {
+  return list2.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+}
+function createGrammarLibraryService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const requireActor = (actor) => {
+    if (!actor) throw grammarHttpError(401, "Unauthenticated");
+    return actor;
+  };
+  const getExisting = async (id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set) throw grammarHttpError(404, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.");
+    return set;
+  };
+  const listPublicSets = async () => sortSets((await options.repository.listActiveSets()).filter((set) => options.getVisibility(set) === "public").map(options.sanitizeForStudent));
+  const listSets = async (actor) => sortSets((await options.repository.listActiveSets()).filter((set) => options.canViewSet(actor, set)).map((set) => actor?.role === "student" ? options.sanitizeForStudent(set) : set));
+  const openSharedSet = async (tokenValue) => {
+    const token = String(tokenValue || "").trim();
+    if (!token) throw grammarHttpError(404, "Kh\xF4ng t\xECm th\u1EA5y b\xE0i ng\u1EEF ph\xE1p ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7.");
+    const found = (await options.repository.listActiveSets()).find((set) => {
+      const setToken = set.shareToken || set.assignmentSlug;
+      const legacyToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
+      return (setToken === token || legacyToken === token) && options.getVisibility(set) === "assignment";
+    });
+    if (!found) throw grammarHttpError(404, "Kh\xF4ng t\xECm th\u1EA5y b\xE0i ng\u1EEF ph\xE1p ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7.");
+    return options.sanitizeForStudent(found);
+  };
+  const getSet4 = async (actor, id2) => {
+    const set = await getExisting(id2);
+    if (!options.canViewSet(actor, set)) {
+      throw grammarHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n m\u1EDF b\xE0i ng\u1EEF ph\xE1p n\xE0y.");
+    }
+    return actor?.role === "student" ? options.sanitizeForStudent(set) : set;
+  };
+  const createSet = async (actorValue, payload) => {
+    const actor = requireActor(actorValue);
+    const id2 = options.makeId("grammar-set");
+    const set = options.normalizeForSave({ ...payload, id: id2 }, {}, actor);
+    await options.repository.saveSet(set);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "CREATE_GRAMMAR_SET",
+      `\u0110\xE3 t\u1EA1o b\xE0i ng\u1EEF ph\xE1p: "${set.title}" (${set.questions.length} c\xE2u)`
+    );
+    return set;
+  };
+  const updateSet = async (actorValue, id2, payload) => {
+    const actor = requireActor(actorValue);
+    const existing = await getExisting(id2);
+    if (!options.canManageSet(actor, existing)) throw grammarHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\xE0i n\xE0y.");
+    const set = options.normalizeForSave({ ...payload, id: id2 }, existing, actor);
+    await options.repository.saveSet(set);
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "UPDATE_GRAMMAR_SET",
+      `\u0110\xE3 c\u1EADp nh\u1EADt b\xE0i ng\u1EEF ph\xE1p: "${set.title}"`
+    );
+    return set;
+  };
+  const archiveSet = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const existing = await getExisting(id2);
+    if (!options.canManageSet(actor, existing)) throw grammarHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n x\xF3a b\xE0i n\xE0y.");
+    await options.repository.archiveSet(existing, actor.id, now().toISOString());
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "ARCHIVE_GRAMMAR_SET",
+      `\u0110\xE3 l\u01B0u tr\u1EEF b\xE0i ng\u1EEF ph\xE1p v\xE0 thu h\u1ED3i link: "${existing.title}"`
+    );
+    return { success: true, archived: true };
+  };
+  const cloneSet = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const existing = await getExisting(id2);
+    if (!options.canViewSet(actor, existing)) throw grammarHttpError(403, "Ban khong co quyen nhan ban bai nay.");
+    const cloneId = options.makeId("grammar-set");
+    const clone = options.normalizeForSave({
+      ...existing,
+      id: cloneId,
+      title: `${existing.title} (B\u1EA3n sao)`,
+      visibility: "draft",
+      questions: existing.questions
+    }, {}, actor);
+    await options.repository.saveSet(clone);
+    return clone;
+  };
+  const previewSet = async (actor, id2) => {
+    const set = await options.repository.getSet(id2);
+    if (!set || !options.canManageSet(actor, set)) {
+      throw grammarHttpError(404, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.");
+    }
+    return set;
+  };
+  const getResults = async (actorValue, id2) => {
+    const actor = requireActor(actorValue);
+    const set = await getExisting(id2);
+    if (!options.canManageSet(actor, set)) {
+      throw grammarHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem k\u1EBFt qu\u1EA3 b\xE0i n\xE0y.");
+    }
+    const attempts = await options.repository.listAttempts(set.id);
+    attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
+    return { set, attempts: await options.enrichStudentNames(attempts) };
+  };
+  return {
+    archiveSet,
+    cloneSet,
+    createSet,
+    getResults,
+    getSet: getSet4,
+    listPublicSets,
+    listSets,
+    openSharedSet,
+    previewSet,
+    updateSet
+  };
+}
+
+// src/server/grammar/router.ts
+var import_express16 = __toESM(require("express"), 1);
+function createGrammarLibraryRouter(options) {
+  const router = import_express16.default.Router();
+  const handle = (action, status = 200) => async (request, response) => {
+    try {
+      response.status(status).json(await action(request));
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/public/grammar-sets", handle(() => options.service.listPublicSets()));
+  router.get("/grammar-sets", options.authenticateUser, handle((request) => options.service.listSets(request.user)));
+  router.get("/grammar-sets/share/:token", handle((request) => options.service.openSharedSet(request.params.token)));
+  router.get("/grammar-sets/:id", options.authenticateUser, handle((request) => options.service.getSet(request.user, request.params.id)));
+  router.post("/admin/grammar-sets", options.authenticateUser, options.requireStaff, handle((request) => options.service.createSet(request.user, request.body), 201));
+  router.put("/admin/grammar-sets/:id", options.authenticateUser, options.requireStaff, handle((request) => options.service.updateSet(request.user, request.params.id, request.body)));
+  router.delete("/admin/grammar-sets/:id", options.authenticateUser, options.requireStaff, handle((request) => options.service.archiveSet(request.user, request.params.id)));
+  router.post("/admin/grammar-sets/:id/clone", options.authenticateUser, options.requireStaff, handle((request) => options.service.cloneSet(request.user, request.params.id), 201));
+  router.get("/admin/grammar-sets/:id/preview", options.authenticateUser, options.requireStaff, handle((request) => options.service.previewSet(request.user, request.params.id)));
+  router.get("/admin/grammar-sets/:id/results", options.authenticateUser, options.requireStaff, handle((request) => options.service.getResults(request.user, request.params.id)));
+  return router;
+}
+
+// src/server/grammar-attempts/repository.ts
+function documentRecord(document) {
+  return document.exists ? { id: document.id, ...document.data() } : null;
+}
+function createGrammarAttemptRepository(options) {
+  return {
+    async getSet(id2) {
+      return documentRecord(await options.db.collection("grammar_sets").doc(id2).get());
+    },
+    async getAttempt(id2) {
+      return documentRecord(await options.db.collection("grammar_attempts").doc(id2).get());
+    },
+    async countCompletedAttempts(grammarSetId, actorField, actorId, limit) {
+      const snapshot = await options.db.collection("grammar_attempts").where("grammarSetId", "==", grammarSetId).where(actorField, "==", actorId).where("status", "==", "completed").limit(limit).get();
+      return snapshot.size;
+    },
+    async saveAttempt(attempt, set, includeDetail = false) {
+      const batch = options.db.batch();
+      batch.set(options.db.collection("grammar_attempts").doc(attempt.id), attempt);
+      options.appendLearningHistoryProjection(
+        batch,
+        options.projectGrammarAttempt(attempt, set, {
+          detailRetentionDays: options.detailRetentionDays,
+          includeDetail
+        })
+      );
+      await batch.commit();
+    },
+    async saveCompletedAttempt(attempt, set, leaderboardEvent) {
+      const batch = options.db.batch();
+      batch.set(options.db.collection("grammar_attempts").doc(attempt.id), attempt);
+      batch.set(options.db.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+      options.appendLearningHistoryProjection(
+        batch,
+        options.projectGrammarAttempt(attempt, set, {
+          detailRetentionDays: options.detailRetentionDays
+        })
+      );
+      await batch.commit();
+    },
+    async listAttemptsForActor(grammarSetId, actorField, actorId) {
+      const snapshot = await options.db.collection("grammar_attempts").where("grammarSetId", "==", grammarSetId).where(actorField, "==", actorId).get();
+      return (snapshot.docs || []).map((document) => ({ id: document.id, ...document.data() }));
+    }
+  };
+}
+
+// src/server/grammar-attempts/service.ts
+function grammarAttemptHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createGrammarAttemptService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const actorOrThrow = async (request, message, timing) => {
+    const actor = await options.getActor(request);
+    timing?.mark("identity");
+    if (!actor) throw grammarAttemptHttpError(401, message);
+    return actor;
+  };
+  const setOrThrow = async (id2, message, timing) => {
+    const set = await options.repository.getSet(id2);
+    timing?.mark("set_read");
+    if (!set) throw grammarAttemptHttpError(404, message);
+    return set;
+  };
+  const attemptOrThrow = async (id2, timing) => {
+    const attempt = await options.repository.getAttempt(id2);
+    timing?.mark("attempt_read");
+    if (!attempt) throw grammarAttemptHttpError(404, "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i.");
+    return attempt;
+  };
+  const assertAttemptLimit = async (set, actor, timing, ascii = false) => {
+    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const count = await options.repository.countCompletedAttempts(set.id, actorField, actor.id, maxAttempts);
+    timing?.mark("attempt_limit");
+    if (count >= maxAttempts) {
+      throw grammarAttemptHttpError(403, ascii ? "Ban da het so lan lam bai duoc phep." : "B\u1EA1n \u0111\xE3 h\u1EBFt s\u1ED1 l\u1EA7n l\xE0m b\xE0i \u0111\u01B0\u1EE3c ph\xE9p.");
+    }
+  };
+  const prepareAttempt = async (request, timing) => {
+    if (!options.lazySessionEnabled) throw grammarAttemptHttpError(404, "Lazy session v3 is disabled.");
+    const credentials = options.getClientRunCredentials(request.body || {});
+    const actor = await actorOrThrow(request, "Vui long nhap ten hoc sinh de luyen ngu phap.", timing);
+    const set = await setOrThrow(request.params.id, "Bai ngu phap khong ton tai.", timing);
+    if (!options.canOpenSet(set, actor, request)) {
+      throw grammarAttemptHttpError(403, "Ban khong co quyen lam bai nay.");
+    }
+    await assertAttemptLimit(set, actor, timing, true);
+    const prepared = options.buildPreparedAttempt(
+      set,
+      actor,
+      request.body || {},
+      credentials.clientRunId,
+      credentials.runSecret
+    );
+    return { body: options.sanitizeAttempt(prepared, false, credentials.runSecret) };
+  };
+  const activateAttempt = async (request, timing) => {
+    if (!options.lazySessionEnabled) throw grammarAttemptHttpError(404, "Lazy session v3 is disabled.");
+    const payload = request.body || {};
+    const credentials = options.getClientRunCredentials(payload);
+    const actor = await actorOrThrow(request, "Vui long nhap ten hoc sinh de luyen ngu phap.", timing);
+    const set = await setOrThrow(request.params.id, "Bai ngu phap khong ton tai.", timing);
+    if (!options.canOpenSet(set, actor, request)) {
+      throw grammarAttemptHttpError(403, "Ban khong co quyen lam bai nay.");
+    }
+    const attemptId = options.deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
+    const existingAttempt = await options.repository.getAttempt(attemptId);
+    timing?.mark("idempotency_lookup");
+    if (existingAttempt) {
+      if (!options.canAccessAttempt(existingAttempt, actor, set, request)) {
+        throw grammarAttemptHttpError(403, "Ban khong co quyen tiep tuc luot lam bai nay.");
+      }
+      const existingAnswer = (existingAttempt.answers || []).find((item) => item.attemptQuestionId === payload.attemptQuestionId);
+      if (existingAnswer) {
+        const feedback3 = options.buildAnswerFeedback(existingAttempt, set, existingAnswer);
+        return { body: {
+          attempt: options.sanitizeAttempt(existingAttempt, false, credentials.runSecret),
+          answer: options.sanitizeAnswer(existingAnswer, Boolean(feedback3)),
+          feedback: feedback3,
+          alreadyActivated: true
+        } };
+      }
+      if (existingAttempt.status === "completed") {
+        return { body: {
+          attempt: options.sanitizeAttempt(existingAttempt, Boolean(set.showReviewAfterSubmit), credentials.runSecret),
+          alreadyCompleted: true
+        } };
+      }
+      const { answer: answer2, feedback: feedback2 } = options.buildAttemptAnswer(existingAttempt, set, payload);
+      const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
+      const updatedAt = now().toISOString();
+      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
+      await options.repository.saveAttempt(updatedAttempt, set, false);
+      timing?.mark("persist");
+      return { body: {
+        attempt: options.sanitizeAttempt(updatedAttempt, false, credentials.runSecret),
+        answer: options.sanitizeAnswer(answer2, Boolean(feedback2)),
+        feedback: feedback2,
+        alreadyActivated: true
+      } };
+    }
+    if (options.safeText(payload.grammarSetVersion, 160) !== options.getSetVersion(set)) {
+      throw grammarAttemptHttpError(409, "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi.");
+    }
+    await assertAttemptLimit(set, actor, timing, true);
+    const prepared = options.buildPreparedAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
+    const { answer, feedback } = options.buildAttemptAnswer(prepared, set, payload);
+    const timestamp = now().toISOString();
+    const activated = {
+      ...prepared,
+      status: "in_progress",
+      activatedAt: timestamp,
+      lastSavedAt: timestamp,
+      updatedAt: timestamp,
+      answers: [answer]
+    };
+    await options.repository.saveAttempt(activated, set, false);
+    timing?.mark("persist");
+    return { status: 201, body: {
+      attempt: options.sanitizeAttempt(activated, false, credentials.runSecret),
+      answer: options.sanitizeAnswer(answer, Boolean(feedback)),
+      feedback
+    } };
+  };
+  const createAttempt = async (request, timing) => {
+    const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
+    const set = await setOrThrow(request.params.id, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.", timing);
+    if (!options.canOpenSet(set, actor, request)) {
+      throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\xE0m b\xE0i n\xE0y.");
+    }
+    await assertAttemptLimit(set, actor, timing);
+    const timestamp = now().toISOString();
+    const questions = set.shuffleQuestions ? options.fisherYates(set.questions || []) : [...set.questions || []];
+    const attemptQuestions = questions.map((question, index) => {
+      const questionType = options.getQuestionType(question.questionType, options.getQuestionType(set.questionType));
+      const choices = questionType === "multiple_choice" && set.shuffleOptions ? options.fisherYates(question.options || []) : [...question.options || []];
+      return {
+        id: options.makeId(`grammar-attempt-question-${index + 1}`),
+        questionId: question.id,
+        questionType,
+        displayPosition: index + 1,
+        optionOrder: choices.map((choice2) => choice2.id),
+        questionSnapshot: question.questionText,
+        explanationSnapshot: question.explanation,
+        scoreSnapshot: question.score,
+        optionsSnapshot: choices,
+        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
+        acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
+      };
+    });
+    const attemptId = options.makeId("grammar-attempt");
+    const attemptToken = actor.isGuest ? options.createSessionToken() : "";
+    const gradeClass = options.getLessonGradeClass(set);
+    const attempt = {
+      id: attemptId,
+      grammarSetId: set.id,
+      grammarSetTitle: set.title,
+      assignmentId: request.body?.assignmentId || "",
+      userId: actor.id,
+      studentId: actor.id,
+      guestId: actor.isGuest ? actor.id : "",
+      studentName: actor.name,
+      classId: request.body?.classId || set.classId || gradeClass.classId || "",
+      className: request.body?.className || set.className || gradeClass.className || "",
+      status: "in_progress",
+      score: 0,
+      maxScore: attemptQuestions.reduce((sum, question) => sum + Number(question.scoreSnapshot || 1), 0),
+      correctCount: 0,
+      wrongCount: 0,
+      unansweredCount: attemptQuestions.length,
+      startedAt: timestamp,
+      createdAt: timestamp,
+      questions: attemptQuestions,
+      answers: [],
+      reviewPolicySnapshot: {
+        showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
+        showExplanationImmediately: Boolean(set.showExplanationImmediately),
+        policyVersion: 1,
+        capturedAt: timestamp
+      },
+      attemptTokenHash: attemptToken ? options.hashSessionToken(attemptToken) : ""
+    };
+    await options.repository.saveAttempt(attempt, set, false);
+    timing?.mark("persist");
+    return { status: 201, body: options.sanitizeAttempt(attempt, false, attemptToken) };
+  };
+  const saveAnswer = async (request, timing) => {
+    const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
+    const attempt = await attemptOrThrow(request.params.attemptId, timing);
+    const set = await setOrThrow(attempt.grammarSetId, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.", timing);
+    if (!options.canAccessAttempt(attempt, actor, set, request)) {
+      throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+    }
+    if (attempt.status === "completed") throw grammarAttemptHttpError(400, "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n.");
+    const attemptQuestion = (attempt.questions || []).find((question) => question.id === request.body?.attemptQuestionId);
+    if (!attemptQuestion) throw grammarAttemptHttpError(400, "C\xE2u h\u1ECFi kh\xF4ng h\u1EE3p l\u1EC7.");
+    const questionType = options.getQuestionType(attemptQuestion.questionType, options.getQuestionType(set?.questionType));
+    const selectedOptionId = questionType === "multiple_choice" ? String(request.body?.selectedOptionId || "") : "";
+    const textAnswer = questionType === "rewrite" ? options.safeText(request.body?.textAnswer, 4e3) : "";
+    if (questionType === "multiple_choice") {
+      const selected = (attemptQuestion.optionsSnapshot || []).find((choice2) => choice2.id === selectedOptionId);
+      if (!selected) throw grammarAttemptHttpError(400, "Ph\u01B0\u01A1ng \xE1n \u0111\xE3 ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7.");
+    } else if (!options.normalizeTextAnswer(textAnswer)) {
+      throw grammarAttemptHttpError(400, "Vui l\xF2ng nh\u1EADp c\xE2u tr\u1EA3 l\u1EDDi.");
+    }
+    const isCorrect = questionType === "rewrite" ? options.isTextAnswerCorrect(textAnswer, attemptQuestion.correctAnswerSnapshot, attemptQuestion.acceptedAnswersSnapshot) : selectedOptionId === attemptQuestion.correctOptionId;
+    const answer = {
+      id: options.makeId("grammar-answer"),
+      attemptQuestionId: attemptQuestion.id,
+      questionId: attemptQuestion.questionId,
+      questionType,
+      isCorrect,
+      scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
+      answeredAt: now().toISOString()
+    };
+    if (questionType === "rewrite") {
+      answer.textAnswer = textAnswer;
+      answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
+      answer.gradingVersion = options.gradingVersion;
+    } else {
+      answer.selectedOptionId = selectedOptionId;
+      answer.correctOptionId = attemptQuestion.correctOptionId;
+    }
+    const answers = (attempt.answers || []).filter((item) => item.attemptQuestionId !== attemptQuestion.id);
+    answers.push(answer);
+    const updatedAt = now().toISOString();
+    const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
+    await options.repository.saveAttempt(updatedAttempt, set, false);
+    timing?.mark("persist");
+    const feedback = set?.showExplanationImmediately ? {
+      isCorrect,
+      correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
+      correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
+      explanation: attemptQuestion.explanationSnapshot,
+      scoreAwarded: answer.scoreAwarded
+    } : null;
+    return { body: { answer: options.sanitizeAnswer(answer, Boolean(feedback)), feedback } };
+  };
+  const submitAttempt = async (request, timing) => {
+    const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
+    const attempt = await attemptOrThrow(request.params.attemptId, timing);
+    const set = await setOrThrow(attempt.grammarSetId, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.", timing);
+    if (!options.canAccessAttempt(attempt, actor, set, request)) {
+      throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+    }
+    if (attempt.status === "completed") {
+      return { body: { ...options.sanitizeAttempt(attempt, Boolean(set?.showReviewAfterSubmit)), alreadyCompleted: true } };
+    }
+    const answerMap = new Map((attempt.answers || []).map((answer) => [answer.attemptQuestionId, answer]));
+    let score = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+    let unansweredCount = 0;
+    for (const question of attempt.questions || []) {
+      const answer = answerMap.get(question.id);
+      if (!answer) unansweredCount++;
+      else if (answer.isCorrect) {
+        correctCount++;
+        score += Number(question.scoreSnapshot || 1);
+      } else wrongCount++;
+    }
+    const completedAt = now().toISOString();
+    const startedAt = attempt.startedAt || completedAt;
+    const durationSeconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1e3));
+    const updatedAttempt = {
+      ...attempt,
+      status: "completed",
+      submissionStatus: "completed",
+      score,
+      correctCount,
+      wrongCount,
+      unansweredCount,
+      completedAt,
+      durationSeconds,
+      updatedAt: completedAt
+    };
+    const event = options.grammarAttemptToLeaderboardEvent(updatedAttempt, set);
+    await options.repository.saveCompletedAttempt(updatedAttempt, set, event);
+    options.clearLeaderboardCache();
+    timing?.mark("persist");
+    return { body: options.sanitizeAttempt(updatedAttempt, Boolean(set?.showReviewAfterSubmit)) };
+  };
+  const reviewAttempt = async (request) => {
+    const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.");
+    const attempt = await attemptOrThrow(request.params.attemptId);
+    const set = await setOrThrow(attempt.grammarSetId, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!options.canAccessAttempt(attempt, actor, set, request, true)) {
+      throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
+    }
+    if (attempt.status !== "completed" && actor.role === "student") {
+      throw grammarAttemptHttpError(403, "Ch\u1EC9 \u0111\u01B0\u1EE3c xem l\u1EA1i sau khi n\u1ED9p b\xE0i.");
+    }
+    const staffReview = !actor.isGuest && (actor.role === "super_admin" || options.canManageSet(actor, set));
+    return { body: options.sanitizeAttempt(attempt, staffReview || Boolean(set?.showReviewAfterSubmit)) };
+  };
+  const listMyAttempts = async (request) => {
+    const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 xem l\u1ECBch s\u1EED l\xE0m b\xE0i.");
+    const set = await options.repository.getSet(request.params.id);
+    const actorField = actor.isGuest ? "guestId" : "userId";
+    const attempts = await options.repository.listAttemptsForActor(request.params.id, actorField, actor.id);
+    const list2 = attempts.map((attempt) => options.sanitizeAttempt(
+      attempt,
+      !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)
+    ));
+    list2.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    return { body: list2 };
+  };
+  return { activateAttempt, createAttempt, listMyAttempts, prepareAttempt, reviewAttempt, saveAnswer, submitAttempt };
+}
+
+// src/server/grammar-attempts/router.ts
+var import_express17 = __toESM(require("express"), 1);
+function createGrammarAttemptRouter(options) {
+  const router = import_express17.default.Router();
+  const timed = (label, action) => async (request, response) => {
+    const timing = options.createApiTiming(request, label);
+    try {
+      const result = await action(request, timing);
+      timing.finish(response);
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  };
+  const plain = (action) => async (request, response) => {
+    try {
+      const result = await action(request);
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.post("/grammar-sets/:id/attempts/prepare", options.authenticateOptionalUser, timed(
+    "POST /api/grammar-sets/:id/attempts/prepare",
+    (request, timing) => options.service.prepareAttempt(request, timing)
+  ));
+  router.post("/grammar-sets/:id/attempts/activate", options.authenticateOptionalUser, timed(
+    "POST /api/grammar-sets/:id/attempts/activate",
+    (request, timing) => options.service.activateAttempt(request, timing)
+  ));
+  router.post("/grammar-sets/:id/attempts", options.authenticateOptionalUser, timed(
+    "POST /api/grammar-sets/:id/attempts",
+    (request, timing) => options.service.createAttempt(request, timing)
+  ));
+  router.post("/grammar-attempts/:attemptId/answers", options.authenticateOptionalUser, timed(
+    "POST /api/grammar-attempts/:attemptId/answers",
+    (request, timing) => options.service.saveAnswer(request, timing)
+  ));
+  router.post("/grammar-attempts/:attemptId/submit", options.authenticateOptionalUser, timed(
+    "POST /api/grammar-attempts/:attemptId/submit",
+    (request, timing) => options.service.submitAttempt(request, timing)
+  ));
+  router.get("/grammar-attempts/:attemptId/review", options.authenticateOptionalUser, plain(
+    (request) => options.service.reviewAttempt(request)
+  ));
+  router.get("/grammar-sets/:id/my-attempts", options.authenticateOptionalUser, plain(
+    (request) => options.service.listMyAttempts(request)
+  ));
+  return router;
+}
+
+// src/server/vocabulary-runs/repository.ts
+function documentRecord2(document) {
+  return document.exists ? { id: document.id, ...document.data() } : null;
+}
+function createVocabularyRunRepository(options) {
+  return {
+    async getSession(id2) {
+      return documentRecord2(await options.db.collection("game_sessions").doc(id2).get());
+    },
+    async saveSession(session) {
+      await options.db.collection("game_sessions").doc(session.id).set(session);
+    },
+    async saveSessionWithHistory(session, includeDetail = false) {
+      const batch = options.db.batch();
+      batch.set(options.db.collection("game_sessions").doc(session.id), session);
+      options.appendLearningHistoryProjection(batch, options.projectVocabularyAttempt(session, {
+        detailRetentionDays: options.detailRetentionDays,
+        includeDetail
+      }));
+      await batch.commit();
+    },
+    async saveCompletedSession(session, leaderboardEvent) {
+      const batch = options.db.batch();
+      batch.set(options.db.collection("game_sessions").doc(session.id), session);
+      batch.set(options.db.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
+      options.appendLearningHistoryProjection(batch, options.projectVocabularyAttempt(session, {
+        detailRetentionDays: options.detailRetentionDays
+      }));
+      await batch.commit();
+    },
+    async getActionPair(canonicalActionId, legacyActionId) {
+      const [canonicalDocument, legacyDocument] = await Promise.all([
+        options.db.collection("game_session_actions").doc(canonicalActionId).get(),
+        options.db.collection("game_session_actions").doc(legacyActionId).get()
+      ]);
+      return {
+        canonical: documentRecord2(canonicalDocument),
+        legacy: documentRecord2(legacyDocument)
+      };
+    },
+    async saveActionAndTouchSession(action, session) {
+      const canonicalActionId = action.id;
+      const batch = options.db.batch();
+      batch.set(options.db.collection("game_session_actions").doc(canonicalActionId), action);
+      batch.update(options.db.collection("game_sessions").doc(session.id), {
+        status: session.status,
+        lastSavedAt: session.lastSavedAt,
+        updatedAt: session.updatedAt
+      });
+      options.appendLearningHistoryProjection(batch, options.projectVocabularyAttempt(session, {
+        detailRetentionDays: options.detailRetentionDays,
+        includeDetail: false
+      }));
+      await batch.commit();
+    },
+    async listActions(sessionId) {
+      const snapshot = await options.db.collection("game_session_actions").where("sessionId", "==", sessionId).get();
+      return (snapshot.docs || []).map((document) => ({ id: document.id, ...document.data() }));
+    },
+    async savePronunciationAttempt(attempt) {
+      await options.db.collection("pronunciation_attempts").doc(attempt.id).set(attempt);
+    }
+  };
+}
+
+// src/server/vocabulary-runs/service.ts
+function runHttpError(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createVocabularyRunService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const nowMs = options.nowMs || Date.now;
+  const completedRecord = (base, result, completedAt, includeLastSavedAt = false) => {
+    const durationMs = Math.max(0, nowMs() - new Date(base.startedAt || completedAt).getTime());
+    return {
+      ...base,
+      ...result,
+      status: "completed",
+      submissionStatus: "completed",
+      completedAt,
+      endedAt: completedAt,
+      submittedAt: completedAt,
+      ...includeLastSavedAt ? { lastSavedAt: completedAt } : {},
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1e3),
+      expiresAt: options.addDaysIso(completedAt, options.activityTtlDays)
+    };
+  };
+  const activateSession = async (request, timing) => {
+    if (!options.lazySessionEnabled) throw runHttpError(404, "Lazy session v3 is disabled.");
+    const payload = request.body || {};
+    const credentials = options.getClientRunCredentials(payload);
+    const context = await options.resolveStartContext(request, payload, timing);
+    if (context.gameId !== "speaking-ai") {
+      throw runHttpError(400, "Chi game Speaking AI moi can kich hoat session som.");
+    }
+    const id2 = options.deterministicRunDocumentId("session-v3", [
+      context.actor.ownerKey,
+      context.vocabSetId,
+      context.gameId,
+      credentials.clientRunId
+    ]);
+    const existing = await options.repository.getSession(id2);
+    timing?.mark("idempotency_lookup");
+    if (existing) {
+      if (!options.canResumeClientRun(request, existing, credentials.runSecret)) {
+        throw runHttpError(403, "Khong co quyen tiep tuc luot hoc nay.");
+      }
+      return { body: { ...options.omitSensitiveFields(existing), sessionToken: credentials.runSecret, alreadyActivated: true } };
+    }
+    const session = options.buildSessionRecord(context, payload, {
+      id: id2,
+      sessionTokenHash: options.hashSessionToken(credentials.runSecret),
+      schemaVersion: 3,
+      clientRunId: credentials.clientRunId,
+      startedAt: payload.startedAt
+    });
+    await options.repository.saveSessionWithHistory(session, false);
+    timing?.mark("persist");
+    return { status: 201, body: { ...options.omitSensitiveFields(session), sessionToken: credentials.runSecret } };
+  };
+  const lazyComplete = async (request, timing) => {
+    if (!options.lazySessionEnabled) throw runHttpError(404, "Lazy session v3 is disabled.");
+    const payload = request.body || {};
+    const credentials = options.getClientRunCredentials(payload);
+    const context = await options.resolveStartContext(request, payload, timing);
+    if (context.gameId === "speaking-ai") {
+      throw runHttpError(400, "Speaking AI phai kich hoat session khi bat dau ghi am.");
+    }
+    const id2 = options.deterministicRunDocumentId("session-v3", [
+      context.actor.ownerKey,
+      context.vocabSetId,
+      context.gameId,
+      credentials.clientRunId
+    ]);
+    const existing = await options.repository.getSession(id2);
+    timing?.mark("idempotency_lookup");
+    if (existing) {
+      if (!options.canResumeClientRun(request, existing, credentials.runSecret)) {
+        throw runHttpError(403, "Khong co quyen nop luot hoc nay.");
+      }
+      if (existing.status === "completed") {
+        return { body: { ...options.omitSensitiveFields(existing), alreadyCompleted: true } };
+      }
+    }
+    const actions = options.sanitizeSubmittedActions(payload.actions);
+    const baseSession = existing || options.buildSessionRecord(context, payload, {
+      id: id2,
+      sessionTokenHash: options.hashSessionToken(credentials.runSecret),
+      schemaVersion: 3,
+      clientRunId: credentials.clientRunId,
+      startedAt: payload.startedAt
+    });
+    const completedAt = now().toISOString();
+    const completed = completedRecord(baseSession, options.gradeSession(baseSession, actions), completedAt, true);
+    const event = options.sessionToLeaderboardEvent({ ...completed, id: id2 });
+    await options.repository.saveCompletedSession(completed, event);
+    options.clearLeaderboardCache();
+    timing?.mark("persist");
+    return { body: options.omitSensitiveFields(completed) };
+  };
+  const startSession = async (request, timing) => {
+    const payload = request.body || {};
+    const context = await options.resolveStartContext(request, payload, timing);
+    const id2 = `session-${options.randomUUID()}`;
+    const sessionToken = options.createSessionToken();
+    const session = options.buildSessionRecord(context, payload, {
+      id: id2,
+      sessionTokenHash: options.hashSessionToken(sessionToken),
+      schemaVersion: 2
+    });
+    delete session.submissionStatus;
+    delete session.activatedAt;
+    delete session.clientRunId;
+    await options.repository.saveSession(session);
+    timing?.mark("persist");
+    return { status: 201, body: { ...options.omitSensitiveFields(session), sessionToken } };
+  };
+  const updateSession = async (request) => {
+    const payload = request.body || {};
+    const existing = await options.repository.getSession(request.params.id);
+    if (!existing) throw runHttpError(404, "Session kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!options.canUpdateSession(request, existing, payload)) {
+      throw runHttpError(403, "You do not have permission to update this game session.");
+    }
+    if (existing.status === "completed") {
+      throw runHttpError(409, "This game session has already been completed.");
+    }
+    const endedAt = payload.endedAt || now().toISOString();
+    const startedAt = existing.startedAt || endedAt;
+    const durationMs = Math.max(0, Number(payload.durationMs ?? new Date(endedAt).getTime() - new Date(startedAt).getTime()));
+    const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
+    const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
+    const answerDetails = Array.isArray(payload.answerDetails) ? payload.answerDetails.slice(0, 200).map((item, index) => ({
+      questionIndex: Number.isFinite(Number(item.questionIndex)) ? Number(item.questionIndex) : index,
+      wordId: item.wordId || "",
+      word: item.word || "",
+      questionText: item.questionText || "",
+      correctAnswer: item.correctAnswer || "",
+      userAnswer: item.userAnswer || "",
+      selectedAnswer: item.selectedAnswer || "",
+      isCorrect: Boolean(item.isCorrect),
+      timeSpentMs: item.timeSpentMs ? Number(item.timeSpentMs) : void 0,
+      options: Array.isArray(item.options) ? item.options.slice(0, 6).map((choice2) => String(choice2).slice(0, 160)) : void 0
+    })) : [];
+    const completed = {
+      ...existing,
+      answerDetails,
+      score: Math.max(0, Number(payload.score || 0)),
+      totalQuestions,
+      correctAnswers,
+      incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
+      accuracy: totalQuestions > 0 ? Math.round(correctAnswers / totalQuestions * 100) : 0,
+      durationMs,
+      durationSeconds: Math.round(durationMs / 1e3),
+      status: "completed",
+      submissionStatus: "completed",
+      endedAt,
+      completedAt: endedAt,
+      expiresAt: options.addDaysIso(endedAt, options.activityTtlDays)
+    };
+    const event = options.sessionToLeaderboardEvent({ ...completed, id: request.params.id });
+    await options.repository.saveCompletedSession(completed, event);
+    options.clearLeaderboardCache();
+    return { body: options.omitSensitiveFields(completed) };
+  };
+  const saveAction = async (request, timing) => {
+    const session = await options.repository.getSession(request.params.id);
+    timing?.mark("session_read");
+    if (!session) throw runHttpError(404, "Session kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!options.canUpdateSession(request, session, request.body || {})) {
+      throw runHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u l\u01B0\u1EE3t ch\u01A1i n\xE0y.");
+    }
+    if (!options.supportsIncrementalSession(session)) {
+      throw runHttpError(400, "Session c\u0169 kh\xF4ng h\u1ED7 tr\u1EE3 l\u01B0u ti\u1EBFn \u0111\u1ED9.");
+    }
+    if (session.status === "completed") return { body: { saved: true, completed: true } };
+    const action = options.sanitizeAction({ ...request.body?.action, actionId: request.params.actionId });
+    if (!action.actionId) throw runHttpError(400, "Thi\u1EBFu actionId.");
+    const canonicalActionId = `${request.params.id}:sequence:${action.sequence}`;
+    const legacyActionId = `${request.params.id}:${action.actionId}`;
+    const found = await options.repository.getActionPair(canonicalActionId, legacyActionId);
+    timing?.mark("action_lookup");
+    if (found.canonical) {
+      if (found.canonical.actionId && found.canonical.actionId !== action.actionId) {
+        throw runHttpError(409, "Action sequence \u0111\xE3 t\u1ED3n t\u1EA1i.");
+      }
+      return { body: { saved: true, actionId: action.actionId, sequence: action.sequence } };
+    }
+    if (found.legacy) return { body: { saved: true, actionId: action.actionId, sequence: action.sequence } };
+    const timestamp = now().toISOString();
+    const touchedSession = { ...session, id: request.params.id, status: "in_progress", lastSavedAt: timestamp, updatedAt: timestamp };
+    await options.repository.saveActionAndTouchSession({
+      ...action,
+      id: canonicalActionId,
+      sessionId: request.params.id,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }, touchedSession);
+    timing?.mark("persist");
+    return { body: { saved: true, actionId: action.actionId, sequence: action.sequence } };
+  };
+  const submitSession = async (request, timing) => {
+    const session = await options.repository.getSession(request.params.id);
+    timing?.mark("session_read");
+    if (!session) throw runHttpError(404, "Session kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!options.canUpdateSession(request, session, request.body || {})) {
+      throw runHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t ch\u01A1i n\xE0y.");
+    }
+    if (session.status === "completed") return { body: options.omitSensitiveFields(session) };
+    if (!options.supportsIncrementalSession(session)) {
+      throw runHttpError(400, "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169.");
+    }
+    const actions = session.actionPersistence === "submit_batch" && Array.isArray(request.body?.actions) ? options.sanitizeSubmittedActions(request.body.actions) : options.dedupeStoredActions(await options.repository.listActions(request.params.id));
+    timing?.mark("actions_read");
+    const completedAt = now().toISOString();
+    const completed = completedRecord(session, options.gradeSession(session, actions), completedAt);
+    const event = options.sessionToLeaderboardEvent({ ...completed, id: request.params.id });
+    await options.repository.saveCompletedSession(completed, event);
+    options.clearLeaderboardCache();
+    timing?.mark("persist");
+    return { body: options.omitSensitiveFields(completed) };
+  };
+  const savePronunciationAttempt = async (request) => {
+    const payload = request.body || {};
+    const timestamp = now().toISOString();
+    const gameSessionId = options.safeText(payload.gameSessionId, 160);
+    let session = null;
+    if (gameSessionId) {
+      session = await options.repository.getSession(gameSessionId);
+      if (!session) throw runHttpError(404, "Session kh\xF4ng t\u1ED3n t\u1EA1i.");
+      if (!options.canUpdateSession(request, session, payload)) {
+        throw runHttpError(403, "You do not have permission to save this pronunciation attempt.");
+      }
+      if (session.status === "completed") {
+        throw runHttpError(409, "This game session has already been completed.");
+      }
+    } else if (!request.user) {
+      throw runHttpError(401, "Game session is required to save pronunciation attempts.");
+    }
+    const actor = session ? {
+      ownerKey: session.ownerKey || "",
+      ownerType: session.ownerType || "",
+      userId: session.userId || "",
+      studentId: session.studentId || session.guestId || "",
+      guestId: session.guestId || "",
+      studentName: session.studentName || ""
+    } : options.getSessionActor(request, payload);
+    if (!actor) throw runHttpError(401, "Student identity is required to save pronunciation attempts.");
+    const attempt = {
+      id: `pronunciation-${options.randomUUID()}`,
+      ownerKey: actor.ownerKey,
+      ownerType: actor.ownerType,
+      userId: actor.userId || "",
+      studentId: actor.studentId || actor.guestId || "",
+      guestId: actor.guestId || "",
+      studentName: actor.studentName || "",
+      vocabularySetId: session?.vocabSetId || options.safeText(payload.vocabularySetId || payload.vocabSetId || "", 160),
+      wordId: options.safeText(payload.wordId, 160),
+      targetText: options.safeText(payload.targetText, 500),
+      recognizedText: options.safeText(payload.recognizedText, 500),
+      score: Math.max(0, Math.min(100, Number(payload.score || 0))),
+      correctWords: Math.max(0, Number(payload.correctWords || 0)),
+      totalWords: Math.max(0, Number(payload.totalWords || 0)),
+      attemptCount: Math.max(1, Number(payload.attemptCount || 1)),
+      gameSessionId,
+      gameId: "speaking-ai",
+      playedAt: timestamp,
+      createdAt: timestamp
+    };
+    await options.repository.savePronunciationAttempt(attempt);
+    return { status: 201, body: attempt };
+  };
+  return { activateSession, lazyComplete, saveAction, savePronunciationAttempt, startSession, submitSession, updateSession };
+}
+
+// src/server/vocabulary-runs/router.ts
+var import_express18 = __toESM(require("express"), 1);
+function createVocabularyRunRouter(options) {
+  const router = import_express18.default.Router();
+  const timed = (label, action) => async (request, response) => {
+    const timing = options.createApiTiming(request, label);
+    try {
+      const result = await action(request, timing);
+      timing.finish(response);
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  };
+  const plain = (action) => async (request, response) => {
+    try {
+      const result = await action(request);
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  router.post("/game-sessions/activate", options.authenticateOptionalUser, timed(
+    "POST /api/game-sessions/activate",
+    (request, timing) => options.service.activateSession(request, timing)
+  ));
+  router.post("/game-sessions/lazy-complete", options.authenticateOptionalUser, timed(
+    "POST /api/game-sessions/lazy-complete",
+    (request, timing) => options.service.lazyComplete(request, timing)
+  ));
+  router.post("/game-sessions", options.authenticateOptionalUser, timed(
+    "POST /api/game-sessions",
+    (request, timing) => options.service.startSession(request, timing)
+  ));
+  router.put("/game-sessions/:id", options.authenticateOptionalUser, plain(
+    (request) => options.service.updateSession(request)
+  ));
+  router.put("/game-sessions/:id/actions/:actionId", options.authenticateOptionalUser, timed(
+    "PUT /api/game-sessions/:id/actions/:actionId",
+    (request, timing) => options.service.saveAction(request, timing)
+  ));
+  router.post("/game-sessions/:id/submit", options.authenticateOptionalUser, timed(
+    "POST /api/game-sessions/:id/submit",
+    (request, timing) => options.service.submitSession(request, timing)
+  ));
+  router.post("/pronunciation-attempts", options.authenticateOptionalUser, plain(
+    (request) => options.service.savePronunciationAttempt(request)
+  ));
+  return router;
+}
+
+// src/server/results/repository.ts
+function records(snapshot) {
+  const result = [];
+  snapshot.forEach((document) => result.push({ id: document.id, ...document.data() }));
+  return result;
+}
+function createResultsRepository(options) {
+  const loadRecent = async (collectionName, cutoff, limit) => {
+    let query = options.db.collection(collectionName).where("completedAt", ">=", cutoff);
+    if (limit) query = query.orderBy("completedAt", "desc").limit(limit);
+    return records(await query.get());
+  };
+  const loadMap = async (collectionName) => {
+    const map = /* @__PURE__ */ new Map();
+    for (const record2 of records(await options.db.collection(collectionName).get())) map.set(record2.id, record2);
+    return map;
+  };
+  return {
+    async loadActivitySources(cutoff, limit, includeMembers = false) {
+      const [gameSessions, grammarAttempts, listeningAttempts, grammarSets, vocabSets, listeningSets, assignments, classes, members] = await Promise.all([
+        loadRecent("game_sessions", cutoff, limit),
+        loadRecent("grammar_attempts", cutoff, limit),
+        loadRecent("listening_attempts", cutoff, limit),
+        loadMap("grammar_sets"),
+        loadMap("vocab_sets"),
+        includeMembers ? Promise.resolve(/* @__PURE__ */ new Map()) : loadMap("listening_sets"),
+        loadMap("assignments"),
+        loadMap("classes"),
+        includeMembers ? loadMap("class_members") : Promise.resolve(/* @__PURE__ */ new Map())
+      ]);
+      return { gameSessions, grammarAttempts, listeningAttempts, grammarSets, vocabSets, listeningSets, assignments, classes, members };
+    },
+    async loadScopeMetadata() {
+      const [grammarSets, vocabSets, assignments, classes] = await Promise.all([
+        loadMap("grammar_sets"),
+        loadMap("vocab_sets"),
+        loadMap("assignments"),
+        loadMap("classes")
+      ]);
+      return { grammarSets, vocabSets, assignments, classes };
+    },
+    async getRecord(collectionName, id2) {
+      const document = await options.db.collection(collectionName).doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async getClasses(ids) {
+      const documents = await Promise.all(ids.map((id2) => options.db.collection("classes").doc(id2).get()));
+      const map = /* @__PURE__ */ new Map();
+      for (const document of documents) if (document.exists) map.set(document.id, { id: document.id, ...document.data() });
+      return map;
+    },
+    loadLeaderboardEvents: options.loadLeaderboardEvents,
+    loadReadyLeaderboardEvents: options.loadReadyLeaderboardEvents,
+    async resolveListeningDetail(attempt, cache) {
+      return options.resolveListeningDetail(options.db, attempt, cache);
+    }
+  };
+}
+
+// src/server/results/service.ts
+function httpError5(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createResultsService(options) {
+  const nowMs = options.nowMs || Date.now;
+  const recentCutoff = () => new Date(nowMs() - options.activityTtlMs).toISOString();
+  const recentEnough = (activity) => new Date(options.getActivityTime(activity)).getTime() >= nowMs() - options.activityTtlMs;
+  const canViewListening = (user, attempt, set) => user?.role === "super_admin" || attempt.userId === user?.id || attempt.ownerKey === `user:${user?.id}` || user?.role === "teacher" && set?.ownerId === user.id;
+  const getPublicResults = async (request, timing) => {
+    const resultLimit = options.parseResultLimit(request.query.limit);
+    const sources = await options.repository.loadActivitySources(recentCutoff(), resultLimit, true);
+    timing?.mark("sources");
+    const uniqueAssignmentClassByVocabSet = /* @__PURE__ */ new Map();
+    const uniqueMemberClassByName = /* @__PURE__ */ new Map();
+    for (const assignment of sources.assignments.values()) {
+      options.setUniqueClass(uniqueAssignmentClassByVocabSet, assignment.vocabSetId, {
+        classId: assignment.classId,
+        className: assignment.className || sources.classes.get(assignment.classId)?.name || ""
+      });
+    }
+    for (const member of sources.members.values()) {
+      options.setUniqueClass(uniqueMemberClassByName, options.normalizePersonName(member.studentName), {
+        classId: member.classId,
+        className: member.className || sources.classes.get(member.classId)?.name || ""
+      });
+    }
+    const list2 = [];
+    for (const data of sources.gameSessions) {
+      if (!data.completedAt || options.isExpiredActivity(data) || !recentEnough(data)) continue;
+      const assignment = data.assignmentId ? sources.assignments.get(data.assignmentId) : null;
+      const assignmentClass = assignment ? {
+        classId: assignment.classId,
+        className: assignment.className || sources.classes.get(assignment.classId)?.name || ""
+      } : null;
+      const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
+      const gradeClass = options.getLessonGradeClass(sources.vocabSets.get(data.vocabSetId));
+      const memberClass = uniqueMemberClassByName.get(options.normalizePersonName(data.studentName)) || null;
+      const resolvedClass = data.classId ? { classId: data.classId, className: data.className || sources.classes.get(data.classId)?.name || "" } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : gradeClass.classId ? gradeClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
+      list2.push({
+        id: data.id,
+        assignmentId: data.assignmentId,
+        classId: resolvedClass.classId,
+        className: resolvedClass.className,
+        vocabSetId: data.vocabSetId,
+        vocabSetTitle: data.vocabSetTitle,
+        gameId: data.gameId,
+        studentName: data.studentName,
+        guestId: data.guestId,
+        startedAt: data.startedAt,
+        completedAt: data.completedAt,
+        score: data.score || 0,
+        totalQuestions: data.totalQuestions || 0,
+        correctAnswers: data.correctAnswers || 0,
+        incorrectAnswers: data.incorrectAnswers || 0,
+        endedAt: data.endedAt || data.completedAt,
+        durationMs: data.durationMs || 0,
+        durationSeconds: data.durationSeconds || 0,
+        accuracy: data.accuracy || 0,
+        createdAt: data.createdAt,
+        expiresAt: data.expiresAt
+      });
+    }
+    for (const attempt of sources.grammarAttempts) {
+      if (attempt.status !== "completed" || !attempt.completedAt || options.isExpiredActivity(attempt) || !recentEnough(attempt)) continue;
+      const activity = options.grammarAttemptToActivity(attempt, sources.grammarSets.get(attempt.grammarSetId));
+      delete activity.answerDetails;
+      list2.push(activity);
+    }
+    for (const attempt of sources.listeningAttempts) {
+      if (!attempt.completedAt || !recentEnough(attempt)) continue;
+      list2.push(options.listeningAttemptToActivity(attempt));
+    }
+    list2.sort((a, b) => new Date(options.getActivityTime(b)).getTime() - new Date(options.getActivityTime(a)).getTime());
+    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
+    timing?.mark("shape");
+    const named = await options.enrichStudentNames(bounded);
+    timing?.mark("names");
+    return { body: named.map(options.sanitizePublicStudentRecord) };
+  };
+  const getPublicLeaderboardResults = async (timing) => {
+    const list2 = await options.repository.loadLeaderboardEvents(timing);
+    return { body: list2.map(options.sanitizePublicStudentRecord) };
+  };
+  const getPublicLeaderboardSummary = async (request, timing) => {
+    const period = request.query.period === "month" ? "month" : "week";
+    const classId = options.safeText(request.query.classId, 180);
+    const requestedLimit = Number(request.query.limit || 8);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
+    const cacheKey = `${period}:${classId}:${limit}`;
+    const cached = options.getCachedLeaderboardSummary(cacheKey);
+    const headers = { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" };
+    if (cached && cached.expiresAt > nowMs()) {
+      timing?.mark("memory_cache");
+      return { body: cached.value, headers };
+    }
+    let events = await options.repository.loadReadyLeaderboardEvents(timing);
+    if (!events) {
+      timing?.mark("read_model_fallback");
+      events = await options.repository.loadLeaderboardEvents(timing);
+    }
+    const publicEvents = events.map(options.sanitizePublicStudentRecord);
+    const classesById = /* @__PURE__ */ new Map();
+    for (const event of publicEvents) {
+      const eventClassId = options.safeText(event.classId, 180);
+      if (!eventClassId) continue;
+      const eventClassName = options.safeText(event.className, 180) || eventClassId;
+      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
+    }
+    const entries = options.buildLeaderboard(publicEvents, [], { period, ...classId ? { classId } : {} }).gold.slice(0, limit);
+    const value = {
+      entries,
+      classes: [...classesById.entries()].map(([id2, name]) => ({ id: id2, name })).sort((a, b) => a.name.localeCompare(b.name, "vi")),
+      period
+    };
+    options.cacheLeaderboardSummary(cacheKey, value);
+    timing?.mark("aggregate");
+    return { body: value, headers };
+  };
+  const loadScopedRecentActivitySummaries = async (user, limit = options.maxResultLimit) => {
+    const boundedLimit = Math.max(1, Math.min(options.maxResultLimit, Math.floor(limit)));
+    const sources = await options.repository.loadActivitySources(recentCutoff(), boundedLimit);
+    const list2 = [];
+    for (const data of sources.gameSessions) {
+      if (!data.completedAt || options.isExpiredActivity(data) || !recentEnough(data)) continue;
+      if (!options.canViewResultSession(user, data, sources.vocabSets, sources.assignments, sources.classes)) continue;
+      const gradeClass = options.getLessonGradeClass(sources.vocabSets.get(data.vocabSetId));
+      list2.push(options.toActivitySummary({
+        ...options.sanitizeActivityDetail(data),
+        id: data.id,
+        classId: data.classId || gradeClass.classId || "",
+        className: data.className || gradeClass.className || ""
+      }, "vocabulary", data.id));
+    }
+    for (const data of sources.grammarAttempts) {
+      if (data.status !== "completed" || !data.completedAt || options.isExpiredActivity(data) || !recentEnough(data)) continue;
+      if (!options.canViewGrammarActivity(user, data, sources.grammarSets.get(data.grammarSetId))) continue;
+      list2.push(options.toActivitySummary(options.grammarAttemptToActivity(data, sources.grammarSets.get(data.grammarSetId)), "grammar", data.id));
+    }
+    for (const data of sources.listeningAttempts) {
+      if (!data.completedAt || !recentEnough(data) || !canViewListening(user, data, sources.listeningSets.get(data.setId))) continue;
+      list2.push(options.toActivitySummary(options.listeningAttemptToActivity(data), "listening", data.id));
+    }
+    list2.sort((a, b) => new Date(options.getActivityTime(b)).getTime() - new Date(options.getActivityTime(a)).getTime());
+    return options.enrichStudentNames(list2.slice(0, boundedLimit));
+  };
+  const loadScopedLeaderboardResults = async (user, timing) => {
+    const [events, metadata] = await Promise.all([
+      options.repository.loadLeaderboardEvents(timing),
+      options.repository.loadScopeMetadata()
+    ]);
+    timing?.mark("scope_sources");
+    const scoped = events.filter((event) => event.sourceType === "grammar" ? options.canViewGrammarActivity(user, event, metadata.grammarSets.get(event.grammarSetId)) : options.canViewResultSession(user, event, metadata.vocabSets, metadata.assignments, metadata.classes));
+    timing?.mark("scope");
+    return scoped;
+  };
+  const getResultDetail = async (request, timing) => {
+    if (!request.user) throw httpError5(401, "Unauthenticated");
+    const sourceType = options.safeText(request.params.sourceType, 80);
+    const requestedId = options.safeText(request.params.resultId, 200);
+    if (!requestedId || !["vocabulary", "grammar", "listening"].includes(sourceType)) throw httpError5(400, "Lo\u1EA1i k\u1EBFt qu\u1EA3 kh\xF4ng h\u1EE3p l\u1EC7.");
+    let activity;
+    if (sourceType === "vocabulary") {
+      const session = await options.repository.getRecord("game_sessions", requestedId);
+      if (!session || !session.completedAt || options.isExpiredActivity(session)) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      const [vocabSet, assignment] = await Promise.all([
+        session.vocabSetId ? options.repository.getRecord("vocab_sets", session.vocabSetId) : null,
+        session.assignmentId ? options.repository.getRecord("assignments", session.assignmentId) : null
+      ]);
+      const classes = await options.repository.getClasses([...new Set([session.classId, assignment?.classId].filter(Boolean))]);
+      const vocabSets = new Map(vocabSet ? [[vocabSet.id, vocabSet]] : []);
+      const assignments = new Map(assignment ? [[assignment.id, assignment]] : []);
+      if (!options.canViewResultSession(request.user, session, vocabSets, assignments, classes)) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      const gradeClass = options.getLessonGradeClass(vocabSet);
+      activity = options.sanitizeActivityDetail({ ...session, sourceType: "vocabulary", sourceId: session.id, classId: session.classId || gradeClass.classId || "", className: session.className || gradeClass.className || "" });
+    } else if (sourceType === "grammar") {
+      const sourceId = requestedId.startsWith("grammar-") ? requestedId.slice("grammar-".length) : requestedId;
+      const attempt = await options.repository.getRecord("grammar_attempts", sourceId);
+      if (!attempt) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      const set = attempt.grammarSetId ? await options.repository.getRecord("grammar_sets", attempt.grammarSetId) : null;
+      if (attempt.status !== "completed" || !attempt.completedAt || options.isExpiredActivity(attempt) || !options.canViewGrammarActivity(request.user, attempt, set)) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      activity = options.grammarAttemptToActivity(attempt, set);
+      activity.sourceId = attempt.id;
+    } else {
+      const attempt = await options.repository.getRecord("listening_attempts", requestedId);
+      if (!attempt) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      const set = attempt.setId ? await options.repository.getRecord("listening_sets", attempt.setId) : null;
+      if (!attempt.completedAt || !canViewListening(request.user, attempt, set)) throw httpError5(404, "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3.");
+      const isStaff2 = request.user.role === "teacher" || request.user.role === "super_admin";
+      const detail = isStaff2 ? await options.repository.resolveListeningDetail(attempt) : null;
+      activity = options.listeningAttemptToActivity(attempt, detail);
+    }
+    timing?.mark("detail");
+    const [named] = await options.enrichStudentNames([activity]);
+    timing?.mark("names");
+    return { body: named };
+  };
+  const getResults = async (request, timing) => {
+    const summaryView = request.query.view === "summary";
+    const resultLimit = summaryView ? options.parseResultLimit(request.query.limit) : null;
+    if (summaryView) {
+      const summaries = await loadScopedRecentActivitySummaries(request.user, resultLimit || options.maxResultLimit);
+      timing?.mark("summary");
+      return { body: summaries };
+    }
+    const sources = await options.repository.loadActivitySources(recentCutoff(), resultLimit);
+    timing?.mark("sources");
+    const list2 = [];
+    for (const data of sources.gameSessions) {
+      if (!data.completedAt || options.isExpiredActivity(data) || !recentEnough(data)) continue;
+      if (!options.canViewResultSession(request.user, data, sources.vocabSets, sources.assignments, sources.classes)) continue;
+      const gradeClass = options.getLessonGradeClass(sources.vocabSets.get(data.vocabSetId));
+      list2.push(options.sanitizeActivityDetail({ ...data, sourceType: "vocabulary", sourceId: data.id, classId: data.classId || gradeClass.classId || "", className: data.className || gradeClass.className || "" }));
+    }
+    for (const data of sources.grammarAttempts) {
+      if (data.status !== "completed" || !data.completedAt || options.isExpiredActivity(data) || !recentEnough(data)) continue;
+      if (!options.canViewGrammarActivity(request.user, data, sources.grammarSets.get(data.grammarSetId))) continue;
+      list2.push({ ...options.grammarAttemptToActivity(data, sources.grammarSets.get(data.grammarSetId)), sourceId: data.id });
+    }
+    const visibleListening = sources.listeningAttempts.filter((data) => data.completedAt && recentEnough(data) && canViewListening(request.user, data, sources.listeningSets.get(data.setId)));
+    const isStaff2 = request.user?.role === "teacher" || request.user?.role === "super_admin";
+    const detailCache = /* @__PURE__ */ new Map();
+    list2.push(...await Promise.all(visibleListening.map(async (data) => {
+      if (!isStaff2) return options.listeningAttemptToActivity(data);
+      return options.listeningAttemptToActivity(data, await options.repository.resolveListeningDetail(data, detailCache));
+    })));
+    list2.sort((a, b) => new Date(options.getActivityTime(b)).getTime() - new Date(options.getActivityTime(a)).getTime());
+    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
+    timing?.mark("shape");
+    const named = await options.enrichStudentNames(bounded);
+    timing?.mark("names");
+    return { body: named };
+  };
+  const getLeaderboardResults = async (request, timing) => ({ body: await loadScopedLeaderboardResults(request.user, timing) });
+  return {
+    getLeaderboardResults,
+    getPublicLeaderboardResults,
+    getPublicLeaderboardSummary,
+    getPublicResults,
+    getResultDetail,
+    getResults,
+    loadScopedLeaderboardResults,
+    loadScopedRecentActivitySummaries
+  };
+}
+
+// src/server/results/router.ts
+var import_express19 = __toESM(require("express"), 1);
+function createResultsRouter(options) {
+  const router = import_express19.default.Router();
+  const timed = (label, action) => async (request, response) => {
+    const timing = options.createApiTiming(request, label);
+    try {
+      const result = await action(request, timing);
+      timing.finish(response);
+      for (const [name, value] of Object.entries(result.headers || {})) response.set(name, String(value));
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      timing.finish(response);
+      options.sendApiError(response, error);
+    }
+  };
+  router.get("/public/results", timed("GET /api/public/results", (request, timing) => options.service.getPublicResults(request, timing)));
+  router.get("/public/leaderboard-results", timed("GET /api/public/leaderboard-results", (_request, timing) => options.service.getPublicLeaderboardResults(timing)));
+  router.get("/public/leaderboard-summary", timed("GET /api/public/leaderboard-summary", (request, timing) => options.service.getPublicLeaderboardSummary(request, timing)));
+  router.get("/results/:sourceType/:resultId", options.authenticateUser, timed("GET /api/results/:sourceType/:resultId", (request, timing) => options.service.getResultDetail(request, timing)));
+  router.get("/results", options.authenticateUser, timed("GET /api/results", (request, timing) => options.service.getResults(request, timing)));
+  router.get("/leaderboard-results", options.authenticateUser, timed("GET /api/leaderboard-results", (request, timing) => options.service.getLeaderboardResults(request, timing)));
+  return router;
+}
+
+// src/server/accounts/repository.ts
+function records2(snapshot, includeDocumentId = true) {
+  const result = [];
+  snapshot.forEach((document) => {
+    const data = document.data();
+    result.push(includeDocumentId ? { id: data.id || document.id, ...data } : data);
+  });
+  return result;
+}
+function createAccountRepository(options) {
+  return {
+    async listUsers(includeDocumentId = true) {
+      return records2(await options.db.collection("users").get(), includeDocumentId);
+    },
+    async listGuestProfiles() {
+      return records2(await options.db.collection("guest_profiles").get());
+    },
+    async getUser(id2) {
+      const document = await options.db.collection("users").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async updateUser(id2, changes) {
+      await options.db.collection("users").doc(id2).update(changes);
+    },
+    async getGuestProfile(id2) {
+      const document = await options.db.collection("guest_profiles").doc(id2).get();
+      return document.exists ? { id: document.id, ...document.data() } : null;
+    },
+    async updateGuestProfile(id2, changes) {
+      await options.db.collection("guest_profiles").doc(id2).update(changes);
+    },
+    async listAuditLogs(includeDocumentId = true) {
+      return records2(await options.db.collection("audit_logs").orderBy("timestamp", "desc").get(), includeDocumentId);
+    }
+  };
+}
+
+// src/server/accounts/service.ts
+function httpError6(status, message) {
+  return Object.assign(new Error(message), { status });
+}
+function createAccountService(options) {
+  const now = options.now || (() => /* @__PURE__ */ new Date());
+  const nowMs = options.nowMs || Date.now;
+  const requireActor = (request) => {
+    if (!request.user) throw httpError6(401, "Unauthenticated");
+    return request.user;
+  };
+  const pageAdminRecords = (records3, request) => {
+    const total = records3.length;
+    const pageSize = Math.max(1, Math.min(100, Number(request?.pageSize || 10)));
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(Math.max(1, Number(request?.page || 1)), totalPages);
+    return { items: records3.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total, totalPages };
+  };
+  const loadScopedAdminAccounts = async (user) => {
+    const [users, guests] = await Promise.all([
+      options.repository.listUsers(),
+      options.repository.listGuestProfiles()
+    ]);
+    const accounts = [];
+    if (options.isSuperAdmin(user)) {
+      for (const data of users) accounts.push({
+        ...data,
+        name: data.name || data.displayName || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
+        accountType: "registered",
+        status: data.status || "active"
+      });
+    }
+    const manageableGuestIds = options.isSuperAdmin(user) ? null : await options.getManageableGuestIds(user);
+    for (const raw of guests) {
+      const data = {
+        ...options.omitGuestCapabilitySecrets(raw),
+        id: raw.id,
+        guestId: raw.guestId || raw.id
+      };
+      if (manageableGuestIds && !manageableGuestIds.has(options.getGuestProfileId(data.guestId || data.id))) continue;
+      accounts.push({
+        ...data,
+        name: data.displayName || data.name || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
+        email: "",
+        phone: "",
+        role: "student",
+        accountType: "guest",
+        status: data.status || "active"
+      });
+    }
+    accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime() - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
+    return accounts;
+  };
+  const loadAdminAccountsPage = async (user, request) => {
+    const keyword = options.normalizePersonName(request?.search || "");
+    const accounts = (await loadScopedAdminAccounts(user)).filter((account) => {
+      const searchable = options.normalizePersonName([account.name, account.email, account.phone, account.guestId, account.id].filter(Boolean).join(" "));
+      if (keyword && !searchable.includes(keyword)) return false;
+      if (request?.role && account.role !== request.role) return false;
+      if (request?.status && account.status !== request.status) return false;
+      return true;
+    });
+    return pageAdminRecords(accounts, request);
+  };
+  const loadAdminAuditLogPage = async (user, request) => {
+    if (!options.isSuperAdmin(user)) throw httpError6(403, "Super-admin access required.");
+    const keyword = options.normalizePersonName(request?.search || "");
+    const logs = (await options.repository.listAuditLogs()).filter((data) => {
+      const searchable = options.normalizePersonName([data.action, data.details, data.userName, data.userEmail].filter(Boolean).join(" "));
+      return !keyword || searchable.includes(keyword);
+    });
+    return pageAdminRecords(logs, request);
+  };
+  const listUsers = async (_request) => ({ body: await options.repository.listUsers(false) });
+  const listAccounts = async (request) => ({ body: await loadScopedAdminAccounts(requireActor(request)) });
+  const listAuditLogs = async (_request) => ({ body: await options.repository.listAuditLogs(false) });
+  const updateUserDisplayName = async (request) => {
+    const actor = requireActor(request);
+    const validation = options.validateDisplayName(request.body?.displayName || request.body?.name);
+    if (!validation.valid) throw httpError6(400, validation.error || "T\xEAn hi\u1EC3n th\u1ECB kh\xF4ng h\u1EE3p l\u1EC7.");
+    const existing = await options.repository.getUser(request.params.userId);
+    if (!existing) throw httpError6(404, "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i.");
+    const displayName = validation.value || "";
+    await options.repository.updateUser(request.params.userId, { name: displayName, updatedAt: now().toISOString() });
+    options.invalidateStudentNameCache();
+    let authWarning = "";
+    try {
+      await options.updateAuthDisplayName(request.params.userId, displayName);
+    } catch (error) {
+      authWarning = error?.message || "Kh\xF4ng \u0111\u1ED3ng b\u1ED9 \u0111\u01B0\u1EE3c t\xEAn l\xEAn Firebase Authentication.";
+      console.warn(`Could not update Firebase display name for ${request.params.userId}: ${authWarning}`);
+    }
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "UPDATE_USER_DISPLAY_NAME",
+      `\u0110\u1ED5i t\xEAn t\xE0i kho\u1EA3n "${existing.name || request.params.userId}" th\xE0nh "${displayName}"`
+    );
+    return { body: { success: true, userId: request.params.userId, displayName, authWarning } };
+  };
+  const updateGuestDisplayName = async (request) => {
+    const actor = requireActor(request);
+    const validation = options.validateDisplayName(request.body?.displayName || request.body?.name);
+    if (!validation.valid) throw httpError6(400, validation.error || "T\xEAn hi\u1EC3n th\u1ECB kh\xF4ng h\u1EE3p l\u1EC7.");
+    const guestId = options.getGuestProfileId(request.params.guestId);
+    const existing = await options.repository.getGuestProfile(guestId);
+    if (!existing) throw httpError6(404, "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!await options.canManageGuestProfile(actor, existing)) throw httpError6(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n \u0111\u1ED5i t\xEAn h\u1ECDc sinh n\xE0y.");
+    const displayName = validation.value || "";
+    await options.repository.updateGuestProfile(guestId, {
+      displayName,
+      name: displayName,
+      normalizedName: options.normalizePersonName(displayName),
+      needsReview: false,
+      updatedAt: now().toISOString()
+    });
+    options.invalidateStudentNameCache();
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "UPDATE_GUEST_DISPLAY_NAME",
+      `\u0110\u1ED5i t\xEAn h\u1ECDc sinh kh\xE1ch "${existing.displayName || request.params.guestId}" th\xE0nh "${displayName}"`
+    );
+    return { body: { success: true, guestId: request.params.guestId, displayName } };
+  };
+  const updateGuestStatus = async (request) => {
+    const actor = requireActor(request);
+    const status = request.body?.status;
+    if (!["active", "blocked"].includes(status)) throw httpError6(400, "Tr\u1EA1ng th\xE1i h\u1ED3 s\u01A1 kh\xF4ng h\u1EE3p l\u1EC7.");
+    const guestId = options.getGuestProfileId(request.params.guestId);
+    const existing = await options.repository.getGuestProfile(guestId);
+    if (!existing) throw httpError6(404, "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i.");
+    await options.repository.updateGuestProfile(guestId, { status, updatedAt: now().toISOString() });
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      status === "blocked" ? "LOCK_GUEST_PROFILE" : "UNLOCK_GUEST_PROFILE",
+      `Chuy\u1EC3n h\u1ED3 s\u01A1 h\u1ECDc sinh "${existing.displayName || request.params.guestId}" th\xE0nh ${status}`
+    );
+    return { body: { success: true, guestId: request.params.guestId, status } };
+  };
+  const rotateGuestHistoryCapability = async (request) => {
+    const actor = requireActor(request);
+    const guestId = options.getGuestProfileId(request.params.guestId);
+    const profile = await options.repository.getGuestProfile(guestId);
+    if (!profile) throw httpError6(404, "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i.");
+    if (!await options.canManageGuestProfile(actor, profile)) throw httpError6(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n c\u1EA5p l\u1EA1i quy\u1EC1n l\u1ECBch s\u1EED cho h\u1ECDc sinh n\xE0y.");
+    const guestAccessToken = options.createSessionToken();
+    const createdAt = now().toISOString();
+    const guestAccessTokenVersion = nowMs();
+    await options.repository.updateGuestProfile(guestId, {
+      accessTokenHash: options.hashSessionToken(guestAccessToken),
+      accessTokenVersion: guestAccessTokenVersion,
+      accessTokenCreatedAt: createdAt,
+      updatedAt: createdAt
+    });
+    await options.logAudit(actor.id, actor.name, actor.email, "ROTATE_GUEST_HISTORY_CAPABILITY", `C\u1EA5p l\u1EA1i quy\u1EC1n xem l\u1ECBch s\u1EED cho h\u1ED3 s\u01A1 kh\xE1ch ${guestId}`);
+    return { body: { guestId, guestAccessToken, guestAccessTokenVersion, createdAt } };
+  };
+  const updateUserRole = async (request) => {
+    const actor = requireActor(request);
+    const targetUserId = request.params.userId;
+    const role = request.body?.role;
+    if (!["super_admin", "teacher", "student"].includes(role)) throw httpError6(400, "Vai tr\xF2 kh\xF4ng h\u1EE3p l\u1EC7.");
+    const existing = await options.repository.getUser(targetUserId);
+    if (!existing) throw httpError6(404, "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i.");
+    await options.repository.updateUser(targetUserId, { role });
+    let customClaimWarning = "";
+    try {
+      await options.setAuthRoleClaim(targetUserId, role);
+    } catch (error) {
+      customClaimWarning = error?.message || "Could not update Firebase custom claims.";
+      console.warn(`Could not update custom claims for ${targetUserId}: ${customClaimWarning}`);
+    }
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      "UPDATE_USER_ROLE",
+      `\u0110\xE3 thay \u0111\u1ED5i vai tr\xF2 c\u1EE7a user "${existing.name}" (${existing.email}) t\u1EEB ${existing.role} th\xE0nh ${role}`
+    );
+    return { body: { success: true, userId: targetUserId, role, customClaimWarning } };
+  };
+  const updateUserStatus = async (request) => {
+    const actor = requireActor(request);
+    const targetUserId = request.params.userId;
+    const status = request.body?.status;
+    if (!["active", "pending", "blocked", "deleted"].includes(status)) throw httpError6(400, "Tr\u1EA1ng th\xE1i kh\xF4ng h\u1EE3p l\u1EC7.");
+    const existing = await options.repository.getUser(targetUserId);
+    if (!existing) throw httpError6(404, "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i.");
+    await options.repository.updateUser(targetUserId, { status });
+    await options.logAudit(
+      actor.id,
+      actor.name,
+      actor.email,
+      status === "blocked" ? "LOCK_USER" : "UNLOCK_USER",
+      `\u0110\xE3 chuy\u1EC3n tr\u1EA1ng th\xE1i c\u1EE7a user "${existing.name}" (${existing.email}) th\xE0nh ${status}`
+    );
+    return { body: { success: true, userId: targetUserId, status } };
+  };
+  return {
+    listAccounts,
+    listAuditLogs,
+    listUsers,
+    loadAdminAccountsPage,
+    loadAdminAuditLogPage,
+    rotateGuestHistoryCapability,
+    updateGuestDisplayName,
+    updateGuestStatus,
+    updateUserDisplayName,
+    updateUserRole,
+    updateUserStatus
+  };
+}
+
+// src/server/accounts/router.ts
+var import_express20 = __toESM(require("express"), 1);
+function createAccountRouter(options) {
+  const router = import_express20.default.Router();
+  const handle = (action) => async (request, response) => {
+    try {
+      const result = await action(request);
+      response.status(result.status || 200).json(result.body);
+    } catch (error) {
+      options.sendApiError(response, error);
+    }
+  };
+  const superAdmin = [options.authenticateUser, options.requireSuperAdmin];
+  const staff = [options.authenticateUser, options.requireStaff];
+  router.get("/admin/users", ...superAdmin, handle((request) => options.service.listUsers(request)));
+  router.get("/admin/accounts", ...staff, handle((request) => options.service.listAccounts(request)));
+  router.put("/admin/users/:userId/display-name", ...superAdmin, handle((request) => options.service.updateUserDisplayName(request)));
+  router.put("/admin/guest-profiles/:guestId/display-name", ...staff, handle((request) => options.service.updateGuestDisplayName(request)));
+  router.put("/admin/guest-profiles/:guestId/status", ...superAdmin, handle((request) => options.service.updateGuestStatus(request)));
+  router.post("/admin/guest-profiles/:guestId/history-capability", ...staff, handle((request) => options.service.rotateGuestHistoryCapability(request)));
+  router.put("/admin/users/:userId/role", ...superAdmin, handle((request) => options.service.updateUserRole(request)));
+  router.put("/admin/users/:userId/status", ...superAdmin, handle((request) => options.service.updateUserStatus(request)));
+  router.get("/admin/audit-logs", ...superAdmin, handle((request) => options.service.listAuditLogs(request)));
+  return router;
+}
+
 // server.ts
 import_dotenv.default.config();
 var LOCAL_AUTH_BYPASS_REQUESTED = process.env.LOCAL_AUTH_BYPASS_ENABLED === "true";
@@ -18371,7 +22198,7 @@ if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
 if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
-var app2 = (0, import_express7.default)();
+var app2 = (0, import_express21.default)();
 app2.disable("x-powered-by");
 var PORT = Number(process.env.PORT) || 3e3;
 var TRUST_PROXY_HOPS = parseTrustedProxyHops(process.env.TRUST_PROXY_HOPS);
@@ -18424,7 +22251,7 @@ if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
 app2.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
-app2.use(import_express7.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
+app2.use(import_express21.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -18433,14 +22260,14 @@ app2.use((req, _res, next) => {
   });
 });
 import_fs5.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express7.default.static(AUDIO_DIR));
+app2.use(AUDIO_PUBLIC_PREFIX, import_express21.default.static(AUDIO_DIR));
 import_fs5.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
-app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express7.default.static(LISTENING_MEDIA_DIR, {
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express21.default.static(LISTENING_MEDIA_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
 import_fs5.default.mkdirSync(VOCAB_IMAGE_DIR, { recursive: true });
-app2.use(VOCAB_IMAGE_PUBLIC_PREFIX, import_express7.default.static(VOCAB_IMAGE_DIR, {
+app2.use(VOCAB_IMAGE_PUBLIC_PREFIX, import_express21.default.static(VOCAB_IMAGE_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -19005,128 +22832,6 @@ function gradeGameSessionV2(session, actions) {
   const total = correct + incorrect;
   const score = gameScore !== void 0 && session.gameId !== "millionaire-vocab" ? gameScore : total ? Math.round(correct / total * 100) : 0;
   return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, rawScore: session.gameId === "millionaire-vocab" ? gameScore : void 0, maxScore: session.gameId === "millionaire-vocab" ? 1e6 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
-}
-function getGuestProfileId(value) {
-  return safeText2(value, 120);
-}
-function isGuestOwnedRecord(data) {
-  const guestId = getGuestProfileId(data?.guestId);
-  const userId = safeText2(data?.userId, 120);
-  return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
-}
-async function findExistingGuestIdentity(guestIdValue, timing) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) return null;
-  const profileDoc = await adminDb.collection("guest_profiles").doc(guestId).get();
-  timing?.mark("guest_profile");
-  if (profileDoc.exists) {
-    const profile = { id: profileDoc.id, guestId, ...profileDoc.data() };
-    if (profile.status === "blocked") {
-      throw createHttpError2(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
-    }
-    const displayName = safeText2(profile.displayName || profile.name, 120);
-    if (displayName) {
-      return {
-        ...profile,
-        displayName,
-        name: displayName,
-        status: profile.status || "active",
-        legacy: !validateStudentDisplayName(displayName).valid
-      };
-    }
-  }
-  return null;
-}
-var GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
-  6e4,
-  Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 6e4)
-);
-async function resolveGuestProfile(guestIdValue, studentNameValue, touchActivity = true, classInfo = {}, timing) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) throw createHttpError2(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
-  const profileRef = adminDb.collection("guest_profiles").doc(guestId);
-  const profileDoc = await profileRef.get();
-  timing?.mark("guest_profile");
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  if (profileDoc.exists) {
-    const existing = { id: profileDoc.id, ...profileDoc.data() };
-    if (existing.status === "blocked") {
-      throw createHttpError2(403, "H\u1ED3 s\u01A1 h\u1ECDc sinh n\xE0y \u0111\xE3 b\u1ECB kh\xF3a.");
-    }
-    const displayName = safeText2(existing.displayName || existing.name, 120);
-    if (!displayName) {
-      const validation2 = validateStudentDisplayName(studentNameValue);
-      if (!validation2.valid) throw createHttpError2(400, validation2.error);
-      const repaired = {
-        ...existing,
-        displayName: validation2.value,
-        name: validation2.value,
-        normalizedName: normalizePersonName(validation2.value),
-        updatedAt: now,
-        lastActiveAt: touchActivity ? now : existing.lastActiveAt || now,
-        needsReview: false
-      };
-      await profileRef.set(repaired);
-      timing?.mark("profile_write");
-      invalidateCanonicalStudentNameCache();
-      return repaired;
-    }
-    const classId = classInfo.verified ? safeText2(classInfo.classId, 160) : "";
-    const className = classInfo.verified ? safeText2(classInfo.className, 240) : "";
-    const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
-    const shouldTouchActivity = Boolean(
-      touchActivity && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
-    );
-    const shouldUpdateClassId = Boolean(classId && classId !== safeText2(existing.classId, 160));
-    const shouldUpdateClassName = Boolean(className && className !== safeText2(existing.className, 240));
-    if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
-      await profileRef.update({
-        ...shouldTouchActivity ? { lastActiveAt: now } : {},
-        ...shouldUpdateClassId ? { classId } : {},
-        ...shouldUpdateClassName ? { className } : {}
-      });
-      timing?.mark("profile_write");
-    }
-    return {
-      ...existing,
-      displayName,
-      name: displayName,
-      lastActiveAt: shouldTouchActivity ? now : existing.lastActiveAt,
-      classId: classId || existing.classId,
-      className: className || existing.className
-    };
-  }
-  const validation = validateStudentDisplayName(studentNameValue);
-  if (!validation.valid) throw createHttpError2(400, validation.error);
-  const guestAccessToken = createSessionToken();
-  const guestAccessTokenVersion = 1;
-  const profile = {
-    id: guestId,
-    guestId,
-    accountType: "guest",
-    displayName: validation.value,
-    name: validation.value,
-    normalizedName: normalizePersonName(validation.value),
-    role: "student",
-    status: "active",
-    classId: classInfo.verified ? safeText2(classInfo.classId, 160) : "",
-    className: classInfo.verified ? safeText2(classInfo.className, 240) : "",
-    createdAt: now,
-    updatedAt: now,
-    lastActiveAt: now,
-    needsReview: false,
-    accessTokenHash: hashSessionToken(guestAccessToken),
-    accessTokenVersion: guestAccessTokenVersion,
-    accessTokenCreatedAt: now
-  };
-  await profileRef.set(profile);
-  timing?.mark("profile_write");
-  invalidateCanonicalStudentNameCache();
-  return {
-    ...omitGuestCapabilitySecrets(profile),
-    guestAccessToken,
-    guestAccessTokenVersion
-  };
 }
 var CANONICAL_STUDENT_NAME_CACHE_TTL_MS = 6e4;
 var canonicalStudentNameCache = /* @__PURE__ */ new Map();
@@ -20330,7 +24035,7 @@ var getGeminiClient = () => {
     console.warn("GEMINI_API_KEY is not defined. AI fallback will activate.");
     return null;
   }
-  return new import_genai.GoogleGenAI({
+  return new import_genai2.GoogleGenAI({
     apiKey,
     httpOptions: {
       headers: {
@@ -20491,43 +24196,6 @@ async function generateAiText(prompt, geminiConfig) {
     errors
   };
 }
-function parseAiJson(text6) {
-  const trimmed = String(text6 || "").trim();
-  if (!trimmed) throw new Error("AI returned empty text.");
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (match?.[1]) {
-      return JSON.parse(match[1].trim());
-    }
-    throw new Error("AI returned invalid JSON.");
-  }
-}
-function getFallbackVocabulary(topic, count) {
-  const normalized6 = topic.toLowerCase().trim();
-  if (normalized6.includes("animal") || normalized6.includes("\u0111\u1ED9ng v\u1EADt") || normalized6.includes("con v\u1EADt")) {
-    const pool = [
-      { term: "Elephant", meaning: "Con voi", ipa: "/\u02C8el\u026Af\u0259nt/", pos: "Noun", example: "The elephant is very large.", exampleMeaning: "Con voi r\u1EA5t to l\u1EDBn." },
-      { term: "Tiger", meaning: "Con h\u1ED5", ipa: "/\u02C8ta\u026A\u0261\u0259(r)/", pos: "Noun", example: "The tiger runs very fast.", exampleMeaning: "Con h\u1ED5 ch\u1EA1y r\u1EA5t nhanh." },
-      { term: "Monkey", meaning: "Con kh\u1EC9", ipa: "/\u02C8m\u028C\u014Bki/", pos: "Noun", example: "The monkey loves eating bananas.", exampleMeaning: "Con kh\u1EC9 th\xEDch \u0103n chu\u1ED1i." },
-      { term: "Dolphin", meaning: "C\xE1 heo", ipa: "/\u02C8d\u0252lf\u026An/", pos: "Noun", example: "Dolphins are very friendly.", exampleMeaning: "C\xE1 heo r\u1EA5t th\xE2n thi\u1EC7n." },
-      { term: "Giraffe", meaning: "H\u01B0\u01A1u cao c\u1ED5", ipa: "/d\u0292\u026A\u02C8r\u0251\u02D0f/", pos: "Noun", example: "The giraffe has a very long neck.", exampleMeaning: "H\u01B0\u01A1u cao c\u1ED5 c\xF3 chi\u1EBFc c\u1ED5 r\u1EA5t d\xE0i." }
-    ];
-    return pool.slice(0, count);
-  }
-  if (normalized6.includes("school") || normalized6.includes("tr\u01B0\u1EDDng h\u1ECDc") || normalized6.includes("l\u1EDBp")) {
-    const pool = [
-      { term: "Teacher", meaning: "Gi\xE1o vi\xEAn", ipa: "/\u02C8ti\u02D0t\u0283\u0259(r)/", pos: "Noun", example: "Our teacher is very kind.", exampleMeaning: "Gi\xE1o vi\xEAn c\u1EE7a ch\xFAng t\xF4i r\u1EA5t t\u1ED1t b\u1EE5ng." },
-      { term: "Student", meaning: "H\u1ECDc sinh", ipa: "/\u02C8stju\u02D0dnt/", pos: "Noun", example: "The students are listening.", exampleMeaning: "C\xE1c h\u1ECDc sinh \u0111ang l\u1EAFng nghe." },
-      { term: "Classroom", meaning: "Ph\xF2ng h\u1ECDc", ipa: "/\u02C8kl\u0251\u02D0sru\u02D0m/", pos: "Noun", example: "Our classroom has a big board.", exampleMeaning: "Ph\xF2ng h\u1ECDc c\u1EE7a ch\xFAng t\xF4i c\xF3 b\u1EA3ng l\u1EDBn." }
-    ];
-    return pool.slice(0, count);
-  }
-  return [
-    { term: topic.charAt(0).toUpperCase() + topic.slice(1), meaning: `T\u1EEB v\u1EC1 ${topic}`, ipa: "/\u02C8t\u0252p\u026Ak/", pos: "Noun", example: "This is an example.", exampleMeaning: "\u0110\xE2y l\xE0 v\xED d\u1EE5." }
-  ];
-}
 function requireDiagnosticAccess(req, res, next) {
   const configured = process.env.DIAGNOSTIC_SECRET?.trim();
   if (!configured) return res.status(404).json({ error: "Not found" });
@@ -20536,6 +24204,15 @@ function requireDiagnosticAccess(req, res, next) {
   }
   next();
 }
+var diagnosticsRepository = createDiagnosticsRepository({
+  db: adminDb,
+  loadStorageDiagnostics: getStorageDiagnostics
+});
+var diagnosticsService = createDiagnosticsService({ repository: diagnosticsRepository });
+app2.use(
+  "/api",
+  createDiagnosticsRouter({ requireDiagnosticAccess, sendApiError, service: diagnosticsService })
+);
 async function loadReadyLeaderboardEvents(timing) {
   const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
   const [storedSnapshot, readModelSettingDoc] = await Promise.all([
@@ -20554,35 +24231,11 @@ async function loadReadyLeaderboardEvents(timing) {
   });
   return mergeLeaderboardEvents(events);
 }
-app2.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
-  try {
-    const testDoc = await adminDb.collection("users").limit(1).get();
-    res.json({
-      success: true,
-      docsCount: testDoc.size,
-      storageReady: true
-    });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/diagnostics/storage", requireDiagnosticAccess, async (_req, res) => {
-  res.json(await getStorageDiagnostics());
-});
 var PHONE_AUTH_WINDOW_MS = 10 * 60 * 1e3;
 var PHONE_AUTH_MAX_ATTEMPTS = 5;
 var phoneAuthRateLimit = new FixedWindowRateLimitStore(PHONE_AUTH_WINDOW_MS, PHONE_AUTH_MAX_ATTEMPTS);
 function getRequestIp(req) {
   return getRequestNetworkKey(req);
-}
-function assertPhoneAuthRateLimit(req, phone) {
-  const key = `${getRequestIp(req)}:${phone}`;
-  const result = phoneAuthRateLimit.consume(key);
-  if (!result.allowed) {
-    throw createHttpError2(429, "Too many phone login attempts. Please wait and try again.", {
-      retryAfterSeconds: result.retryAfterSeconds
-    });
-  }
 }
 var guestIdentityRateLimit = createFixedWindowRateLimiter({
   namespace: "guest-identity",
@@ -20597,6 +24250,22 @@ var aiRateLimit = createFixedWindowRateLimiter({
   maxCost: 60,
   message: "Too many AI requests. Please wait and try again."
 });
+var vocabularyAiService = createVocabularyAiService({
+  provider: {
+    generateText: generateAiText,
+    sanitizeError: sanitizeAiError
+  }
+});
+app2.use(
+  "/api",
+  createVocabularyAiRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    rateLimit: aiRateLimit,
+    sendApiError,
+    service: vocabularyAiService
+  })
+);
 var ttsRateLimit = createFixedWindowRateLimiter({
   namespace: "tts-generation",
   windowMs: 10 * 60 * 1e3,
@@ -20612,220 +24281,285 @@ var ttsRateLimit = createFixedWindowRateLimiter({
   },
   message: "TTS quota for this account was reached. Please wait and try again."
 });
-async function findUserByPhone(normalizedPhone, rawPhone = "") {
-  const candidates = Array.from(new Set([
-    normalizedPhone,
-    rawPhone.trim(),
-    rawPhone.replace(/[^\d+]/g, "").trim()
-  ].filter(Boolean)));
-  for (const candidate of candidates) {
-    const snapshot = await adminDb.collection("users").where("phone", "==", candidate).limit(1).get();
-    if (!snapshot.empty) {
-      const doc = snapshot.docs[0];
-      return { id: doc.id, ...doc.data() };
-    }
-  }
-  return null;
-}
-function getFirebaseWebApiKey() {
-  return process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "";
-}
-async function verifyFirebasePassword(email, password) {
-  const apiKey = getFirebaseWebApiKey();
-  if (!apiKey) throw createHttpError2(503, "Phone password login is not configured.");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1e4);
-  try {
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, returnSecureToken: true }),
-      signal: controller.signal
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.localId) {
-      throw createHttpError2(401, "Phone number or password is incorrect.");
-    }
-    return data;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-app2.post("/api/auth/email-by-phone", async (req, res) => {
-  try {
-    const normalizedPhone = normalizePhoneE164(req.body?.phone);
-    if (!normalizedPhone) return res.status(400).json({ error: "Invalid phone number." });
-    assertPhoneAuthRateLimit(req, normalizedPhone);
-    return res.json({ ok: true, message: "Use /api/auth/login-by-phone to sign in without exposing account email." });
-    const { phone } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: "Vui l\xF2ng cung c\u1EA5p s\u1ED1 \u0111i\u1EC7n tho\u1EA1i." });
-    }
-    let formattedPhone = phone.trim();
-    if (formattedPhone.startsWith("0")) {
-      formattedPhone = "+84" + formattedPhone.substring(1);
-    } else if (!formattedPhone.startsWith("+")) {
-      formattedPhone = "+84" + formattedPhone;
-    }
-    const snapshot = await adminDb.collection("users").where("phone", "==", formattedPhone).limit(1).get();
-    if (snapshot.empty) {
-      const rawSnapshot = await adminDb.collection("users").where("phone", "==", phone.trim()).limit(1).get();
-      if (rawSnapshot.empty) {
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y t\xE0i kho\u1EA3n n\xE0o \u0111\u01B0\u1EE3c \u0111\u0103ng k\xFD v\u1EDBi s\u1ED1 \u0111i\u1EC7n tho\u1EA1i n\xE0y." });
-      }
-      const userData2 = rawSnapshot.docs[0].data();
-      return res.json({ email: userData2.email });
-    }
-    const userData = snapshot.docs[0].data();
-    return res.json({ email: userData.email });
-  } catch (err) {
-    sendApiError(res, err);
-  }
+var ttsVoiceProvider = createTtsVoiceProvider({
+  getApiKey: getAi33ApiKey,
+  fetchWithTimeout
 });
-app2.post("/api/auth/login-by-phone", async (req, res) => {
-  try {
-    const rawPhone = String(req.body?.phone || "");
-    const password = String(req.body?.password || "");
-    const normalizedPhone = normalizePhoneE164(rawPhone);
-    if (!normalizedPhone || !password) {
-      return res.status(400).json({ error: "Phone number and password are required." });
-    }
-    assertPhoneAuthRateLimit(req, normalizedPhone);
-    const userRecord = await findUserByPhone(normalizedPhone, rawPhone);
-    const email = normalizeEmail(userRecord?.email);
-    if (!userRecord || !email) {
-      throw createHttpError2(401, "Phone number or password is incorrect.");
-    }
-    const verified = await verifyFirebasePassword(email, password);
-    if (verified.localId !== userRecord.id) {
-      throw createHttpError2(401, "Phone number or password is incorrect.");
-    }
-    if (userRecord.phone !== normalizedPhone) {
-      await adminDb.collection("users").doc(userRecord.id).set({
-        ...userRecord,
-        phone: normalizedPhone,
-        phoneVerified: Boolean(userRecord.phoneVerified)
-      });
-    }
-    const customToken = await adminAuth.createCustomToken(verified.localId);
-    return res.json({ customToken });
-  } catch (err) {
-    sendApiError(res, err);
-  }
+var ttsService = createTtsService({
+  normalizeSettings: normalizeTtsSettings,
+  sanitizeInput: sanitizeTtsInput,
+  createAudioHash,
+  generateCachedAudio: generateCachedTtsAudio,
+  runWithConcurrency: (items, limit, worker) => runWithConcurrency(items, limit, worker),
+  concurrency: TTS_CONCURRENCY,
+  voiceProvider: ttsVoiceProvider
 });
-app2.get("/api/me", authenticateUser, (req, res) => {
-  res.json(req.user);
+app2.use(
+  "/api",
+  createTtsRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    rateLimit: ttsRateLimit,
+    sendApiError,
+    service: ttsService
+  })
+);
+var vocabularyRepository = createVocabularyRepository({
+  db: adminDb,
+  resolveImageReferences: resolveVocabImageReferencesForSave
 });
-app2.post("/api/register", authenticateUser, async (req, res) => {
-  try {
-    const { name, phone } = req.body;
-    if (!req.user) return res.status(401).json({ error: "Ch\u01B0a \u0111\u0103ng nh\u1EADp." });
-    const userRef = adminDb.collection("users").doc(req.user.id);
-    const requestedPhone = phone ? normalizePhoneE164(phone) : "";
-    const existingPhone = normalizePhoneE164(req.user.phone);
-    if (phone && !requestedPhone) {
-      return res.status(400).json({ error: "Invalid phone number." });
-    }
-    if (requestedPhone && existingPhone && req.user.phoneVerified && requestedPhone !== existingPhone) {
-      return res.status(400).json({ error: "Verified phone number cannot be replaced without a new OTP verification." });
-    }
-    const nameValidation = validateStudentDisplayName(name || req.user.name);
-    if (!nameValidation.valid) {
-      return res.status(400).json({ error: nameValidation.error });
-    }
-    const normalizedPhone = requestedPhone || existingPhone;
-    const updatedProfile = {
-      ...req.user,
-      name: nameValidation.value,
-      phone: normalizedPhone || void 0,
-      phoneVerified: Boolean(req.user.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
-      role: req.user.role,
-      status: req.user.status,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    await userRef.set(updatedProfile);
-    invalidateCanonicalStudentNameCache();
-    res.json(updatedProfile);
-  } catch (err) {
-    sendApiError(res, err);
-  }
+var vocabularyService = createVocabularyService({
+  repository: vocabularyRepository,
+  canViewSet: canViewVocabSet,
+  canManageSet: canManageVocabSet,
+  canManageAssignment,
+  isSuperAdmin: isSuperAdmin3,
+  getVisibility: getVocabVisibility,
+  toLegacyStatus,
+  normalizeForRead: normalizeVocabSetForRead,
+  normalizeForSave: normalizeVocabSetForSave,
+  stripPrivateFields: stripPrivateVocabSetFields,
+  resolveLearningAccess: (token, timing) => resolveVocabLearningAccess(token, "", "", timing),
+  normalizeTtsSettings,
+  enqueueAudio: enqueueVocabSetAudio,
+  enrichStudentNames,
+  omitSensitiveSessionFields,
+  logAudit: logAuditAction
 });
-app2.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
-  const { word } = req.body;
-  try {
-    if (!word || typeof word !== "string") {
-      return res.status(400).json({ error: "Tham s\u1ED1 'word' l\xE0 b\u1EAFt bu\u1ED9c." });
-    }
-    const result = await generateAiText(
-      `Provide the standard American English IPA phonetic transcription for the word/phrase: "${word}". Output ONLY the IPA string surrounded by slashes. Do not add any extra explanations or formatting.`
-    );
-    const ipa = result.text || `/${word.toLowerCase()}/`;
-    res.json({
-      ipa,
-      aiProvider: result.provider,
-      isFallback: result.provider === "fallback",
-      aiErrors: result.errors
-    });
-  } catch (error) {
-    console.warn("AI IPA generator service unavailable, returning fallback:", error.message);
-    res.json({
-      ipa: `/${(word || "").toLowerCase()}/`,
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    });
-  }
+app2.use(
+  "/api",
+  createVocabularyRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    ttsRateLimit,
+    createApiTiming,
+    sendApiError,
+    service: vocabularyService
+  })
+);
+var grammarLibraryRepository = createGrammarLibraryRepository({ db: adminDb });
+var grammarLibraryService = createGrammarLibraryService({
+  repository: grammarLibraryRepository,
+  canViewSet: canViewGrammarSet,
+  canManageSet: canManageGrammarSet,
+  getVisibility: getGrammarVisibility,
+  sanitizeForStudent: sanitizeGrammarSetForStudent,
+  normalizeForSave: normalizeGrammarSetForSave,
+  makeId: makeId7,
+  enrichStudentNames,
+  logAudit: logAuditAction
 });
-app2.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/guest-profiles/resolve");
-  try {
-    const profile = await resolveGuestProfile(
-      req.body?.guestId,
-      req.body?.displayName || req.body?.studentName,
-      true,
-      { classId: req.body?.classId, className: req.body?.className },
-      timing
-    );
-    timing.finish(res);
-    res.json({
-      id: profile.id,
-      guestId: profile.guestId || profile.id,
-      displayName: profile.displayName || profile.name,
-      status: profile.status,
-      ...profile.guestAccessToken ? {
-        guestAccessToken: profile.guestAccessToken,
-        guestAccessTokenVersion: profile.guestAccessTokenVersion || 1
-      } : {}
-    });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
+app2.use(
+  "/api",
+  createGrammarLibraryRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: grammarLibraryService
+  })
+);
+var grammarAttemptRepository = createGrammarAttemptRepository({
+  db: adminDb,
+  appendLearningHistoryProjection,
+  projectGrammarAttempt,
+  detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
 });
-app2.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/guest-profiles/identify");
-  try {
-    const profile = await findExistingGuestIdentity(req.body?.guestId, timing);
-    if (!profile) {
-      timing.finish(res);
-      return res.status(404).json({
-        error: "Kh\xF4ng t\xECm th\u1EA5y h\u1ED3 s\u01A1 h\u1ECDc sinh \u0111\xE3 \u0111\u0103ng k\xFD.",
-        code: "GUEST_PROFILE_NOT_FOUND"
-      });
-    }
-    timing.finish(res);
-    res.json({
-      id: profile.id,
-      guestId: profile.guestId || profile.id,
-      displayName: profile.displayName || profile.name,
-      status: profile.status || "active",
-      legacy: Boolean(profile.legacy)
-    });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
+var grammarAttemptService = createGrammarAttemptService({
+  repository: grammarAttemptRepository,
+  lazySessionEnabled: LAZY_SESSION_V3_ENABLED,
+  gradingVersion: GRAMMAR_TEXT_GRADING_VERSION,
+  getClientRunCredentials,
+  getActor: getGrammarActor,
+  canOpenSet: canOpenGrammarSetForLearning,
+  canAccessAttempt: canAccessGrammarAttempt,
+  canManageSet: canManageGrammarSet,
+  buildPreparedAttempt: buildPreparedGrammarAttempt,
+  buildAttemptAnswer: buildGrammarAttemptAnswer,
+  buildAnswerFeedback: buildGrammarAnswerFeedback,
+  sanitizeAttempt: sanitizeAttemptForStudent,
+  sanitizeAnswer: sanitizeGrammarAnswerForStudent,
+  deterministicRunDocumentId,
+  getSetVersion: getGrammarSetVersion,
+  safeText: safeText2,
+  makeId: makeId7,
+  fisherYates,
+  getQuestionType: getGrammarQuestionType,
+  getLessonGradeClass,
+  createSessionToken,
+  hashSessionToken,
+  normalizeTextAnswer: normalizeGrammarTextAnswer,
+  isTextAnswerCorrect: isGrammarTextAnswerCorrect,
+  grammarAttemptToLeaderboardEvent,
+  clearLeaderboardCache: () => publicLeaderboardSummaryCache.clear()
 });
+app2.use(
+  "/api",
+  createGrammarAttemptRouter({
+    authenticateOptionalUser,
+    createApiTiming,
+    sendApiError,
+    service: grammarAttemptService
+  })
+);
+var vocabularyRunRepository = createVocabularyRunRepository({
+  db: adminDb,
+  appendLearningHistoryProjection,
+  projectVocabularyAttempt,
+  detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
+});
+var vocabularyRunService = createVocabularyRunService({
+  repository: vocabularyRunRepository,
+  lazySessionEnabled: LAZY_SESSION_V3_ENABLED,
+  activityTtlDays: ACTIVITY_TTL_DAYS,
+  getClientRunCredentials,
+  resolveStartContext: resolveGameSessionStartContext,
+  buildSessionRecord: buildGameSessionRecord,
+  deterministicRunDocumentId,
+  canResumeClientRun,
+  canUpdateSession: canUpdateGameSession,
+  supportsIncrementalSession: supportsIncrementalGameSession,
+  hashSessionToken,
+  omitSensitiveFields: omitSensitiveSessionFields,
+  sanitizeSubmittedActions: sanitizeSubmittedGameActions,
+  sanitizeAction: sanitizeGameAction,
+  dedupeStoredActions: dedupeStoredGameActions,
+  gradeSession: gradeGameSessionV2,
+  sessionToLeaderboardEvent: gameSessionToLeaderboardEvent,
+  addDaysIso: addDaysIso2,
+  clearLeaderboardCache: () => publicLeaderboardSummaryCache.clear(),
+  getSessionActor: getGameSessionActor,
+  createSessionToken,
+  safeText: safeText2,
+  randomUUID: import_crypto4.default.randomUUID
+});
+app2.use(
+  "/api",
+  createVocabularyRunRouter({
+    authenticateOptionalUser,
+    createApiTiming,
+    sendApiError,
+    service: vocabularyRunService
+  })
+);
+var resultsRepository = createResultsRepository({
+  db: adminDb,
+  loadLeaderboardEvents: loadLeaderboardEventsFromSources,
+  loadReadyLeaderboardEvents,
+  resolveListeningDetail: resolveListeningActivityDetailForStaff
+});
+var resultsService = createResultsService({
+  repository: resultsRepository,
+  activityTtlMs: ACTIVITY_TTL_MS,
+  maxResultLimit: MAX_ACTIVITY_RESULT_LIMIT,
+  safeText: safeText2,
+  parseResultLimit: parseActivityResultLimit,
+  getActivityTime,
+  isExpiredActivity,
+  setUniqueClass,
+  normalizePersonName,
+  getLessonGradeClass,
+  grammarAttemptToActivity,
+  listeningAttemptToActivity,
+  enrichStudentNames,
+  sanitizePublicStudentRecord: sanitizePublicStudentRecord2,
+  sanitizeActivityDetail,
+  toActivitySummary,
+  canViewResultSession,
+  canViewGrammarActivity,
+  buildLeaderboard,
+  getCachedLeaderboardSummary: (key) => publicLeaderboardSummaryCache.get(key),
+  cacheLeaderboardSummary: cachePublicLeaderboardSummary
+});
+app2.use(
+  "/api",
+  createResultsRouter({
+    authenticateUser,
+    createApiTiming,
+    sendApiError,
+    service: resultsService
+  })
+);
+var guestIdentityRepository = createGuestIdentityRepository({ db: adminDb });
+var guestIdentityService = createGuestIdentityService({
+  repository: guestIdentityRepository,
+  safeText: safeText2,
+  validateDisplayName: validateStudentDisplayName,
+  normalizePersonName,
+  createSessionToken,
+  hashSessionToken,
+  omitCapabilitySecrets: omitGuestCapabilitySecrets,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  createHttpError: createHttpError2,
+  activityTouchIntervalMs: Math.max(
+    6e4,
+    Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 6e4)
+  )
+});
+var {
+  findExistingGuestIdentity,
+  getGuestProfileId,
+  isGuestOwnedRecord,
+  resolveGuestProfile
+} = guestIdentityService;
+app2.use(
+  "/api",
+  createGuestIdentityRouter({
+    rateLimit: guestIdentityRateLimit,
+    createApiTiming,
+    sendApiError,
+    service: guestIdentityService
+  })
+);
+var authProfileRepository = createAuthProfileRepository({ db: adminDb });
+var authProfileProvider = createAuthProfileProvider({
+  apiKey: process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
+  auth: adminAuth
+});
+var authProfileService = createAuthProfileService({
+  repository: authProfileRepository,
+  provider: authProfileProvider,
+  normalizePhone: normalizePhoneE164,
+  normalizeEmail,
+  validateDisplayName: validateStudentDisplayName,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  consumePhoneAttempt: (key) => phoneAuthRateLimit.consume(key)
+});
+app2.use(
+  "/api",
+  createAuthProfileRouter({
+    authenticateUser,
+    getRequestNetworkKey,
+    sendApiError,
+    service: authProfileService
+  })
+);
+var accountRepository = createAccountRepository({ db: adminDb });
+var accountService = createAccountService({
+  repository: accountRepository,
+  isSuperAdmin: isSuperAdmin3,
+  getManageableGuestIds: getManageableGuestProfileIdsForTeacher,
+  canManageGuestProfile,
+  omitGuestCapabilitySecrets,
+  getGuestProfileId,
+  validateDisplayName: validateStudentDisplayName,
+  normalizePersonName,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  createSessionToken,
+  hashSessionToken,
+  updateAuthDisplayName: (userId, displayName) => adminAuth.updateUser(userId, { displayName }).then(() => void 0),
+  setAuthRoleClaim: (userId, role) => adminAuth.setCustomUserClaims(userId, { role }),
+  logAudit: logAuditAction
+});
+app2.use(
+  "/api",
+  createAccountRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    requireSuperAdmin: requireRole(["super_admin"]),
+    sendApiError,
+    service: accountService
+  })
+);
 app2.use(
   "/api/my-learning-history",
   createLearningHistoryRouter({
@@ -20846,6 +24580,86 @@ app2.use(
     authenticateUser,
     requireStaff: requireRole(["teacher", "super_admin"]),
     logAudit: logAuditAction
+  })
+);
+var adminDataRepository = createAdminDataRepository({
+  db: adminDb,
+  storageMode: process.env.STORAGE_MODE
+});
+var adminDataService = createAdminDataService({
+  repository: adminDataRepository,
+  db: adminDb,
+  canViewVocabSet,
+  canViewGrammarSet,
+  sanitizeVocabSet: (record2) => stripPrivateVocabSetFields(normalizeVocabSetForRead(record2)),
+  loadDashboardActivity: async (actor) => {
+    const [recentActivities, leaderboardResults, assignmentsSnapshot] = await Promise.all([
+      resultsService.loadScopedRecentActivitySummaries(actor, MAX_ACTIVITY_RESULT_LIMIT),
+      resultsService.loadScopedLeaderboardResults(actor),
+      adminDb.collection("assignments").get()
+    ]);
+    const assignments = [];
+    assignmentsSnapshot.forEach((doc) => {
+      const assignment = { id: doc.id, ...doc.data() };
+      if (!isArchivedRecord(assignment) && (isSuperAdmin3(actor) || assignment.createdBy === actor.id)) {
+        assignments.push(assignment);
+      }
+    });
+    const goldRows = buildLeaderboard(leaderboardResults, assignments, { period: "week" }).gold.slice(0, 5);
+    return {
+      total: recentActivities.length,
+      recentActivities: recentActivities.slice(0, 30),
+      goldRows
+    };
+  },
+  prepareAssignment: (record2) => ensureAssignmentShareToken(
+    record2,
+    adminDb.collection("assignments").doc(String(record2.id || ""))
+  ),
+  loadAccountsPage: accountService.loadAdminAccountsPage,
+  loadAuditPage: accountService.loadAdminAuditLogPage
+});
+app2.use(
+  "/api/admin",
+  createAdminDataRouter({
+    authenticateUser,
+    service: adminDataService
+  })
+);
+var classManagementRepository = createClassManagementRepository({ db: adminDb });
+var classManagementService = createClassManagementService({
+  repository: classManagementRepository,
+  canViewClass,
+  canManageClass,
+  isArchivedRecord,
+  logAudit: logAuditAction
+});
+app2.use(
+  "/api",
+  createClassManagementRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: classManagementService
+  })
+);
+var assignmentManagementRepository = createAssignmentManagementRepository({ db: adminDb });
+var assignmentManagementService = createAssignmentManagementService({
+  repository: assignmentManagementRepository,
+  canManageClass,
+  canManageAssignment,
+  canViewVocabSet,
+  getVocabVisibility,
+  createShareToken,
+  logAudit: logAuditAction
+});
+app2.use(
+  "/api",
+  createAssignmentManagementRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: assignmentManagementService
   })
 );
 app2.use(
@@ -20909,1752 +24723,6 @@ app2.use(
     }
   })
 );
-var ALLOWED_PARTS_OF_SPEECH = [
-  "Noun",
-  "Pronoun",
-  "Verb",
-  "Adjective",
-  "Adverb",
-  "Preposition",
-  "Conjunction",
-  "Interjection",
-  "Article",
-  "Determiner"
-];
-function normalizePartOfSpeech(value) {
-  const text6 = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text6);
-  if (match) return match;
-  if (text6.includes("pronoun")) return "Pronoun";
-  if (text6.includes("adjective")) return "Adjective";
-  if (text6.includes("adverb")) return "Adverb";
-  if (text6.includes("preposition")) return "Preposition";
-  if (text6.includes("conjunction")) return "Conjunction";
-  if (text6.includes("interjection")) return "Interjection";
-  if (text6.includes("article")) return "Article";
-  if (text6.includes("determiner")) return "Determiner";
-  if (text6.includes("verb")) return "Verb";
-  return "Noun";
-}
-function normalizeForExampleCheck(value) {
-  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-function isWeakVocabularyExample(example, word) {
-  const normalizedExample = normalizeForExampleCheck(example);
-  const normalizedWord = normalizeForExampleCheck(word);
-  if (!normalizedExample || !normalizedWord) return true;
-  if (!normalizedExample.includes(normalizedWord)) return true;
-  return normalizedExample.startsWith("the word ") || normalizedExample.startsWith("this word ") || normalizedExample.includes("appears often in everyday english") || normalizedExample.includes("students should practice") || normalizedExample.includes("is a vocabulary word");
-}
-function hashText(value) {
-  return Array.from(value || "").reduce((hash, char) => {
-    return (hash << 5) - hash + char.charCodeAt(0) | 0;
-  }, 0);
-}
-function buildFallbackExample(word, meaning) {
-  const cleanWord = String(word || "").trim();
-  const cleanMeaning = String(meaning || "").trim();
-  const wordForSentence = cleanWord || "learning";
-  const meaningForSentence = cleanMeaning || wordForSentence;
-  const templates2 = [
-    {
-      example: `During a lively class discussion, ${wordForSentence} helped everyone connect the lesson with something useful in daily life.`,
-      exampleMeaning: `Trong m\u1ED9t bu\u1ED5i th\u1EA3o lu\u1EADn s\xF4i n\u1ED5i tr\xEAn l\u1EDBp, ${meaningForSentence} \u0111\xE3 gi\xFAp m\u1ECDi ng\u01B0\u1EDDi li\xEAn h\u1EC7 b\xE0i h\u1ECDc v\u1EDBi \u0111i\u1EC1u h\u1EEFu \xEDch trong \u0111\u1EDDi s\u1ED1ng h\u1EB1ng ng\xE0y.`
-    },
-    {
-      example: `After school, I wrote ${wordForSentence} in my notebook and used it in a sentence about my own day.`,
-      exampleMeaning: `Sau gi\u1EDD h\u1ECDc, t\xF4i vi\u1EBFt ${meaningForSentence} v\xE0o v\u1EDF v\xE0 d\xF9ng n\xF3 trong m\u1ED9t c\xE2u n\xF3i v\u1EC1 ng\xE0y c\u1EE7a ch\xEDnh m\xECnh.`
-    },
-    {
-      example: `When the group project became difficult, ${wordForSentence} gave us a clear idea to explain our work with more confidence.`,
-      exampleMeaning: `Khi b\xE0i l\xE0m nh\xF3m tr\u1EDF n\xEAn kh\xF3 h\u01A1n, ${meaningForSentence} \u0111\xE3 cho ch\xFAng t\xF4i m\u1ED9t \xFD t\u01B0\u1EDFng r\xF5 r\xE0ng \u0111\u1EC3 gi\u1EA3i th\xEDch b\xE0i l\xE0m t\u1EF1 tin h\u01A1n.`
-    },
-    {
-      example: `At home, my younger brother asked about ${wordForSentence}, so I tried to explain it with a simple and funny example.`,
-      exampleMeaning: `\u1EDE nh\xE0, em trai t\xF4i h\u1ECFi v\u1EC1 ${meaningForSentence}, n\xEAn t\xF4i c\u1ED1 gi\u1EA3i th\xEDch b\u1EB1ng m\u1ED9t v\xED d\u1EE5 \u0111\u01A1n gi\u1EA3n v\xE0 th\xFA v\u1ECB.`
-    },
-    {
-      example: `In the middle of the lesson, the teacher used ${wordForSentence} to turn a normal question into an interesting challenge.`,
-      exampleMeaning: `Gi\u1EEFa gi\u1EDD h\u1ECDc, gi\xE1o vi\xEAn \u0111\xE3 d\xF9ng ${meaningForSentence} \u0111\u1EC3 bi\u1EBFn m\u1ED9t c\xE2u h\u1ECFi b\xECnh th\u01B0\u1EDDng th\xE0nh m\u1ED9t th\u1EED th\xE1ch th\xFA v\u1ECB.`
-    },
-    {
-      example: `Before the quiz, I reviewed ${wordForSentence} carefully because small details can make a big difference in learning.`,
-      exampleMeaning: `Tr\u01B0\u1EDBc b\xE0i ki\u1EC3m tra, t\xF4i \xF4n l\u1EA1i ${meaningForSentence} th\u1EADt c\u1EA9n th\u1EADn v\xEC nh\u1EEFng chi ti\u1EBFt nh\u1ECF c\xF3 th\u1EC3 t\u1EA1o n\xEAn kh\xE1c bi\u1EC7t l\u1EDBn trong h\u1ECDc t\u1EADp.`
-    },
-    {
-      example: `My friend smiled when she finally understood ${wordForSentence}, and the whole exercise suddenly felt much easier.`,
-      exampleMeaning: `B\u1EA1n t\xF4i m\u1EC9m c\u01B0\u1EDDi khi cu\u1ED1i c\xF9ng \u0111\xE3 hi\u1EC3u ${meaningForSentence}, v\xE0 c\u1EA3 b\xE0i luy\u1EC7n t\u1EADp b\u1ED7ng tr\u1EDF n\xEAn d\u1EC5 h\u01A1n nhi\u1EC1u.`
-    },
-    {
-      example: `On the classroom board, ${wordForSentence} became the key idea that helped us remember the story behind the lesson.`,
-      exampleMeaning: `Tr\xEAn b\u1EA3ng l\u1EDBp, ${meaningForSentence} tr\u1EDF th\xE0nh \xFD ch\xEDnh gi\xFAp ch\xFAng t\xF4i nh\u1EDB c\xE2u chuy\u1EC7n ph\xEDa sau b\xE0i h\u1ECDc.`
-    }
-  ];
-  const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates2.length;
-  return templates2[index];
-}
-app2.post("/api/ai/vocab-detail", authenticateUser, aiRateLimit, async (req, res) => {
-  const { word, meaning, grade } = req.body;
-  try {
-    if (!word || typeof word !== "string") {
-      return res.status(400).json({ error: "Tham s\u1ED1 'word' l\xE0 b\u1EAFt bu\u1ED9c." });
-    }
-    const fallbackExample = buildFallbackExample(word, meaning);
-    const fallback = {
-      term: word,
-      meaning: meaning || "",
-      ipa: `/${word.toLowerCase()}/`,
-      pos: "Noun",
-      example: fallbackExample.example,
-      exampleMeaning: fallbackExample.exampleMeaning,
-      audioUrl: ""
-    };
-    const prompt = `Complete missing English vocabulary learning details for this row.
-Word or phrase: "${word}"
-Existing Vietnamese meaning, if any: "${meaning || ""}"
-Target level: "${grade || "primary school"}"
-
-Return ONLY one valid JSON object with:
-- "meaning": concise Vietnamese meaning.
-- "ipa": standard American English IPA transcription, surrounded by slashes.
-- "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-- "example": write ONE complete English sentence that CONTAINS the exact vocabulary word or phrase "${word}" and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Do not use short templates like "This is ...". Make the sentence close to daily life, warm, vivid, and long enough to include context, action, and details. Make the situation specific to "${word}" and "${meaning || ""}", not a reusable generic sentence. If the word naturally appears in a common expression, idiom, proverb, collocation, or everyday saying, use it.
-- "exampleMeaning": Vietnamese translation of the example sentence.
-- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`;
-    const result = await generateAiText(prompt, {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: import_genai.Type.OBJECT,
-        properties: {
-          meaning: { type: import_genai.Type.STRING },
-          ipa: { type: import_genai.Type.STRING },
-          pos: { type: import_genai.Type.STRING },
-          example: { type: import_genai.Type.STRING },
-          exampleMeaning: { type: import_genai.Type.STRING },
-          audioUrl: { type: import_genai.Type.STRING }
-        },
-        required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
-      }
-    });
-    if (result.provider === "fallback") {
-      return res.json({ ...fallback, isFallback: true, aiProvider: "fallback", aiErrors: result.errors });
-    }
-    const parsedData = parseAiJson(result.text);
-    const exampleData = isWeakVocabularyExample(parsedData.example, word) ? buildFallbackExample(word, parsedData.meaning || meaning) : {
-      example: parsedData.example,
-      exampleMeaning: parsedData.exampleMeaning
-    };
-    res.json({
-      ...fallback,
-      ...parsedData,
-      pos: normalizePartOfSpeech(parsedData.pos),
-      example: exampleData.example,
-      exampleMeaning: exampleData.exampleMeaning || parsedData.exampleMeaning || fallback.exampleMeaning,
-      term: word,
-      aiProvider: result.provider,
-      aiErrors: result.errors
-    });
-  } catch (error) {
-    console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
-    const fallbackExample = buildFallbackExample(word, meaning);
-    res.json({
-      term: word,
-      meaning: meaning || "",
-      ipa: `/${(word || "").toLowerCase()}/`,
-      pos: "Noun",
-      example: fallbackExample.example,
-      exampleMeaning: fallbackExample.exampleMeaning,
-      audioUrl: "",
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    });
-  }
-});
-app2.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), aiRateLimit, async (req, res) => {
-  const { topic, grade, wordsCount = 5 } = req.body;
-  try {
-    if (!topic || typeof topic !== "string") {
-      return res.status(400).json({ error: "Tham s\u1ED1 'topic' l\xE0 b\u1EAFt bu\u1ED9c." });
-    }
-    const prompt = `Generate a JSON array of exactly ${wordsCount} English vocabulary words for topic: "${topic}" targeted for students at grade level: "${grade || "primary school"}". 
-    Each word item MUST have the following attributes:
-    1. "term": English word or short phrase.
-    2. "meaning": Vietnamese meaning.
-    3. "ipa": Standard IPA phonetic transcription.
-    4. "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-    5. "example": ONE complete English sentence that contains the exact vocabulary word or phrase and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Avoid short template sentences like "This is ...". Every item must have a different situation and sentence structure; do not reuse one frame by replacing only the vocabulary word. Prefer a sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
-    6. "exampleMeaning": Vietnamese translation of that example.
-    
-    Make sure example sentences are easy to understand for the specified grade level but still rich, close to daily life, and interesting for students.
-    Return ONLY valid JSON. Avoid markdown blocks.`;
-    const result = await generateAiText(prompt, {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: import_genai.Type.ARRAY,
-        items: {
-          type: import_genai.Type.OBJECT,
-          properties: {
-            term: { type: import_genai.Type.STRING },
-            meaning: { type: import_genai.Type.STRING },
-            ipa: { type: import_genai.Type.STRING },
-            pos: { type: import_genai.Type.STRING },
-            example: { type: import_genai.Type.STRING },
-            exampleMeaning: { type: import_genai.Type.STRING }
-          },
-          required: ["term", "meaning", "ipa", "pos", "example", "exampleMeaning"]
-        }
-      }
-    });
-    if (result.provider === "fallback") {
-      const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item) => ({
-        ...item,
-        isFallback: true,
-        aiProvider: "fallback",
-        aiErrors: result.errors
-      }));
-      return res.json(fallbackList);
-    }
-    const parsedData = parseAiJson(result.text);
-    res.json(Array.isArray(parsedData) ? parsedData.map((item) => {
-      const fallbackExample = buildFallbackExample(item.term, item.meaning);
-      const exampleData = isWeakVocabularyExample(item.example, item.term) ? fallbackExample : {
-        example: item.example,
-        exampleMeaning: item.exampleMeaning
-      };
-      return {
-        ...item,
-        pos: normalizePartOfSpeech(item.pos),
-        example: exampleData.example,
-        exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning,
-        aiProvider: result.provider,
-        aiErrors: result.errors
-      };
-    }) : []);
-  } catch (error) {
-    console.warn("AI generation service unavailable, returning fallback:", error.message);
-    const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item) => ({
-      ...item,
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    }));
-    res.json(fallbackList);
-  }
-});
-app2.get("/api/vocab-sets/share/:token", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/vocab-sets/share/:token");
-  try {
-    const token = String(req.params.token || "").trim();
-    if (!token) {
-      timing.finish(res);
-      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
-    }
-    const access = await resolveVocabLearningAccess(token, "", "", timing);
-    if (!access) {
-      timing.finish(res);
-      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i t\u1EADp ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7" });
-    }
-    const found = access.assignment ? {
-      ...normalizeVocabSetForRead(access.set),
-      accessType: access.accessType,
-      assignmentId: access.assignment.id,
-      assignmentGameId: access.assignment.gameId,
-      assignmentTitle: access.assignment.title,
-      classId: access.assignment.classId,
-      className: access.assignment.className
-    } : {
-      ...normalizeVocabSetForRead(access.set),
-      accessType: access.accessType
-    };
-    timing.mark("shape");
-    timing.finish(res);
-    res.json(stripPrivateVocabSetFields(found));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/public/vocab-sets", async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const set = doc.data();
-      if (isArchivedRecord(set)) return;
-      const normalizedVisibility = getVocabVisibility(set);
-      if (normalizedVisibility !== "public") return;
-      list2.push(stripPrivateVocabSetFields({
-        ...set,
-        visibility: normalizedVisibility,
-        status: toLegacyStatus(normalizedVisibility)
-      }));
-    });
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/public/results", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/results");
-  try {
-    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const resultLimit = parseActivityResultLimit(req.query.limit);
-    const loadRecent = (collectionName) => {
-      let query = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
-      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
-      return query.get();
-    };
-    const [
-      snapshot,
-      grammarAttemptsSnapshot,
-      listeningAttemptsSnapshot,
-      grammarSetsById,
-      vocabSetsById,
-      assignmentsSnapshot,
-      classesSnapshot,
-      membersSnapshot
-    ] = await Promise.all([
-      loadRecent("game_sessions"),
-      loadRecent("grammar_attempts"),
-      loadRecent("listening_attempts"),
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get(),
-      adminDb.collection("class_members").get()
-    ]);
-    timing.mark("sources");
-    const assignmentsById = /* @__PURE__ */ new Map();
-    const classesById = /* @__PURE__ */ new Map();
-    const uniqueAssignmentClassByVocabSet = /* @__PURE__ */ new Map();
-    const uniqueMemberClassByName = /* @__PURE__ */ new Map();
-    classesSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-    assignmentsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-      setUniqueClass(uniqueAssignmentClassByVocabSet, data.vocabSetId, {
-        classId: data.classId,
-        className: data.className || classesById.get(data.classId)?.name || ""
-      });
-    });
-    membersSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      const className = data.className || classesById.get(data.classId)?.name || "";
-      setUniqueClass(uniqueMemberClassByName, normalizePersonName(data.studentName), {
-        classId: data.classId,
-        className
-      });
-    });
-    const list2 = [];
-    const cutoff = Date.now() - ACTIVITY_TTL_MS;
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (!data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const assignment = data.assignmentId ? assignmentsById.get(data.assignmentId) : null;
-      const assignmentClass = assignment ? {
-        classId: assignment.classId,
-        className: assignment.className || classesById.get(assignment.classId)?.name || ""
-      } : null;
-      const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
-      const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-      const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
-      const resolvedClass = data.classId ? {
-        classId: data.classId,
-        className: data.className || classesById.get(data.classId)?.name || ""
-      } : assignmentClass?.classId ? assignmentClass : vocabSetClass?.classId ? vocabSetClass : gradeClass.classId ? gradeClass : memberClass?.classId ? memberClass : { classId: "", className: "" };
-      list2.push({
-        id: data.id || doc.id,
-        assignmentId: data.assignmentId,
-        classId: resolvedClass.classId,
-        className: resolvedClass.className,
-        vocabSetId: data.vocabSetId,
-        vocabSetTitle: data.vocabSetTitle,
-        gameId: data.gameId,
-        studentName: data.studentName,
-        guestId: data.guestId,
-        startedAt: data.startedAt,
-        completedAt: data.completedAt,
-        score: data.score || 0,
-        totalQuestions: data.totalQuestions || 0,
-        correctAnswers: data.correctAnswers || 0,
-        incorrectAnswers: data.incorrectAnswers || 0,
-        endedAt: data.endedAt || data.completedAt,
-        durationMs: data.durationMs || 0,
-        durationSeconds: data.durationSeconds || 0,
-        accuracy: data.accuracy || 0,
-        createdAt: data.createdAt,
-        expiresAt: data.expiresAt
-      });
-    });
-    grammarAttemptsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.status !== "completed" || !data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
-      delete activity.answerDetails;
-      list2.push(activity);
-    });
-    listeningAttemptsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
-      list2.push(listeningAttemptToActivity(data));
-    });
-    list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
-    timing.mark("shape");
-    const named = await enrichStudentNames(bounded);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named.map(sanitizePublicStudentRecord2));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/public/leaderboard-results", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/leaderboard-results");
-  try {
-    const list2 = await loadLeaderboardEventsFromSources(timing);
-    timing.finish(res);
-    res.json(list2.map(sanitizePublicStudentRecord2));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/public/leaderboard-summary", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/leaderboard-summary");
-  try {
-    const period = req.query.period === "month" ? "month" : "week";
-    const classId = safeText2(req.query.classId, 180);
-    const requestedLimit = Number(req.query.limit || 8);
-    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
-    const cacheKey = `${period}:${classId}:${limit}`;
-    const cached = publicLeaderboardSummaryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      timing.mark("memory_cache");
-      timing.finish(res);
-      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
-      return res.json(cached.value);
-    }
-    const events = await loadReadyLeaderboardEvents(timing);
-    if (!events) {
-      timing.finish(res);
-      return res.status(503).json({
-        error: "B\u1EA3ng v\xE0ng \u0111ang \u0111\u01B0\u1EE3c chu\u1EA9n b\u1ECB.",
-        code: "LEADERBOARD_NOT_READY"
-      });
-    }
-    const publicEvents = events.map(sanitizePublicStudentRecord2);
-    const classesById = /* @__PURE__ */ new Map();
-    for (const event of publicEvents) {
-      const eventClassId = safeText2(event.classId, 180);
-      if (!eventClassId) continue;
-      const eventClassName = safeText2(event.className, 180) || eventClassId;
-      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
-    }
-    const entries = buildLeaderboard(publicEvents, [], {
-      period,
-      ...classId ? { classId } : {}
-    }).gold.slice(0, limit);
-    const value = {
-      entries,
-      classes: [...classesById.entries()].map(([id2, name]) => ({ id: id2, name })).sort((a, b) => a.name.localeCompare(b.name, "vi")),
-      period
-    };
-    cachePublicLeaderboardSummary(cacheKey, value);
-    timing.mark("aggregate");
-    timing.finish(res);
-    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
-    res.json(value);
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/vocab-sets", authenticateUser, async (req, res) => {
-  try {
-    const { search, grade, status, visibility } = req.query;
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    let list2 = [];
-    snapshot.forEach((doc) => {
-      const set = doc.data();
-      if (isArchivedRecord(set)) return;
-      const normalizedVisibility = getVocabVisibility(set);
-      list2.push(stripPrivateVocabSetFields({
-        ...set,
-        visibility: normalizedVisibility,
-        status: toLegacyStatus(normalizedVisibility)
-      }));
-    });
-    if (search) {
-      const s = search.toLowerCase();
-      list2 = list2.filter(
-        (set) => set.title.toLowerCase().includes(s) || set.description.toLowerCase().includes(s) || set.subject.toLowerCase().includes(s)
-      );
-    }
-    if (grade) {
-      list2 = list2.filter((set) => set.gradeLevel === grade);
-    }
-    if (status) {
-      list2 = list2.filter((set) => set.status === status);
-    }
-    if (visibility) {
-      list2 = list2.filter((set) => getVocabVisibility(set) === visibility);
-    }
-    list2 = list2.filter((set) => canViewVocabSet(req.user, set));
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = await resolveVocabImageReferencesForSave(req.body, {}, adminDb);
-    const id2 = `set-${Date.now()}`;
-    const newSet = normalizeVocabSetForSave({
-      ...set,
-      id: id2,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      createdBy: req.user.id,
-      creatorName: req.user.name
-    });
-    await adminDb.collection("vocab_sets").doc(id2).set(newSet);
-    if (newSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id2, newSet.ttsSettings);
-    }
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_VOCAB_SET",
-      `\u0110\xE3 t\u1EA1o b\u1ED9 t\u1EEB v\u1EF1ng m\u1EDBi: "${newSet.title}" (${newSet.items.length} t\u1EEB)`
-    );
-    res.status(201).json(stripPrivateVocabSetFields(newSet));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = req.params.id;
-    const payload = req.body;
-    const docRef = adminDb.collection("vocab_sets").doc(id2);
-    const existingDoc = await docRef.get();
-    if (!existingDoc.exists) {
-      return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    if (!canManageVocabSet(req.user, existingDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
-    }
-    const resolvedPayload = await resolveVocabImageReferencesForSave(payload, existingDoc.data(), adminDb);
-    const updatedSet = normalizeVocabSetForSave({ ...resolvedPayload, id: id2 }, existingDoc.data());
-    await docRef.set(updatedSet);
-    if (updatedSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id2, updatedSet.ttsSettings);
-    }
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_VOCAB_SET",
-      `\u0110\xE3 ch\u1EC9nh s\u1EEDa b\u1ED9 t\u1EEB v\u1EF1ng: "${updatedSet.title}"`
-    );
-    res.json(stripPrivateVocabSetFields(updatedSet));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text6 = String(req.body?.text || "apple").trim();
-    const force = Boolean(req.body?.force);
-    if (!text6) return res.status(400).json({ error: "Missing preview text." });
-    const result = await generateCachedTtsAudio(text6, settings, force);
-    res.json({
-      audioUrl: result.audioUrl,
-      audioHash: result.audioHash,
-      cached: result.cached,
-      ttsText: result.ttsText,
-      warnings: result.warnings
-    });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const settings = normalizeTtsSettings(req.body?.settings || {});
-    const force = Boolean(req.body?.force);
-    const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
-    if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
-    const prepared = rawItems.map((item, index) => {
-      const text6 = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text6);
-      const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
-      return {
-        id: String(item?.id || `item-${index + 1}`),
-        text: text6,
-        sanitized,
-        audioHash
-      };
-    });
-    const grouped = /* @__PURE__ */ new Map();
-    const invalidResults = /* @__PURE__ */ new Map();
-    for (const item of prepared) {
-      if (!item.sanitized.text) {
-        invalidResults.set(item.id, {
-          id: item.id,
-          audioStatus: "failed",
-          audioError: "Missing TTS text after cleanup.",
-          ttsText: "",
-          warnings: item.sanitized.warnings
-        });
-        continue;
-      }
-      const group = grouped.get(item.audioHash) || [];
-      group.push(item);
-      grouped.set(item.audioHash, group);
-    }
-    const generated = await runWithConcurrency([...grouped.entries()], TTS_CONCURRENCY, async ([audioHash, group]) => {
-      try {
-        const result = await generateCachedTtsAudio(group[0].sanitized.text, settings, force);
-        return { audioHash, result, error: null };
-      } catch (err) {
-        return { audioHash, result: null, error: err };
-      }
-    });
-    const generatedByHash = new Map(generated.map((item) => [item.audioHash, item]));
-    const items = prepared.map((item) => {
-      const invalid = invalidResults.get(item.id);
-      if (invalid) return invalid;
-      const generatedResult = generatedByHash.get(item.audioHash);
-      if (!generatedResult || generatedResult.error) {
-        return {
-          id: item.id,
-          audioHash: item.audioHash,
-          audioStatus: "failed",
-          audioError: generatedResult?.error?.message || "TTS generation failed.",
-          ttsText: item.sanitized.text,
-          warnings: item.sanitized.warnings,
-          ttsProvider: settings.provider,
-          ttsVoice: settings.voice,
-          ttsLang: settings.lang,
-          ttsSpeed: settings.speed
-        };
-      }
-      return {
-        id: item.id,
-        audioUrl: generatedResult.result.audioUrl,
-        audioHash: generatedResult.result.audioHash,
-        audioStatus: "ready",
-        audioError: "",
-        cached: generatedResult.result.cached,
-        ttsText: generatedResult.result.ttsText,
-        warnings: generatedResult.result.warnings,
-        ttsProvider: settings.provider,
-        ttsVoice: settings.voice,
-        ttsLang: settings.lang,
-        ttsSpeed: settings.speed
-      };
-    });
-    res.json({ items, concurrency: TTS_CONCURRENCY });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const apiKey = getAi33ApiKey();
-    if (!apiKey) return res.status(500).json({ error: "AI33_API_KEY/TTS_API_KEY is not configured." });
-    const params = new URLSearchParams();
-    params.set("provider", String(req.query.provider || "edge"));
-    if (req.query.language) params.set("language", String(req.query.language));
-    if (req.query.gender) params.set("gender", String(req.query.gender));
-    if (req.query.search || req.query.q) params.set("q", String(req.query.search || req.query.q));
-    params.set("page_size", String(req.query.page_size || req.query.limit || 50));
-    const upstream = await fetchWithTimeout(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
-      headers: { "xi-api-key": apiKey }
-    });
-    const data = await upstream.json().catch(() => ({}));
-    res.status(upstream.status).json(data);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const set = doc.data();
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "Ban khong co quyen xem trang thai audio cua bo tu vung nay." });
-    }
-    const items = Array.isArray(set.items) ? set.items : [];
-    res.json({
-      id: set.id,
-      items: items.map((item) => ({
-        id: item.id,
-        term: item.term,
-        audioUrl: item.audioUrl,
-        audioHash: item.audioHash,
-        audioStatus: item.audioStatus || (item.audioUrl ? "ready" : "missing"),
-        audioError: item.audioError || "",
-        ttsProvider: item.ttsProvider,
-        ttsVoice: item.ttsVoice,
-        ttsLang: item.ttsLang,
-        ttsSpeed: item.ttsSpeed,
-        ttsText: item.ttsText,
-        audioWarnings: item.audioWarnings || [],
-        audioGeneratedAt: item.audioGeneratedAt,
-        audioUpdatedAt: item.audioUpdatedAt
-      }))
-    });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/vocab-sets/:id/images/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const set = doc.data();
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "Ban khong co quyen xem trang thai anh cua bo tu vung nay." });
-    }
-    const items = Array.isArray(set.items) ? set.items : [];
-    res.json({
-      id: set.id,
-      items: items.map((item) => ({
-        id: item.id,
-        term: item.term,
-        imageAssetId: item.imageAssetId,
-        imageUrl: item.imageUrl,
-        imageAttribution: item.imageAttribution,
-        imageAttachedAt: item.imageAttachedAt,
-        imageStatus: item.imageAssetId && item.imageUrl ? "ready" : item.imageUrl ? "legacy" : "missing"
-      }))
-    });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    if (!canManageVocabSet(req.user, doc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen tao audio cho bo tu vung nay." });
-    }
-    const settings = normalizeTtsSettings(req.body?.settings || doc.data().ttsSettings || {});
-    const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(String) : void 0;
-    const force = Boolean(req.body?.force);
-    enqueueVocabSetAudio(req.params.id, settings, itemIds, force);
-    res.json({ queued: true, itemIds: itemIds || null, force });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = req.params.id;
-    const docRef = adminDb.collection("vocab_sets").doc(id2);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    if (!canManageVocabSet(req.user, existing.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa bo tu vung nay." });
-    }
-    const setDetails = existing.data();
-    const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id2).get();
-    if (!isSuperAdmin3(req.user)) {
-      const classesSnapshot = await adminDb.collection("classes").get();
-      const classesById = /* @__PURE__ */ new Map();
-      classesSnapshot.forEach((doc) => {
-        const classData = { id: doc.id, ...doc.data() };
-        classesById.set(classData.id, classData);
-      });
-      for (const assignmentDoc of relatedAssignmentsForDelete.docs || []) {
-        const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
-        const classData = assignment.classId ? classesById.get(assignment.classId) : null;
-        if (!canManageAssignment(req.user, assignment, classData)) {
-          return res.status(403).json({ error: "Bo tu vung nay dang duoc giao cho lop ban khong quan ly." });
-        }
-      }
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const batch = adminDb.batch();
-    batch.set(docRef, archiveResourceRecord(setDetails, req.user.id, now, {
-      forceDraftVisibility: true,
-      revokeShareToken: true
-    }));
-    relatedAssignmentsForDelete.forEach((doc) => {
-      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user.id, now, {
-        revokeShareToken: true
-      }));
-    });
-    await batch.commit();
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_VOCAB_SET",
-      `\u0110\xE3 l\u01B0u tr\u1EEF b\u1ED9 t\u1EEB v\u1EF1ng v\xE0 thu h\u1ED3i link: "${setDetails?.title}"`
-    );
-    res.json({ success: true, archived: true });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = req.params.id;
-    const existing = await adminDb.collection("vocab_sets").doc(id2).get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    const original = existing.data() || {};
-    if (!canViewVocabSet(req.user, original)) {
-      return res.status(403).json({ error: "Ban khong co quyen nhan ban bo tu vung nay." });
-    }
-    const cloneId = `set-${Date.now()}`;
-    const clone = normalizeVocabSetForSave({
-      ...original,
-      id: cloneId,
-      title: `${original.title} (Nh\xE2n b\u1EA3n)`,
-      visibility: "draft",
-      status: "draft",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      createdBy: req.user.id,
-      creatorName: req.user.name
-    });
-    await adminDb.collection("vocab_sets").doc(cloneId).set(clone);
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CLONE_VOCAB_SET",
-      `\u0110\xE3 nh\xE2n b\u1EA3n b\u1ED9 t\u1EEB v\u1EF1ng: "${original.title}" th\xE0nh "${clone.title}"`
-    );
-    res.json(stripPrivateVocabSetFields(clone));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/classes", authenticateUser, async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("classes").get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      if (canViewClass(req.user, classData)) list2.push(classData);
-    });
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/classes", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const payload = req.body;
-    const id2 = `class-${Date.now()}`;
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newClass = {
-      ...payload,
-      id: id2,
-      code,
-      teacherId: req.user.id,
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    await adminDb.collection("classes").doc(id2).set(newClass);
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_CLASS",
-      `\u0110\xE3 t\u1EA1o l\u1EDBp h\u1ECDc m\u1EDBi: "${newClass.name}" (M\xE3 m\u1EDDi: ${newClass.code})`
-    );
-    res.status(201).json(newClass);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = req.params.id;
-    const classRef = adminDb.collection("classes").doc(id2);
-    const existing = await classRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "L\u1EDBp h\u1ECDc kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    if (!canManageClass(req.user, existing.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa lop hoc nay." });
-    }
-    const classDetails = existing.data();
-    const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id2).get();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const batch = adminDb.batch();
-    batch.set(classRef, archiveResourceRecord(classDetails, req.user.id, now));
-    assignmentsSnapshot.forEach((doc) => {
-      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user.id, now, {
-        revokeShareToken: true
-      }));
-    });
-    await batch.commit();
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_CLASS",
-      `\u0110\xE3 l\u01B0u tr\u1EEF l\u1EDBp h\u1ECDc v\xE0 thu h\u1ED3i b\xE0i giao: "${classDetails?.name}"`
-    );
-    res.json({ success: true, archived: true });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/class-members", authenticateUser, async (req, res) => {
-  try {
-    const classesSnapshot = await adminDb.collection("classes").get();
-    const classesById = /* @__PURE__ */ new Map();
-    classesSnapshot.forEach((doc) => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      classesById.set(classData.id, classData);
-    });
-    const snapshot = await adminDb.collection("class_members").get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const member = { id: doc.id, ...doc.data() };
-      const classData = member.classId ? classesById.get(member.classId) : null;
-      if (classData && canViewClass(req.user, classData)) list2.push(member);
-    });
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/classes/:classId/members", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const classId = req.params.classId;
-    const { studentName } = req.body;
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
-    }
-    const id2 = `member-${Date.now()}`;
-    const newMember = {
-      id: id2,
-      classId,
-      studentName
-    };
-    await adminDb.collection("class_members").doc(id2).set(newMember);
-    res.status(201).json(newMember);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.delete("/api/classes/:classId/members/:memberId", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const classId = req.params.classId;
-    const memberId = req.params.memberId;
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa hoc sinh khoi lop nay." });
-    }
-    const memberDoc = await adminDb.collection("class_members").doc(memberId).get();
-    if (!memberDoc.exists || memberDoc.data()?.classId !== classId) {
-      return res.status(404).json({ error: "Class member not found." });
-    }
-    await adminDb.collection("class_members").doc(memberId).delete();
-    res.json({ success: true });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/assignments", authenticateUser, async (req, res) => {
-  try {
-    const classesSnapshot = await adminDb.collection("classes").get();
-    const classesById = /* @__PURE__ */ new Map();
-    classesSnapshot.forEach((doc) => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      classesById.set(classData.id, classData);
-    });
-    const snapshot = await adminDb.collection("assignments").get();
-    const list2 = [];
-    for (const doc of snapshot.docs || []) {
-      const rawAssignment = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(rawAssignment)) continue;
-      const assignment = await ensureAssignmentShareToken(rawAssignment, doc.ref);
-      const classData = assignment.classId ? classesById.get(assignment.classId) : null;
-      if (canManageAssignment(req.user, assignment, classData)) list2.push(assignment);
-    }
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const payload = req.body;
-    const id2 = `assign-${Date.now()}`;
-    const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    const classData = { id: classDoc.id, ...classDoc.data() };
-    if (isArchivedRecord(classData)) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classData)) {
-      return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
-    }
-    const resourceType = payload.resourceType === "listening" ? "listening" : payload.resourceType === "mover_reading_writing" ? "mover_reading_writing" : payload.resourceType === "exam" ? "exam" : "vocabulary";
-    let resource;
-    if (resourceType === "listening") {
-      const resourceId = String(payload.resourceId || payload.listeningSetId || "");
-      const listeningDoc = await adminDb.collection("listening_sets").doc(resourceId).get();
-      if (!listeningDoc.exists) return res.status(404).json({ error: "Listening set not found." });
-      resource = { id: listeningDoc.id, ...listeningDoc.data() };
-      const canManageListening = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
-      if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 nghe n\xE0y." });
-      }
-    } else if (resourceType === "mover_reading_writing") {
-      const resourceId = String(payload.resourceId || payload.moverReadingWritingSetId || "");
-      const readingWritingDoc = await adminDb.collection("mover_reading_sets").doc(resourceId).get();
-      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Movers Reading & Writing set not found." });
-      resource = { id: readingWritingDoc.id, ...readingWritingDoc.data() };
-      const canManageReadingWriting = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
-      if (!canManageReadingWriting || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 Movers Reading & Writing n\xE0y." });
-      }
-    } else if (resourceType === "exam") {
-      const resourceId = String(payload.resourceId || "");
-      const examDoc = await adminDb.collection("exam_sets").doc(resourceId).get();
-      if (!examDoc.exists) return res.status(404).json({ error: "Exam set not found." });
-      resource = { id: examDoc.id, ...examDoc.data() };
-      const canManageExam = req.user.role === "super_admin" || req.user.role === "teacher" && resource.ownerId === req.user.id;
-      if (!canManageExam || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n giao b\u1ED9 \u0111\u1EC1 thi n\xE0y." });
-      }
-    } else {
-      const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
-      if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-      resource = { id: vocabDoc.id, ...vocabDoc.data() };
-      if (!canViewVocabSet(req.user, resource) || getVocabVisibility(resource) === "draft") {
-        return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
-      }
-    }
-    const shareToken = createShareToken();
-    const newAssign = {
-      ...payload,
-      id: id2,
-      shareToken,
-      assignmentSlug: shareToken,
-      classId: classData.id,
-      className: classData.name || payload.className || "",
-      resourceType,
-      resourceId: resource.id,
-      resourceTitle: resource.title || payload.resourceTitle || "",
-      ...resourceType === "vocabulary" ? {
-        vocabSetId: resource.id,
-        vocabSetTitle: resource.title || payload.vocabSetTitle || ""
-      } : resourceType === "listening" ? {
-        listeningSetId: resource.id,
-        listeningSetTitle: resource.title || payload.resourceTitle || "",
-        gameId: "listening-five-part"
-      } : resourceType === "mover_reading_writing" ? {
-        moverReadingWritingSetId: resource.id,
-        moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
-        gameId: "mover-reading-writing"
-      } : {
-        examSetId: resource.id,
-        examModuleId: resource.moduleId,
-        examPaperId: resource.paperId,
-        gameId: `exam:${resource.moduleId}:${resource.paperId}`
-      },
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      createdBy: req.user.id
-    };
-    await adminDb.collection("assignments").doc(id2).set(newAssign);
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_ASSIGNMENT",
-      `\u0110\xE3 giao b\xE0i t\u1EADp m\u1EDBi: "${newAssign.title}" cho l\u1EDBp: ${newAssign.className}`
-    );
-    res.status(201).json(newAssign);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = req.params.id;
-    const docRef = adminDb.collection("assignments").doc(id2);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "B\xE0i t\u1EADp kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    const assignDetails = { id: existing.id || id2, ...existing.data() };
-    const classDoc = assignDetails.classId ? await adminDb.collection("classes").doc(assignDetails.classId).get() : null;
-    const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : null;
-    if (!canManageAssignment(req.user, assignDetails, classData)) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa bai giao nay." });
-    }
-    await docRef.set(archiveResourceRecord(assignDetails, req.user.id, (/* @__PURE__ */ new Date()).toISOString(), {
-      revokeShareToken: true
-    }));
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_ASSIGNMENT",
-      `\u0110\xE3 l\u01B0u tr\u1EEF/thu h\u1ED3i b\xE0i t\u1EADp: "${assignDetails?.title}" c\u1EE7a l\u1EDBp: ${assignDetails?.className}`
-    );
-    res.json({ success: true, archived: true });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/public/grammar-sets", async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      if (getGrammarVisibility(set) !== "public") return;
-      list2.push(sanitizeGrammarSetForStudent(set));
-    });
-    list2.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/grammar-sets", authenticateUser, async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      if (!canViewGrammarSet(req.user, set)) return;
-      list2.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
-    });
-    list2.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/grammar-sets/share/:token", async (req, res) => {
-  try {
-    const token = String(req.params.token || "").trim();
-    if (!token) {
-      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i ng\u1EEF ph\xE1p ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    let found = null;
-    snapshot.forEach((doc) => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      const setToken = set.shareToken || set.assignmentSlug;
-      const legacyGrammarToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
-      if (!found && (setToken === token || legacyGrammarToken === token) && getGrammarVisibility(set) === "assignment") {
-        found = set;
-      }
-    });
-    if (!found) {
-      return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y b\xE0i ng\u1EEF ph\xE1p ho\u1EB7c link kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    res.json(sanitizeGrammarSetForStudent(found));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
-  try {
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canViewGrammarSet(req.user, set)) {
-      return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n m\u1EDF b\xE0i ng\u1EEF ph\xE1p n\xE0y." });
-    }
-    res.json(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id2 = makeId7("grammar-set");
-    const set = normalizeGrammarSetForSave({ ...req.body, id: id2 }, {}, req.user);
-    await adminDb.collection("grammar_sets").doc(id2).set(set);
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_GRAMMAR_SET",
-      `\u0110\xE3 t\u1EA1o b\xE0i ng\u1EEF ph\xE1p: "${set.title}" (${set.questions.length} c\xE2u)`
-    );
-    res.status(201).json(set);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa b\xE0i n\xE0y." });
-    const set = normalizeGrammarSetForSave({ ...req.body, id: req.params.id }, existing, req.user);
-    await adminDb.collection("grammar_sets").doc(req.params.id).set(set);
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_GRAMMAR_SET",
-      `\u0110\xE3 c\u1EADp nh\u1EADt b\xE0i ng\u1EEF ph\xE1p: "${set.title}"`
-    );
-    res.json(set);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n x\xF3a b\xE0i n\xE0y." });
-    await adminDb.collection("grammar_sets").doc(req.params.id).set(
-      archiveResourceRecord(existing, req.user.id, (/* @__PURE__ */ new Date()).toISOString(), {
-        forceDraftVisibility: true,
-        revokeShareToken: true
-      })
-    );
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_GRAMMAR_SET",
-      `\u0110\xE3 l\u01B0u tr\u1EEF b\xE0i ng\u1EEF ph\xE1p v\xE0 thu h\u1ED3i link: "${existing.title}"`
-    );
-    res.json({ success: true, archived: true });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canViewGrammarSet(req.user, existing)) return res.status(403).json({ error: "Ban khong co quyen nhan ban bai nay." });
-    const cloneId = makeId7("grammar-set");
-    const clone = normalizeGrammarSetForSave({
-      ...existing,
-      id: cloneId,
-      title: `${existing.title} (B\u1EA3n sao)`,
-      visibility: "draft",
-      questions: existing.questions
-    }, {}, req.user);
-    await adminDb.collection("grammar_sets").doc(cloneId).set(clone);
-    res.status(201).json(clone);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/grammar-sets/:id/attempts/prepare", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/prepare");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const credentials = getClientRunCredentials(req.body || {});
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
-    }
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).where(actorField, "==", actor.id).where("status", "==", "completed").limit(maxAttempts).get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
-    }
-    const prepared = buildPreparedGrammarAttempt(set, actor, req.body || {}, credentials.clientRunId, credentials.runSecret);
-    timing.finish(res);
-    res.json(sanitizeAttemptForStudent(prepared, false, credentials.runSecret));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/activate");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
-    }
-    const attemptId = deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
-    const docRef = adminDb.collection("grammar_attempts").doc(attemptId);
-    const existingDoc = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existingDoc.exists) {
-      const existingAttempt = existingDoc.data();
-      if (!canAccessGrammarAttempt(existingAttempt, actor, set, req)) {
-        return res.status(403).json({ error: "Ban khong co quyen tiep tuc luot lam bai nay." });
-      }
-      const existingAnswer = (existingAttempt.answers || []).find((item) => item.attemptQuestionId === payload.attemptQuestionId);
-      if (existingAnswer) {
-        const feedback3 = buildGrammarAnswerFeedback(existingAttempt, set, existingAnswer);
-        timing.finish(res);
-        return res.json({
-          attempt: sanitizeAttemptForStudent(existingAttempt, false, credentials.runSecret),
-          answer: sanitizeGrammarAnswerForStudent(existingAnswer, Boolean(feedback3)),
-          feedback: feedback3,
-          alreadyActivated: true
-        });
-      }
-      if (existingAttempt.status === "completed") {
-        timing.finish(res);
-        return res.json({ attempt: sanitizeAttemptForStudent(existingAttempt, Boolean(set.showReviewAfterSubmit), credentials.runSecret), alreadyCompleted: true });
-      }
-      const { answer: answer2, feedback: feedback2 } = buildGrammarAttemptAnswer(existingAttempt, set, payload);
-      const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
-      const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
-      const batch2 = adminDb.batch();
-      batch2.set(docRef, updatedAttempt);
-      appendLearningHistoryProjection(
-        batch2,
-        projectGrammarAttempt(updatedAttempt, set, {
-          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-          includeDetail: false
-        })
-      );
-      await batch2.commit();
-      timing.mark("persist");
-      timing.finish(res);
-      return res.json({
-        attempt: sanitizeAttemptForStudent(updatedAttempt, false, credentials.runSecret),
-        answer: sanitizeGrammarAnswerForStudent(answer2, Boolean(feedback2)),
-        feedback: feedback2,
-        alreadyActivated: true
-      });
-    }
-    if (safeText2(payload.grammarSetVersion, 160) !== getGrammarSetVersion(set)) {
-      return res.status(409).json({ error: "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi." });
-    }
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).where(actorField, "==", actor.id).where("status", "==", "completed").limit(maxAttempts).get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
-    }
-    const prepared = buildPreparedGrammarAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
-    const { answer, feedback } = buildGrammarAttemptAnswer(prepared, set, payload);
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const activated = {
-      ...prepared,
-      status: "in_progress",
-      activatedAt: now,
-      lastSavedAt: now,
-      updatedAt: now,
-      answers: [answer]
-    };
-    const batch = adminDb.batch();
-    batch.set(docRef, activated);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(activated, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({
-      attempt: sanitizeAttemptForStudent(activated, false, credentials.runSecret),
-      answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)),
-      feedback
-    });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\xE0m b\xE0i n\xE0y." });
-    }
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).where(actorField, "==", actor.id).where("status", "==", "completed").limit(maxAttempts).get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "B\u1EA1n \u0111\xE3 h\u1EBFt s\u1ED1 l\u1EA7n l\xE0m b\xE0i \u0111\u01B0\u1EE3c ph\xE9p." });
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const questions = set.shuffleQuestions ? fisherYates(set.questions || []) : [...set.questions || []];
-    const attemptQuestions = questions.map((question, index) => {
-      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
-      const options = questionType === "multiple_choice" && set.shuffleOptions ? fisherYates(question.options || []) : [...question.options || []];
-      return {
-        id: makeId7(`grammar-attempt-question-${index + 1}`),
-        questionId: question.id,
-        questionType,
-        displayPosition: index + 1,
-        optionOrder: options.map((option) => option.id),
-        questionSnapshot: question.questionText,
-        explanationSnapshot: question.explanation,
-        scoreSnapshot: question.score,
-        optionsSnapshot: options,
-        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
-        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
-        acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
-      };
-    });
-    const attemptId = makeId7("grammar-attempt");
-    const attemptToken = actor.isGuest ? createSessionToken() : "";
-    const attempt = {
-      id: attemptId,
-      grammarSetId: set.id,
-      grammarSetTitle: set.title,
-      assignmentId: req.body?.assignmentId || "",
-      userId: actor.id,
-      studentId: actor.id,
-      guestId: actor.isGuest ? actor.id : "",
-      studentName: actor.name,
-      classId: req.body?.classId || set.classId || getLessonGradeClass(set).classId || "",
-      className: req.body?.className || set.className || getLessonGradeClass(set).className || "",
-      status: "in_progress",
-      score: 0,
-      maxScore: attemptQuestions.reduce((sum, question) => sum + Number(question.scoreSnapshot || 1), 0),
-      correctCount: 0,
-      wrongCount: 0,
-      unansweredCount: attemptQuestions.length,
-      startedAt: now,
-      createdAt: now,
-      questions: attemptQuestions,
-      answers: [],
-      reviewPolicySnapshot: {
-        showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
-        showExplanationImmediately: Boolean(set.showExplanationImmediately),
-        policyVersion: 1,
-        capturedAt: now
-      },
-      attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
-    };
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attemptId), attempt);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(attempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/answers");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    timing.mark("attempt_read");
-    if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    timing.mark("set_read");
-    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y." });
-    if (attempt.status === "completed") return res.status(400).json({ error: "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n." });
-    const attemptQuestion = (attempt.questions || []).find((question) => question.id === req.body?.attemptQuestionId);
-    if (!attemptQuestion) return res.status(400).json({ error: "C\xE2u h\u1ECFi kh\xF4ng h\u1EE3p l\u1EC7." });
-    const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
-    const selectedOptionId = questionType === "multiple_choice" ? String(req.body?.selectedOptionId || "") : "";
-    const textAnswer = questionType === "rewrite" ? safeText2(req.body?.textAnswer, 4e3) : "";
-    if (questionType === "multiple_choice") {
-      const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option) => option.id === selectedOptionId);
-      if (!selectedOption) return res.status(400).json({ error: "Ph\u01B0\u01A1ng \xE1n \u0111\xE3 ch\u1ECDn kh\xF4ng h\u1EE3p l\u1EC7." });
-    } else if (!normalizeGrammarTextAnswer(textAnswer)) {
-      return res.status(400).json({ error: "Vui l\xF2ng nh\u1EADp c\xE2u tr\u1EA3 l\u1EDDi." });
-    }
-    const isCorrect = questionType === "rewrite" ? isGrammarTextAnswerCorrect(
-      textAnswer,
-      attemptQuestion.correctAnswerSnapshot,
-      attemptQuestion.acceptedAnswersSnapshot
-    ) : selectedOptionId === attemptQuestion.correctOptionId;
-    const answer = {
-      id: makeId7("grammar-answer"),
-      attemptQuestionId: attemptQuestion.id,
-      questionId: attemptQuestion.questionId,
-      questionType,
-      isCorrect,
-      scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
-      answeredAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    if (questionType === "rewrite") {
-      answer.textAnswer = textAnswer;
-      answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
-      answer.gradingVersion = GRAMMAR_TEXT_GRADING_VERSION;
-    } else {
-      answer.selectedOptionId = selectedOptionId;
-      answer.correctOptionId = attemptQuestion.correctOptionId;
-    }
-    const answers = (attempt.answers || []).filter((item) => item.attemptQuestionId !== attemptQuestion.id);
-    answers.push(answer);
-    const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(updatedAttempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    const feedback = set?.showExplanationImmediately ? {
-      isCorrect,
-      correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
-      correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
-      explanation: attemptQuestion.explanationSnapshot,
-      scoreAwarded: answer.scoreAwarded
-    } : null;
-    timing.finish(res);
-    res.json({ answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)), feedback });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/submit");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    timing.mark("attempt_read");
-    if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    timing.mark("set_read");
-    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y." });
-    if (attempt.status === "completed") {
-      timing.finish(res);
-      return res.json({
-        ...sanitizeAttemptForStudent(attempt, Boolean(set?.showReviewAfterSubmit)),
-        alreadyCompleted: true
-      });
-    }
-    const answerMap = new Map((attempt.answers || []).map((answer) => [answer.attemptQuestionId, answer]));
-    let score = 0;
-    let correctCount = 0;
-    let wrongCount = 0;
-    let unansweredCount = 0;
-    for (const question of attempt.questions || []) {
-      const answer = answerMap.get(question.id);
-      if (!answer) {
-        unansweredCount++;
-      } else if (answer.isCorrect) {
-        correctCount++;
-        score += Number(question.scoreSnapshot || 1);
-      } else {
-        wrongCount++;
-      }
-    }
-    const completedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const startedAt = attempt.startedAt || completedAt;
-    const durationSeconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1e3));
-    const updatedAttempt = {
-      ...attempt,
-      status: "completed",
-      submissionStatus: "completed",
-      score,
-      correctCount,
-      wrongCount,
-      unansweredCount,
-      completedAt,
-      durationSeconds,
-      updatedAt: completedAt
-    };
-    const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(updatedAttempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, async (req, res) => {
-  try {
-    const actor = await getGrammarActor(req);
-    if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    if (!attempt) return res.status(404).json({ error: "L\u01B0\u1EE3t l\xE0m b\xE0i kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    const canReview = canAccessGrammarAttempt(attempt, actor, set, req, true);
-    if (!canReview) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y." });
-    if (attempt.status !== "completed" && actor.role === "student") return res.status(403).json({ error: "Ch\u1EC9 \u0111\u01B0\u1EE3c xem l\u1EA1i sau khi n\u1ED9p b\xE0i." });
-    const staffReview = !actor.isGuest && (actor.role === "super_admin" || canManageGrammarSet(actor, set));
-    res.json(sanitizeAttemptForStudent(attempt, staffReview || Boolean(set?.showReviewAfterSubmit)));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (req, res) => {
-  try {
-    const actor = await getGrammarActor(req);
-    if (!actor) return res.status(401).json({ error: "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 xem l\u1ECBch s\u1EED l\xE0m b\xE0i." });
-    const set = await getGrammarSetOr404(req.params.id);
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const snapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", req.params.id).where(actorField, "==", actor.id).get();
-    const list2 = [];
-    snapshot.forEach((doc) => {
-      const attempt = { id: doc.id, ...doc.data() };
-      list2.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
-    });
-    list2.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-    res.json(list2);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/grammar-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set || isArchivedRecord(set) || !canManageGrammarSet(req.user, set)) {
-      return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    res.json(set);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set) return res.status(404).json({ error: "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i." });
-    if (!canManageGrammarSet(req.user, set)) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n xem k\u1EBFt qu\u1EA3 b\xE0i n\xE0y." });
-    const snapshot = await adminDb.collection("grammar_attempts").where("grammarSetId", "==", set.id).get();
-    const attempts = [];
-    snapshot.forEach((doc) => {
-      const attempt = { id: doc.id, ...doc.data() };
-      attempts.push(attempt);
-    });
-    attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
-    res.json({ set, attempts: await enrichStudentNames(attempts) });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/vocab-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    const set = setDoc.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-    if (!set || isArchivedRecord(set) || !canManageVocabSet(req.user, set)) {
-      return res.status(404).json({ error: "B\u1ED9 t\u1EEB v\u1EF1ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    res.json(stripPrivateVocabSetFields(set));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!setDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const set = { id: setDoc.id, ...setDoc.data() };
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "You do not have permission to view results for this vocabulary set." });
-    }
-    const snapshot = await adminDb.collection("game_sessions").where("vocabSetId", "==", set.id).get();
-    const sessions = [];
-    snapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.vocabSetId !== set.id) return;
-      const interrupted = !data.completedAt && Date.now() - new Date(data.lastSavedAt || data.startedAt || data.createdAt || 0).getTime() >= 24 * 60 * 60 * 1e3;
-      sessions.push(omitSensitiveSessionFields({ ...data, displayStatus: data.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress" }));
-    });
-    sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
-    res.json({ set, sessions: await enrichStudentNames(sessions) });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
 async function resolveGameSessionStartContext(req, payload, timing) {
   let actor = getGameSessionActor(req, payload);
   if (!actor) throw createHttpError2(401, "Student identity is required to start a game session.");
@@ -22746,7 +24814,10 @@ function buildGameSessionRecord(context, payload, options) {
     assignmentTitle: safeText2(assignment?.title || assignment?.name || "", 300),
     assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
     vocabSetId,
-    vocabSetTitle: safeText2(payload.vocabSetTitle || vocabSet.title, 240),
+    vocabSetTitle: safeText2(
+      options.schemaVersion === 2 ? payload.vocabSetTitle : payload.vocabSetTitle || vocabSet.title,
+      240
+    ),
     gameId,
     gameName: safeText2(payload.gameName, 160),
     gameType: safeText2(payload.gameType, 80),
@@ -22778,990 +24849,6 @@ function supportsIncrementalGameSession(session) {
   const schemaVersion = Number(session?.schemaVersion || 1);
   return schemaVersion === 2 || schemaVersion === 3 && session?.gameId === "speaking-ai";
 }
-app2.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/activate");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const context = await resolveGameSessionStartContext(req, payload, timing);
-    if (context.gameId !== "speaking-ai") {
-      return res.status(400).json({ error: "Chi game Speaking AI moi can kich hoat session som." });
-    }
-    const id2 = deterministicRunDocumentId("session-v3", [
-      context.actor.ownerKey,
-      context.vocabSetId,
-      context.gameId,
-      credentials.clientRunId
-    ]);
-    const docRef = adminDb.collection("game_sessions").doc(id2);
-    const existing = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existing.exists) {
-      const session2 = existing.data();
-      if (!canResumeClientRun(req, session2, credentials.runSecret)) {
-        return res.status(403).json({ error: "Khong co quyen tiep tuc luot hoc nay." });
-      }
-      timing.finish(res);
-      return res.json({ ...omitSensitiveSessionFields(session2), sessionToken: credentials.runSecret, alreadyActivated: true });
-    }
-    const session = buildGameSessionRecord(context, payload, {
-      id: id2,
-      sessionTokenHash: hashSessionToken(credentials.runSecret),
-      schemaVersion: 3,
-      clientRunId: credentials.clientRunId,
-      startedAt: payload.startedAt
-    });
-    const batch = adminDb.batch();
-    batch.set(docRef, session);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(session, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/lazy-complete");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const context = await resolveGameSessionStartContext(req, payload, timing);
-    if (context.gameId === "speaking-ai") {
-      return res.status(400).json({ error: "Speaking AI phai kich hoat session khi bat dau ghi am." });
-    }
-    const id2 = deterministicRunDocumentId("session-v3", [
-      context.actor.ownerKey,
-      context.vocabSetId,
-      context.gameId,
-      credentials.clientRunId
-    ]);
-    const docRef = adminDb.collection("game_sessions").doc(id2);
-    const existing = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existing.exists) {
-      const session = existing.data();
-      if (!canResumeClientRun(req, session, credentials.runSecret)) {
-        return res.status(403).json({ error: "Khong co quyen nop luot hoc nay." });
-      }
-      if (session.status === "completed") {
-        timing.finish(res);
-        return res.json({ ...omitSensitiveSessionFields(session), alreadyCompleted: true });
-      }
-    }
-    const actions = sanitizeSubmittedGameActions(payload.actions);
-    const baseSession = existing.exists ? existing.data() : buildGameSessionRecord(context, payload, {
-      id: id2,
-      sessionTokenHash: hashSessionToken(credentials.runSecret),
-      schemaVersion: 3,
-      clientRunId: credentials.clientRunId,
-      startedAt: payload.startedAt
-    });
-    const result = gradeGameSessionV2(baseSession, actions);
-    const completedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const durationMs = Math.max(0, Date.now() - new Date(baseSession.startedAt || completedAt).getTime());
-    const completed = {
-      ...baseSession,
-      ...result,
-      status: "completed",
-      submissionStatus: "completed",
-      completedAt,
-      endedAt: completedAt,
-      submittedAt: completedAt,
-      lastSavedAt: completedAt,
-      durationMs,
-      durationSeconds: Math.round(durationMs / 1e3),
-      expiresAt: addDaysIso2(completedAt, ACTIVITY_TTL_DAYS)
-    };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: id2 });
-    const batch = adminDb.batch();
-    batch.set(docRef, completed);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(completed, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(omitSensitiveSessionFields(completed));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions");
-  try {
-    const payload = req.body || {};
-    let actor = getGameSessionActor(req, payload);
-    if (!actor) return res.status(401).json({ error: "Student identity is required to start a game session." });
-    if (actor.ownerType === "guest") {
-      const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
-        classId: payload.classId,
-        className: payload.className
-      }, timing);
-      actor = { ...actor, studentName: profile.displayName || profile.name };
-    }
-    timing.mark("identity");
-    const id2 = `session-${import_crypto4.default.randomUUID()}`;
-    const sessionToken = createSessionToken();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const vocabSetId = safeText2(payload.vocabSetId, 160);
-    const gameId = safeText2(payload.gameId, 120);
-    if (!vocabSetId || !gameId) {
-      return res.status(400).json({ error: "vocabSetId and gameId are required." });
-    }
-    if (!SESSION_V2_GAME_IDS.has(gameId)) {
-      return res.status(400).json({ error: "Game kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3." });
-    }
-    let assignment = null;
-    let access = null;
-    const accessToken = getRequestVocabShareToken(req);
-    if (accessToken) {
-      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText2(payload.assignmentId, 160), timing);
-      if (!access) return res.status(403).json({ error: "Link kh\xF4ng c\xF3 quy\u1EC1n t\u1EA1o l\u01B0\u1EE3t h\u1ECDc n\xE0y." });
-      assignment = access.assignment;
-    } else if (payload.assignmentId) {
-      const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
-      assignment = assignmentDoc.exists ? assignmentDoc.data() : null;
-      if (!assignment) {
-        const assignmentsSnapshot = await adminDb.collection("assignments").get();
-        assignmentsSnapshot.forEach((doc) => {
-          const data = { id: doc.id, ...doc.data() };
-          if (!assignment && data.id === String(payload.assignmentId)) {
-            assignment = data;
-          }
-        });
-      }
-    }
-    timing.mark("access");
-    let vocabSet = access?.set || null;
-    if (!vocabSet) {
-      const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
-      if (!vocabDoc.exists) {
-        return res.status(404).json({ error: "Vocabulary set not found." });
-      }
-      vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
-    }
-    timing.mark("set_read");
-    if (assignment) {
-      if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
-        return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
-      }
-      if (!req.user && !accessToken) {
-        return res.status(403).json({ error: "Link giao b\xE0i kh\xF4ng h\u1EE3p l\u1EC7 ho\u1EB7c \u0111\xE3 h\u1EBFt quy\u1EC1n truy c\u1EADp." });
-      }
-      if (assignment.gameId && assignment.gameId !== gameId) {
-        return res.status(403).json({ error: "Game kh\xF4ng \u0111\xFAng v\u1EDBi b\xE0i gi\xE1o vi\xEAn \u0111\xE3 giao." });
-      }
-    } else if (access?.accessType === "vocab_set") {
-      if (access.set.id !== vocabSetId || getVocabVisibility(vocabSet) !== "assignment") {
-        return res.status(403).json({ error: "Link kh\xF4ng c\xF3 quy\u1EC1n t\u1EA1o l\u01B0\u1EE3t h\u1ECDc n\xE0y." });
-      }
-    } else if (!canViewVocabSet(req.user, vocabSet)) {
-      return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n b\u1EAFt \u0111\u1EA7u game v\u1EDBi b\u1ED9 t\u1EEB n\xE0y." });
-    }
-    let inferredClass = null;
-    if (!assignment && payload.vocabSetId) {
-      const assignmentsSnapshot = await adminDb.collection("assignments").where("vocabSetId", "==", payload.vocabSetId).get();
-      const uniqueBySet = /* @__PURE__ */ new Map();
-      assignmentsSnapshot.forEach((doc) => {
-        const data = { id: doc.id, ...doc.data() };
-        setUniqueClass(uniqueBySet, data.vocabSetId, {
-          classId: data.classId,
-          className: data.className || ""
-        });
-      });
-      inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
-    }
-    timing.mark("class_resolve");
-    const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
-    const newSession = {
-      id: id2,
-      ownerKey: actor.ownerKey,
-      ownerType: actor.ownerType,
-      userId: actor.userId,
-      studentId: actor.studentId,
-      guestId: actor.guestId,
-      assignmentId: safeText2(assignment?.id || "", 160),
-      assignmentVerified: Boolean(assignment?.id),
-      assignmentTitle: safeText2(assignment?.title || assignment?.name || "", 300),
-      assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
-      vocabSetId,
-      vocabSetTitle: safeText2(payload.vocabSetTitle, 240),
-      gameId,
-      gameName: safeText2(payload.gameName, 160),
-      gameType: safeText2(payload.gameType, 80),
-      studentName: actor.studentName,
-      classId: safeText2(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-      className: safeText2(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
-      startedAt: now,
-      createdAt: now,
-      status: "started",
-      schemaVersion: 2,
-      gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
-      actionPersistence: getGameActionPersistence(gameId, privateSnapshot),
-      privateSnapshot,
-      lastSavedAt: now,
-      score: 0,
-      totalQuestions: 0,
-      correctAnswers: 0,
-      incorrectAnswers: 0,
-      sessionTokenHash: hashSessionToken(sessionToken)
-    };
-    await adminDb.collection("game_sessions").doc(id2).set(newSession);
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => {
-  try {
-    const id2 = req.params.id;
-    const payload = req.body || {};
-    const docRef = adminDb.collection("game_sessions").doc(id2);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    const existingData = existing.data();
-    if (!canUpdateGameSession(req, existingData, payload)) {
-      return res.status(403).json({ error: "You do not have permission to update this game session." });
-    }
-    if (existingData.status === "completed") {
-      return res.status(409).json({ error: "This game session has already been completed." });
-    }
-    const endedAt = payload.endedAt || (/* @__PURE__ */ new Date()).toISOString();
-    const startedAt = existingData.startedAt || endedAt;
-    const durationMs = Math.max(0, Number(payload.durationMs ?? new Date(endedAt).getTime() - new Date(startedAt).getTime()));
-    const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
-    const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
-    const sanitizedAnswerDetails = Array.isArray(payload.answerDetails) ? payload.answerDetails.slice(0, 200).map((item, index) => ({
-      questionIndex: Number.isFinite(Number(item.questionIndex)) ? Number(item.questionIndex) : index,
-      wordId: item.wordId || "",
-      word: item.word || "",
-      questionText: item.questionText || "",
-      correctAnswer: item.correctAnswer || "",
-      userAnswer: item.userAnswer || "",
-      selectedAnswer: item.selectedAnswer || "",
-      isCorrect: Boolean(item.isCorrect),
-      timeSpentMs: item.timeSpentMs ? Number(item.timeSpentMs) : void 0,
-      options: Array.isArray(item.options) ? item.options.slice(0, 6).map((option) => String(option).slice(0, 160)) : void 0
-    })) : [];
-    const updatedSession = {
-      ...existingData,
-      answerDetails: sanitizedAnswerDetails,
-      score: Math.max(0, Number(payload.score || 0)),
-      totalQuestions,
-      correctAnswers,
-      incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
-      accuracy: totalQuestions > 0 ? Math.round(correctAnswers / totalQuestions * 100) : 0,
-      durationMs,
-      durationSeconds: Math.round(durationMs / 1e3),
-      status: "completed",
-      submissionStatus: "completed",
-      endedAt,
-      completedAt: endedAt,
-      expiresAt: addDaysIso2(endedAt, ACTIVITY_TTL_DAYS)
-    };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id: id2 });
-    const batch = adminDb.batch();
-    batch.set(docRef, updatedSession);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(updatedSession, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    res.json(omitSensitiveSessionFields(updatedSession));
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "PUT /api/game-sessions/:id/actions/:actionId");
-  try {
-    const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
-    timing.mark("session_read");
-    if (!sessionDoc.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const session = sessionDoc.data();
-    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\u01B0u l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
-    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session c\u0169 kh\xF4ng h\u1ED7 tr\u1EE3 l\u01B0u ti\u1EBFn \u0111\u1ED9." });
-    if (session.status === "completed") return res.json({ saved: true, completed: true });
-    const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
-    if (!action.actionId) return res.status(400).json({ error: "Thi\u1EBFu actionId." });
-    const canonicalActionId = `${req.params.id}:sequence:${action.sequence}`;
-    const legacyActionId = `${req.params.id}:${action.actionId}`;
-    const canonicalRef = adminDb.collection("game_session_actions").doc(canonicalActionId);
-    const legacyRef = adminDb.collection("game_session_actions").doc(legacyActionId);
-    const [canonicalDoc, legacyDoc] = await Promise.all([canonicalRef.get(), legacyRef.get()]);
-    timing.mark("action_lookup");
-    if (canonicalDoc.exists) {
-      const existingAction = canonicalDoc.data();
-      if (existingAction.actionId && existingAction.actionId !== action.actionId) {
-        return res.status(409).json({ error: "Action sequence \u0111\xE3 t\u1ED3n t\u1EA1i." });
-      }
-      timing.finish(res);
-      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-    }
-    if (legacyDoc.exists) {
-      timing.finish(res);
-      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-    }
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const batch = adminDb.batch();
-    batch.set(canonicalRef, {
-      ...action,
-      id: canonicalActionId,
-      sessionId: req.params.id,
-      createdAt: now,
-      updatedAt: now
-    });
-    batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
-      status: "in_progress",
-      lastSavedAt: now,
-      updatedAt: now
-    });
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(
-        { ...session, id: req.params.id, status: "in_progress", lastSavedAt: now, updatedAt: now },
-        {
-          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-          includeDetail: false
-        }
-      )
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/:id/submit");
-  try {
-    const docRef = adminDb.collection("game_sessions").doc(req.params.id);
-    const existing = await docRef.get();
-    timing.mark("session_read");
-    if (!existing.exists) return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const session = existing.data();
-    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t ch\u01A1i n\xE0y." });
-    if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
-    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session c\u0169 ph\u1EA3i d\xF9ng endpoint ho\xE0n th\xE0nh c\u0169." });
-    let actions;
-    const submittedActionsProvided = Array.isArray(req.body?.actions);
-    if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
-      actions = sanitizeSubmittedGameActions(req.body.actions);
-    } else {
-      const snapshot = await adminDb.collection("game_session_actions").where("sessionId", "==", req.params.id).get();
-      const storedActions = [];
-      snapshot.forEach((doc) => storedActions.push(doc.data()));
-      actions = dedupeStoredGameActions(storedActions);
-    }
-    timing.mark("actions_read");
-    const result = gradeGameSessionV2(session, actions);
-    const completedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
-    const completed = { ...session, ...result, status: "completed", submissionStatus: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1e3), expiresAt: addDaysIso2(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
-    const batch = adminDb.batch();
-    batch.set(docRef, completed);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(completed, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(omitSensitiveSessionFields(completed));
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, res) => {
-  try {
-    const payload = req.body || {};
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const gameSessionId = safeText2(payload.gameSessionId, 160);
-    let sessionData = null;
-    if (gameSessionId) {
-      const sessionDoc = await adminDb.collection("game_sessions").doc(gameSessionId).get();
-      if (!sessionDoc.exists) {
-        return res.status(404).json({ error: "Session kh\xF4ng t\u1ED3n t\u1EA1i." });
-      }
-      sessionData = sessionDoc.data();
-      if (!canUpdateGameSession(req, sessionData, payload)) {
-        return res.status(403).json({ error: "You do not have permission to save this pronunciation attempt." });
-      }
-      if (sessionData.status === "completed") {
-        return res.status(409).json({ error: "This game session has already been completed." });
-      }
-    } else if (!req.user) {
-      return res.status(401).json({ error: "Game session is required to save pronunciation attempts." });
-    }
-    const actor = sessionData ? {
-      ownerKey: sessionData.ownerKey || "",
-      ownerType: sessionData.ownerType || "",
-      userId: sessionData.userId || "",
-      studentId: sessionData.studentId || sessionData.guestId || "",
-      guestId: sessionData.guestId || "",
-      studentName: sessionData.studentName || ""
-    } : getGameSessionActor(req, payload);
-    if (!actor) {
-      return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
-    }
-    const id2 = `pronunciation-${import_crypto4.default.randomUUID()}`;
-    const attempt = {
-      id: id2,
-      ownerKey: actor.ownerKey,
-      ownerType: actor.ownerType,
-      userId: actor.userId || "",
-      studentId: actor.studentId || actor.guestId || "",
-      guestId: actor.guestId || "",
-      studentName: actor.studentName || "",
-      vocabularySetId: sessionData?.vocabSetId || safeText2(payload.vocabularySetId || payload.vocabSetId || "", 160),
-      wordId: safeText2(payload.wordId, 160),
-      targetText: safeText2(payload.targetText, 500),
-      recognizedText: safeText2(payload.recognizedText, 500),
-      score: Math.max(0, Math.min(100, Number(payload.score || 0))),
-      correctWords: Math.max(0, Number(payload.correctWords || 0)),
-      totalWords: Math.max(0, Number(payload.totalWords || 0)),
-      attemptCount: Math.max(1, Number(payload.attemptCount || 1)),
-      gameSessionId,
-      gameId: "speaking-ai",
-      playedAt: now,
-      createdAt: now
-    };
-    await adminDb.collection("pronunciation_attempts").doc(id2).set(attempt);
-    res.status(201).json(attempt);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/results/:sourceType/:resultId", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/results/:sourceType/:resultId");
-  try {
-    if (!req.user) {
-      timing.finish(res);
-      return res.status(401).json({ error: "Unauthenticated" });
-    }
-    const sourceType = safeText2(req.params.sourceType, 80);
-    const requestedId = safeText2(req.params.resultId, 200);
-    if (!requestedId || !["vocabulary", "grammar", "listening"].includes(sourceType)) {
-      timing.finish(res);
-      return res.status(400).json({ error: "Lo\u1EA1i k\u1EBFt qu\u1EA3 kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    let activity = null;
-    if (sourceType === "vocabulary") {
-      const sessionDoc = await adminDb.collection("game_sessions").doc(requestedId).get();
-      if (!sessionDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const session = { id: sessionDoc.id, ...sessionDoc.data() };
-      if (!session.completedAt || isExpiredActivity(session)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const [vocabSetDoc, assignmentDoc] = await Promise.all([
-        session.vocabSetId ? adminDb.collection("vocab_sets").doc(session.vocabSetId).get() : Promise.resolve(null),
-        session.assignmentId ? adminDb.collection("assignments").doc(session.assignmentId).get() : Promise.resolve(null)
-      ]);
-      const vocabSet = vocabSetDoc?.exists ? { id: vocabSetDoc.id, ...vocabSetDoc.data() } : null;
-      const assignment = assignmentDoc?.exists ? { id: assignmentDoc.id, ...assignmentDoc.data() } : null;
-      const classIds = Array.from(new Set([session.classId, assignment?.classId].filter(Boolean)));
-      const classDocs = await Promise.all(classIds.map((classId) => adminDb.collection("classes").doc(classId).get()));
-      const vocabSetsById = new Map(vocabSet ? [[vocabSet.id, vocabSet]] : []);
-      const assignmentsById = new Map(assignment ? [[assignment.id, assignment]] : []);
-      const classesById = /* @__PURE__ */ new Map();
-      classDocs.forEach((doc) => {
-        if (doc.exists) classesById.set(doc.id, { id: doc.id, ...doc.data() });
-      });
-      if (!canViewResultSession(req.user, session, vocabSetsById, assignmentsById, classesById)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const gradeClass = getLessonGradeClass(vocabSet);
-      activity = sanitizeActivityDetail({
-        ...session,
-        sourceType: "vocabulary",
-        sourceId: session.id,
-        classId: session.classId || gradeClass.classId || "",
-        className: session.className || gradeClass.className || ""
-      });
-    } else if (sourceType === "grammar") {
-      const sourceId = requestedId.startsWith("grammar-") ? requestedId.slice("grammar-".length) : requestedId;
-      const attemptDoc = await adminDb.collection("grammar_attempts").doc(sourceId).get();
-      if (!attemptDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const attempt = { id: attemptDoc.id, ...attemptDoc.data() };
-      const setDoc = attempt.grammarSetId ? await adminDb.collection("grammar_sets").doc(attempt.grammarSetId).get() : null;
-      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-      if (attempt.status !== "completed" || !attempt.completedAt || isExpiredActivity(attempt) || !canViewGrammarActivity(req.user, attempt, set)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      activity = grammarAttemptToActivity(attempt, set);
-      activity.sourceId = attempt.id;
-    } else {
-      const attemptDoc = await adminDb.collection("listening_attempts").doc(requestedId).get();
-      if (!attemptDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const attempt = { id: attemptDoc.id, ...attemptDoc.data() };
-      const setDoc = attempt.setId ? await adminDb.collection("listening_sets").doc(attempt.setId).get() : null;
-      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-      const canView = req.user.role === "super_admin" || attempt.userId === req.user.id || attempt.ownerKey === `user:${req.user.id}` || req.user.role === "teacher" && set?.ownerId === req.user.id;
-      if (!attempt.completedAt || !canView) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Kh\xF4ng t\xECm th\u1EA5y k\u1EBFt qu\u1EA3." });
-      }
-      const isStaffResultReview = req.user.role === "teacher" || req.user.role === "super_admin";
-      const detail = isStaffResultReview ? await resolveListeningActivityDetailForStaff(adminDb, attempt) : null;
-      activity = listeningAttemptToActivity(attempt, detail);
-    }
-    timing.mark("detail");
-    const [named] = await enrichStudentNames([activity]);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named);
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/results", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/results");
-  try {
-    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const summaryView = req.query.view === "summary";
-    const resultLimit = summaryView ? parseActivityResultLimit(req.query.limit) : null;
-    const loadRecent = (collectionName) => {
-      let query = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
-      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
-      return query.get();
-    };
-    const [
-      snapshot,
-      grammarAttemptsSnapshot,
-      listeningAttemptsSnapshot,
-      grammarSetsById,
-      vocabSetsById,
-      listeningSetsSnapshot,
-      assignmentsSnapshot,
-      classesSnapshot
-    ] = await Promise.all([
-      loadRecent("game_sessions"),
-      loadRecent("grammar_attempts"),
-      loadRecent("listening_attempts"),
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("listening_sets").get(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get()
-    ]);
-    timing.mark("sources");
-    const listeningSetsById = /* @__PURE__ */ new Map();
-    listeningSetsSnapshot.forEach((doc) => listeningSetsById.set(doc.id, { id: doc.id, ...doc.data() }));
-    const assignmentsById = /* @__PURE__ */ new Map();
-    const classesById = /* @__PURE__ */ new Map();
-    assignmentsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-    });
-    classesSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-    const list2 = [];
-    const cutoff = Date.now() - ACTIVITY_TTL_MS;
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
-        if (!canViewResultSession(req.user, data, vocabSetsById, assignmentsById, classesById)) return;
-        const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-        const activity = sanitizeActivityDetail({
-          ...data,
-          id: data.id || doc.id,
-          sourceType: "vocabulary",
-          sourceId: data.id || doc.id,
-          classId: data.classId || gradeClass.classId || "",
-          className: data.className || gradeClass.className || ""
-        });
-        list2.push(summaryView ? toActivitySummary(activity, "vocabulary", data.id || doc.id) : activity);
-      }
-    });
-    grammarAttemptsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.status !== "completed" || !data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
-      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
-      list2.push(summaryView ? toActivitySummary(activity, "grammar", data.id) : { ...activity, sourceId: data.id });
-    });
-    const visibleListeningAttempts = [];
-    listeningAttemptsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const set = listeningSetsById.get(data.setId);
-      const canView = req.user?.role === "super_admin" || data.userId === req.user?.id || data.ownerKey === `user:${req.user?.id}` || req.user?.role === "teacher" && set?.ownerId === req.user.id;
-      if (canView) visibleListeningAttempts.push(data);
-    });
-    const isStaffResultReview = req.user?.role === "teacher" || req.user?.role === "super_admin";
-    const listeningVersionContentCache = /* @__PURE__ */ new Map();
-    const listeningActivities = await Promise.all(visibleListeningAttempts.map(async (data) => {
-      if (summaryView || !isStaffResultReview) {
-        const activity = listeningAttemptToActivity(data);
-        return summaryView ? toActivitySummary(activity, "listening", data.id) : activity;
-      }
-      const detail = await resolveListeningActivityDetailForStaff(
-        adminDb,
-        data,
-        listeningVersionContentCache
-      );
-      return listeningAttemptToActivity(data, detail);
-    }));
-    list2.push(...listeningActivities);
-    list2.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const bounded = resultLimit ? list2.slice(0, resultLimit) : list2;
-    timing.mark("shape");
-    const named = await enrichStudentNames(bounded);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named);
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/leaderboard-results", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/leaderboard-results");
-  try {
-    const events = await loadLeaderboardEventsFromSources(timing);
-    const [grammarSetsById, vocabSetsById, assignmentsSnapshot, classesSnapshot] = await Promise.all([
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get()
-    ]);
-    timing.mark("scope_sources");
-    const assignmentsById = /* @__PURE__ */ new Map();
-    const classesById = /* @__PURE__ */ new Map();
-    assignmentsSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-    });
-    classesSnapshot.forEach((doc) => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-    const scoped = events.filter((event) => {
-      if (event.sourceType === "grammar") {
-        return canViewGrammarActivity(req.user, event, grammarSetsById.get(event.grammarSetId));
-      }
-      return canViewResultSession(req.user, event, vocabSetsById, assignmentsById, classesById);
-    });
-    timing.mark("scope");
-    timing.finish(res);
-    res.json(scoped);
-  } catch (err) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("users").get();
-    const users = [];
-    snapshot.forEach((doc) => users.push(doc.data()));
-    res.json(users);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const [usersSnapshot, guestsSnapshot] = await Promise.all([
-      adminDb.collection("users").get(),
-      adminDb.collection("guest_profiles").get()
-    ]);
-    const accounts = [];
-    if (isSuperAdmin3(req.user)) {
-      usersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        accounts.push({
-          ...data,
-          id: data.id || doc.id,
-          name: data.name || data.displayName || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
-          accountType: "registered",
-          status: data.status || "active"
-        });
-      });
-    }
-    const manageableGuestIds = isSuperAdmin3(req.user) ? null : await getManageableGuestProfileIdsForTeacher(req.user);
-    const guestProfiles = [];
-    guestsSnapshot.forEach((doc) => {
-      const data = doc.data();
-      guestProfiles.push({
-        ...omitGuestCapabilitySecrets(data),
-        id: data.id || doc.id,
-        guestId: data.guestId || doc.id
-      });
-    });
-    for (const data of guestProfiles) {
-      if (manageableGuestIds && !manageableGuestIds.has(getGuestProfileId(data.guestId || data.id))) continue;
-      accounts.push({
-        ...data,
-        name: data.displayName || data.name || "Ch\u01B0a \u0111\u1EB7t t\xEAn",
-        email: "",
-        phone: "",
-        role: "student",
-        accountType: "guest",
-        status: data.status || "active"
-      });
-    }
-    accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime() - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
-    res.json(accounts);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
-    if (!validation.valid) return res.status(400).json({ error: validation.error });
-    const userRef = adminDb.collection("users").doc(req.params.userId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) return res.status(404).json({ error: "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const existing = userDoc.data();
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    await userRef.update({ name: validation.value, updatedAt: now });
-    invalidateCanonicalStudentNameCache();
-    let authWarning = "";
-    try {
-      await adminAuth.updateUser(req.params.userId, { displayName: validation.value });
-    } catch (authErr) {
-      authWarning = authErr?.message || "Kh\xF4ng \u0111\u1ED3ng b\u1ED9 \u0111\u01B0\u1EE3c t\xEAn l\xEAn Firebase Authentication.";
-      console.warn(`Could not update Firebase display name for ${req.params.userId}: ${authWarning}`);
-    }
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_USER_DISPLAY_NAME",
-      `\u0110\u1ED5i t\xEAn t\xE0i kho\u1EA3n "${existing?.name || req.params.userId}" th\xE0nh "${validation.value}"`
-    );
-    res.json({ success: true, userId: req.params.userId, displayName: validation.value, authWarning });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
-    if (!validation.valid) return res.status(400).json({ error: validation.error });
-    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
-    const profileDoc = await profileRef.get();
-    if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const existing = profileDoc.data();
-    if (!await canManageGuestProfile(req.user, { id: profileDoc.id, ...existing })) {
-      return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n \u0111\u1ED5i t\xEAn h\u1ECDc sinh n\xE0y." });
-    }
-    await profileRef.update({
-      displayName: validation.value,
-      name: validation.value,
-      normalizedName: normalizePersonName(validation.value),
-      needsReview: false,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    invalidateCanonicalStudentNameCache();
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_GUEST_DISPLAY_NAME",
-      `\u0110\u1ED5i t\xEAn h\u1ECDc sinh kh\xE1ch "${existing?.displayName || req.params.guestId}" th\xE0nh "${validation.value}"`
-    );
-    res.json({ success: true, guestId: req.params.guestId, displayName: validation.value });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const status = req.body?.status;
-    if (!["active", "blocked"].includes(status)) {
-      return res.status(400).json({ error: "Tr\u1EA1ng th\xE1i h\u1ED3 s\u01A1 kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
-    const profileDoc = await profileRef.get();
-    if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
-    const existing = profileDoc.data();
-    await profileRef.update({ status, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      status === "blocked" ? "LOCK_GUEST_PROFILE" : "UNLOCK_GUEST_PROFILE",
-      `Chuy\u1EC3n h\u1ED3 s\u01A1 h\u1ECDc sinh "${existing?.displayName || req.params.guestId}" th\xE0nh ${status}`
-    );
-    res.json({ success: true, guestId: req.params.guestId, status });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.post(
-  "/api/admin/guest-profiles/:guestId/history-capability",
-  authenticateUser,
-  requireRole(["teacher", "super_admin"]),
-  async (req, res) => {
-    try {
-      if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-      const guestId = getGuestProfileId(req.params.guestId);
-      const profileRef = adminDb.collection("guest_profiles").doc(guestId);
-      const profileDoc = await profileRef.get();
-      if (!profileDoc.exists) return res.status(404).json({ error: "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i." });
-      const profile = { id: profileDoc.id, ...profileDoc.data() };
-      if (!await canManageGuestProfile(req.user, profile)) {
-        return res.status(403).json({ error: "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n c\u1EA5p l\u1EA1i quy\u1EC1n l\u1ECBch s\u1EED cho h\u1ECDc sinh n\xE0y." });
-      }
-      const guestAccessToken = createSessionToken();
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      const guestAccessTokenVersion = Date.now();
-      await profileRef.update({
-        accessTokenHash: hashSessionToken(guestAccessToken),
-        accessTokenVersion: guestAccessTokenVersion,
-        accessTokenCreatedAt: now,
-        updatedAt: now
-      });
-      await logAuditAction(
-        req.user.id,
-        req.user.name,
-        req.user.email,
-        "ROTATE_GUEST_HISTORY_CAPABILITY",
-        `C\u1EA5p l\u1EA1i quy\u1EC1n xem l\u1ECBch s\u1EED cho h\u1ED3 s\u01A1 kh\xE1ch ${guestId}`
-      );
-      res.json({
-        guestId,
-        guestAccessToken,
-        guestAccessTokenVersion,
-        createdAt: now
-      });
-    } catch (err) {
-      sendApiError(res, err);
-    }
-  }
-);
-app2.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const targetUserId = req.params.userId;
-    const { role } = req.body;
-    if (!["super_admin", "teacher", "student"].includes(role)) {
-      return res.status(400).json({ error: "Vai tr\xF2 kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    const userRef = adminDb.collection("users").doc(targetUserId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    const userData = userDoc.data();
-    await userRef.update({ role });
-    let customClaimWarning = "";
-    try {
-      await adminAuth.setCustomUserClaims(targetUserId, { role });
-    } catch (claimErr) {
-      customClaimWarning = claimErr?.message || "Could not update Firebase custom claims.";
-      console.warn(`Could not update custom claims for ${targetUserId}: ${customClaimWarning}`);
-    }
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_USER_ROLE",
-      `\u0110\xE3 thay \u0111\u1ED5i vai tr\xF2 c\u1EE7a user "${userData?.name}" (${userData?.email}) t\u1EEB ${userData?.role} th\xE0nh ${role}`
-    );
-    res.json({ success: true, userId: targetUserId, role, customClaimWarning });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.put("/api/admin/users/:userId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const targetUserId = req.params.userId;
-    const { status } = req.body;
-    if (!["active", "pending", "blocked", "deleted"].includes(status)) {
-      return res.status(400).json({ error: "Tr\u1EA1ng th\xE1i kh\xF4ng h\u1EE3p l\u1EC7." });
-    }
-    const userRef = adminDb.collection("users").doc(targetUserId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i." });
-    }
-    const userData = userDoc.data();
-    await userRef.update({ status });
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      status === "blocked" ? "LOCK_USER" : "UNLOCK_USER",
-      `\u0110\xE3 chuy\u1EC3n tr\u1EA1ng th\xE1i c\u1EE7a user "${userData?.name}" (${userData?.email}) th\xE0nh ${status}`
-    );
-    res.json({ success: true, userId: targetUserId, status });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-app2.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("audit_logs").orderBy("timestamp", "desc").get();
-    const logs = [];
-    snapshot.forEach((doc) => logs.push(doc.data()));
-    res.json(logs);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
 async function start() {
   await firebaseDiagnosticReady;
   const seedDataEnabled = String(process.env.SEED_DATA_ENABLED || "").toLowerCase() === "true";
@@ -23789,11 +24876,11 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path5.default.join(process.cwd(), "dist", "client");
-    app2.use("/assets", import_express7.default.static(import_path5.default.join(distPath, "assets"), {
+    app2.use("/assets", import_express21.default.static(import_path5.default.join(distPath, "assets"), {
       immutable: true,
       maxAge: "365d"
     }));
-    app2.use(import_express7.default.static(distPath));
+    app2.use(import_express21.default.static(distPath));
     app2.get("*", (req, res) => {
       res.sendFile(import_path5.default.join(distPath, "index.html"));
     });
@@ -24383,16 +25470,6 @@ function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken 
   };
   if (attemptToken) sanitizedAttempt.attemptToken = attemptToken;
   return sanitizedAttempt;
-}
-async function getGrammarSetOr404(id2) {
-  const doc = await adminDb.collection("grammar_sets").doc(id2).get();
-  if (!doc.exists) return null;
-  return { id: doc.id, ...doc.data() };
-}
-async function getGrammarAttemptOr404(id2) {
-  const doc = await adminDb.collection("grammar_attempts").doc(id2).get();
-  if (!doc.exists) return null;
-  return { id: doc.id, ...doc.data() };
 }
 start().catch(async (err) => {
   console.error("Failed to start fullstack server", err);

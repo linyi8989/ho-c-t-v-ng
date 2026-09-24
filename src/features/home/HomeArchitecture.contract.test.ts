@@ -48,6 +48,7 @@ test('route navigation preserves pushState/popstate and stable Home DOM hooks', 
     'home-sets-directory',
     'home-sets-grid',
     'home-grammar-directory',
+    'home-grammar-list',
     'home-sidebar',
     'student-golden-board',
     'system-info-card',
@@ -60,4 +61,27 @@ test('route navigation preserves pushState/popstate and stable Home DOM hooks', 
 test('Home hero only keeps its second headline on one line above the mobile breakpoint', () => {
   assert.match(pageSource, /text-2xl sm:text-4xl lg:text-5xl sm:whitespace-nowrap/);
   assert.doesNotMatch(pageSource, /text-2xl sm:text-4xl lg:text-5xl whitespace-nowrap/);
+});
+
+test('Vocabulary and Grammar own independent search and grade controls', () => {
+  assert.match(controllerSource, /const \[grammarSearch, setGrammarSearch\] = React\.useState\(''\)/);
+  assert.match(controllerSource, /const \[grammarGrade, setGrammarGrade\] = React\.useState\(''\)/);
+  assert.match(controllerSource, /filterPublicVocabSets\(vocabSets, search, grade\)/);
+  assert.match(controllerSource, /filterPublicGrammarSets\(grammarSets, grammarSearch, grammarGrade\)/);
+  assert.ok(pageSource.includes('id="home-grammar-search"'));
+  assert.ok(pageSource.includes('id="home-grammar-grade-filter"'));
+  assert.match(pageSource, /aria-label="Tìm bài ngữ pháp theo tên"/);
+  assert.match(pageSource, /aria-label="Lọc bài ngữ pháp theo khối lớp"/);
+});
+
+test('public Vocabulary and Grammar lessons share the requested compact list contract', () => {
+  assert.equal((pageSource.match(/<HomeLessonList/g) || []).length, 2);
+  for (const heading of ['STT', 'Tên', 'Khối lớp', 'Chủ đề', 'Thao tác']) {
+    assert.ok(pageSource.includes(`<span role="columnheader">${heading}</span>`), `missing list heading ${heading}`);
+  }
+  assert.match(pageSource, /<Play size=\{14\} aria-hidden="true" \/>[\s\S]*?<span>Học Bài<\/span>/);
+  assert.doesNotMatch(pageSource, /Bấm vào bất kỳ bộ bài học nào dưới đây để chọn game luyện tập/);
+  assert.doesNotMatch(pageSource, /Chọn bài ngữ pháp để luyện trắc nghiệm và xem lại lời giải sau khi nộp/);
+  assert.doesNotMatch(pageSource, /\{filteredGrammarSets\.length\} bài/);
+  assert.doesNotMatch(pageSource, /Vào học ngay|Bắt đầu luyện ngữ pháp/);
 });

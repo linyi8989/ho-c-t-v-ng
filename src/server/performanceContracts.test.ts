@@ -137,7 +137,9 @@ test('student entry hot path uses indexed token lookup and lazy summary data', (
   assert.doesNotMatch(studentLearningSource, /\/api\/public\/leaderboard-results/);
   assert.match(studentLearningSource, /\/api\/public\/leaderboard-summary/);
   assert.match(studentLearningSource, /leaderboardOpen/);
-  assert.match(resultsServiceSource, /LEADERBOARD_NOT_READY/);
+  assert.match(resultsServiceSource, /loadReadyLeaderboardEvents/);
+  assert.match(resultsServiceSource, /read_model_fallback/);
+  assert.match(resultsServiceSource, /events = await options\.repository\.loadLeaderboardEvents\(timing\)/);
 });
 
 test('guest identity normal path is one profile point-read without legacy activity scans', () => {

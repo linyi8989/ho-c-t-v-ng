@@ -45,6 +45,39 @@ test('exam directory uses the approved Cambridge & IELTS labels and one unified 
   assert.doesNotMatch(libraryAdminSource, /if \(selectedModuleId\) \{\s*return/);
 });
 
+test('student exam directory cards keep the compact title-level-description-action hierarchy', () => {
+  const cardStart = homeSource.indexOf('<article');
+  const cardEnd = homeSource.indexOf('</article>', cardStart);
+  const title = homeSource.indexOf('{module.displayName}', cardStart);
+  const level = homeSource.indexOf('{module.levelLabel}', cardStart);
+  const description = homeSource.indexOf('module.description', cardStart);
+  const action = homeSource.indexOf('Xem danh sách', cardStart);
+
+  assert.ok(cardStart >= 0 && cardEnd > cardStart, 'Student module card must remain one bounded article');
+  assert.ok(title > cardStart && title < level && level < description && description < action && action < cardEnd,
+    'Every card must render title, level, description, then action in that order');
+  assert.doesNotMatch(homeSource, /Đang hoạt động/);
+  assert.match(homeSource, /data-exam-module-card=\{module\.id\}/);
+  assert.match(homeSource, /exam-directory-module-card/);
+  assert.match(homeSource, /exam-directory-module-title/);
+  assert.match(homeSource, /exam-directory-module-level/);
+  assert.match(homeSource, /exam-directory-module-description/);
+  assert.match(homeSource, /grid gap-4 sm:grid-cols-2 xl:grid-cols-4/);
+  assert.match(globalCssSource, /\.exam-directory-module-card\s*\{[^}]*min-height:\s*13rem/s);
+  assert.match(globalCssSource, /\.exam-directory-module-action\s*\{[^}]*margin-top:\s*auto/s);
+  for (const [foreground, background] of [
+    ['#be123c', '#fff1f2'],
+    ['#92400e', '#fffbeb'],
+    ['#0f766e', '#f0fdfa'],
+    ['#2563eb', '#eff6ff'],
+    ['#0369a1', '#f0f9ff'],
+    ['#7c3aed', '#f5f3ff'],
+    ['#4338ca', '#eef2ff'],
+  ] as const) {
+    assert.ok(contrast(foreground, background) >= 4.5, `${foreground} on ${background} must meet WCAG AA`);
+  }
+});
+
 test('admin module quick links keep feature-scoped readable default and selected states', () => {
   const broadOverride = globalCssSource.indexOf('#admin-dashboard-container button:not([disabled])');
   const scopedContract = globalCssSource.lastIndexOf('/* Admin exam-directory quick module contrast contract.');

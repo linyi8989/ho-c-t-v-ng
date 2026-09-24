@@ -753,8 +753,12 @@
 
 #learning-golden-toggle {
   background: #b45309 !important;
+  background-image: none !important;
   border-color: #92400e !important;
   color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
   box-shadow: 0 7px 16px rgba(180, 83, 9, 0.22) !important;
 }
 

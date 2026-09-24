@@ -4568,13 +4568,13 @@ Leaderboard boundary:
   aggregation and returns only ranked entries plus class filter options, with a
   30-second in-process/browser cache capped at 100 filter keys. Result writes
   invalidate the process cache.
-- The summary endpoint is deliberately read-model-only. If
-  `settings/leaderboard-read-model-v1` is not `ready=true, version=1`, it returns
-  `503 LEADERBOARD_NOT_READY`; it never falls back to multi-table legacy scans.
-  The lesson itself remains usable and only the optional leaderboard displays
-  the preparation message. Existing full leaderboard endpoints remain for
-  backward-compatible Home/Admin consumers and are not on the player critical
-  path.
+- The summary endpoint always checks the compact read model first. If
+  `settings/leaderboard-read-model-v1` is not `ready=true, version=1`, an
+  on-demand, read-only compatibility branch derives the same summary from the
+  retained legacy sources. This branch runs only after the student explicitly
+  opens the board, keeps the bounded response and 30-second cache, and never
+  writes source rows or marks the projection ready. The explicit production
+  backfill remains required to remove the compatibility scan at scale.
 
 Rollout and verification:
 
@@ -5981,3 +5981,87 @@ Rollout and verification:
   changed in this step. Node 22 lint, production build, startup/storage smoke,
   the complete `test:phase3` regression gate and desktop/mobile browser QA pass;
   generated `dist/` content was restored after verification.
+
+## 125. Compact student exam-directory cards - 2026-09-24
+
+- `ListeningLibraryHome.tsx` keeps the same seven visible registry modules,
+  capability check, navigation callback and `examModulePath` behavior. Only the
+  student card presentation changed: module title first, then level/exam label,
+  a concise presentation-only description and the existing action.
+- Active cards no longer render the redundant `Đang hoạt động` badge. Inactive
+  capability behavior is unchanged and still renders the existing disabled
+  `Chưa triển khai` action.
+- `exam-listening.css` owns the scoped `exam-directory-module-*` hooks for both
+  embedded Home and standalone library roots. Cards use one 13rem height,
+  module accent colours and a bottom-aligned single-line 2.5rem action. Existing
+  `sm:grid-cols-2` and `xl:grid-cols-4` breakpoints are unchanged.
+- Registry manifests, module descriptions, APIs, routes, storage and data are
+  not modified. Short card copy lives only in the student presentation layer.
+- The navigation contract locks title/level/description/action ordering and the
+  absence of the active badge. `css-browser-smoke.mjs` measures all seven cards
+  at 1440px and 390px, including equal height/width, content overflow and action
+  alignment, and captures dedicated desktop/mobile screenshots.
+
+## 126. Student golden-board availability and contrast - 2026-09-24
+
+- Root cause of the unavailable board was isolated at the summary API boundary:
+  the local database had retained leaderboard source events but no
+  `leaderboard-read-model-v1` readiness marker, so the summary endpoint returned
+  `503 LEADERBOARD_NOT_READY` while the compatibility leaderboard endpoint
+  returned the existing results correctly.
+- `getPublicLeaderboardSummary` still attempts the compact ready projection
+  first. When that projection is unavailable, it now calls the existing
+  read-only legacy event loader, sanitizes and aggregates on the server, returns
+  only the bounded summary, and stores that summary in the existing 30-second
+  cache. No request-time migration, database write or readiness mutation was
+  introduced.
+- `StudentLearningArea` keeps lazy loading: no leaderboard request occurs before
+  `Xem bảng vàng` is opened. The retry action now increments the existing refresh
+  key instead of closing/reopening state through a timer, and the toggle exposes
+  `aria-expanded` plus a test-only status data attribute for deterministic UI QA.
+- `student.css` explicitly fixes the toggle to an opaque amber surface with
+  white text and no inherited filter in both closed and open states. No layout,
+  breakpoint, route, API URL, score data or storage schema changed.
+- Server-domain, performance, identity, Home/theme and TypeScript gates pass.
+  Browser QA at 1440px and 390px confirms `opacity: 1`, white text, no visual
+  filter, successful `ready` state, one rendered local leaderboard entry and no
+  preparation error.
+
+## 127. Independent student Grammar search and grade filter - 2026-09-24
+
+- The Home controller now owns separate `grammarSearch` and `grammarGrade`
+  state. Vocabulary keeps its existing `search`/`grade` state, so filtering one
+  student directory no longer changes the other directory.
+- `getGrammarGradeOptions` combines the existing default grades, authenticated
+  class names and grade levels present in loaded Grammar sets. Public visibility
+  filtering and the existing accent-insensitive Grammar title/topic/description
+  matching remain client-side; no API, route or record shape changed.
+- `HomePage` renders a named Grammar search input and grade selector inside
+  `#home-grammar-directory`, using emerald focus styling and accessible labels.
+  The heading is protected from word wrapping when the count badge moves within
+  a narrow desktop row.
+- Home contracts pass 13/13 and TypeScript lint passes. Browser QA confirms both
+  controls remain inside the 736px desktop content column, become equal 358px
+  rows at a 390px viewport, and cause no horizontal overflow.
+
+## 128. Shared student Vocabulary and Grammar lesson lists - 2026-09-24
+
+- `HomePage` now presents public Vocabulary and Grammar records through one
+  shared `HomeLessonList` view. Each row contains exactly the requested student
+  fields: ordinal number, lesson name, grade, topic and the existing open action
+  rendered as a Play icon plus `Học Bài`.
+- The instructional subtitles below both section headings and the Grammar result
+  count badge were removed. Empty-state messages remain so a directory with no
+  matching public record still explains why no rows are shown.
+- Existing controller filtering, public-visibility rules, record objects,
+  `onOpenVocab`/`onOpenGrammar` callbacks, routes and APIs are unchanged. The
+  redesign removes presentation-only card metadata; it does not alter stored
+  lesson data.
+- `home.css` owns the shared responsive list: five aligned desktop columns and a
+  compact labelled mobile row at widths below the existing 640px breakpoint.
+  Vocabulary actions are opaque blue, Grammar actions opaque emerald, with
+  explicit white text and no inherited visual filter.
+- Home source contracts lock the shared component, column names, CTA content and
+  removal of the old subtitles/count. Browser QA additionally checks row cell
+  count, Play action, computed action contrast and horizontal containment at
+  1440px and 390px.

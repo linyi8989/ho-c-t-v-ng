@@ -356,6 +356,9 @@ export default function App() {
       filteredVocabSets={home.filteredVocabSets}
       grade={home.grade}
       gradeOptions={home.gradeOptions}
+      grammarGrade={home.grammarGrade}
+      grammarGradeOptions={home.grammarGradeOptions}
+      grammarSearch={home.grammarSearch}
       isStaff={isStaff}
       leaderboard={home.leaderboard}
       leaderboardPeriod={home.leaderboardPeriod}
@@ -370,6 +373,8 @@ export default function App() {
       }}
       search={home.search}
       setGrade={home.setGrade}
+      setGrammarGrade={home.setGrammarGrade}
+      setGrammarSearch={home.setGrammarSearch}
       setLeaderboardPeriod={home.setLeaderboardPeriod}
       setSearch={home.setSearch}
       user={user}

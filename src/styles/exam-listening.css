@@ -1,5 +1,92 @@
 /* Listening Library actions
    Scoped semantic hooks own the final readable state of light Listening pages. */
+#home-listening-directory .exam-directory-module-card,
+#listening-library-home .exam-directory-module-card {
+  --exam-module-accent: #2563eb;
+  --exam-module-soft: #eff6ff;
+  box-sizing: border-box;
+  height: 13rem;
+  min-height: 13rem;
+  background: linear-gradient(145deg, #ffffff 0%, var(--exam-module-soft) 145%) !important;
+  border-color: #dbeafe !important;
+  border-top: 3px solid var(--exam-module-accent) !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07) !important;
+}
+
+#home-listening-directory [data-exam-module-card="starter"],
+#listening-library-home [data-exam-module-card="starter"] {
+  --exam-module-accent: #be123c;
+  --exam-module-soft: #fff1f2;
+}
+
+#home-listening-directory [data-exam-module-card="mover"],
+#listening-library-home [data-exam-module-card="mover"] {
+  --exam-module-accent: #92400e;
+  --exam-module-soft: #fffbeb;
+}
+
+#home-listening-directory [data-exam-module-card="flyer"],
+#listening-library-home [data-exam-module-card="flyer"] {
+  --exam-module-accent: #0f766e;
+  --exam-module-soft: #f0fdfa;
+}
+
+#home-listening-directory [data-exam-module-card="pet"],
+#listening-library-home [data-exam-module-card="pet"] {
+  --exam-module-accent: #0369a1;
+  --exam-module-soft: #f0f9ff;
+}
+
+#home-listening-directory [data-exam-module-card="fce"],
+#listening-library-home [data-exam-module-card="fce"] {
+  --exam-module-accent: #7c3aed;
+  --exam-module-soft: #f5f3ff;
+}
+
+#home-listening-directory [data-exam-module-card="ielts"],
+#listening-library-home [data-exam-module-card="ielts"] {
+  --exam-module-accent: #4338ca;
+  --exam-module-soft: #eef2ff;
+}
+
+#home-listening-directory .exam-directory-module-title,
+#listening-library-home .exam-directory-module-title {
+  color: #172554 !important;
+  line-height: 1.15;
+}
+
+#home-listening-directory .exam-directory-module-level,
+#listening-library-home .exam-directory-module-level {
+  color: var(--exam-module-accent) !important;
+  line-height: 1.25rem;
+}
+
+#home-listening-directory .exam-directory-module-icon,
+#listening-library-home .exam-directory-module-icon {
+  background: var(--exam-module-soft) !important;
+  border: 1px solid color-mix(in srgb, var(--exam-module-accent) 28%, white) !important;
+  color: var(--exam-module-accent) !important;
+}
+
+#home-listening-directory .exam-directory-module-description,
+#listening-library-home .exam-directory-module-description {
+  color: #475569 !important;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+#home-listening-directory .exam-directory-module-action,
+#listening-library-home .exam-directory-module-action {
+  height: 2.5rem;
+  min-height: 2.5rem;
+  margin-top: auto;
+  padding: 0.5rem 0.625rem !important;
+  gap: 0.375rem;
+  font-size: 0.78rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 #home-listening-directory button.listening-library-primary-action:not([disabled]),
 #listening-library-home button.listening-library-primary-action:not([disabled]),
 #listening-module-page button.listening-library-primary-action:not([disabled]),

@@ -4,6 +4,7 @@ import { buildLeaderboard, type LeaderboardPeriod } from '../../lib/leaderboard'
 import {
   filterPublicGrammarSets,
   filterPublicVocabSets,
+  getGrammarGradeOptions,
   getHomeGradeOptions,
 } from './homeSearch';
 
@@ -22,6 +23,8 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
   const [leaderboardResults, setLeaderboardResults] = React.useState<GameSession[]>([]);
   const [search, setSearch] = React.useState('');
   const [grade, setGrade] = React.useState('');
+  const [grammarSearch, setGrammarSearch] = React.useState('');
+  const [grammarGrade, setGrammarGrade] = React.useState('');
   const [leaderboardPeriod, setLeaderboardPeriod] = React.useState<LeaderboardPeriod>('week');
   const homeDataRequestIdRef = React.useRef(0);
 
@@ -112,6 +115,10 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     () => getHomeGradeOptions(classes, vocabSets, listeningSets),
     [classes, listeningSets, vocabSets],
   );
+  const grammarGradeOptions = React.useMemo(
+    () => getGrammarGradeOptions(classes, grammarSets),
+    [classes, grammarSets],
+  );
   const leaderboard = React.useMemo(
     () => buildLeaderboard(leaderboardResults, assignments, { period: leaderboardPeriod }).gold.slice(0, 5),
     [assignments, leaderboardPeriod, leaderboardResults],
@@ -121,8 +128,8 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     [grade, search, vocabSets],
   );
   const filteredGrammarSets = React.useMemo(
-    () => filterPublicGrammarSets(grammarSets, search, grade),
-    [grade, grammarSets, search],
+    () => filterPublicGrammarSets(grammarSets, grammarSearch, grammarGrade),
+    [grammarGrade, grammarSearch, grammarSets],
   );
 
   return {
@@ -130,10 +137,15 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     filteredVocabSets,
     grade,
     gradeOptions,
+    grammarGrade,
+    grammarGradeOptions,
+    grammarSearch,
     leaderboard,
     leaderboardPeriod,
     search,
     setGrade,
+    setGrammarGrade,
+    setGrammarSearch,
     setLeaderboardPeriod,
     setSearch,
   };

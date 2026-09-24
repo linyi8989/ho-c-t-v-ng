@@ -974,6 +974,7 @@ export default function StudentLearningArea({
               <section
                 className="bg-white rounded-3xl p-6 md:p-8 border border-amber-200 shadow-xl space-y-5"
                 id="learning-golden-board"
+                data-leaderboard-status={leaderboardOpen ? leaderboardStatus : 'closed'}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
                   <div className="flex items-center gap-3">
@@ -997,6 +998,7 @@ export default function StudentLearningArea({
                       onClick={() => setLeaderboardOpen(open => !open)}
                       className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-2 text-xs font-black text-amber-900 hover:bg-amber-200"
                       id="learning-golden-toggle"
+                      aria-expanded={leaderboardOpen}
                     >
                       {leaderboardOpen ? 'Ẩn bảng vàng' : 'Xem bảng vàng'}
                     </button>
@@ -1040,10 +1042,7 @@ export default function StudentLearningArea({
                     <p className="text-sm font-bold text-rose-700">{leaderboardError}</p>
                     <button
                       type="button"
-                      onClick={() => {
-                        setLeaderboardOpen(false);
-                        window.setTimeout(() => setLeaderboardOpen(true), 0);
-                      }}
+                      onClick={() => setLeaderboardRefreshKey(key => key + 1)}
                       className="mt-3 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white"
                     >
                       Thử lại
