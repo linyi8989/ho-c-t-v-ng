@@ -918,3 +918,27 @@ Trạng thái: **hoàn thành kỹ thuật ngày 2026-09-24; chưa deploy produc
   trên mobile; nút Vocabulary/Grammar có màu riêng, opacity `1` và không filter.
 - Trạng thái: **đã triển khai trong source và bổ sung contract/browser QA;
   chưa deploy production**.
+
+## Bổ sung sau nâng cấp: hero Trang chủ tách riêng chữ và ảnh - 2026-09-24
+
+- [x] Giữ hero trong một khung chung và hai owner DOM rõ ràng:
+  `home-hero-copy` là lớp nội dung trên (`z-index: 2`), `home-hero-media` là lớp
+  ảnh phủ toàn bộ bề mặt phía dưới (`position: absolute`, `z-index: 0`).
+- [x] Desktop dùng ảnh làm lớp thị giác toàn khung và mask liên tục từ rất nhẹ
+  dưới vùng chữ tới rõ dần phía phải. Tablet/mobile vẫn dùng cùng lớp media,
+  nhưng ảnh neo xuống đáy và chuyển mềm theo chiều dọc.
+- [x] Bỏ hoàn toàn card, viền, nền và bóng riêng của ảnh. Chỉ đường bao của toàn
+  hero còn hiển thị; không tồn tại đường chia trái–phải hoặc trên–dưới.
+- [x] Loại bỏ hoàn toàn badge `Game hóa Từ vựng tiếng Anh đột phá`, bao gồm
+  icon/import và toàn bộ CSS không còn sử dụng.
+- [x] Thu nhỏ và thiết kế lại heading thành các nhịp navy–coral–teal: coral nhấn
+  `thật vui`, teal nhấn thương hiệu, vệt nền mềm thay cho gạch chân cứng. Font
+  dùng `clamp()` và xuống dòng riêng cho mobile để giữ chất trẻ, rõ và hiện đại.
+- [x] Ảnh lớp học do người dùng cung cấp được lưu tại
+  `public/home-classroom-achievement.png`, có alt text; mobile giữ khung 4:3,
+  desktop dùng `object-fit: cover` trong vùng ảnh tràn mép của hero.
+- [x] Không thay đổi route, API, dữ liệu, hành vi tìm kiếm, danh sách bài học,
+  Bảng vàng hay breakpoint chức năng hiện hữu.
+- [x] Home contract đạt 14/14, lint đạt; browser QA tại 1440 px và 390 px xác
+  nhận media phủ bề mặt hero, copy nằm ở lớp trên, ảnh không có card riêng và
+  không overflow ngang.

@@ -303,16 +303,54 @@ async function main() {
   const homeDesktop = await evaluate(`(() => {
     const metrics = ${surfaceMetricsExpression('#app-root')};
     const hero = document.querySelector('#home-hero');
+    const copy = document.querySelector('#home-hero-copy');
+    const media = document.querySelector('#home-hero-media');
+    const image = document.querySelector('#home-hero-image');
     const heroStyle = hero ? getComputedStyle(hero) : null;
+    const mediaStyle = media ? getComputedStyle(media) : null;
+    const imageStyle = image ? getComputedStyle(image) : null;
+    const heroRect = hero?.getBoundingClientRect();
+    const copyRect = copy?.getBoundingClientRect();
+    const mediaRect = media?.getBoundingClientRect();
+    const imageRect = image?.getBoundingClientRect();
     return {
       ...metrics,
       heroBackground: heroStyle?.backgroundImage || '',
       heroBackdrop: heroStyle?.backdropFilter || '',
+      heroLayout: {
+        display: heroStyle?.display || '',
+        layeredMedia: Boolean(heroRect && mediaRect
+          && Math.abs(mediaRect.left - heroRect.left) <= 3
+          && Math.abs(mediaRect.right - heroRect.right) <= 3
+          && Math.abs(mediaRect.top - heroRect.top) <= 3
+          && Math.abs(mediaRect.bottom - heroRect.bottom) <= 3),
+        copyAboveMedia: Number.parseInt(getComputedStyle(copy).zIndex || '0', 10)
+          > Number.parseInt(mediaStyle?.zIndex || '0', 10),
+        copyInside: Boolean(heroRect && copyRect && copyRect.left >= heroRect.left && copyRect.right <= heroRect.right),
+        mediaInside: Boolean(heroRect && mediaRect && mediaRect.left >= heroRect.left && mediaRect.right <= heroRect.right),
+        imageInside: Boolean(mediaRect && imageRect && imageRect.left >= mediaRect.left && imageRect.right <= mediaRect.right
+          && imageRect.top >= mediaRect.top && imageRect.bottom <= mediaRect.bottom),
+        imagePosition: imageStyle?.position || '',
+        mediaBorder: mediaStyle?.borderTopWidth || '',
+        mediaShadow: mediaStyle?.boxShadow || '',
+        imageMask: imageStyle?.webkitMaskImage || imageStyle?.maskImage || '',
+      },
     };
   })()`);
   assert(homeDesktop && !homeDesktop.overflowX, 'Home desktop has horizontal document overflow.');
   assert(homeDesktop.backdropFilters.every(value => value === 'none'), 'Home button inherited a blur layer.');
   assert(homeDesktop.heroBackdrop === 'none', 'Home hero inherited a blur layer.');
+  assert(homeDesktop.heroLayout.display === 'block'
+    && homeDesktop.heroLayout.layeredMedia
+    && homeDesktop.heroLayout.copyAboveMedia
+    && homeDesktop.heroLayout.copyInside
+    && homeDesktop.heroLayout.mediaInside
+    && homeDesktop.heroLayout.imageInside
+    && homeDesktop.heroLayout.imagePosition === 'static'
+    && homeDesktop.heroLayout.mediaBorder === '0px'
+    && homeDesktop.heroLayout.mediaShadow === 'none'
+    && homeDesktop.heroLayout.imageMask !== 'none',
+  `Home desktop media is not a full-surface layer below copy: ${JSON.stringify(homeDesktop.heroLayout)}`);
   const homeScreenshot = await screenshot('home-desktop');
 
   await waitFor(`document.querySelectorAll('#home-listening-directory [data-exam-module-card]').length === 7`);
@@ -356,12 +394,40 @@ async function main() {
   await delay(150);
   const homeMobile = await evaluate(`(() => {
     const metrics = ${surfaceMetricsExpression('#app-root')};
-    const hero = document.querySelector('#home-hero')?.getBoundingClientRect();
+    const heroElement = document.querySelector('#home-hero');
+    const copyElement = document.querySelector('#home-hero-copy');
+    const mediaElement = document.querySelector('#home-hero-media');
+    const imageElement = document.querySelector('#home-hero-image');
+    const hero = heroElement?.getBoundingClientRect();
+    const copy = copyElement?.getBoundingClientRect();
+    const media = mediaElement?.getBoundingClientRect();
+    const image = imageElement?.getBoundingClientRect();
     const heading = document.querySelector('#home-hero h1')?.getBoundingClientRect();
-    return { ...metrics, hero: hero && { left: hero.left, right: hero.right, width: hero.width }, headingWidth: heading?.width || 0 };
+    return {
+      ...metrics,
+      hero: hero && { left: hero.left, right: hero.right, width: hero.width },
+      headingWidth: heading?.width || 0,
+      heroLayout: {
+        layeredMedia: Boolean(hero && media
+          && Math.abs(media.left - hero.left) <= 3
+          && Math.abs(media.right - hero.right) <= 3
+          && Math.abs(media.top - hero.top) <= 3
+          && Math.abs(media.bottom - hero.bottom) <= 3),
+        copyAboveMedia: Number.parseInt(copyElement ? getComputedStyle(copyElement).zIndex || '0' : '0', 10)
+          > Number.parseInt(mediaElement ? getComputedStyle(mediaElement).zIndex || '0' : '0', 10),
+        copyInside: Boolean(hero && copy && copy.left >= hero.left && copy.right <= hero.right
+          && copy.top >= hero.top && copy.bottom <= hero.bottom),
+        mediaInside: Boolean(hero && media && media.left >= hero.left && media.right <= hero.right),
+        imageInside: Boolean(media && image && image.left >= media.left && image.right <= media.right
+          && image.top >= media.top && image.bottom <= media.bottom),
+      },
+    };
   })()`);
   assert(homeMobile && !homeMobile.overflowX, 'Home 390px has horizontal document overflow.');
   assert(homeMobile.hero && homeMobile.hero.left >= -1 && homeMobile.hero.right <= 391, 'Home hero leaves the 390px viewport.');
+  assert(homeMobile.heroLayout.layeredMedia && homeMobile.heroLayout.copyAboveMedia
+    && homeMobile.heroLayout.copyInside && homeMobile.heroLayout.mediaInside && homeMobile.heroLayout.imageInside,
+    `Home mobile copy and media do not stack safely: ${JSON.stringify(homeMobile.heroLayout)}`);
   const homeMobileScreenshot = await screenshot('home-mobile-390');
 
   await evaluate(`document.querySelector('#home-listening-directory')?.scrollIntoView({ block: 'start' })`);

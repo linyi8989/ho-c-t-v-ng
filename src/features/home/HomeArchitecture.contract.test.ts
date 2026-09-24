@@ -58,9 +58,17 @@ test('route navigation preserves pushState/popstate and stable Home DOM hooks', 
   }
 });
 
-test('Home hero only keeps its second headline on one line above the mobile breakpoint', () => {
-  assert.match(pageSource, /text-2xl sm:text-4xl lg:text-5xl sm:whitespace-nowrap/);
-  assert.doesNotMatch(pageSource, /text-2xl sm:text-4xl lg:text-5xl whitespace-nowrap/);
+test('Home hero layers copy above one full-surface classroom media region', () => {
+  assert.ok(pageSource.includes('id="home-hero-copy"'));
+  assert.ok(pageSource.includes('id="home-hero-media"'));
+  assert.ok(pageSource.includes('id="home-hero-image"'));
+  assert.ok(pageSource.includes('src="/home-classroom-achievement.png"'));
+  assert.match(pageSource, /alt="Các học sinh Tiếng Anh Cô Diệu cùng nhận chứng nhận thành tích"/);
+  assert.ok(pageSource.includes('id="home-hero-title"'));
+  assert.ok(pageSource.includes('home-hero-title-joy'));
+  assert.ok(pageSource.includes('home-hero-title-brand'));
+  assert.doesNotMatch(pageSource, /Game hóa Từ vựng tiếng Anh đột phá|home-hero-badge|Sparkles/);
+  assert.doesNotMatch(pageSource, /sm:whitespace-nowrap|whitespace-nowrap[^>]*>[\s\S]*Nhớ siêu lâu cùng/);
 });
 
 test('Vocabulary and Grammar own independent search and grade controls', () => {

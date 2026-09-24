@@ -8,7 +8,6 @@ import {
   LogOut,
   Play,
   Search,
-  Sparkles,
   Star,
 } from 'lucide-react';
 import type { GrammarSet, VocabSet } from '../../types';
@@ -235,23 +234,31 @@ export default function HomePage({
         </div>
       </nav>
 
-      <header className="max-w-6xl mx-auto text-center px-4 pt-12 pb-8 space-y-4" id="home-hero">
-        <span className="inline-flex items-center space-x-1 bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full border border-indigo-100" id="home-hero-badge">
-          <Sparkles size={12} className="text-indigo-500 animate-bounce" />
-          <span>Game hóa Từ vựng tiếng Anh đột phá</span>
-        </span>
-        <h1 className="font-black text-blue-200 leading-[1.08] tracking-normal">
-          <span className="block text-3xl sm:text-4xl lg:text-5xl">Học từ vựng thật vui,</span>
-          <span className="block text-2xl sm:text-4xl lg:text-5xl sm:whitespace-nowrap">
-            Nhớ siêu lâu cùng <span className="text-blue-200 underline decoration-blue-300 decoration-4 underline-offset-4">Tiếng Anh Cô Diệu</span>!
-          </span>
-        </h1>
-        <p className="text-gray-500 text-sm md:text-base max-w-3xl mx-auto leading-relaxed">
-          Tiếng Anh Cô Diệu là nền tảng học từ vựng tiếng Anh hiện đại, được xây dựng với mong muốn giúp học sinh học dễ hơn, nhớ lâu hơn và tiến bộ mỗi ngày. Ứng dụng kết hợp bài học từ vựng với nhiều thể loại game luyện tập sinh động, âm thanh chuẩn xác và hệ thống giao bài tập tự động tiện lợi từ giáo viên.
-        </p>
-        <p className="text-gray-500 text-sm md:text-base max-w-3xl mx-auto leading-relaxed">
-          Không chỉ là một công cụ học tập, Tiếng Anh Cô Diệu còn là nơi cô Diệu gửi gắm tâm huyết giảng dạy, sự kiên nhẫn và mong muốn đồng hành cùng từng học sinh trên hành trình chinh phục tiếng Anh. Mỗi bài học được thiết kế để các em vừa học, vừa chơi, vừa rèn phản xạ, giúp việc ghi nhớ từ vựng trở nên nhẹ nhàng và thú vị hơn.
-        </p>
+      <header className="max-w-6xl mx-auto px-4" id="home-hero">
+        <div id="home-hero-copy">
+          <h1 id="home-hero-title">
+            <span className="home-hero-title-lead">
+              Học từ vựng <span className="home-hero-title-joy">thật vui,</span>
+            </span>
+            <span className="home-hero-title-promise">
+              Nhớ siêu lâu cùng <span className="home-hero-title-brand">Tiếng Anh Cô Diệu!</span>
+            </span>
+          </h1>
+          <p className="text-gray-500 text-sm md:text-base leading-relaxed">
+            Tiếng Anh Cô Diệu là nền tảng học từ vựng tiếng Anh hiện đại, được xây dựng với mong muốn giúp học sinh học dễ hơn, nhớ lâu hơn và tiến bộ mỗi ngày. Ứng dụng kết hợp bài học từ vựng với nhiều thể loại game luyện tập sinh động, âm thanh chuẩn xác và hệ thống giao bài tập tự động tiện lợi từ giáo viên.
+          </p>
+          <p className="text-gray-500 text-sm md:text-base leading-relaxed">
+            Không chỉ là một công cụ học tập, Tiếng Anh Cô Diệu còn là nơi cô Diệu gửi gắm tâm huyết giảng dạy, sự kiên nhẫn và mong muốn đồng hành cùng từng học sinh trên hành trình chinh phục tiếng Anh. Mỗi bài học được thiết kế để các em vừa học, vừa chơi, vừa rèn phản xạ, giúp việc ghi nhớ từ vựng trở nên nhẹ nhàng và thú vị hơn.
+          </p>
+        </div>
+        <figure id="home-hero-media">
+          <img
+            id="home-hero-image"
+            src="/home-classroom-achievement.png"
+            alt="Các học sinh Tiếng Anh Cô Diệu cùng nhận chứng nhận thành tích"
+            decoding="async"
+          />
+        </figure>
       </header>
 
       <main className="max-w-6xl w-full mx-auto px-4 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 mt-4 pb-20">

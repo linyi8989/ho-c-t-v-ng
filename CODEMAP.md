@@ -6065,3 +6065,25 @@ Rollout and verification:
   removal of the old subtitles/count. Browser QA additionally checks row cell
   count, Play action, computed action contrast and horizontal containment at
   1440px and 390px.
+
+## 129. Home hero copy/media separation - 2026-09-24
+
+- `HomePage.tsx` keeps the hero as one semantic header with two explicit layer
+  owners: `#home-hero-copy` contains the badge, heading and copy above an
+  absolute full-surface `#home-hero-media` image layer.
+- `home.css` gives copy the higher stacking context and masks the image from a
+  faint presence below copy to full visibility at the right. Below 1024px the
+  same media layer stays full-surface while its 4:3 image anchors to the bottom
+  and fades vertically into the copy area.
+- The supplied 4:3 image is served from
+  `public/home-classroom-achievement.png`. It has no independent card, border,
+  background or shadow. There is no independent media outline or layout seam;
+  the hero's outer border is the only visible container boundary.
+- The old gamification badge and its `Sparkles` dependency are removed. The
+  hero title now owns semantic lead/joy/promise/brand spans with a smaller
+  fluid type scale, navy/coral/teal emphasis and a soft brand highlight. No
+  title copy, route or behavior outside this presentation was changed.
+- Routes, APIs, Home controller state, data records and student actions are
+  unchanged. Home contracts and browser smoke lock region ownership, ordering,
+  containment, layer order, integrated media styling and desktop/mobile
+  overflow behavior.
