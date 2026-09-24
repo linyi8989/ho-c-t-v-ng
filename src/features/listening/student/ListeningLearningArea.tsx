@@ -24,6 +24,11 @@ import {
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
 import { createClientLearningRun } from '../../../lib/learningRuns';
+import {
+  archiveExpiredAttemptAnswers,
+  isAttemptRecoveryExpired,
+  isExpiredAttemptTicket,
+} from '../../../lib/attemptRecovery';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../../lib/studentIdentity';
 import { listeningApi } from '../api';
 import type {
@@ -95,6 +100,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const [nameSaving, setNameSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [attemptRecoveryExpired, setAttemptRecoveryExpired] = useState(false);
   const submitGuard = useRef(false);
   const automaticSubmitStarted = useRef(false);
 
@@ -196,7 +202,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     }
   };
 
-  const start = async (replaceCompletedAttempt = false) => {
+  const start = async (replaceCompletedAttempt = false, archiveExpiredRun = false) => {
     if (!playable || !identityReady) return;
     setLoading(true);
     setError('');
@@ -220,6 +226,14 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         answers: createEmptyListeningAnswers(),
         currentPart: 0,
       };
+      if (archiveExpiredRun && run) {
+        const archived = archiveExpiredAttemptAnswers(window.localStorage, {
+          source: 'listening', setId: run.setId, versionId: run.versionId,
+          clientRunId: run.clientRunId, startedAt: run.startedAt, deadlineAt: run.deadlineAt,
+          currentPart, answers,
+        });
+        if (!archived) throw new Error('Không thể lưu bản sao câu trả lời trên thiết bị. Lượt cũ vẫn được giữ nguyên.');
+      }
       automaticSubmitStarted.current = false;
       setRun(nextRun);
       setAnswers(nextRun.answers);
@@ -228,11 +242,16 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
       setReview(null);
       setReviewRunSecret('');
       setShowReview(false);
+      setAttemptRecoveryExpired(false);
     } catch (error: any) {
       setError(error.message);
     } finally {
       setLoading(false);
     }
+  };
+  const startFreshAfterExpired = () => {
+    if (!window.confirm('Lượt cũ không còn có thể nộp. Hệ thống sẽ lưu một bản sao câu trả lời trên thiết bị rồi bắt đầu lượt mới. Tiếp tục?')) return;
+    void start(false, true);
   };
 
   const openReview = async () => {
@@ -267,23 +286,49 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     setSubmitting(true);
     setError('');
     const pending = { ...run, answers, currentPart, submissionPending: true };
+    let activePending = pending;
     setRun(pending);
     try {
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(pending));
-      const completed = await listeningApi.submit(setId, token, {
-        ticket: run.ticket,
-        runSecret: run.runSecret,
-        guestId,
-        studentName,
-        answers,
-      });
-      setReviewRunSecret(run.runSecret);
+      let completed: ListeningCompletedAttempt;
+      try {
+        completed = await listeningApi.submit(setId, token, {
+          ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers,
+        });
+      } catch (error: any) {
+        if (!isExpiredAttemptTicket(error, 'listening')) throw error;
+        const renewed = await listeningApi.renewAttempt(setId, token, {
+          ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName,
+        });
+        if (renewed.clientRunId !== pending.clientRunId || renewed.versionId !== pending.versionId) {
+          throw Object.assign(new Error('Phiếu khôi phục không khớp lượt làm bài đã lưu.'), { status: 409 });
+        }
+        activePending = { ...pending, ticket: renewed.ticket, startedAt: renewed.startedAt, deadlineAt: renewed.deadlineAt };
+        setRun(activePending);
+        if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(activePending));
+        completed = await listeningApi.submit(setId, token, {
+          ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers,
+        });
+      }
+      setReviewRunSecret(activePending.runSecret);
       setResult(completed);
       setRun(null);
+      setAttemptRecoveryExpired(false);
       if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
     } catch (error: any) {
-      setError(`${automatic ? 'Hết giờ. ' : ''}${error.message} Bạn có thể bấm nộp lại; mã lượt làm bài vẫn giữ nguyên.`);
-      setRun(pending);
+      const status = Number(error?.status);
+      const recoveryExpired = isAttemptRecoveryExpired(error, 'listening');
+      const retryable = !Number.isFinite(status) || status >= 500 || [408, 425, 429].includes(status);
+      const retained = { ...activePending, submissionPending: retryable };
+      const suffix = recoveryExpired
+        ? 'Câu trả lời vẫn được lưu trên thiết bị. Bạn có thể lưu bản sao và bắt đầu một lượt mới.'
+        : retryable
+          ? 'Câu trả lời đã được lưu; bạn có thể nộp lại với cùng lượt làm bài.'
+          : 'Câu trả lời vẫn được lưu trên thiết bị. Hãy kiểm tra tài khoản hoặc nhờ giáo viên hỗ trợ trước khi bắt đầu lượt mới.';
+      setError(`${automatic ? 'Hết giờ. ' : ''}${error.message} ${suffix}`);
+      setAttemptRecoveryExpired(recoveryExpired);
+      setRun(retained);
+      if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(retained));
     } finally {
       submitGuard.current = false;
       setSubmitting(false);
@@ -471,12 +516,12 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         {currentPart < 4 ? (
           <button id="listening-next-part-btn" type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button>
         ) : (
-          <button id="listening-submit-btn" disabled={submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50">
+          <button id="listening-submit-btn" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50">
             {submitting ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />} Nộp bài
           </button>
         )}
       </footer>
-      {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl">{error}</div>}
+      {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}
       <button title="Gợi ý" className="fixed right-4 top-28 flex h-12 w-12 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-amber-200 shadow-lg"><Lightbulb size={22} /></button>
     </div>
   );

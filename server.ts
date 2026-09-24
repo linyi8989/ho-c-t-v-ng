@@ -8,7 +8,7 @@ import {
 } from "./src/lib/grammarAnswers";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import {
   adminDb,
@@ -109,6 +109,48 @@ import {
   VocabImageLibraryService,
   vocabImageAttributionFromAsset,
 } from "./src/server/vocab-images/index.js";
+import { createAdminDataRepository } from "./src/server/admin-data/repository.js";
+import { createAdminDataService } from "./src/server/admin-data/service.js";
+import { createAdminDataRouter } from "./src/server/admin-data/router.js";
+import { createClassManagementRepository } from "./src/server/classes/repository.js";
+import { createClassManagementService } from "./src/server/classes/service.js";
+import { createClassManagementRouter } from "./src/server/classes/router.js";
+import { createAssignmentManagementRepository } from "./src/server/assignments/repository.js";
+import { createAssignmentManagementService } from "./src/server/assignments/service.js";
+import { createAssignmentManagementRouter } from "./src/server/assignments/router.js";
+import { createDiagnosticsRepository } from "./src/server/diagnostics/repository.js";
+import { createDiagnosticsService } from "./src/server/diagnostics/service.js";
+import { createDiagnosticsRouter } from "./src/server/diagnostics/router.js";
+import { createAuthProfileRepository } from "./src/server/auth-profile/repository.js";
+import { createAuthProfileProvider } from "./src/server/auth-profile/provider.js";
+import { createAuthProfileService } from "./src/server/auth-profile/service.js";
+import { createAuthProfileRouter } from "./src/server/auth-profile/router.js";
+import { createGuestIdentityRepository } from "./src/server/guest-identity/repository.js";
+import { createGuestIdentityService } from "./src/server/guest-identity/service.js";
+import { createGuestIdentityRouter } from "./src/server/guest-identity/router.js";
+import { createVocabularyAiService } from "./src/server/vocabulary-ai/service.js";
+import { createVocabularyAiRouter } from "./src/server/vocabulary-ai/router.js";
+import { createVocabularyRepository } from "./src/server/vocabulary/repository.js";
+import { createVocabularyService } from "./src/server/vocabulary/service.js";
+import { createVocabularyRouter } from "./src/server/vocabulary/router.js";
+import { createTtsVoiceProvider } from "./src/server/tts/provider.js";
+import { createTtsService } from "./src/server/tts/service.js";
+import { createTtsRouter } from "./src/server/tts/router.js";
+import { createGrammarLibraryRepository } from "./src/server/grammar/repository.js";
+import { createGrammarLibraryService } from "./src/server/grammar/service.js";
+import { createGrammarLibraryRouter } from "./src/server/grammar/router.js";
+import { createGrammarAttemptRepository } from "./src/server/grammar-attempts/repository.js";
+import { createGrammarAttemptService } from "./src/server/grammar-attempts/service.js";
+import { createGrammarAttemptRouter } from "./src/server/grammar-attempts/router.js";
+import { createVocabularyRunRepository } from "./src/server/vocabulary-runs/repository.js";
+import { createVocabularyRunService } from "./src/server/vocabulary-runs/service.js";
+import { createVocabularyRunRouter } from "./src/server/vocabulary-runs/router.js";
+import { createResultsRepository } from "./src/server/results/repository.js";
+import { createResultsService } from "./src/server/results/service.js";
+import { createResultsRouter } from "./src/server/results/router.js";
+import { createAccountRepository } from "./src/server/accounts/repository.js";
+import { createAccountService } from "./src/server/accounts/service.js";
+import { createAccountRouter } from "./src/server/accounts/router.js";
 
 // Load environment variables
 dotenv.config();
@@ -833,150 +875,6 @@ function gradeGameSessionV2(session: any, actions: any[]) {
   }
   const total = correct + incorrect; const score = gameScore !== undefined && session.gameId !== "millionaire-vocab" ? gameScore : total ? Math.round(correct / total * 100) : 0;
   return { score, gameScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, rawScore: session.gameId === "millionaire-vocab" ? gameScore : undefined, maxScore: session.gameId === "millionaire-vocab" ? 1000000 : 100, totalQuestions: total, correctAnswers: correct, incorrectAnswers: incorrect, accuracy: total ? Math.round(correct / total * 100) : 0, answerDetails: details.slice(0, 500) };
-}
-
-function getGuestProfileId(value: any) {
-  return safeText(value, 120);
-}
-
-function isGuestOwnedRecord(data: any) {
-  const guestId = getGuestProfileId(data?.guestId);
-  const userId = safeText(data?.userId, 120);
-  return Boolean(guestId && (data?.ownerType === "guest" || !userId || userId === guestId));
-}
-
-async function findExistingGuestIdentity(
-  guestIdValue: any,
-  timing?: ReturnType<typeof createApiTiming>
-) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) return null;
-
-  const profileDoc = await adminDb.collection("guest_profiles").doc(guestId).get();
-  timing?.mark("guest_profile");
-  if (profileDoc.exists) {
-    const profile = { id: profileDoc.id, guestId, ...profileDoc.data() } as any;
-    if (profile.status === "blocked") {
-      throw createHttpError(403, "Hồ sơ học sinh này đã bị khóa.");
-    }
-    const displayName = safeText(profile.displayName || profile.name, 120);
-    if (displayName) {
-      return {
-        ...profile,
-        displayName,
-        name: displayName,
-        status: profile.status || "active",
-        legacy: !validateStudentDisplayName(displayName).valid
-      };
-    }
-  }
-
-  return null;
-}
-
-const GUEST_ACTIVITY_TOUCH_INTERVAL_MS = Math.max(
-  60_000,
-  Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 60_000)
-);
-
-async function resolveGuestProfile(
-  guestIdValue: any,
-  studentNameValue: any,
-  touchActivity = true,
-  classInfo: { classId?: any; className?: any; verified?: boolean } = {},
-  timing?: ReturnType<typeof createApiTiming>
-) {
-  const guestId = getGuestProfileId(guestIdValue);
-  if (!guestId) throw createHttpError(400, "Thiếu mã nhận diện học sinh.");
-
-  const profileRef = adminDb.collection("guest_profiles").doc(guestId);
-  const profileDoc = await profileRef.get();
-  timing?.mark("guest_profile");
-  const now = new Date().toISOString();
-
-  if (profileDoc.exists) {
-    const existing = { id: profileDoc.id, ...profileDoc.data() } as any;
-    if (existing.status === "blocked") {
-      throw createHttpError(403, "Hồ sơ học sinh này đã bị khóa.");
-    }
-
-    const displayName = safeText(existing.displayName || existing.name, 120);
-    if (!displayName) {
-      const validation = validateStudentDisplayName(studentNameValue);
-      if (!validation.valid) throw createHttpError(400, validation.error);
-      const repaired = {
-        ...existing,
-        displayName: validation.value,
-        name: validation.value,
-        normalizedName: normalizePersonName(validation.value),
-        updatedAt: now,
-        lastActiveAt: touchActivity ? now : (existing.lastActiveAt || now),
-        needsReview: false
-      };
-      await profileRef.set(repaired);
-      timing?.mark("profile_write");
-      invalidateCanonicalStudentNameCache();
-      return repaired;
-    }
-
-    const classId = classInfo.verified ? safeText(classInfo.classId, 160) : "";
-    const className = classInfo.verified ? safeText(classInfo.className, 240) : "";
-    const lastActiveAtMs = new Date(existing.lastActiveAt || 0).getTime();
-    const shouldTouchActivity = Boolean(
-      touchActivity
-      && (!Number.isFinite(lastActiveAtMs) || Date.now() - lastActiveAtMs >= GUEST_ACTIVITY_TOUCH_INTERVAL_MS)
-    );
-    const shouldUpdateClassId = Boolean(classId && classId !== safeText(existing.classId, 160));
-    const shouldUpdateClassName = Boolean(className && className !== safeText(existing.className, 240));
-    if (shouldTouchActivity || shouldUpdateClassId || shouldUpdateClassName) {
-      await profileRef.update({
-        ...(shouldTouchActivity ? { lastActiveAt: now } : {}),
-        ...(shouldUpdateClassId ? { classId } : {}),
-        ...(shouldUpdateClassName ? { className } : {})
-      });
-      timing?.mark("profile_write");
-    }
-    return {
-      ...existing,
-      displayName,
-      name: displayName,
-      lastActiveAt: shouldTouchActivity ? now : existing.lastActiveAt,
-      classId: classId || existing.classId,
-      className: className || existing.className
-    };
-  }
-
-  const validation = validateStudentDisplayName(studentNameValue);
-  if (!validation.valid) throw createHttpError(400, validation.error);
-  const guestAccessToken = createSessionToken();
-  const guestAccessTokenVersion = 1;
-  const profile = {
-    id: guestId,
-    guestId,
-    accountType: "guest",
-    displayName: validation.value,
-    name: validation.value,
-    normalizedName: normalizePersonName(validation.value),
-    role: "student",
-    status: "active",
-    classId: classInfo.verified ? safeText(classInfo.classId, 160) : "",
-    className: classInfo.verified ? safeText(classInfo.className, 240) : "",
-    createdAt: now,
-    updatedAt: now,
-    lastActiveAt: now,
-    needsReview: false,
-    accessTokenHash: hashSessionToken(guestAccessToken),
-    accessTokenVersion: guestAccessTokenVersion,
-    accessTokenCreatedAt: now
-  };
-  await profileRef.set(profile);
-  timing?.mark("profile_write");
-  invalidateCanonicalStudentNameCache();
-  return {
-    ...omitGuestCapabilitySecrets(profile),
-    guestAccessToken,
-    guestAccessTokenVersion
-  };
 }
 
 const CANONICAL_STUDENT_NAME_CACHE_TTL_MS = 60_000;
@@ -2686,51 +2584,6 @@ async function generateAiText(prompt: string, geminiConfig?: any) {
   };
 }
 
-function parseAiJson(text: string) {
-  const trimmed = String(text || "").trim();
-  if (!trimmed) throw new Error("AI returned empty text.");
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) || trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (match?.[1]) {
-      return JSON.parse(match[1].trim());
-    }
-    throw new Error("AI returned invalid JSON.");
-  }
-}
-
-// Fallback Vocabulary Generator
-function getFallbackVocabulary(topic: string, count: number): any[] {
-  const normalized = topic.toLowerCase().trim();
-  
-  if (normalized.includes("animal") || normalized.includes("động vật") || normalized.includes("con vật")) {
-    const pool = [
-      { term: "Elephant", meaning: "Con voi", ipa: "/ˈelɪfənt/", pos: "Noun", example: "The elephant is very large.", exampleMeaning: "Con voi rất to lớn." },
-      { term: "Tiger", meaning: "Con hổ", ipa: "/ˈtaɪɡə(r)/", pos: "Noun", example: "The tiger runs very fast.", exampleMeaning: "Con hổ chạy rất nhanh." },
-      { term: "Monkey", meaning: "Con khỉ", ipa: "/ˈmʌŋki/", pos: "Noun", example: "The monkey loves eating bananas.", exampleMeaning: "Con khỉ thích ăn chuối." },
-      { term: "Dolphin", meaning: "Cá heo", ipa: "/ˈdɒlfɪn/", pos: "Noun", example: "Dolphins are very friendly.", exampleMeaning: "Cá heo rất thân thiện." },
-      { term: "Giraffe", meaning: "Hươu cao cổ", ipa: "/dʒɪˈrɑːf/", pos: "Noun", example: "The giraffe has a very long neck.", exampleMeaning: "Hươu cao cổ có chiếc cổ rất dài." }
-    ];
-    return pool.slice(0, count);
-  }
-
-  // Fallback for school
-  if (normalized.includes("school") || normalized.includes("trường học") || normalized.includes("lớp")) {
-    const pool = [
-      { term: "Teacher", meaning: "Giáo viên", ipa: "/ˈtiːtʃə(r)/", pos: "Noun", example: "Our teacher is very kind.", exampleMeaning: "Giáo viên của chúng tôi rất tốt bụng." },
-      { term: "Student", meaning: "Học sinh", ipa: "/ˈstjuːdnt/", pos: "Noun", example: "The students are listening.", exampleMeaning: "Các học sinh đang lắng nghe." },
-      { term: "Classroom", meaning: "Phòng học", ipa: "/ˈklɑːsruːm/", pos: "Noun", example: "Our classroom has a big board.", exampleMeaning: "Phòng học của chúng tôi có bảng lớn." }
-    ];
-    return pool.slice(0, count);
-  }
-
-  return [
-    { term: topic.charAt(0).toUpperCase() + topic.slice(1), meaning: `Từ về ${topic}`, ipa: "/ˈtɒpɪk/", pos: "Noun", example: "This is an example.", exampleMeaning: "Đây là ví dụ." }
-  ];
-}
-
 // ============================================================================
 // API ROUTES
 // ============================================================================
@@ -2743,6 +2596,16 @@ function requireDiagnosticAccess(req: express.Request, res: express.Response, ne
   }
   next();
 }
+
+const diagnosticsRepository = createDiagnosticsRepository({
+  db: adminDb,
+  loadStorageDiagnostics: getStorageDiagnostics,
+});
+const diagnosticsService = createDiagnosticsService({ repository: diagnosticsRepository });
+app.use(
+  "/api",
+  createDiagnosticsRouter({ requireDiagnosticAccess, sendApiError, service: diagnosticsService }),
+);
 
 async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTiming>) {
   const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
@@ -2767,39 +2630,12 @@ async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTi
   return mergeLeaderboardEvents(events);
 }
 
-app.get("/api/auth/debug", requireDiagnosticAccess, async (_req, res) => {
-  try {
-    const testDoc = await adminDb.collection("users").limit(1).get();
-    res.json({
-      success: true,
-      docsCount: testDoc.size,
-      storageReady: true
-    });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/diagnostics/storage", requireDiagnosticAccess, async (_req, res) => {
-  res.json(await getStorageDiagnostics());
-});
-
 const PHONE_AUTH_WINDOW_MS = 10 * 60 * 1000;
 const PHONE_AUTH_MAX_ATTEMPTS = 5;
 const phoneAuthRateLimit = new FixedWindowRateLimitStore(PHONE_AUTH_WINDOW_MS, PHONE_AUTH_MAX_ATTEMPTS);
 
 function getRequestIp(req: express.Request) {
   return getRequestNetworkKey(req);
-}
-
-function assertPhoneAuthRateLimit(req: express.Request, phone: string) {
-  const key = `${getRequestIp(req)}:${phone}`;
-  const result = phoneAuthRateLimit.consume(key);
-  if (!result.allowed) {
-    throw createHttpError(429, "Too many phone login attempts. Please wait and try again.", {
-      retryAfterSeconds: result.retryAfterSeconds
-    });
-  }
 }
 
 const guestIdentityRateLimit = createFixedWindowRateLimiter({
@@ -2817,6 +2653,23 @@ const aiRateLimit = createFixedWindowRateLimiter({
   message: "Too many AI requests. Please wait and try again."
 });
 
+const vocabularyAiService = createVocabularyAiService({
+  provider: {
+    generateText: generateAiText,
+    sanitizeError: sanitizeAiError,
+  },
+});
+app.use(
+  "/api",
+  createVocabularyAiRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    rateLimit: aiRateLimit,
+    sendApiError,
+    service: vocabularyAiService,
+  }),
+);
+
 const ttsRateLimit = createFixedWindowRateLimiter({
   namespace: "tts-generation",
   windowMs: 10 * 60 * 1000,
@@ -2833,253 +2686,293 @@ const ttsRateLimit = createFixedWindowRateLimiter({
   message: "TTS quota for this account was reached. Please wait and try again."
 });
 
-async function findUserByPhone(normalizedPhone: string, rawPhone = "") {
-  const candidates = Array.from(new Set([
-    normalizedPhone,
-    rawPhone.trim(),
-    rawPhone.replace(/[^\d+]/g, "").trim()
-  ].filter(Boolean)));
-
-  for (const candidate of candidates) {
-    const snapshot = await adminDb.collection("users").where("phone", "==", candidate).limit(1).get();
-    if (!snapshot.empty) {
-      const doc = snapshot.docs[0];
-      return { id: doc.id, ...doc.data() };
-    }
-  }
-
-  return null;
-}
-
-function getFirebaseWebApiKey() {
-  return process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "";
-}
-
-async function verifyFirebasePassword(email: string, password: string) {
-  const apiKey = getFirebaseWebApiKey();
-  if (!apiKey) throw createHttpError(503, "Phone password login is not configured.");
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, returnSecureToken: true }),
-      signal: controller.signal
-    });
-    const data: any = await res.json().catch(() => ({}));
-    if (!res.ok || !data.localId) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
-    }
-    return data as { localId: string };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// 0. GET EMAIL BY PHONE (Unauthenticated - for Phone + Password login)
-app.post("/api/auth/email-by-phone", async (req, res) => {
-  try {
-    const normalizedPhone = normalizePhoneE164(req.body?.phone);
-    if (!normalizedPhone) return res.status(400).json({ error: "Invalid phone number." });
-    assertPhoneAuthRateLimit(req, normalizedPhone);
-    return res.json({ ok: true, message: "Use /api/auth/login-by-phone to sign in without exposing account email." });
-
-    const { phone } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: "Vui lòng cung cấp số điện thoại." });
-    }
-
-    let formattedPhone = phone.trim();
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '+84' + formattedPhone.substring(1);
-    } else if (!formattedPhone.startsWith('+')) {
-      formattedPhone = '+84' + formattedPhone;
-    }
-
-    const snapshot = await adminDb.collection("users").where("phone", "==", formattedPhone).limit(1).get();
-    if (snapshot.empty) {
-      // Try searching by raw phone
-      const rawSnapshot = await adminDb.collection("users").where("phone", "==", phone.trim()).limit(1).get();
-      if (rawSnapshot.empty) {
-        return res.status(404).json({ error: "Không tìm thấy tài khoản nào được đăng ký với số điện thoại này." });
-      }
-      const userData = rawSnapshot.docs[0].data();
-      return res.json({ email: userData.email });
-    }
-
-    const userData = snapshot.docs[0].data();
-    return res.json({ email: userData.email });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
+const ttsVoiceProvider = createTtsVoiceProvider({
+  getApiKey: getAi33ApiKey,
+  fetchWithTimeout,
 });
-
-app.post("/api/auth/login-by-phone", async (req, res) => {
-  try {
-    const rawPhone = String(req.body?.phone || "");
-    const password = String(req.body?.password || "");
-    const normalizedPhone = normalizePhoneE164(rawPhone);
-    if (!normalizedPhone || !password) {
-      return res.status(400).json({ error: "Phone number and password are required." });
-    }
-
-    assertPhoneAuthRateLimit(req, normalizedPhone);
-    const userRecord = await findUserByPhone(normalizedPhone, rawPhone);
-    const email = normalizeEmail((userRecord as any)?.email);
-    if (!userRecord || !email) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
-    }
-
-    const verified = await verifyFirebasePassword(email, password);
-    if (verified.localId !== (userRecord as any).id) {
-      throw createHttpError(401, "Phone number or password is incorrect.");
-    }
-
-    if ((userRecord as any).phone !== normalizedPhone) {
-      await adminDb.collection("users").doc((userRecord as any).id).set({
-        ...userRecord,
-        phone: normalizedPhone,
-        phoneVerified: Boolean((userRecord as any).phoneVerified)
-      });
-    }
-
-    const customToken = await adminAuth.createCustomToken(verified.localId);
-    return res.json({ customToken });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
+const ttsService = createTtsService({
+  normalizeSettings: normalizeTtsSettings,
+  sanitizeInput: sanitizeTtsInput,
+  createAudioHash,
+  generateCachedAudio: generateCachedTtsAudio,
+  runWithConcurrency: (items, limit, worker) => runWithConcurrency(items, limit, worker),
+  concurrency: TTS_CONCURRENCY,
+  voiceProvider: ttsVoiceProvider,
 });
+app.use(
+  "/api",
+  createTtsRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    rateLimit: ttsRateLimit,
+    sendApiError,
+    service: ttsService,
+  }),
+);
 
-// 1. ME: Current active user profile
-app.get("/api/me", authenticateUser, (req, res) => {
-  res.json(req.user);
+const vocabularyRepository = createVocabularyRepository({
+  db: adminDb,
+  resolveImageReferences: resolveVocabImageReferencesForSave,
 });
-
-// 2. REGISTER USER (Email sign-up profile synchronization)
-app.post("/api/register", authenticateUser, async (req, res) => {
-  try {
-    const { name, phone } = req.body;
-    if (!req.user) return res.status(401).json({ error: "Chưa đăng nhập." });
-
-    const userRef = adminDb.collection("users").doc(req.user.id);
-    const requestedPhone = phone ? normalizePhoneE164(phone) : "";
-    const existingPhone = normalizePhoneE164(req.user.phone);
-    if (phone && !requestedPhone) {
-      return res.status(400).json({ error: "Invalid phone number." });
-    }
-    if (requestedPhone && existingPhone && req.user.phoneVerified && requestedPhone !== existingPhone) {
-      return res.status(400).json({ error: "Verified phone number cannot be replaced without a new OTP verification." });
-    }
-    const nameValidation = validateStudentDisplayName(name || req.user.name);
-    if (!nameValidation.valid) {
-      return res.status(400).json({ error: nameValidation.error });
-    }
-    const normalizedPhone = requestedPhone || existingPhone;
-    const updatedProfile = {
-      ...req.user,
-      name: nameValidation.value,
-      phone: normalizedPhone || undefined,
-      phoneVerified: Boolean(req.user.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
-      role: req.user.role,
-      status: req.user.status,
-      updatedAt: new Date().toISOString()
-    };
-
-    await userRef.set(updatedProfile);
-    invalidateCanonicalStudentNameCache();
-    res.json(updatedProfile);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
+const vocabularyService = createVocabularyService({
+  repository: vocabularyRepository,
+  canViewSet: canViewVocabSet,
+  canManageSet: canManageVocabSet,
+  canManageAssignment,
+  isSuperAdmin,
+  getVisibility: getVocabVisibility,
+  toLegacyStatus,
+  normalizeForRead: normalizeVocabSetForRead,
+  normalizeForSave: normalizeVocabSetForSave,
+  stripPrivateFields: stripPrivateVocabSetFields,
+  resolveLearningAccess: (token, timing) => resolveVocabLearningAccess(token, "", "", timing),
+  normalizeTtsSettings,
+  enqueueAudio: enqueueVocabSetAudio,
+  enrichStudentNames,
+  omitSensitiveSessionFields,
+  logAudit: logAuditAction,
 });
+app.use(
+  "/api",
+  createVocabularyRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    ttsRateLimit,
+    createApiTiming,
+    sendApiError,
+    service: vocabularyService,
+  }),
+);
 
-// 3. AI: Generate IPA phonetic transcription
-app.post("/api/ai/ipa", authenticateUser, aiRateLimit, async (req, res) => {
-  const { word } = req.body;
-  try {
-    if (!word || typeof word !== "string") {
-      return res.status(400).json({ error: "Tham số 'word' là bắt buộc." });
-    }
-
-    const result = await generateAiText(
-      `Provide the standard American English IPA phonetic transcription for the word/phrase: "${word}". Output ONLY the IPA string surrounded by slashes. Do not add any extra explanations or formatting.`
-    );
-
-    const ipa = result.text || `/${word.toLowerCase()}/`;
-    res.json({
-      ipa,
-      aiProvider: result.provider,
-      isFallback: result.provider === "fallback",
-      aiErrors: result.errors
-    });
-  } catch (error: any) {
-    console.warn("AI IPA generator service unavailable, returning fallback:", error.message);
-    res.json({
-      ipa: `/${(word || "").toLowerCase()}/`,
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    });
-  }
+const grammarLibraryRepository = createGrammarLibraryRepository({ db: adminDb });
+const grammarLibraryService = createGrammarLibraryService({
+  repository: grammarLibraryRepository,
+  canViewSet: canViewGrammarSet,
+  canManageSet: canManageGrammarSet,
+  getVisibility: getGrammarVisibility,
+  sanitizeForStudent: sanitizeGrammarSetForStudent,
+  normalizeForSave: normalizeGrammarSetForSave,
+  makeId,
+  enrichStudentNames,
+  logAudit: logAuditAction,
 });
+app.use(
+  "/api",
+  createGrammarLibraryRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: grammarLibraryService,
+  }),
+);
 
-// Name-only student identity. This endpoint never accepts roles or permissions.
-app.post("/api/guest-profiles/resolve", guestIdentityRateLimit, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/guest-profiles/resolve");
-  try {
-    const profile = await resolveGuestProfile(
-      req.body?.guestId,
-      req.body?.displayName || req.body?.studentName,
-      true,
-      { classId: req.body?.classId, className: req.body?.className },
-      timing
-    );
-    timing.finish(res);
-    res.json({
-      id: profile.id,
-      guestId: profile.guestId || profile.id,
-      displayName: profile.displayName || profile.name,
-      status: profile.status,
-      ...(profile.guestAccessToken
-        ? {
-            guestAccessToken: profile.guestAccessToken,
-            guestAccessTokenVersion: profile.guestAccessTokenVersion || 1
-          }
-        : {})
-    });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
+const grammarAttemptRepository = createGrammarAttemptRepository({
+  db: adminDb,
+  appendLearningHistoryProjection,
+  projectGrammarAttempt,
+  detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
 });
+const grammarAttemptService = createGrammarAttemptService({
+  repository: grammarAttemptRepository,
+  lazySessionEnabled: LAZY_SESSION_V3_ENABLED,
+  gradingVersion: GRAMMAR_TEXT_GRADING_VERSION,
+  getClientRunCredentials,
+  getActor: getGrammarActor,
+  canOpenSet: canOpenGrammarSetForLearning,
+  canAccessAttempt: canAccessGrammarAttempt,
+  canManageSet: canManageGrammarSet,
+  buildPreparedAttempt: buildPreparedGrammarAttempt,
+  buildAttemptAnswer: buildGrammarAttemptAnswer,
+  buildAnswerFeedback: buildGrammarAnswerFeedback,
+  sanitizeAttempt: sanitizeAttemptForStudent,
+  sanitizeAnswer: sanitizeGrammarAnswerForStudent,
+  deterministicRunDocumentId,
+  getSetVersion: getGrammarSetVersion,
+  safeText,
+  makeId,
+  fisherYates,
+  getQuestionType: getGrammarQuestionType,
+  getLessonGradeClass,
+  createSessionToken,
+  hashSessionToken,
+  normalizeTextAnswer: normalizeGrammarTextAnswer,
+  isTextAnswerCorrect: isGrammarTextAnswerCorrect,
+  grammarAttemptToLeaderboardEvent,
+  clearLeaderboardCache: () => publicLeaderboardSummaryCache.clear(),
+});
+app.use(
+  "/api",
+  createGrammarAttemptRouter({
+    authenticateOptionalUser,
+    createApiTiming,
+    sendApiError,
+    service: grammarAttemptService,
+  }),
+);
 
-// Read-only identity check. A browser-stored name is never accepted without a matching guest id.
-app.post("/api/guest-profiles/identify", guestIdentityRateLimit, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/guest-profiles/identify");
-  try {
-    const profile = await findExistingGuestIdentity(req.body?.guestId, timing);
-    if (!profile) {
-      timing.finish(res);
-      return res.status(404).json({
-        error: "Không tìm thấy hồ sơ học sinh đã đăng ký.",
-        code: "GUEST_PROFILE_NOT_FOUND"
-      });
-    }
-    timing.finish(res);
-    res.json({
-      id: profile.id,
-      guestId: profile.guestId || profile.id,
-      displayName: profile.displayName || profile.name,
-      status: profile.status || "active",
-      legacy: Boolean(profile.legacy)
-    });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
+const vocabularyRunRepository = createVocabularyRunRepository({
+  db: adminDb,
+  appendLearningHistoryProjection,
+  projectVocabularyAttempt,
+  detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
 });
+const vocabularyRunService = createVocabularyRunService({
+  repository: vocabularyRunRepository,
+  lazySessionEnabled: LAZY_SESSION_V3_ENABLED,
+  activityTtlDays: ACTIVITY_TTL_DAYS,
+  getClientRunCredentials,
+  resolveStartContext: resolveGameSessionStartContext,
+  buildSessionRecord: buildGameSessionRecord,
+  deterministicRunDocumentId,
+  canResumeClientRun,
+  canUpdateSession: canUpdateGameSession,
+  supportsIncrementalSession: supportsIncrementalGameSession,
+  hashSessionToken,
+  omitSensitiveFields: omitSensitiveSessionFields,
+  sanitizeSubmittedActions: sanitizeSubmittedGameActions,
+  sanitizeAction: sanitizeGameAction,
+  dedupeStoredActions: dedupeStoredGameActions,
+  gradeSession: gradeGameSessionV2,
+  sessionToLeaderboardEvent: gameSessionToLeaderboardEvent,
+  addDaysIso,
+  clearLeaderboardCache: () => publicLeaderboardSummaryCache.clear(),
+  getSessionActor: getGameSessionActor,
+  createSessionToken,
+  safeText,
+  randomUUID: crypto.randomUUID,
+});
+app.use(
+  "/api",
+  createVocabularyRunRouter({
+    authenticateOptionalUser,
+    createApiTiming,
+    sendApiError,
+    service: vocabularyRunService,
+  }),
+);
+
+const resultsRepository = createResultsRepository({
+  db: adminDb,
+  loadLeaderboardEvents: loadLeaderboardEventsFromSources,
+  loadReadyLeaderboardEvents,
+  resolveListeningDetail: resolveListeningActivityDetailForStaff,
+});
+const resultsService = createResultsService({
+  repository: resultsRepository,
+  activityTtlMs: ACTIVITY_TTL_MS,
+  maxResultLimit: MAX_ACTIVITY_RESULT_LIMIT,
+  safeText,
+  parseResultLimit: parseActivityResultLimit,
+  getActivityTime,
+  isExpiredActivity,
+  setUniqueClass,
+  normalizePersonName,
+  getLessonGradeClass,
+  grammarAttemptToActivity,
+  listeningAttemptToActivity,
+  enrichStudentNames,
+  sanitizePublicStudentRecord,
+  sanitizeActivityDetail,
+  toActivitySummary,
+  canViewResultSession,
+  canViewGrammarActivity,
+  buildLeaderboard,
+  getCachedLeaderboardSummary: key => publicLeaderboardSummaryCache.get(key),
+  cacheLeaderboardSummary: cachePublicLeaderboardSummary,
+});
+app.use(
+  "/api",
+  createResultsRouter({
+    authenticateUser,
+    createApiTiming,
+    sendApiError,
+    service: resultsService,
+  }),
+);
+
+const guestIdentityRepository = createGuestIdentityRepository({ db: adminDb });
+const guestIdentityService = createGuestIdentityService({
+  repository: guestIdentityRepository,
+  safeText,
+  validateDisplayName: validateStudentDisplayName,
+  normalizePersonName,
+  createSessionToken,
+  hashSessionToken,
+  omitCapabilitySecrets: omitGuestCapabilitySecrets,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  createHttpError,
+  activityTouchIntervalMs: Math.max(
+    60_000,
+    Number(process.env.GUEST_ACTIVITY_TOUCH_INTERVAL_MS || 5 * 60_000),
+  ),
+});
+const {
+  findExistingGuestIdentity,
+  getGuestProfileId,
+  isGuestOwnedRecord,
+  resolveGuestProfile,
+} = guestIdentityService;
+app.use(
+  "/api",
+  createGuestIdentityRouter({
+    rateLimit: guestIdentityRateLimit,
+    createApiTiming,
+    sendApiError,
+    service: guestIdentityService,
+  }),
+);
+
+const authProfileRepository = createAuthProfileRepository({ db: adminDb });
+const authProfileProvider = createAuthProfileProvider({
+  apiKey: process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
+  auth: adminAuth,
+});
+const authProfileService = createAuthProfileService({
+  repository: authProfileRepository,
+  provider: authProfileProvider,
+  normalizePhone: normalizePhoneE164,
+  normalizeEmail,
+  validateDisplayName: validateStudentDisplayName,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  consumePhoneAttempt: key => phoneAuthRateLimit.consume(key),
+});
+app.use(
+  "/api",
+  createAuthProfileRouter({
+    authenticateUser,
+    getRequestNetworkKey,
+    sendApiError,
+    service: authProfileService,
+  }),
+);
+
+const accountRepository = createAccountRepository({ db: adminDb });
+const accountService = createAccountService({
+  repository: accountRepository,
+  isSuperAdmin,
+  getManageableGuestIds: getManageableGuestProfileIdsForTeacher,
+  canManageGuestProfile,
+  omitGuestCapabilitySecrets,
+  getGuestProfileId,
+  validateDisplayName: validateStudentDisplayName,
+  normalizePersonName,
+  invalidateStudentNameCache: invalidateCanonicalStudentNameCache,
+  createSessionToken,
+  hashSessionToken,
+  updateAuthDisplayName: (userId, displayName) => adminAuth.updateUser(userId, { displayName }).then(() => undefined),
+  setAuthRoleClaim: (userId, role) => adminAuth.setCustomUserClaims(userId, { role }),
+  logAudit: logAuditAction,
+});
+app.use(
+  "/api",
+  createAccountRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    requireSuperAdmin: requireRole(["super_admin"]),
+    sendApiError,
+    service: accountService,
+  }),
+);
 
 app.use(
   "/api/my-learning-history",
@@ -3103,6 +2996,89 @@ app.use(
     authenticateUser,
     requireStaff: requireRole(["teacher", "super_admin"]),
     logAudit: logAuditAction,
+  })
+);
+
+const adminDataRepository = createAdminDataRepository({
+  db: adminDb,
+  storageMode: process.env.STORAGE_MODE,
+});
+const adminDataService = createAdminDataService({
+  repository: adminDataRepository,
+  db: adminDb,
+  canViewVocabSet,
+  canViewGrammarSet,
+  sanitizeVocabSet: (record) => stripPrivateVocabSetFields(normalizeVocabSetForRead(record)),
+  loadDashboardActivity: async (actor) => {
+    const [recentActivities, leaderboardResults, assignmentsSnapshot] = await Promise.all([
+      resultsService.loadScopedRecentActivitySummaries(actor, MAX_ACTIVITY_RESULT_LIMIT),
+      resultsService.loadScopedLeaderboardResults(actor),
+      adminDb.collection("assignments").get(),
+    ]);
+    const assignments: any[] = [];
+    assignmentsSnapshot.forEach((doc: any) => {
+      const assignment = { id: doc.id, ...doc.data() };
+      if (!isArchivedRecord(assignment) && (isSuperAdmin(actor) || assignment.createdBy === actor.id)) {
+        assignments.push(assignment);
+      }
+    });
+    const goldRows = buildLeaderboard(leaderboardResults as any, assignments, { period: "week" }).gold.slice(0, 5);
+    return {
+      total: recentActivities.length,
+      recentActivities: recentActivities.slice(0, 30),
+      goldRows,
+    };
+  },
+  prepareAssignment: (record) => ensureAssignmentShareToken(
+    record,
+    adminDb.collection("assignments").doc(String(record.id || ""))
+  ),
+  loadAccountsPage: accountService.loadAdminAccountsPage,
+  loadAuditPage: accountService.loadAdminAuditLogPage,
+});
+app.use(
+  "/api/admin",
+  createAdminDataRouter({
+    authenticateUser,
+    service: adminDataService,
+  })
+);
+
+const classManagementRepository = createClassManagementRepository({ db: adminDb });
+const classManagementService = createClassManagementService({
+  repository: classManagementRepository,
+  canViewClass,
+  canManageClass,
+  isArchivedRecord,
+  logAudit: logAuditAction,
+});
+app.use(
+  "/api",
+  createClassManagementRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: classManagementService,
+  })
+);
+
+const assignmentManagementRepository = createAssignmentManagementRepository({ db: adminDb });
+const assignmentManagementService = createAssignmentManagementService({
+  repository: assignmentManagementRepository,
+  canManageClass,
+  canManageAssignment,
+  canViewVocabSet,
+  getVocabVisibility,
+  createShareToken,
+  logAudit: logAuditAction,
+});
+app.use(
+  "/api",
+  createAssignmentManagementRouter({
+    authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    sendApiError,
+    service: assignmentManagementService,
   })
 );
 
@@ -3178,2021 +3154,7 @@ app.use(
   })
 );
 
-const ALLOWED_PARTS_OF_SPEECH = [
-  "Noun",
-  "Pronoun",
-  "Verb",
-  "Adjective",
-  "Adverb",
-  "Preposition",
-  "Conjunction",
-  "Interjection",
-  "Article",
-  "Determiner"
-];
-
-function normalizePartOfSpeech(value: any) {
-  const text = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find(pos => pos.toLowerCase() === text);
-  if (match) return match;
-
-  if (text.includes("pronoun")) return "Pronoun";
-  if (text.includes("adjective")) return "Adjective";
-  if (text.includes("adverb")) return "Adverb";
-  if (text.includes("preposition")) return "Preposition";
-  if (text.includes("conjunction")) return "Conjunction";
-  if (text.includes("interjection")) return "Interjection";
-  if (text.includes("article")) return "Article";
-  if (text.includes("determiner")) return "Determiner";
-  if (text.includes("verb")) return "Verb";
-  return "Noun";
-}
-
-function normalizeForExampleCheck(value: any) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isWeakVocabularyExample(example: any, word: string) {
-  const normalizedExample = normalizeForExampleCheck(example);
-  const normalizedWord = normalizeForExampleCheck(word);
-  if (!normalizedExample || !normalizedWord) return true;
-  if (!normalizedExample.includes(normalizedWord)) return true;
-  return normalizedExample.startsWith("the word ") ||
-    normalizedExample.startsWith("this word ") ||
-    normalizedExample.includes("appears often in everyday english") ||
-    normalizedExample.includes("students should practice") ||
-    normalizedExample.includes("is a vocabulary word");
-}
-
-function hashText(value: string) {
-  return Array.from(value || "").reduce((hash, char) => {
-    return ((hash << 5) - hash + char.charCodeAt(0)) | 0;
-  }, 0);
-}
-
-function buildFallbackExample(word: string, meaning?: string) {
-  const cleanWord = String(word || "").trim();
-  const cleanMeaning = String(meaning || "").trim();
-  const wordForSentence = cleanWord || "learning";
-  const meaningForSentence = cleanMeaning || wordForSentence;
-  const templates = [
-    {
-      example: `During a lively class discussion, ${wordForSentence} helped everyone connect the lesson with something useful in daily life.`,
-      exampleMeaning: `Trong một buổi thảo luận sôi nổi trên lớp, ${meaningForSentence} đã giúp mọi người liên hệ bài học với điều hữu ích trong đời sống hằng ngày.`
-    },
-    {
-      example: `After school, I wrote ${wordForSentence} in my notebook and used it in a sentence about my own day.`,
-      exampleMeaning: `Sau giờ học, tôi viết ${meaningForSentence} vào vở và dùng nó trong một câu nói về ngày của chính mình.`
-    },
-    {
-      example: `When the group project became difficult, ${wordForSentence} gave us a clear idea to explain our work with more confidence.`,
-      exampleMeaning: `Khi bài làm nhóm trở nên khó hơn, ${meaningForSentence} đã cho chúng tôi một ý tưởng rõ ràng để giải thích bài làm tự tin hơn.`
-    },
-    {
-      example: `At home, my younger brother asked about ${wordForSentence}, so I tried to explain it with a simple and funny example.`,
-      exampleMeaning: `Ở nhà, em trai tôi hỏi về ${meaningForSentence}, nên tôi cố giải thích bằng một ví dụ đơn giản và thú vị.`
-    },
-    {
-      example: `In the middle of the lesson, the teacher used ${wordForSentence} to turn a normal question into an interesting challenge.`,
-      exampleMeaning: `Giữa giờ học, giáo viên đã dùng ${meaningForSentence} để biến một câu hỏi bình thường thành một thử thách thú vị.`
-    },
-    {
-      example: `Before the quiz, I reviewed ${wordForSentence} carefully because small details can make a big difference in learning.`,
-      exampleMeaning: `Trước bài kiểm tra, tôi ôn lại ${meaningForSentence} thật cẩn thận vì những chi tiết nhỏ có thể tạo nên khác biệt lớn trong học tập.`
-    },
-    {
-      example: `My friend smiled when she finally understood ${wordForSentence}, and the whole exercise suddenly felt much easier.`,
-      exampleMeaning: `Bạn tôi mỉm cười khi cuối cùng đã hiểu ${meaningForSentence}, và cả bài luyện tập bỗng trở nên dễ hơn nhiều.`
-    },
-    {
-      example: `On the classroom board, ${wordForSentence} became the key idea that helped us remember the story behind the lesson.`,
-      exampleMeaning: `Trên bảng lớp, ${meaningForSentence} trở thành ý chính giúp chúng tôi nhớ câu chuyện phía sau bài học.`
-    }
-  ];
-
-  const index = Math.abs(hashText(`${wordForSentence}|${meaningForSentence}`)) % templates.length;
-  return templates[index];
-}
-
-// 4. AI: Fill missing details for a single vocabulary row
-app.post("/api/ai/vocab-detail", authenticateUser, aiRateLimit, async (req, res) => {
-  const { word, meaning, grade } = req.body;
-  try {
-    if (!word || typeof word !== "string") {
-      return res.status(400).json({ error: "Tham số 'word' là bắt buộc." });
-    }
-
-    const fallbackExample = buildFallbackExample(word, meaning);
-    const fallback = {
-      term: word,
-      meaning: meaning || "",
-      ipa: `/${word.toLowerCase()}/`,
-      pos: "Noun",
-      example: fallbackExample.example,
-      exampleMeaning: fallbackExample.exampleMeaning,
-      audioUrl: ""
-    };
-
-    const prompt = `Complete missing English vocabulary learning details for this row.
-Word or phrase: "${word}"
-Existing Vietnamese meaning, if any: "${meaning || ""}"
-Target level: "${grade || "primary school"}"
-
-Return ONLY one valid JSON object with:
-- "meaning": concise Vietnamese meaning.
-- "ipa": standard American English IPA transcription, surrounded by slashes.
-- "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-- "example": write ONE complete English sentence that CONTAINS the exact vocabulary word or phrase "${word}" and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Do not use short templates like "This is ...". Make the sentence close to daily life, warm, vivid, and long enough to include context, action, and details. Make the situation specific to "${word}" and "${meaning || ""}", not a reusable generic sentence. If the word naturally appears in a common expression, idiom, proverb, collocation, or everyday saying, use it.
-- "exampleMeaning": Vietnamese translation of the example sentence.
-- "audioUrl": leave as an empty string unless you have a direct public audio URL for pronunciation.`;
-
-    const result = await generateAiText(prompt, {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          meaning: { type: Type.STRING },
-          ipa: { type: Type.STRING },
-          pos: { type: Type.STRING },
-          example: { type: Type.STRING },
-          exampleMeaning: { type: Type.STRING },
-          audioUrl: { type: Type.STRING }
-        },
-        required: ["meaning", "ipa", "pos", "example", "exampleMeaning"]
-      }
-    });
-
-    if (result.provider === "fallback") {
-      return res.json({ ...fallback, isFallback: true, aiProvider: "fallback", aiErrors: result.errors });
-    }
-
-    const parsedData = parseAiJson(result.text);
-    const exampleData = isWeakVocabularyExample(parsedData.example, word)
-      ? buildFallbackExample(word, parsedData.meaning || meaning)
-      : {
-          example: parsedData.example,
-          exampleMeaning: parsedData.exampleMeaning
-        };
-    res.json({
-      ...fallback,
-      ...parsedData,
-      pos: normalizePartOfSpeech(parsedData.pos),
-      example: exampleData.example,
-      exampleMeaning: exampleData.exampleMeaning || parsedData.exampleMeaning || fallback.exampleMeaning,
-      term: word,
-      aiProvider: result.provider,
-      aiErrors: result.errors
-    });
-  } catch (error: any) {
-    console.warn("AI vocab detail service unavailable, returning fallback:", error.message);
-    const fallbackExample = buildFallbackExample(word, meaning);
-    res.json({
-      term: word,
-      meaning: meaning || "",
-      ipa: `/${(word || "").toLowerCase()}/`,
-      pos: "Noun",
-      example: fallbackExample.example,
-      exampleMeaning: fallbackExample.exampleMeaning,
-      audioUrl: "",
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    });
-  }
-});
-
-// 5. AI: Batch generate full vocab set
-app.post("/api/ai/generate", authenticateUser, requireRole(["teacher", "super_admin"]), aiRateLimit, async (req, res) => {
-  const { topic, grade, wordsCount = 5 } = req.body;
-  try {
-    if (!topic || typeof topic !== "string") {
-      return res.status(400).json({ error: "Tham số 'topic' là bắt buộc." });
-    }
-
-    const prompt = `Generate a JSON array of exactly ${wordsCount} English vocabulary words for topic: "${topic}" targeted for students at grade level: "${grade || 'primary school'}". 
-    Each word item MUST have the following attributes:
-    1. "term": English word or short phrase.
-    2. "meaning": Vietnamese meaning.
-    3. "ipa": Standard IPA phonetic transcription.
-    4. "pos": choose EXACTLY ONE value from this list: Noun, Pronoun, Verb, Adjective, Adverb, Preposition, Conjunction, Interjection, Article, Determiner. Do not return Phrase, Word/Phrase, or multiple labels.
-    5. "example": ONE complete English sentence that contains the exact vocabulary word or phrase and uses it naturally in context. This is a sentence-making task, not a definition task. Do not write about "the word", "this word", or "vocabulary". Avoid short template sentences like "This is ...". Every item must have a different situation and sentence structure; do not reuse one frame by replacing only the vocabulary word. Prefer a sentence close to daily life, warm, vivid, and long enough to include context, action, and details. If suitable, use a common collocation, idiom, proverb, or everyday expression naturally.
-    6. "exampleMeaning": Vietnamese translation of that example.
-    
-    Make sure example sentences are easy to understand for the specified grade level but still rich, close to daily life, and interesting for students.
-    Return ONLY valid JSON. Avoid markdown blocks.`;
-
-    const result = await generateAiText(prompt, {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            term: { type: Type.STRING },
-            meaning: { type: Type.STRING },
-            ipa: { type: Type.STRING },
-            pos: { type: Type.STRING },
-            example: { type: Type.STRING },
-            exampleMeaning: { type: Type.STRING }
-          },
-          required: ["term", "meaning", "ipa", "pos", "example", "exampleMeaning"]
-        }
-      }
-    });
-
-    if (result.provider === "fallback") {
-      const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item: any) => ({
-        ...item,
-        isFallback: true,
-        aiProvider: "fallback",
-        aiErrors: result.errors
-      }));
-      return res.json(fallbackList);
-    }
-
-    const parsedData = parseAiJson(result.text);
-    res.json(Array.isArray(parsedData) ? parsedData.map((item: any) => {
-      const fallbackExample = buildFallbackExample(item.term, item.meaning);
-      const exampleData = isWeakVocabularyExample(item.example, item.term)
-        ? fallbackExample
-        : {
-            example: item.example,
-            exampleMeaning: item.exampleMeaning
-          };
-
-      return {
-        ...item,
-        pos: normalizePartOfSpeech(item.pos),
-        example: exampleData.example,
-        exampleMeaning: exampleData.exampleMeaning || item.exampleMeaning || fallbackExample.exampleMeaning,
-        aiProvider: result.provider,
-        aiErrors: result.errors
-      };
-    }) : []);
-  } catch (error: any) {
-    console.warn("AI generation service unavailable, returning fallback:", error.message);
-    const fallbackList = getFallbackVocabulary(topic, wordsCount).map((item: any) => ({
-      ...item,
-      isFallback: true,
-      aiProvider: "fallback",
-      aiErrors: [sanitizeAiError("AI", error)]
-    }));
-    res.json(fallbackList);
-  }
-});
-
-// 5. VOCAB SETS: Open an assignment/private set by share token
-app.get("/api/vocab-sets/share/:token", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/vocab-sets/share/:token");
-  try {
-    const token = String(req.params.token || "").trim();
-    if (!token) {
-      timing.finish(res);
-      return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
-    }
-
-    const access = await resolveVocabLearningAccess(token, "", "", timing);
-    if (!access) {
-      timing.finish(res);
-      return res.status(404).json({ error: "Không tìm thấy bài tập hoặc link không hợp lệ" });
-    }
-
-    const found = access.assignment ? {
-      ...normalizeVocabSetForRead(access.set),
-      accessType: access.accessType,
-      assignmentId: access.assignment.id,
-      assignmentGameId: access.assignment.gameId,
-      assignmentTitle: access.assignment.title,
-      classId: access.assignment.classId,
-      className: access.assignment.className
-    } : {
-      ...normalizeVocabSetForRead(access.set),
-      accessType: access.accessType
-    };
-
-    timing.mark("shape");
-    timing.finish(res);
-    res.json(stripPrivateVocabSetFields(found));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 6. PUBLIC VOCAB SETS: Student home can study public sets without login
-app.get("/api/public/vocab-sets", async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    const list: any[] = [];
-
-    snapshot.forEach(doc => {
-      const set = doc.data();
-      if (isArchivedRecord(set)) return;
-      const normalizedVisibility = getVocabVisibility(set);
-      if (normalizedVisibility !== "public") return;
-
-      list.push(stripPrivateVocabSetFields({
-        ...set,
-        visibility: normalizedVisibility,
-        status: toLegacyStatus(normalizedVisibility)
-      }));
-    });
-
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 7. PUBLIC GAME RESULTS: Minimal completed sessions for the student golden board
-app.get("/api/public/results", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/results");
-  try {
-    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const resultLimit = parseActivityResultLimit(req.query.limit);
-    const loadRecent = (collectionName: string) => {
-      let query: any = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
-      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
-      return query.get();
-    };
-    const [
-      snapshot,
-      grammarAttemptsSnapshot,
-      listeningAttemptsSnapshot,
-      grammarSetsById,
-      vocabSetsById,
-      assignmentsSnapshot,
-      classesSnapshot,
-      membersSnapshot
-    ] = await Promise.all([
-      loadRecent("game_sessions"),
-      loadRecent("grammar_attempts"),
-      loadRecent("listening_attempts"),
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get(),
-      adminDb.collection("class_members").get()
-    ]);
-    timing.mark("sources");
-    const assignmentsById = new Map<string, any>();
-    const classesById = new Map<string, any>();
-    const uniqueAssignmentClassByVocabSet = new Map<string, any | null>();
-    const uniqueMemberClassByName = new Map<string, any | null>();
-
-    classesSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-
-    assignmentsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-      setUniqueClass(uniqueAssignmentClassByVocabSet, data.vocabSetId, {
-        classId: data.classId,
-        className: data.className || classesById.get(data.classId)?.name || ""
-      });
-    });
-
-    membersSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      const className = data.className || classesById.get(data.classId)?.name || "";
-      setUniqueClass(uniqueMemberClassByName, normalizePersonName(data.studentName), {
-        classId: data.classId,
-        className
-      });
-    });
-
-    const list: any[] = [];
-    const cutoff = Date.now() - ACTIVITY_TTL_MS;
-
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (!data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const assignment = data.assignmentId ? assignmentsById.get(data.assignmentId) : null;
-      const assignmentClass = assignment ? {
-        classId: assignment.classId,
-        className: assignment.className || classesById.get(assignment.classId)?.name || ""
-      } : null;
-      const vocabSetClass = uniqueAssignmentClassByVocabSet.get(data.vocabSetId) || null;
-      const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-      const memberClass = uniqueMemberClassByName.get(normalizePersonName(data.studentName)) || null;
-      const resolvedClass = data.classId
-        ? {
-            classId: data.classId,
-            className: data.className || classesById.get(data.classId)?.name || ""
-          }
-        : assignmentClass?.classId
-          ? assignmentClass
-            : vocabSetClass?.classId
-              ? vocabSetClass
-              : gradeClass.classId
-                ? gradeClass
-                : memberClass?.classId
-                  ? memberClass
-                  : { classId: "", className: "" };
-
-      list.push({
-        id: data.id || doc.id,
-        assignmentId: data.assignmentId,
-        classId: resolvedClass.classId,
-        className: resolvedClass.className,
-        vocabSetId: data.vocabSetId,
-        vocabSetTitle: data.vocabSetTitle,
-        gameId: data.gameId,
-        studentName: data.studentName,
-        guestId: data.guestId,
-        startedAt: data.startedAt,
-        completedAt: data.completedAt,
-        score: data.score || 0,
-        totalQuestions: data.totalQuestions || 0,
-        correctAnswers: data.correctAnswers || 0,
-        incorrectAnswers: data.incorrectAnswers || 0,
-        endedAt: data.endedAt || data.completedAt,
-        durationMs: data.durationMs || 0,
-        durationSeconds: data.durationSeconds || 0,
-        accuracy: data.accuracy || 0,
-        createdAt: data.createdAt,
-        expiresAt: data.expiresAt
-      });
-    });
-
-    grammarAttemptsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.status !== "completed" || !data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
-      delete activity.answerDetails;
-      list.push(activity);
-    });
-
-    listeningAttemptsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
-      list.push(listeningAttemptToActivity(data));
-    });
-
-    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const bounded = resultLimit ? list.slice(0, resultLimit) : list;
-    timing.mark("shape");
-    const named = await enrichStudentNames(bounded);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named.map(sanitizePublicStudentRecord));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/public/leaderboard-results", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/leaderboard-results");
-  try {
-    const list = await loadLeaderboardEventsFromSources(timing);
-    timing.finish(res);
-    res.json(list.map(sanitizePublicStudentRecord));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/public/leaderboard-summary", async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/public/leaderboard-summary");
-  try {
-    const period: LeaderboardPeriod = req.query.period === "month" ? "month" : "week";
-    const classId = safeText(req.query.classId, 180);
-    const requestedLimit = Number(req.query.limit || 8);
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(20, Math.floor(requestedLimit)))
-      : 8;
-    const cacheKey = `${period}:${classId}:${limit}`;
-    const cached = publicLeaderboardSummaryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      timing.mark("memory_cache");
-      timing.finish(res);
-      res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
-      return res.json(cached.value);
-    }
-
-    const events = await loadReadyLeaderboardEvents(timing);
-    if (!events) {
-      timing.finish(res);
-      return res.status(503).json({
-        error: "Bảng vàng đang được chuẩn bị.",
-        code: "LEADERBOARD_NOT_READY"
-      });
-    }
-
-    // Pseudonymize each source event before aggregation. This prevents raw
-    // account/guest identifiers from reaching either the response or cache.
-    const publicEvents = events.map(sanitizePublicStudentRecord);
-    const classesById = new Map<string, string>();
-    for (const event of publicEvents) {
-      const eventClassId = safeText(event.classId, 180);
-      if (!eventClassId) continue;
-      const eventClassName = safeText(event.className, 180) || eventClassId;
-      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
-    }
-    const entries = buildLeaderboard(publicEvents as any, [], {
-      period,
-      ...(classId ? { classId } : {})
-    }).gold.slice(0, limit);
-    const value = {
-      entries,
-      classes: [...classesById.entries()]
-        .map(([id, name]) => ({ id, name }))
-        .sort((a, b) => a.name.localeCompare(b.name, "vi")),
-      period
-    };
-    cachePublicLeaderboardSummary(cacheKey, value);
-    timing.mark("aggregate");
-    timing.finish(res);
-    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=60");
-    res.json(value);
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 6. VOCAB SETS: Get all vocab sets
-app.get("/api/vocab-sets", authenticateUser, async (req, res) => {
-  try {
-    const { search, grade, status, visibility } = req.query;
-    const snapshot = await adminDb.collection("vocab_sets").get();
-    let list: any[] = [];
-    snapshot.forEach(doc => {
-      const set = doc.data();
-      if (isArchivedRecord(set)) return;
-      const normalizedVisibility = getVocabVisibility(set);
-      list.push(stripPrivateVocabSetFields({
-        ...set,
-        visibility: normalizedVisibility,
-        status: toLegacyStatus(normalizedVisibility)
-      }));
-    });
-
-    // Filter list
-    if (search) {
-      const s = (search as string).toLowerCase();
-      list = list.filter(set => 
-        set.title.toLowerCase().includes(s) || 
-        set.description.toLowerCase().includes(s) || 
-        set.subject.toLowerCase().includes(s)
-      );
-    }
-
-    if (grade) {
-      list = list.filter(set => set.gradeLevel === grade);
-    }
-
-    if (status) {
-      list = list.filter(set => set.status === status);
-    }
-
-    if (visibility) {
-      list = list.filter(set => getVocabVisibility(set) === visibility);
-    }
-
-    list = list.filter(set => canViewVocabSet(req.user, set));
-
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 7. VOCAB SETS: Create new set
-app.post("/api/vocab-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = await resolveVocabImageReferencesForSave(req.body, {}, adminDb);
-    const id = `set-${Date.now()}`;
-    const newSet = normalizeVocabSetForSave({
-      ...set,
-      id,
-      createdAt: new Date().toISOString(),
-      createdBy: req.user.id,
-      creatorName: req.user.name
-    });
-
-    await adminDb.collection("vocab_sets").doc(id).set(newSet);
-    if (newSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id, newSet.ttsSettings);
-    }
-    
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_VOCAB_SET",
-      `Đã tạo bộ từ vựng mới: "${newSet.title}" (${newSet.items.length} từ)`
-    );
-
-    res.status(201).json(stripPrivateVocabSetFields(newSet));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 8. VOCAB SETS: Update set
-app.put("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-    const payload = req.body;
-
-    const docRef = adminDb.collection("vocab_sets").doc(id);
-    const existingDoc = await docRef.get();
-    if (!existingDoc.exists) {
-      return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
-    }
-
-    if (!canManageVocabSet(req.user, existingDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen sua bo tu vung nay." });
-    }
-
-    const resolvedPayload = await resolveVocabImageReferencesForSave(payload, existingDoc.data(), adminDb);
-    const updatedSet = normalizeVocabSetForSave({ ...resolvedPayload, id }, existingDoc.data());
-
-    await docRef.set(updatedSet);
-    if (updatedSet.ttsSettings?.autoGenerate) {
-      enqueueVocabSetAudio(id, updatedSet.ttsSettings);
-    }
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_VOCAB_SET",
-      `Đã chỉnh sửa bộ từ vựng: "${updatedSet.title}"`
-    );
-
-    res.json(stripPrivateVocabSetFields(updatedSet));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/tts/preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const settings = normalizeTtsSettings(req.body?.settings || req.body || {});
-    const text = String(req.body?.text || "apple").trim();
-    const force = Boolean(req.body?.force);
-    if (!text) return res.status(400).json({ error: "Missing preview text." });
-
-    const result = await generateCachedTtsAudio(text, settings, force);
-    res.json({
-      audioUrl: result.audioUrl,
-      audioHash: result.audioHash,
-      cached: result.cached,
-      ttsText: result.ttsText,
-      warnings: result.warnings
-    });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/tts/batch-preview", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const settings = normalizeTtsSettings(req.body?.settings || {});
-    const force = Boolean(req.body?.force);
-    const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 200) : [];
-    if (rawItems.length === 0) return res.status(400).json({ error: "Missing TTS items." });
-
-    const prepared = rawItems.map((item: any, index: number) => {
-      const text = String(item?.text || item?.term || "").trim();
-      const sanitized = sanitizeTtsInput(text);
-      const audioHash = sanitized.text ? createAudioHash(sanitized.text, settings) : "";
-      return {
-        id: String(item?.id || `item-${index + 1}`),
-        text,
-        sanitized,
-        audioHash
-      };
-    });
-
-    const grouped = new Map<string, typeof prepared>();
-    const invalidResults = new Map<string, any>();
-    for (const item of prepared) {
-      if (!item.sanitized.text) {
-        invalidResults.set(item.id, {
-          id: item.id,
-          audioStatus: "failed",
-          audioError: "Missing TTS text after cleanup.",
-          ttsText: "",
-          warnings: item.sanitized.warnings
-        });
-        continue;
-      }
-      const group = grouped.get(item.audioHash) || [];
-      group.push(item);
-      grouped.set(item.audioHash, group);
-    }
-
-    const generated = await runWithConcurrency([...grouped.entries()], TTS_CONCURRENCY, async ([audioHash, group]) => {
-      try {
-        const result = await generateCachedTtsAudio(group[0].sanitized.text, settings, force);
-        return { audioHash, result, error: null as any };
-      } catch (err: any) {
-        return { audioHash, result: null as any, error: err };
-      }
-    });
-
-    const generatedByHash = new Map(generated.map(item => [item.audioHash, item]));
-    const items = prepared.map(item => {
-      const invalid = invalidResults.get(item.id);
-      if (invalid) return invalid;
-
-      const generatedResult = generatedByHash.get(item.audioHash);
-      if (!generatedResult || generatedResult.error) {
-        return {
-          id: item.id,
-          audioHash: item.audioHash,
-          audioStatus: "failed",
-          audioError: generatedResult?.error?.message || "TTS generation failed.",
-          ttsText: item.sanitized.text,
-          warnings: item.sanitized.warnings,
-          ttsProvider: settings.provider,
-          ttsVoice: settings.voice,
-          ttsLang: settings.lang,
-          ttsSpeed: settings.speed
-        };
-      }
-
-      return {
-        id: item.id,
-        audioUrl: generatedResult.result.audioUrl,
-        audioHash: generatedResult.result.audioHash,
-        audioStatus: "ready",
-        audioError: "",
-        cached: generatedResult.result.cached,
-        ttsText: generatedResult.result.ttsText,
-        warnings: generatedResult.result.warnings,
-        ttsProvider: settings.provider,
-        ttsVoice: settings.voice,
-        ttsLang: settings.lang,
-        ttsSpeed: settings.speed
-      };
-    });
-
-    res.json({ items, concurrency: TTS_CONCURRENCY });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/tts/voices", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const apiKey = getAi33ApiKey();
-    if (!apiKey) return res.status(500).json({ error: "AI33_API_KEY/TTS_API_KEY is not configured." });
-
-    const params = new URLSearchParams();
-    params.set("provider", String(req.query.provider || "edge"));
-    if (req.query.language) params.set("language", String(req.query.language));
-    if (req.query.gender) params.set("gender", String(req.query.gender));
-    if (req.query.search || req.query.q) params.set("q", String(req.query.search || req.query.q));
-    params.set("page_size", String(req.query.page_size || req.query.limit || 50));
-
-    const upstream = await fetchWithTimeout(`https://api.ai33.pro/v3/voices?${params.toString()}`, {
-      headers: { "xi-api-key": apiKey }
-    });
-    const data = await upstream.json().catch(() => ({}));
-    res.status(upstream.status).json(data);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/vocab-sets/:id/audio/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const set = doc.data();
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "Ban khong co quyen xem trang thai audio cua bo tu vung nay." });
-    }
-    const items = Array.isArray(set.items) ? set.items : [];
-    res.json({
-      id: set.id,
-      items: items.map((item: any) => ({
-        id: item.id,
-        term: item.term,
-        audioUrl: item.audioUrl,
-        audioHash: item.audioHash,
-        audioStatus: item.audioStatus || (item.audioUrl ? "ready" : "missing"),
-        audioError: item.audioError || "",
-        ttsProvider: item.ttsProvider,
-        ttsVoice: item.ttsVoice,
-        ttsLang: item.ttsLang,
-        ttsSpeed: item.ttsSpeed,
-        ttsText: item.ttsText,
-        audioWarnings: item.audioWarnings || [],
-        audioGeneratedAt: item.audioGeneratedAt,
-        audioUpdatedAt: item.audioUpdatedAt
-      }))
-    });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/vocab-sets/:id/images/status", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    const set = doc.data();
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "Ban khong co quyen xem trang thai anh cua bo tu vung nay." });
-    }
-    const items = Array.isArray(set.items) ? set.items : [];
-    res.json({
-      id: set.id,
-      items: items.map((item: any) => ({
-        id: item.id,
-        term: item.term,
-        imageAssetId: item.imageAssetId,
-        imageUrl: item.imageUrl,
-        imageAttribution: item.imageAttribution,
-        imageAttachedAt: item.imageAttachedAt,
-        imageStatus: item.imageAssetId && item.imageUrl ? "ready" : item.imageUrl ? "legacy" : "missing",
-      })),
-    });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/vocab-sets/:id/audio/generate-missing", authenticateUser, requireRole(["teacher", "super_admin"]), ttsRateLimit, async (req, res) => {
-  try {
-    const doc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-    if (!canManageVocabSet(req.user, doc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen tao audio cho bo tu vung nay." });
-    }
-
-    const settings = normalizeTtsSettings(req.body?.settings || doc.data().ttsSettings || {});
-    const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(String) : undefined;
-    const force = Boolean(req.body?.force);
-    enqueueVocabSetAudio(req.params.id, settings, itemIds, force);
-    res.json({ queued: true, itemIds: itemIds || null, force });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 9. VOCAB SETS: Delete set
-app.delete("/api/vocab-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-
-    const docRef = adminDb.collection("vocab_sets").doc(id);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
-    }
-
-    if (!canManageVocabSet(req.user, existing.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa bo tu vung nay." });
-    }
-
-    const setDetails = existing.data();
-    const relatedAssignmentsForDelete = await adminDb.collection("assignments").where("vocabSetId", "==", id).get();
-    if (!isSuperAdmin(req.user)) {
-      const classesSnapshot = await adminDb.collection("classes").get();
-      const classesById = new Map<string, any>();
-      classesSnapshot.forEach(doc => {
-        const classData = { id: doc.id, ...doc.data() };
-        classesById.set(classData.id, classData);
-      });
-
-      for (const assignmentDoc of relatedAssignmentsForDelete.docs || []) {
-        const assignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
-        const classData = assignment.classId ? classesById.get(assignment.classId) : null;
-        if (!canManageAssignment(req.user, assignment, classData)) {
-          return res.status(403).json({ error: "Bo tu vung nay dang duoc giao cho lop ban khong quan ly." });
-        }
-      }
-    }
-
-    const now = new Date().toISOString();
-    const batch = adminDb.batch();
-    batch.set(docRef, archiveResourceRecord(setDetails, req.user.id, now, {
-      forceDraftVisibility: true,
-      revokeShareToken: true
-    }));
-    relatedAssignmentsForDelete.forEach(doc => {
-      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user!.id, now, {
-        revokeShareToken: true
-      }));
-    });
-    await batch.commit();
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_VOCAB_SET",
-      `Đã lưu trữ bộ từ vựng và thu hồi link: "${setDetails?.title}"`
-    );
-
-    res.json({ success: true, archived: true });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 10. VOCAB SETS: Clone set
-app.post("/api/vocab-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-
-    const existing = await adminDb.collection("vocab_sets").doc(id).get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
-    }
-
-    const original = existing.data() || {};
-    if (!canViewVocabSet(req.user, original)) {
-      return res.status(403).json({ error: "Ban khong co quyen nhan ban bo tu vung nay." });
-    }
-    const cloneId = `set-${Date.now()}`;
-    const clone = normalizeVocabSetForSave({
-      ...original,
-      id: cloneId,
-      title: `${original.title} (Nhân bản)`,
-      visibility: "draft",
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      createdBy: req.user.id,
-      creatorName: req.user.name
-    });
-
-    await adminDb.collection("vocab_sets").doc(cloneId).set(clone);
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CLONE_VOCAB_SET",
-      `Đã nhân bản bộ từ vựng: "${original.title}" thành "${clone.title}"`
-    );
-
-    res.json(stripPrivateVocabSetFields(clone));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 11. CLASSES: Get all classes
-app.get("/api/classes", authenticateUser, async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("classes").get();
-    const list: any[] = [];
-    snapshot.forEach(doc => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      if (canViewClass(req.user, classData)) list.push(classData);
-    });
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 11. CLASSES: Create class
-app.post("/api/classes", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const payload = req.body;
-    const id = `class-${Date.now()}`;
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newClass = {
-      ...payload,
-      id,
-      code,
-      teacherId: req.user.id,
-      createdAt: new Date().toISOString()
-    };
-
-    await adminDb.collection("classes").doc(id).set(newClass);
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_CLASS",
-      `Đã tạo lớp học mới: "${newClass.name}" (Mã mời: ${newClass.code})`
-    );
-
-    res.status(201).json(newClass);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 12. CLASSES: Delete class
-app.delete("/api/classes/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-
-    const classRef = adminDb.collection("classes").doc(id);
-    const existing = await classRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Lớp học không tồn tại." });
-    }
-
-    if (!canManageClass(req.user, existing.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa lop hoc nay." });
-    }
-
-    const classDetails = existing.data();
-    const assignmentsSnapshot = await adminDb.collection("assignments").where("classId", "==", id).get();
-    const now = new Date().toISOString();
-    const batch = adminDb.batch();
-    batch.set(classRef, archiveResourceRecord(classDetails, req.user.id, now));
-    assignmentsSnapshot.forEach(doc => {
-      batch.set(doc.ref, archiveResourceRecord({ id: doc.id, ...doc.data() }, req.user!.id, now, {
-        revokeShareToken: true
-      }));
-    });
-    await batch.commit();
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_CLASS",
-      `Đã lưu trữ lớp học và thu hồi bài giao: "${classDetails?.name}"`
-    );
-
-    res.json({ success: true, archived: true });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 13. CLASS MEMBERS: Get class members
-app.get("/api/class-members", authenticateUser, async (req, res) => {
-  try {
-    const classesSnapshot = await adminDb.collection("classes").get();
-    const classesById = new Map<string, any>();
-    classesSnapshot.forEach(doc => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      classesById.set(classData.id, classData);
-    });
-
-    const snapshot = await adminDb.collection("class_members").get();
-    const list: any[] = [];
-    snapshot.forEach(doc => {
-      const member = { id: doc.id, ...doc.data() };
-      const classData = member.classId ? classesById.get(member.classId) : null;
-      if (classData && canViewClass(req.user, classData)) list.push(member);
-    });
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 14. CLASS MEMBERS: Add member
-app.post("/api/classes/:classId/members", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const classId = req.params.classId;
-    const { studentName } = req.body;
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen them hoc sinh vao lop nay." });
-    }
-    const id = `member-${Date.now()}`;
-    const newMember = {
-      id,
-      classId,
-      studentName
-    };
-
-    await adminDb.collection("class_members").doc(id).set(newMember);
-    res.status(201).json(newMember);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 15. CLASS MEMBERS: Delete member
-app.delete("/api/classes/:classId/members/:memberId", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const classId = req.params.classId;
-    const memberId = req.params.memberId;
-    const classDoc = await adminDb.collection("classes").doc(classId).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    if (isArchivedRecord(classDoc.data())) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classDoc.data())) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa hoc sinh khoi lop nay." });
-    }
-    const memberDoc = await adminDb.collection("class_members").doc(memberId).get();
-    if (!memberDoc.exists || memberDoc.data()?.classId !== classId) {
-      return res.status(404).json({ error: "Class member not found." });
-    }
-    await adminDb.collection("class_members").doc(memberId).delete();
-    res.json({ success: true });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 16. ASSIGNMENTS: Get assignments
-app.get("/api/assignments", authenticateUser, async (req, res) => {
-  try {
-    const classesSnapshot = await adminDb.collection("classes").get();
-    const classesById = new Map<string, any>();
-    classesSnapshot.forEach(doc => {
-      const classData = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(classData)) return;
-      classesById.set(classData.id, classData);
-    });
-
-    const snapshot = await adminDb.collection("assignments").get();
-    const list: any[] = [];
-    for (const doc of snapshot.docs || []) {
-      const rawAssignment = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(rawAssignment)) continue;
-      const assignment = await ensureAssignmentShareToken(rawAssignment, doc.ref);
-      const classData = assignment.classId ? classesById.get(assignment.classId) : null;
-      if (canManageAssignment(req.user, assignment, classData)) list.push(assignment);
-    }
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 17. ASSIGNMENTS: Create assignment
-app.post("/api/assignments", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const payload = req.body;
-    const id = `assign-${Date.now()}`;
-    const classDoc = await adminDb.collection("classes").doc(String(payload.classId || "")).get();
-    if (!classDoc.exists) return res.status(404).json({ error: "Class not found." });
-    const classData = { id: classDoc.id, ...classDoc.data() };
-    if (isArchivedRecord(classData)) return res.status(409).json({ error: "Class is archived." });
-    if (!canManageClass(req.user, classData)) {
-      return res.status(403).json({ error: "Ban khong co quyen giao bai cho lop nay." });
-    }
-
-    const resourceType = payload.resourceType === "listening"
-      ? "listening"
-      : payload.resourceType === "mover_reading_writing"
-        ? "mover_reading_writing"
-        : payload.resourceType === "exam"
-          ? "exam"
-        : "vocabulary";
-    let resource: any;
-    if (resourceType === "listening") {
-      const resourceId = String(payload.resourceId || payload.listeningSetId || "");
-      const listeningDoc = await adminDb.collection("listening_sets").doc(resourceId).get();
-      if (!listeningDoc.exists) return res.status(404).json({ error: "Listening set not found." });
-      resource = { id: listeningDoc.id, ...listeningDoc.data() };
-      const canManageListening = req.user.role === "super_admin"
-        || (req.user.role === "teacher" && resource.ownerId === req.user.id);
-      if (!canManageListening || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "Bạn không có quyền giao bộ đề nghe này." });
-      }
-    } else if (resourceType === "mover_reading_writing") {
-      const resourceId = String(payload.resourceId || payload.moverReadingWritingSetId || "");
-      const readingWritingDoc = await adminDb.collection("mover_reading_sets").doc(resourceId).get();
-      if (!readingWritingDoc.exists) return res.status(404).json({ error: "Movers Reading & Writing set not found." });
-      resource = { id: readingWritingDoc.id, ...readingWritingDoc.data() };
-      const canManageReadingWriting = req.user.role === "super_admin"
-        || (req.user.role === "teacher" && resource.ownerId === req.user.id);
-      if (!canManageReadingWriting || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "Bạn không có quyền giao bộ đề Movers Reading & Writing này." });
-      }
-    } else if (resourceType === "exam") {
-      const resourceId = String(payload.resourceId || "");
-      const examDoc = await adminDb.collection("exam_sets").doc(resourceId).get();
-      if (!examDoc.exists) return res.status(404).json({ error: "Exam set not found." });
-      resource = { id: examDoc.id, ...examDoc.data() };
-      const canManageExam = req.user.role === "super_admin"
-        || (req.user.role === "teacher" && resource.ownerId === req.user.id);
-      if (!canManageExam || resource.status !== "published" || resource.visibility === "draft") {
-        return res.status(403).json({ error: "Bạn không có quyền giao bộ đề thi này." });
-      }
-    } else {
-      const vocabDoc = await adminDb.collection("vocab_sets").doc(String(payload.vocabSetId || payload.resourceId || "")).get();
-      if (!vocabDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-      resource = { id: vocabDoc.id, ...vocabDoc.data() };
-      if (!canViewVocabSet(req.user, resource) || getVocabVisibility(resource) === "draft") {
-        return res.status(403).json({ error: "Ban khong co quyen giao bo tu vung nay." });
-      }
-    }
-
-    const shareToken = createShareToken();
-    const newAssign = {
-      ...payload,
-      id,
-      shareToken,
-      assignmentSlug: shareToken,
-      classId: classData.id,
-      className: classData.name || payload.className || "",
-      resourceType,
-      resourceId: resource.id,
-      resourceTitle: resource.title || payload.resourceTitle || "",
-      ...(resourceType === "vocabulary"
-        ? {
-            vocabSetId: resource.id,
-            vocabSetTitle: resource.title || payload.vocabSetTitle || ""
-          }
-        : resourceType === "listening" ? {
-            listeningSetId: resource.id,
-            listeningSetTitle: resource.title || payload.resourceTitle || "",
-            gameId: "listening-five-part"
-          } : resourceType === "mover_reading_writing" ? {
-            moverReadingWritingSetId: resource.id,
-            moverReadingWritingSetTitle: resource.title || payload.resourceTitle || "",
-            gameId: "mover-reading-writing"
-          } : {
-            examSetId: resource.id,
-            examModuleId: resource.moduleId,
-            examPaperId: resource.paperId,
-            gameId: `exam:${resource.moduleId}:${resource.paperId}`
-          }),
-      createdAt: new Date().toISOString(),
-      createdBy: req.user.id
-    };
-
-    await adminDb.collection("assignments").doc(id).set(newAssign);
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_ASSIGNMENT",
-      `Đã giao bài tập mới: "${newAssign.title}" cho lớp: ${newAssign.className}`
-    );
-
-    res.status(201).json(newAssign);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 18. ASSIGNMENTS: Delete assignment
-app.delete("/api/assignments/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = req.params.id;
-
-    const docRef = adminDb.collection("assignments").doc(id);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Bài tập không tồn tại." });
-    }
-
-    const assignDetails = { id: existing.id || id, ...existing.data() };
-    const classDoc = assignDetails.classId ? await adminDb.collection("classes").doc(assignDetails.classId).get() : null;
-    const classData = classDoc?.exists ? { id: classDoc.id, ...classDoc.data() } : null;
-    if (!canManageAssignment(req.user, assignDetails, classData)) {
-      return res.status(403).json({ error: "Ban khong co quyen xoa bai giao nay." });
-    }
-
-    await docRef.set(archiveResourceRecord(assignDetails, req.user.id, new Date().toISOString(), {
-      revokeShareToken: true
-    }));
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_ASSIGNMENT",
-      `Đã lưu trữ/thu hồi bài tập: "${assignDetails?.title}" của lớp: ${assignDetails?.className}`
-    );
-
-    res.json({ success: true, archived: true });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 19. GRAMMAR SETS: List grammar lessons
-app.get("/api/public/grammar-sets", async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    const list: any[] = [];
-    snapshot.forEach(doc => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      if (getGrammarVisibility(set) !== "public") return;
-      list.push(sanitizeGrammarSetForStudent(set));
-    });
-    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/grammar-sets", authenticateUser, async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    const list: any[] = [];
-    snapshot.forEach(doc => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      if (!canViewGrammarSet(req.user, set)) return;
-      list.push(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
-    });
-    list.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/grammar-sets/share/:token", async (req, res) => {
-  try {
-    const token = String(req.params.token || "").trim();
-    if (!token) {
-      return res.status(404).json({ error: "Không tìm thấy bài ngữ pháp hoặc link không hợp lệ." });
-    }
-
-    const snapshot = await adminDb.collection("grammar_sets").get();
-    let found: any = null;
-    snapshot.forEach(doc => {
-      const set = { id: doc.id, ...doc.data() };
-      if (isArchivedRecord(set)) return;
-      const setToken = set.shareToken || set.assignmentSlug;
-      const legacyGrammarToken = setToken?.startsWith("grammar-") ? setToken.slice("grammar-".length) : `grammar-${setToken}`;
-      if (!found && (setToken === token || legacyGrammarToken === token) && getGrammarVisibility(set) === "assignment") {
-        found = set;
-      }
-    });
-
-    if (!found) {
-      return res.status(404).json({ error: "Không tìm thấy bài ngữ pháp hoặc link không hợp lệ." });
-    }
-
-    res.json(sanitizeGrammarSetForStudent(found));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/grammar-sets/:id", authenticateUser, async (req, res) => {
-  try {
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canViewGrammarSet(req.user, set)) {
-      return res.status(403).json({ error: "Bạn không có quyền mở bài ngữ pháp này." });
-    }
-    res.json(req.user?.role === "student" ? sanitizeGrammarSetForStudent(set) : set);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/admin/grammar-sets", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const id = makeId("grammar-set");
-    const set = normalizeGrammarSetForSave({ ...req.body, id }, {}, req.user);
-    await adminDb.collection("grammar_sets").doc(id).set(set);
-
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "CREATE_GRAMMAR_SET",
-      `Đã tạo bài ngữ pháp: "${set.title}" (${set.questions.length} câu)`
-    );
-
-    res.status(201).json(set);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.put("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "Bạn không có quyền sửa bài này." });
-
-    const set = normalizeGrammarSetForSave({ ...req.body, id: req.params.id }, existing, req.user);
-    await adminDb.collection("grammar_sets").doc(req.params.id).set(set);
-
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_GRAMMAR_SET",
-      `Đã cập nhật bài ngữ pháp: "${set.title}"`
-    );
-
-    res.json(set);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.delete("/api/admin/grammar-sets/:id", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canManageGrammarSet(req.user, existing)) return res.status(403).json({ error: "Bạn không có quyền xóa bài này." });
-
-    await adminDb.collection("grammar_sets").doc(req.params.id).set(
-      archiveResourceRecord(existing, req.user.id, new Date().toISOString(), {
-        forceDraftVisibility: true,
-        revokeShareToken: true
-      })
-    );
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "ARCHIVE_GRAMMAR_SET",
-      `Đã lưu trữ bài ngữ pháp và thu hồi link: "${existing.title}"`
-    );
-
-    res.json({ success: true, archived: true });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/admin/grammar-sets/:id/clone", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const existing = await getGrammarSetOr404(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canViewGrammarSet(req.user, existing)) return res.status(403).json({ error: "Ban khong co quyen nhan ban bai nay." });
-    const cloneId = makeId("grammar-set");
-    const clone = normalizeGrammarSetForSave({
-      ...existing,
-      id: cloneId,
-      title: `${existing.title} (Bản sao)`,
-      visibility: "draft",
-      questions: existing.questions
-    }, {}, req.user);
-    await adminDb.collection("grammar_sets").doc(cloneId).set(clone);
-    res.status(201).json(clone);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/grammar-sets/:id/attempts/prepare", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/prepare");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const credentials = getClientRunCredentials(req.body || {});
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
-    }
-
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
-      .where("grammarSetId", "==", set.id)
-      .where(actorField, "==", actor.id)
-      .where("status", "==", "completed")
-      .limit(maxAttempts)
-      .get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
-    }
-
-    const prepared = buildPreparedGrammarAttempt(set, actor, req.body || {}, credentials.clientRunId, credentials.runSecret);
-    timing.finish(res);
-    res.json(sanitizeAttemptForStudent(prepared, false, credentials.runSecret));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/grammar-sets/:id/attempts/activate", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts/activate");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui long nhap ten hoc sinh de luyen ngu phap." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "Bai ngu phap khong ton tai." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "Ban khong co quyen lam bai nay." });
-    }
-
-    const attemptId = deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
-    const docRef = adminDb.collection("grammar_attempts").doc(attemptId);
-    const existingDoc = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existingDoc.exists) {
-      const existingAttempt = existingDoc.data();
-      if (!canAccessGrammarAttempt(existingAttempt, actor, set, req)) {
-        return res.status(403).json({ error: "Ban khong co quyen tiep tuc luot lam bai nay." });
-      }
-      const existingAnswer = (existingAttempt.answers || []).find((item: any) => item.attemptQuestionId === payload.attemptQuestionId);
-      if (existingAnswer) {
-        const feedback = buildGrammarAnswerFeedback(existingAttempt, set, existingAnswer);
-        timing.finish(res);
-        return res.json({
-          attempt: sanitizeAttemptForStudent(existingAttempt, false, credentials.runSecret),
-          answer: sanitizeGrammarAnswerForStudent(existingAnswer, Boolean(feedback)),
-          feedback,
-          alreadyActivated: true
-        });
-      }
-      if (existingAttempt.status === "completed") {
-        timing.finish(res);
-        return res.json({ attempt: sanitizeAttemptForStudent(existingAttempt, Boolean(set.showReviewAfterSubmit), credentials.runSecret), alreadyCompleted: true });
-      }
-      const { answer, feedback } = buildGrammarAttemptAnswer(existingAttempt, set, payload);
-      const answers = [...(existingAttempt.answers || []).filter((item: any) => item.attemptQuestionId !== answer.attemptQuestionId), answer];
-      const updatedAt = new Date().toISOString();
-      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
-      const batch = adminDb.batch();
-      batch.set(docRef, updatedAttempt);
-      appendLearningHistoryProjection(
-        batch,
-        projectGrammarAttempt(updatedAttempt, set, {
-          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-          includeDetail: false
-        })
-      );
-      await batch.commit();
-      timing.mark("persist");
-      timing.finish(res);
-      return res.json({
-        attempt: sanitizeAttemptForStudent(updatedAttempt, false, credentials.runSecret),
-        answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)),
-        feedback,
-        alreadyActivated: true
-      });
-    }
-
-    if (safeText(payload.grammarSetVersion, 160) !== getGrammarSetVersion(set)) {
-      return res.status(409).json({ error: "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi." });
-    }
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
-      .where("grammarSetId", "==", set.id)
-      .where(actorField, "==", actor.id)
-      .where("status", "==", "completed")
-      .limit(maxAttempts)
-      .get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "Ban da het so lan lam bai duoc phep." });
-    }
-
-    const prepared = buildPreparedGrammarAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
-    const { answer, feedback } = buildGrammarAttemptAnswer(prepared, set, payload);
-    const now = new Date().toISOString();
-    const activated = {
-      ...prepared,
-      status: "in_progress",
-      activatedAt: now,
-      lastSavedAt: now,
-      updatedAt: now,
-      answers: [answer]
-    };
-    const batch = adminDb.batch();
-    batch.set(docRef, activated);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(activated, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({
-      attempt: sanitizeAttemptForStudent(activated, false, credentials.runSecret),
-      answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)),
-      feedback
-    });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/grammar-sets/:id/attempts", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-sets/:id/attempts");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
-    const set = await getGrammarSetOr404(req.params.id);
-    timing.mark("set_read");
-    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canOpenGrammarSetForLearning(set, actor, req)) {
-      return res.status(403).json({ error: "Bạn không có quyền làm bài này." });
-    }
-
-    const maxAttempts = Math.max(1, Number(set.maxAttempts || 1));
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const attemptsSnapshot = await adminDb.collection("grammar_attempts")
-      .where("grammarSetId", "==", set.id)
-      .where(actorField, "==", actor.id)
-      .where("status", "==", "completed")
-      .limit(maxAttempts)
-      .get();
-    timing.mark("attempt_limit");
-    if (attemptsSnapshot.size >= maxAttempts) {
-      return res.status(403).json({ error: "Bạn đã hết số lần làm bài được phép." });
-    }
-
-    const now = new Date().toISOString();
-    const questions = set.shuffleQuestions ? fisherYates(set.questions || []) : [...(set.questions || [])];
-    const attemptQuestions = questions.map((question: any, index: number) => {
-      const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
-      const options = questionType === "multiple_choice" && set.shuffleOptions
-        ? fisherYates(question.options || [])
-        : [...(question.options || [])];
-      return {
-        id: makeId(`grammar-attempt-question-${index + 1}`),
-        questionId: question.id,
-        questionType,
-        displayPosition: index + 1,
-        optionOrder: options.map((option: any) => option.id),
-        questionSnapshot: question.questionText,
-        explanationSnapshot: question.explanation,
-        scoreSnapshot: question.score,
-        optionsSnapshot: options,
-        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
-        correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
-        acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers)
-          ? [...question.acceptedAnswers]
-          : []
-      };
-    });
-
-    const attemptId = makeId("grammar-attempt");
-    const attemptToken = actor.isGuest ? createSessionToken() : "";
-    const attempt = {
-      id: attemptId,
-      grammarSetId: set.id,
-      grammarSetTitle: set.title,
-      assignmentId: req.body?.assignmentId || "",
-      userId: actor.id,
-      studentId: actor.id,
-      guestId: actor.isGuest ? actor.id : "",
-      studentName: actor.name,
-      classId: req.body?.classId || set.classId || getLessonGradeClass(set).classId || "",
-      className: req.body?.className || set.className || getLessonGradeClass(set).className || "",
-      status: "in_progress",
-      score: 0,
-      maxScore: attemptQuestions.reduce((sum: number, question: any) => sum + Number(question.scoreSnapshot || 1), 0),
-      correctCount: 0,
-      wrongCount: 0,
-      unansweredCount: attemptQuestions.length,
-      startedAt: now,
-      createdAt: now,
-      questions: attemptQuestions,
-      answers: [],
-      reviewPolicySnapshot: {
-        showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
-        showExplanationImmediately: Boolean(set.showExplanationImmediately),
-        policyVersion: 1,
-        capturedAt: now
-      },
-      attemptTokenHash: attemptToken ? hashSessionToken(attemptToken) : ""
-    };
-
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attemptId), attempt);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(attempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json(sanitizeAttemptForStudent(attempt, false, attemptToken));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/grammar-attempts/:attemptId/answers", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/answers");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    timing.mark("attempt_read");
-    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    timing.mark("set_read");
-    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền sửa lượt làm bài này." });
-    if (attempt.status === "completed") return res.status(400).json({ error: "Bài đã nộp, không thể thay đổi đáp án." });
-
-    const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === req.body?.attemptQuestionId);
-    if (!attemptQuestion) return res.status(400).json({ error: "Câu hỏi không hợp lệ." });
-    const questionType = getGrammarQuestionType(attemptQuestion.questionType, getGrammarQuestionType(set?.questionType));
-    const selectedOptionId = questionType === "multiple_choice" ? String(req.body?.selectedOptionId || "") : "";
-    const textAnswer = questionType === "rewrite" ? safeText(req.body?.textAnswer, 4000) : "";
-
-    if (questionType === "multiple_choice") {
-      const selectedOption = (attemptQuestion.optionsSnapshot || []).find((option: any) => option.id === selectedOptionId);
-      if (!selectedOption) return res.status(400).json({ error: "Phương án đã chọn không hợp lệ." });
-    } else if (!normalizeGrammarTextAnswer(textAnswer)) {
-      return res.status(400).json({ error: "Vui lòng nhập câu trả lời." });
-    }
-
-    const isCorrect = questionType === "rewrite"
-      ? isGrammarTextAnswerCorrect(
-          textAnswer,
-          attemptQuestion.correctAnswerSnapshot,
-          attemptQuestion.acceptedAnswersSnapshot
-        )
-      : selectedOptionId === attemptQuestion.correctOptionId;
-    const answer: any = {
-      id: makeId("grammar-answer"),
-      attemptQuestionId: attemptQuestion.id,
-      questionId: attemptQuestion.questionId,
-      questionType,
-      isCorrect,
-      scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
-      answeredAt: new Date().toISOString()
-    };
-    if (questionType === "rewrite") {
-      answer.textAnswer = textAnswer;
-      answer.correctAnswer = attemptQuestion.correctAnswerSnapshot;
-      answer.gradingVersion = GRAMMAR_TEXT_GRADING_VERSION;
-    } else {
-      answer.selectedOptionId = selectedOptionId;
-      answer.correctOptionId = attemptQuestion.correctOptionId;
-    }
-    const answers = (attempt.answers || []).filter((item: any) => item.attemptQuestionId !== attemptQuestion.id);
-    answers.push(answer);
-    const updatedAt = new Date().toISOString();
-    const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(updatedAttempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-
-    const feedback = set?.showExplanationImmediately
-      ? {
-          isCorrect,
-          correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
-          correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
-          explanation: attemptQuestion.explanationSnapshot,
-          scoreAwarded: answer.scoreAwarded
-        }
-      : null;
-    timing.finish(res);
-    res.json({ answer: sanitizeGrammarAnswerForStudent(answer, Boolean(feedback)), feedback });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/grammar-attempts/:attemptId/submit", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/grammar-attempts/:attemptId/submit");
-  try {
-    const actor = await getGrammarActor(req);
-    timing.mark("identity");
-    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    timing.mark("attempt_read");
-    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    timing.mark("set_read");
-    if (!canAccessGrammarAttempt(attempt, actor, set, req)) return res.status(403).json({ error: "Bạn không có quyền nộp lượt làm bài này." });
-    if (attempt.status === "completed") {
-      timing.finish(res);
-      return res.json({
-        ...sanitizeAttemptForStudent(attempt, Boolean(set?.showReviewAfterSubmit)),
-        alreadyCompleted: true
-      });
-    }
-
-    const answerMap = new Map((attempt.answers || []).map((answer: any) => [answer.attemptQuestionId, answer]));
-    let score = 0;
-    let correctCount = 0;
-    let wrongCount = 0;
-    let unansweredCount = 0;
-    for (const question of attempt.questions || []) {
-      const answer: any = answerMap.get(question.id);
-      if (!answer) {
-        unansweredCount++;
-      } else if (answer.isCorrect) {
-        correctCount++;
-        score += Number(question.scoreSnapshot || 1);
-      } else {
-        wrongCount++;
-      }
-    }
-
-    const completedAt = new Date().toISOString();
-    const startedAt = attempt.startedAt || completedAt;
-    const durationSeconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000));
-    const updatedAttempt = {
-      ...attempt,
-      status: "completed",
-      submissionStatus: "completed",
-      score,
-      correctCount,
-      wrongCount,
-      unansweredCount,
-      completedAt,
-      durationSeconds,
-      updatedAt: completedAt
-    };
-    const leaderboardEvent = grammarAttemptToLeaderboardEvent(updatedAttempt, set);
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection("grammar_attempts").doc(attempt.id), updatedAttempt);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectGrammarAttempt(updatedAttempt, set, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(sanitizeAttemptForStudent(updatedAttempt, Boolean(set?.showReviewAfterSubmit)));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/grammar-attempts/:attemptId/review", authenticateOptionalUser, async (req, res) => {
-  try {
-    const actor = await getGrammarActor(req);
-    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để luyện ngữ pháp." });
-    const attempt = await getGrammarAttemptOr404(req.params.attemptId);
-    if (!attempt) return res.status(404).json({ error: "Lượt làm bài không tồn tại." });
-    const set = await getGrammarSetOr404(attempt.grammarSetId);
-    const canReview = canAccessGrammarAttempt(attempt, actor, set, req, true);
-    if (!canReview) return res.status(403).json({ error: "Bạn không có quyền xem lượt làm bài này." });
-    if (attempt.status !== "completed" && actor.role === "student") return res.status(403).json({ error: "Chỉ được xem lại sau khi nộp bài." });
-    const staffReview = !actor.isGuest && (actor.role === "super_admin" || canManageGrammarSet(actor, set));
-    res.json(sanitizeAttemptForStudent(attempt, staffReview || Boolean(set?.showReviewAfterSubmit)));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/grammar-sets/:id/my-attempts", authenticateOptionalUser, async (req, res) => {
-  try {
-    const actor = await getGrammarActor(req);
-    if (!actor) return res.status(401).json({ error: "Vui lòng nhập tên học sinh để xem lịch sử làm bài." });
-    const set = await getGrammarSetOr404(req.params.id);
-    const actorField = actor.isGuest ? "guestId" : "userId";
-    const snapshot = await adminDb.collection("grammar_attempts")
-      .where("grammarSetId", "==", req.params.id)
-      .where(actorField, "==", actor.id)
-      .get();
-    const list: any[] = [];
-    snapshot.forEach(doc => {
-      const attempt = { id: doc.id, ...doc.data() };
-      list.push(sanitizeAttemptForStudent(attempt, !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)));
-    });
-    list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-    res.json(list);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/admin/grammar-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set || isArchivedRecord(set) || !canManageGrammarSet(req.user, set)) {
-      return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    }
-    res.json(set);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/admin/grammar-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const set = await getGrammarSetOr404(req.params.id);
-    if (!set) return res.status(404).json({ error: "Bài ngữ pháp không tồn tại." });
-    if (!canManageGrammarSet(req.user, set)) return res.status(403).json({ error: "Bạn không có quyền xem kết quả bài này." });
-
-    const snapshot = await adminDb.collection("grammar_attempts")
-      .where("grammarSetId", "==", set.id)
-      .get();
-    const attempts: any[] = [];
-    snapshot.forEach(doc => {
-      const attempt = { id: doc.id, ...doc.data() };
-      attempts.push(attempt);
-    });
-    attempts.sort((a, b) => new Date(b.completedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.createdAt || 0).getTime());
-    res.json({ set, attempts: await enrichStudentNames(attempts) });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/admin/vocab-sets/:id/preview", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    const set = setDoc.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-    if (!set || isArchivedRecord(set) || !canManageVocabSet(req.user, set)) {
-      return res.status(404).json({ error: "Bộ từ vựng không tồn tại." });
-    }
-    res.json(stripPrivateVocabSetFields(set));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/admin/vocab-sets/:id/results", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const setDoc = await adminDb.collection("vocab_sets").doc(req.params.id).get();
-    if (!setDoc.exists) return res.status(404).json({ error: "Vocabulary set not found." });
-
-    const set = { id: setDoc.id, ...setDoc.data() };
-    if (!canManageVocabSet(req.user, set)) {
-      return res.status(403).json({ error: "You do not have permission to view results for this vocabulary set." });
-    }
-
-    const snapshot = await adminDb.collection("game_sessions").where("vocabSetId", "==", set.id).get();
-    const sessions: any[] = [];
-    snapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.vocabSetId !== set.id) return;
-      const interrupted = !data.completedAt && Date.now() - new Date(data.lastSavedAt || data.startedAt || data.createdAt || 0).getTime() >= 24 * 60 * 60 * 1000;
-      sessions.push(omitSensitiveSessionFields({ ...data, displayStatus: data.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress" }));
-    });
-    sessions.sort((a, b) => new Date(b.completedAt || b.endedAt || b.createdAt || 0).getTime() - new Date(a.completedAt || a.endedAt || a.createdAt || 0).getTime());
-
-    res.json({ set, sessions: await enrichStudentNames(sessions) });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
+// Public result and leaderboard routes are mounted through createResultsRouter above.
 async function resolveGameSessionStartContext(req: express.Request, payload: any, timing?: ReturnType<typeof createApiTiming>) {
   let actor = getGameSessionActor(req, payload);
   if (!actor) throw createHttpError(401, "Student identity is required to start a game session.");
@@ -5299,7 +3261,10 @@ function buildGameSessionRecord(context: any, payload: any, options: {
     assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
     assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
     vocabSetId,
-    vocabSetTitle: safeText(payload.vocabSetTitle || vocabSet.title, 240),
+    vocabSetTitle: safeText(
+      options.schemaVersion === 2 ? payload.vocabSetTitle : (payload.vocabSetTitle || vocabSet.title),
+      240
+    ),
     gameId,
     gameName: safeText(payload.gameName, 160),
     gameType: safeText(payload.gameType, 80),
@@ -5336,1085 +3301,12 @@ function supportsIncrementalGameSession(session: any) {
   return schemaVersion === 2 || (schemaVersion === 3 && session?.gameId === "speaking-ai");
 }
 
-app.post("/api/game-sessions/activate", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/activate");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const context = await resolveGameSessionStartContext(req, payload, timing);
-    if (context.gameId !== "speaking-ai") {
-      return res.status(400).json({ error: "Chi game Speaking AI moi can kich hoat session som." });
-    }
-
-    const id = deterministicRunDocumentId("session-v3", [
-      context.actor.ownerKey,
-      context.vocabSetId,
-      context.gameId,
-      credentials.clientRunId
-    ]);
-    const docRef = adminDb.collection("game_sessions").doc(id);
-    const existing = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existing.exists) {
-      const session = existing.data();
-      if (!canResumeClientRun(req, session, credentials.runSecret)) {
-        return res.status(403).json({ error: "Khong co quyen tiep tuc luot hoc nay." });
-      }
-      timing.finish(res);
-      return res.json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret, alreadyActivated: true });
-    }
-
-    const session = buildGameSessionRecord(context, payload, {
-      id,
-      sessionTokenHash: hashSessionToken(credentials.runSecret),
-      schemaVersion: 3,
-      clientRunId: credentials.clientRunId,
-      startedAt: payload.startedAt
-    });
-    const batch = adminDb.batch();
-    batch.set(docRef, session);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(session, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-        includeDetail: false
-      })
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({ ...omitSensitiveSessionFields(session), sessionToken: credentials.runSecret });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/game-sessions/lazy-complete", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/lazy-complete");
-  try {
-    if (!LAZY_SESSION_V3_ENABLED) return res.status(404).json({ error: "Lazy session v3 is disabled." });
-    const payload = req.body || {};
-    const credentials = getClientRunCredentials(payload);
-    const context = await resolveGameSessionStartContext(req, payload, timing);
-    if (context.gameId === "speaking-ai") {
-      return res.status(400).json({ error: "Speaking AI phai kich hoat session khi bat dau ghi am." });
-    }
-
-    const id = deterministicRunDocumentId("session-v3", [
-      context.actor.ownerKey,
-      context.vocabSetId,
-      context.gameId,
-      credentials.clientRunId
-    ]);
-    const docRef = adminDb.collection("game_sessions").doc(id);
-    const existing = await docRef.get();
-    timing.mark("idempotency_lookup");
-    if (existing.exists) {
-      const session = existing.data();
-      if (!canResumeClientRun(req, session, credentials.runSecret)) {
-        return res.status(403).json({ error: "Khong co quyen nop luot hoc nay." });
-      }
-      if (session.status === "completed") {
-        timing.finish(res);
-        return res.json({ ...omitSensitiveSessionFields(session), alreadyCompleted: true });
-      }
-    }
-
-    const actions = sanitizeSubmittedGameActions(payload.actions);
-    const baseSession = existing.exists
-      ? existing.data()
-      : buildGameSessionRecord(context, payload, {
-          id,
-          sessionTokenHash: hashSessionToken(credentials.runSecret),
-          schemaVersion: 3,
-          clientRunId: credentials.clientRunId,
-          startedAt: payload.startedAt
-        });
-    const result = gradeGameSessionV2(baseSession, actions);
-    const completedAt = new Date().toISOString();
-    const durationMs = Math.max(0, Date.now() - new Date(baseSession.startedAt || completedAt).getTime());
-    const completed = {
-      ...baseSession,
-      ...result,
-      status: "completed",
-      submissionStatus: "completed",
-      completedAt,
-      endedAt: completedAt,
-      submittedAt: completedAt,
-      lastSavedAt: completedAt,
-      durationMs,
-      durationSeconds: Math.round(durationMs / 1000),
-      expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS)
-    };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id });
-    const batch = adminDb.batch();
-    batch.set(docRef, completed);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(completed, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(omitSensitiveSessionFields(completed));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 19. GAME SESSIONS: Start a session
-app.post("/api/game-sessions", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions");
-  try {
-    const payload = req.body || {};
-    let actor = getGameSessionActor(req, payload);
-    if (!actor) return res.status(401).json({ error: "Student identity is required to start a game session." });
-    if (actor.ownerType === "guest") {
-      const profile = await resolveGuestProfile(actor.guestId, actor.studentName, true, {
-        classId: payload.classId,
-        className: payload.className
-      }, timing);
-      actor = { ...actor, studentName: profile.displayName || profile.name };
-    }
-    timing.mark("identity");
-    const id = `session-${crypto.randomUUID()}`;
-    const sessionToken = createSessionToken();
-    const now = new Date().toISOString();
-    const vocabSetId = safeText(payload.vocabSetId, 160);
-    const gameId = safeText(payload.gameId, 120);
-    if (!vocabSetId || !gameId) {
-      return res.status(400).json({ error: "vocabSetId and gameId are required." });
-    }
-    if (!SESSION_V2_GAME_IDS.has(gameId)) {
-      return res.status(400).json({ error: "Game không được hỗ trợ." });
-    }
-    let assignment: any = null;
-    let access: Awaited<ReturnType<typeof resolveVocabLearningAccess>> = null;
-    const accessToken = getRequestVocabShareToken(req);
-    if (accessToken) {
-      access = await resolveVocabLearningAccess(accessToken, vocabSetId, safeText(payload.assignmentId, 160), timing);
-      if (!access) return res.status(403).json({ error: "Link không có quyền tạo lượt học này." });
-      assignment = access.assignment;
-    } else if (payload.assignmentId) {
-      const assignmentDoc = await adminDb.collection("assignments").doc(String(payload.assignmentId)).get();
-      assignment = assignmentDoc.exists ? assignmentDoc.data() : null;
-      if (!assignment) {
-        const assignmentsSnapshot = await adminDb.collection("assignments").get();
-        assignmentsSnapshot.forEach(doc => {
-          const data = { id: doc.id, ...doc.data() };
-          if (!assignment && data.id === String(payload.assignmentId)) {
-            assignment = data;
-          }
-        });
-      }
-    }
-    timing.mark("access");
-
-    let vocabSet = access?.set || null;
-    if (!vocabSet) {
-      const vocabDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
-      if (!vocabDoc.exists) {
-        return res.status(404).json({ error: "Vocabulary set not found." });
-      }
-      vocabSet = { id: vocabDoc.id, ...vocabDoc.data() };
-    }
-    timing.mark("set_read");
-    if (assignment) {
-      if (assignment.vocabSetId !== vocabSetId || !isAssignmentOpenForLearning(assignment, vocabSet)) {
-        return res.status(403).json({ error: "Assignment is not available for this vocabulary set." });
-      }
-      if (!req.user && !accessToken) {
-        return res.status(403).json({ error: "Link giao bài không hợp lệ hoặc đã hết quyền truy cập." });
-      }
-      if (assignment.gameId && assignment.gameId !== gameId) {
-        return res.status(403).json({ error: "Game không đúng với bài giáo viên đã giao." });
-      }
-    } else if (access?.accessType === "vocab_set") {
-      if (access.set.id !== vocabSetId || getVocabVisibility(vocabSet) !== "assignment") {
-        return res.status(403).json({ error: "Link không có quyền tạo lượt học này." });
-      }
-    } else if (!canViewVocabSet(req.user, vocabSet)) {
-      return res.status(403).json({ error: "Bạn không có quyền bắt đầu game với bộ từ này." });
-    }
-
-    let inferredClass: any = null;
-    if (!assignment && payload.vocabSetId) {
-      const assignmentsSnapshot = await adminDb.collection("assignments")
-        .where("vocabSetId", "==", payload.vocabSetId)
-        .get();
-      const uniqueBySet = new Map<string, any | null>();
-      assignmentsSnapshot.forEach(doc => {
-        const data = { id: doc.id, ...doc.data() };
-        setUniqueClass(uniqueBySet, data.vocabSetId, {
-          classId: data.classId,
-          className: data.className || ""
-        });
-      });
-      inferredClass = uniqueBySet.get(payload.vocabSetId) || null;
-    }
-    timing.mark("class_resolve");
-    const privateSnapshot = buildGameSessionSnapshot(vocabSet, gameId, payload.itemOrder);
-    const newSession = {
-      id,
-      ownerKey: actor.ownerKey,
-      ownerType: actor.ownerType,
-      userId: actor.userId,
-      studentId: actor.studentId,
-      guestId: actor.guestId,
-      assignmentId: safeText(assignment?.id || "", 160),
-      assignmentVerified: Boolean(assignment?.id),
-      assignmentTitle: safeText(assignment?.title || assignment?.name || "", 300),
-      assignmentDueAt: assignment?.dueDate || assignment?.dueAt || "",
-      vocabSetId,
-      vocabSetTitle: safeText(payload.vocabSetTitle, 240),
-      gameId,
-      gameName: safeText(payload.gameName, 160),
-      gameType: safeText(payload.gameType, 80),
-      studentName: actor.studentName,
-      classId: safeText(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
-      className: safeText(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
-      startedAt: now,
-      createdAt: now,
-      status: "started",
-      schemaVersion: 2,
-      gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
-      actionPersistence: getGameActionPersistence(gameId, privateSnapshot),
-      privateSnapshot,
-      lastSavedAt: now,
-      score: 0,
-      totalQuestions: 0,
-      correctAnswers: 0,
-      incorrectAnswers: 0,
-      sessionTokenHash: hashSessionToken(sessionToken)
-    };
-
-    await adminDb.collection("game_sessions").doc(id).set(newSession);
-    timing.mark("persist");
-    timing.finish(res);
-    res.status(201).json({ ...omitSensitiveSessionFields(newSession), sessionToken });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 20. GAME SESSIONS: Update/complete session results
-app.put("/api/game-sessions/:id", authenticateOptionalUser, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const payload = req.body || {};
-
-    const docRef = adminDb.collection("game_sessions").doc(id);
-    const existing = await docRef.get();
-    if (!existing.exists) {
-      return res.status(404).json({ error: "Session không tồn tại." });
-    }
-
-    const existingData = existing.data();
-    if (!canUpdateGameSession(req, existingData, payload)) {
-      return res.status(403).json({ error: "You do not have permission to update this game session." });
-    }
-    if (existingData.status === "completed") {
-      return res.status(409).json({ error: "This game session has already been completed." });
-    }
-
-    const endedAt = payload.endedAt || new Date().toISOString();
-    const startedAt = existingData.startedAt || endedAt;
-    const durationMs = Math.max(0, Number(payload.durationMs ?? (new Date(endedAt).getTime() - new Date(startedAt).getTime())));
-    const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
-    const correctAnswers = Math.max(0, Number(payload.correctAnswers || 0));
-    const sanitizedAnswerDetails = Array.isArray(payload.answerDetails)
-      ? payload.answerDetails.slice(0, 200).map((item: any, index: number) => ({
-          questionIndex: Number.isFinite(Number(item.questionIndex)) ? Number(item.questionIndex) : index,
-          wordId: item.wordId || "",
-          word: item.word || "",
-          questionText: item.questionText || "",
-          correctAnswer: item.correctAnswer || "",
-          userAnswer: item.userAnswer || "",
-          selectedAnswer: item.selectedAnswer || "",
-          isCorrect: Boolean(item.isCorrect),
-          timeSpentMs: item.timeSpentMs ? Number(item.timeSpentMs) : undefined,
-          options: Array.isArray(item.options) ? item.options.slice(0, 6).map((option: any) => String(option).slice(0, 160)) : undefined
-        }))
-      : [];
-
-    const updatedSession = {
-      ...existingData,
-      answerDetails: sanitizedAnswerDetails,
-      score: Math.max(0, Number(payload.score || 0)),
-      totalQuestions,
-      correctAnswers,
-      incorrectAnswers: Math.max(0, Number(payload.incorrectAnswers || 0)),
-      accuracy: totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0,
-      durationMs,
-      durationSeconds: Math.round(durationMs / 1000),
-      status: "completed",
-      submissionStatus: "completed",
-      endedAt,
-      completedAt: endedAt,
-      expiresAt: addDaysIso(endedAt, ACTIVITY_TTL_DAYS)
-    };
-
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...updatedSession, id });
-    const batch = adminDb.batch();
-    batch.set(docRef, updatedSession);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(updatedSession, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    res.json(omitSensitiveSessionFields(updatedSession));
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.put("/api/game-sessions/:id/actions/:actionId", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "PUT /api/game-sessions/:id/actions/:actionId");
-  try {
-    const sessionDoc = await adminDb.collection("game_sessions").doc(req.params.id).get();
-    timing.mark("session_read");
-    if (!sessionDoc.exists) return res.status(404).json({ error: "Session không tồn tại." });
-    const session = sessionDoc.data();
-    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền lưu lượt chơi này." });
-    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session cũ không hỗ trợ lưu tiến độ." });
-    if (session.status === "completed") return res.json({ saved: true, completed: true });
-    const action = sanitizeGameAction({ ...req.body?.action, actionId: req.params.actionId });
-    if (!action.actionId) return res.status(400).json({ error: "Thiếu actionId." });
-    const canonicalActionId = `${req.params.id}:sequence:${action.sequence}`;
-    const legacyActionId = `${req.params.id}:${action.actionId}`;
-    const canonicalRef = adminDb.collection("game_session_actions").doc(canonicalActionId);
-    const legacyRef = adminDb.collection("game_session_actions").doc(legacyActionId);
-    const [canonicalDoc, legacyDoc] = await Promise.all([canonicalRef.get(), legacyRef.get()]);
-    timing.mark("action_lookup");
-    if (canonicalDoc.exists) {
-      const existingAction = canonicalDoc.data();
-      if (existingAction.actionId && existingAction.actionId !== action.actionId) {
-        return res.status(409).json({ error: "Action sequence đã tồn tại." });
-      }
-      timing.finish(res);
-      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-    }
-    if (legacyDoc.exists) {
-      timing.finish(res);
-      return res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-    }
-
-    const now = new Date().toISOString();
-    const batch = adminDb.batch();
-    batch.set(canonicalRef, {
-      ...action,
-      id: canonicalActionId,
-      sessionId: req.params.id,
-      createdAt: now,
-      updatedAt: now
-    });
-    batch.update(adminDb.collection("game_sessions").doc(req.params.id), {
-      status: "in_progress",
-      lastSavedAt: now,
-      updatedAt: now
-    });
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(
-        { ...session, id: req.params.id, status: "in_progress", lastSavedAt: now, updatedAt: now },
-        {
-          detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS,
-          includeDetail: false
-        }
-      )
-    );
-    await batch.commit();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json({ saved: true, actionId: action.actionId, sequence: action.sequence });
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.post("/api/game-sessions/:id/submit", authenticateOptionalUser, async (req, res) => {
-  const timing = createApiTiming(req, "POST /api/game-sessions/:id/submit");
-  try {
-    const docRef = adminDb.collection("game_sessions").doc(req.params.id);
-    const existing = await docRef.get();
-    timing.mark("session_read");
-    if (!existing.exists) return res.status(404).json({ error: "Session không tồn tại." });
-    const session = existing.data();
-    if (!canUpdateGameSession(req, session, req.body || {})) return res.status(403).json({ error: "Bạn không có quyền nộp lượt chơi này." });
-    if (session.status === "completed") return res.json(omitSensitiveSessionFields(session));
-    if (!supportsIncrementalGameSession(session)) return res.status(400).json({ error: "Session cũ phải dùng endpoint hoàn thành cũ." });
-    let actions: any[];
-    const submittedActionsProvided = Array.isArray(req.body?.actions);
-    if (session.actionPersistence === "submit_batch" && submittedActionsProvided) {
-      actions = sanitizeSubmittedGameActions(req.body.actions);
-    } else {
-      const snapshot = await adminDb.collection("game_session_actions")
-        .where("sessionId", "==", req.params.id)
-        .get();
-      const storedActions: any[] = [];
-      snapshot.forEach(doc => storedActions.push(doc.data()));
-      actions = dedupeStoredGameActions(storedActions);
-    }
-    timing.mark("actions_read");
-    const result = gradeGameSessionV2(session, actions);
-    const completedAt = new Date().toISOString();
-    const durationMs = Math.max(0, Date.now() - new Date(session.startedAt || completedAt).getTime());
-    const completed = { ...session, ...result, status: "completed", submissionStatus: "completed", completedAt, endedAt: completedAt, durationMs, durationSeconds: Math.round(durationMs / 1000), expiresAt: addDaysIso(completedAt, ACTIVITY_TTL_DAYS), submittedAt: completedAt };
-    const leaderboardEvent = gameSessionToLeaderboardEvent({ ...completed, id: req.params.id });
-    const batch = adminDb.batch();
-    batch.set(docRef, completed);
-    batch.set(adminDb.collection("leaderboard_events").doc(leaderboardEvent.id), leaderboardEvent);
-    appendLearningHistoryProjection(
-      batch,
-      projectVocabularyAttempt(completed, {
-        detailRetentionDays: ATTEMPT_DETAIL_RETENTION_DAYS
-      })
-    );
-    await batch.commit();
-    publicLeaderboardSummaryCache.clear();
-    timing.mark("persist");
-    timing.finish(res);
-    res.json(omitSensitiveSessionFields(completed));
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 21. PRONUNCIATION ATTEMPTS: Save one speaking practice attempt
-app.post("/api/pronunciation-attempts", authenticateOptionalUser, async (req, res) => {
-  try {
-    const payload = req.body || {};
-    const now = new Date().toISOString();
-    const gameSessionId = safeText(payload.gameSessionId, 160);
-    let sessionData: any = null;
-
-    if (gameSessionId) {
-      const sessionDoc = await adminDb.collection("game_sessions").doc(gameSessionId).get();
-      if (!sessionDoc.exists) {
-        return res.status(404).json({ error: "Session không tồn tại." });
-      }
-      sessionData = sessionDoc.data();
-      if (!canUpdateGameSession(req, sessionData, payload)) {
-        return res.status(403).json({ error: "You do not have permission to save this pronunciation attempt." });
-      }
-      if (sessionData.status === "completed") {
-        return res.status(409).json({ error: "This game session has already been completed." });
-      }
-    } else if (!req.user) {
-      return res.status(401).json({ error: "Game session is required to save pronunciation attempts." });
-    }
-
-    const actor = sessionData ? {
-      ownerKey: sessionData.ownerKey || "",
-      ownerType: sessionData.ownerType || "",
-      userId: sessionData.userId || "",
-      studentId: sessionData.studentId || sessionData.guestId || "",
-      guestId: sessionData.guestId || "",
-      studentName: sessionData.studentName || ""
-    } : getGameSessionActor(req, payload);
-
-    if (!actor) {
-      return res.status(401).json({ error: "Student identity is required to save pronunciation attempts." });
-    }
-
-    const id = `pronunciation-${crypto.randomUUID()}`;
-    const attempt = {
-      id,
-      ownerKey: actor.ownerKey,
-      ownerType: actor.ownerType,
-      userId: actor.userId || "",
-      studentId: actor.studentId || actor.guestId || "",
-      guestId: actor.guestId || "",
-      studentName: actor.studentName || "",
-      vocabularySetId: sessionData?.vocabSetId || safeText(payload.vocabularySetId || payload.vocabSetId || "", 160),
-      wordId: safeText(payload.wordId, 160),
-      targetText: safeText(payload.targetText, 500),
-      recognizedText: safeText(payload.recognizedText, 500),
-      score: Math.max(0, Math.min(100, Number(payload.score || 0))),
-      correctWords: Math.max(0, Number(payload.correctWords || 0)),
-      totalWords: Math.max(0, Number(payload.totalWords || 0)),
-      attemptCount: Math.max(1, Number(payload.attemptCount || 1)),
-      gameSessionId,
-      gameId: "speaking-ai",
-      playedAt: now,
-      createdAt: now
-    };
-
-    await adminDb.collection("pronunciation_attempts").doc(id).set(attempt);
-    res.status(201).json(attempt);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// One authorized result detail. List endpoints use summary mode so heavyweight
-// answer snapshots are read only after an explicit review action.
-app.get("/api/results/:sourceType/:resultId", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/results/:sourceType/:resultId");
-  try {
-    if (!req.user) {
-      timing.finish(res);
-      return res.status(401).json({ error: "Unauthenticated" });
-    }
-    const sourceType = safeText(req.params.sourceType, 80);
-    const requestedId = safeText(req.params.resultId, 200);
-    if (!requestedId || !["vocabulary", "grammar", "listening"].includes(sourceType)) {
-      timing.finish(res);
-      return res.status(400).json({ error: "Loại kết quả không hợp lệ." });
-    }
-
-    let activity: any = null;
-    if (sourceType === "vocabulary") {
-      const sessionDoc = await adminDb.collection("game_sessions").doc(requestedId).get();
-      if (!sessionDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const session = { id: sessionDoc.id, ...sessionDoc.data() } as any;
-      if (!session.completedAt || isExpiredActivity(session)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const [vocabSetDoc, assignmentDoc] = await Promise.all([
-        session.vocabSetId
-          ? adminDb.collection("vocab_sets").doc(session.vocabSetId).get()
-          : Promise.resolve(null),
-        session.assignmentId
-          ? adminDb.collection("assignments").doc(session.assignmentId).get()
-          : Promise.resolve(null)
-      ]);
-      const vocabSet = vocabSetDoc?.exists ? { id: vocabSetDoc.id, ...vocabSetDoc.data() } : null;
-      const assignment = assignmentDoc?.exists ? { id: assignmentDoc.id, ...assignmentDoc.data() } : null;
-      const classIds = Array.from(new Set([session.classId, assignment?.classId].filter(Boolean)));
-      const classDocs = await Promise.all(classIds.map(classId => adminDb.collection("classes").doc(classId).get()));
-      const vocabSetsById = new Map<string, any>(vocabSet ? [[vocabSet.id, vocabSet]] : []);
-      const assignmentsById = new Map<string, any>(assignment ? [[assignment.id, assignment]] : []);
-      const classesById = new Map<string, any>();
-      classDocs.forEach(doc => {
-        if (doc.exists) classesById.set(doc.id, { id: doc.id, ...doc.data() });
-      });
-      if (!canViewResultSession(req.user, session, vocabSetsById, assignmentsById, classesById)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const gradeClass = getLessonGradeClass(vocabSet);
-      activity = sanitizeActivityDetail({
-        ...session,
-        sourceType: "vocabulary",
-        sourceId: session.id,
-        classId: session.classId || gradeClass.classId || "",
-        className: session.className || gradeClass.className || ""
-      });
-    } else if (sourceType === "grammar") {
-      const sourceId = requestedId.startsWith("grammar-") ? requestedId.slice("grammar-".length) : requestedId;
-      const attemptDoc = await adminDb.collection("grammar_attempts").doc(sourceId).get();
-      if (!attemptDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const attempt = { id: attemptDoc.id, ...attemptDoc.data() } as any;
-      const setDoc = attempt.grammarSetId
-        ? await adminDb.collection("grammar_sets").doc(attempt.grammarSetId).get()
-        : null;
-      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-      if (attempt.status !== "completed" || !attempt.completedAt || isExpiredActivity(attempt)
-        || !canViewGrammarActivity(req.user, attempt, set)) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      activity = grammarAttemptToActivity(attempt, set);
-      activity.sourceId = attempt.id;
-    } else {
-      const attemptDoc = await adminDb.collection("listening_attempts").doc(requestedId).get();
-      if (!attemptDoc.exists) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const attempt = { id: attemptDoc.id, ...attemptDoc.data() } as any;
-      const setDoc = attempt.setId
-        ? await adminDb.collection("listening_sets").doc(attempt.setId).get()
-        : null;
-      const set = setDoc?.exists ? { id: setDoc.id, ...setDoc.data() } : null;
-      const canView = req.user.role === "super_admin"
-        || attempt.userId === req.user.id
-        || attempt.ownerKey === `user:${req.user.id}`
-        || (req.user.role === "teacher" && set?.ownerId === req.user.id);
-      if (!attempt.completedAt || !canView) {
-        timing.finish(res);
-        return res.status(404).json({ error: "Không tìm thấy kết quả." });
-      }
-      const isStaffResultReview = req.user.role === "teacher" || req.user.role === "super_admin";
-      const detail = isStaffResultReview
-        ? await resolveListeningActivityDetailForStaff(adminDb, attempt)
-        : null;
-      activity = listeningAttemptToActivity(attempt, detail);
-    }
-    timing.mark("detail");
-    const [named] = await enrichStudentNames([activity]);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named);
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// 22. GAME RESULTS: Get all finished game sessions
-app.get("/api/results", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/results");
-  try {
-    const recentCutoff = new Date(Date.now() - ACTIVITY_TTL_MS).toISOString();
-    const summaryView = req.query.view === "summary";
-    const resultLimit = summaryView ? parseActivityResultLimit(req.query.limit) : null;
-    const loadRecent = (collectionName: string) => {
-      let query: any = adminDb.collection(collectionName).where("completedAt", ">=", recentCutoff);
-      if (resultLimit) query = query.orderBy("completedAt", "desc").limit(resultLimit);
-      return query.get();
-    };
-    const [
-      snapshot,
-      grammarAttemptsSnapshot,
-      listeningAttemptsSnapshot,
-      grammarSetsById,
-      vocabSetsById,
-      listeningSetsSnapshot,
-      assignmentsSnapshot,
-      classesSnapshot
-    ] = await Promise.all([
-      loadRecent("game_sessions"),
-      loadRecent("grammar_attempts"),
-      loadRecent("listening_attempts"),
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("listening_sets").get(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get()
-    ]);
-    timing.mark("sources");
-    const listeningSetsById = new Map<string, any>();
-    listeningSetsSnapshot.forEach(doc => listeningSetsById.set(doc.id, { id: doc.id, ...doc.data() }));
-    const assignmentsById = new Map<string, any>();
-    const classesById = new Map<string, any>();
-    assignmentsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-    });
-    classesSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-    const list: any[] = [];
-    const cutoff = Date.now() - ACTIVITY_TTL_MS;
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.completedAt && !isExpiredActivity(data) && new Date(getActivityTime(data)).getTime() >= cutoff) {
-        if (!canViewResultSession(req.user, data, vocabSetsById, assignmentsById, classesById)) return;
-        const gradeClass = getLessonGradeClass(vocabSetsById.get(data.vocabSetId));
-        const activity = sanitizeActivityDetail({
-          ...data,
-          id: data.id || doc.id,
-          sourceType: "vocabulary",
-          sourceId: data.id || doc.id,
-          classId: data.classId || gradeClass.classId || "",
-          className: data.className || gradeClass.className || ""
-        });
-        list.push(summaryView
-          ? toActivitySummary(activity, "vocabulary", data.id || doc.id)
-          : activity);
-      }
-    });
-    grammarAttemptsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      if (data.status !== "completed" || !data.completedAt) return;
-      if (isExpiredActivity(data)) return;
-      if (new Date(getActivityTime(data)).getTime() < cutoff) return;
-      if (!canViewGrammarActivity(req.user, data, grammarSetsById.get(data.grammarSetId))) return;
-      const activity = grammarAttemptToActivity(data, grammarSetsById.get(data.grammarSetId));
-      list.push(summaryView
-        ? toActivitySummary(activity, "grammar", data.id)
-        : { ...activity, sourceId: data.id });
-    });
-    const visibleListeningAttempts: any[] = [];
-    listeningAttemptsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      if (!data.completedAt || new Date(getActivityTime(data)).getTime() < cutoff) return;
-      const set = listeningSetsById.get(data.setId);
-      const canView = req.user?.role === "super_admin"
-        || data.userId === req.user?.id
-        || data.ownerKey === `user:${req.user?.id}`
-        || (req.user?.role === "teacher" && set?.ownerId === req.user.id);
-      if (canView) visibleListeningAttempts.push(data);
-    });
-    const isStaffResultReview = req.user?.role === "teacher" || req.user?.role === "super_admin";
-    const listeningVersionContentCache = new Map();
-    const listeningActivities = await Promise.all(visibleListeningAttempts.map(async data => {
-      if (summaryView || !isStaffResultReview) {
-        const activity = listeningAttemptToActivity(data);
-        return summaryView ? toActivitySummary(activity, "listening", data.id) : activity;
-      }
-      const detail = await resolveListeningActivityDetailForStaff(
-        adminDb,
-        data,
-        listeningVersionContentCache
-      );
-      return listeningAttemptToActivity(data, detail);
-    }));
-    list.push(...listeningActivities);
-    list.sort((a, b) => new Date(getActivityTime(b)).getTime() - new Date(getActivityTime(a)).getTime());
-    const bounded = resultLimit ? list.slice(0, resultLimit) : list;
-    timing.mark("shape");
-    const named = await enrichStudentNames(bounded);
-    timing.mark("names");
-    timing.finish(res);
-    res.json(named);
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-app.get("/api/leaderboard-results", authenticateUser, async (req, res) => {
-  const timing = createApiTiming(req, "GET /api/leaderboard-results");
-  try {
-    const events = await loadLeaderboardEventsFromSources(timing);
-    const [grammarSetsById, vocabSetsById, assignmentsSnapshot, classesSnapshot] = await Promise.all([
-      getGrammarSetMap(),
-      getVocabSetMap(),
-      adminDb.collection("assignments").get(),
-      adminDb.collection("classes").get()
-    ]);
-    timing.mark("scope_sources");
-    const assignmentsById = new Map<string, any>();
-    const classesById = new Map<string, any>();
-
-    assignmentsSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      assignmentsById.set(doc.id, data);
-      if (data.id) assignmentsById.set(data.id, data);
-    });
-    classesSnapshot.forEach(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      classesById.set(data.id, data);
-    });
-
-    const scoped = events.filter(event => {
-      if (event.sourceType === "grammar") {
-        return canViewGrammarActivity(req.user, event, grammarSetsById.get(event.grammarSetId));
-      }
-      return canViewResultSession(req.user, event, vocabSetsById, assignmentsById, classesById);
-    });
-
-    timing.mark("scope");
-    timing.finish(res);
-    res.json(scoped);
-  } catch (err: any) {
-    timing.finish(res);
-    sendApiError(res, err);
-  }
-});
-
-// ============================================================================
+// Vocabulary learning-run and pronunciation routes are mounted through createVocabularyRunRouter above.
+// Result detail, scoped result, and leaderboard routes are mounted through createResultsRouter above.
 // SUPER ADMIN EXCLUSIVE INTERFACES
 // ============================================================================
 
-// 23. ADMIN: List all registered users (With role & status updates, classes filtering)
-app.get("/api/admin/users", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("users").get();
-    const users: any[] = [];
-    snapshot.forEach(doc => users.push(doc.data()));
-    res.json(users);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// Unified account directory: Firebase users plus name-only student profiles.
-app.get("/api/admin/accounts", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const [usersSnapshot, guestsSnapshot] = await Promise.all([
-      adminDb.collection("users").get(),
-      adminDb.collection("guest_profiles").get()
-    ]);
-    const accounts: any[] = [];
-    if (isSuperAdmin(req.user)) {
-      usersSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        accounts.push({
-          ...data,
-          id: data.id || doc.id,
-          name: data.name || data.displayName || "Chưa đặt tên",
-          accountType: "registered",
-          status: data.status || "active"
-        });
-      });
-    }
-
-    const manageableGuestIds = isSuperAdmin(req.user)
-      ? null
-      : await getManageableGuestProfileIdsForTeacher(req.user);
-    const guestProfiles: any[] = [];
-    guestsSnapshot.forEach((doc: any) => {
-      const data = doc.data();
-      guestProfiles.push({
-        ...omitGuestCapabilitySecrets(data),
-        id: data.id || doc.id,
-        guestId: data.guestId || doc.id
-      });
-    });
-    for (const data of guestProfiles) {
-      if (manageableGuestIds && !manageableGuestIds.has(getGuestProfileId(data.guestId || data.id))) continue;
-      accounts.push({
-        ...data,
-        name: data.displayName || data.name || "Chưa đặt tên",
-        email: "",
-        phone: "",
-        role: "student",
-        accountType: "guest",
-        status: data.status || "active"
-      });
-    }
-    accounts.sort((a, b) => new Date(b.lastActiveAt || b.updatedAt || b.createdAt || 0).getTime()
-      - new Date(a.lastActiveAt || a.updatedAt || a.createdAt || 0).getTime());
-    res.json(accounts);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.put("/api/admin/users/:userId/display-name", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
-    if (!validation.valid) return res.status(400).json({ error: validation.error });
-    const userRef = adminDb.collection("users").doc(req.params.userId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) return res.status(404).json({ error: "Người dùng không tồn tại." });
-    const existing = userDoc.data();
-    const now = new Date().toISOString();
-    await userRef.update({ name: validation.value, updatedAt: now });
-    invalidateCanonicalStudentNameCache();
-
-    let authWarning = "";
-    try {
-      await adminAuth.updateUser(req.params.userId, { displayName: validation.value });
-    } catch (authErr: any) {
-      authWarning = authErr?.message || "Không đồng bộ được tên lên Firebase Authentication.";
-      console.warn(`Could not update Firebase display name for ${req.params.userId}: ${authWarning}`);
-    }
-    await logAuditAction(req.user.id, req.user.name, req.user.email, "UPDATE_USER_DISPLAY_NAME",
-      `Đổi tên tài khoản "${existing?.name || req.params.userId}" thành "${validation.value}"`);
-    res.json({ success: true, userId: req.params.userId, displayName: validation.value, authWarning });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.put("/api/admin/guest-profiles/:guestId/display-name", authenticateUser, requireRole(["teacher", "super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const validation = validateStudentDisplayName(req.body?.displayName || req.body?.name);
-    if (!validation.valid) return res.status(400).json({ error: validation.error });
-    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
-    const profileDoc = await profileRef.get();
-    if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
-    const existing = profileDoc.data();
-    if (!(await canManageGuestProfile(req.user, { id: profileDoc.id, ...existing }))) {
-      return res.status(403).json({ error: "Bạn không có quyền đổi tên học sinh này." });
-    }
-    await profileRef.update({
-      displayName: validation.value,
-      name: validation.value,
-      normalizedName: normalizePersonName(validation.value),
-      needsReview: false,
-      updatedAt: new Date().toISOString()
-    });
-    invalidateCanonicalStudentNameCache();
-    await logAuditAction(req.user.id, req.user.name, req.user.email, "UPDATE_GUEST_DISPLAY_NAME",
-      `Đổi tên học sinh khách "${existing?.displayName || req.params.guestId}" thành "${validation.value}"`);
-    res.json({ success: true, guestId: req.params.guestId, displayName: validation.value });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.put("/api/admin/guest-profiles/:guestId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const status = req.body?.status;
-    if (!["active", "blocked"].includes(status)) {
-      return res.status(400).json({ error: "Trạng thái hồ sơ không hợp lệ." });
-    }
-    const profileRef = adminDb.collection("guest_profiles").doc(getGuestProfileId(req.params.guestId));
-    const profileDoc = await profileRef.get();
-    if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
-    const existing = profileDoc.data();
-    await profileRef.update({ status, updatedAt: new Date().toISOString() });
-    await logAuditAction(req.user.id, req.user.name, req.user.email,
-      status === "blocked" ? "LOCK_GUEST_PROFILE" : "UNLOCK_GUEST_PROFILE",
-      `Chuyển hồ sơ học sinh "${existing?.displayName || req.params.guestId}" thành ${status}`);
-    res.json({ success: true, guestId: req.params.guestId, status });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-app.post(
-  "/api/admin/guest-profiles/:guestId/history-capability",
-  authenticateUser,
-  requireRole(["teacher", "super_admin"]),
-  async (req, res) => {
-    try {
-      if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-      const guestId = getGuestProfileId(req.params.guestId);
-      const profileRef = adminDb.collection("guest_profiles").doc(guestId);
-      const profileDoc = await profileRef.get();
-      if (!profileDoc.exists) return res.status(404).json({ error: "Hồ sơ học sinh không tồn tại." });
-      const profile = { id: profileDoc.id, ...profileDoc.data() };
-      if (!(await canManageGuestProfile(req.user, profile))) {
-        return res.status(403).json({ error: "Bạn không có quyền cấp lại quyền lịch sử cho học sinh này." });
-      }
-
-      const guestAccessToken = createSessionToken();
-      const now = new Date().toISOString();
-      const guestAccessTokenVersion = Date.now();
-      await profileRef.update({
-        accessTokenHash: hashSessionToken(guestAccessToken),
-        accessTokenVersion: guestAccessTokenVersion,
-        accessTokenCreatedAt: now,
-        updatedAt: now
-      });
-      await logAuditAction(
-        req.user.id,
-        req.user.name,
-        req.user.email,
-        "ROTATE_GUEST_HISTORY_CAPABILITY",
-        `Cấp lại quyền xem lịch sử cho hồ sơ khách ${guestId}`
-      );
-      res.json({
-        guestId,
-        guestAccessToken,
-        guestAccessTokenVersion,
-        createdAt: now
-      });
-    } catch (err: any) {
-      sendApiError(res, err);
-    }
-  }
-);
-
-// 23. ADMIN: Change role of user
-app.put("/api/admin/users/:userId/role", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const targetUserId = req.params.userId;
-    const { role } = req.body; // 'super_admin' | 'teacher' | 'student'
-
-    if (!['super_admin', 'teacher', 'student'].includes(role)) {
-      return res.status(400).json({ error: "Vai trò không hợp lệ." });
-    }
-
-    const userRef = adminDb.collection("users").doc(targetUserId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "Người dùng không tồn tại." });
-    }
-
-    const userData = userDoc.data();
-    await userRef.update({ role });
-
-    // Custom claims are useful for Firebase-side rules, but app permissions are
-    // resolved from the users profile document above. Do not roll back the role
-    // update if claims cannot be written, especially in SQLite/app-data mode.
-    let customClaimWarning = "";
-    try {
-      await adminAuth.setCustomUserClaims(targetUserId, { role });
-    } catch (claimErr: any) {
-      customClaimWarning = claimErr?.message || "Could not update Firebase custom claims.";
-      console.warn(`Could not update custom claims for ${targetUserId}: ${customClaimWarning}`);
-    }
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      "UPDATE_USER_ROLE",
-      `Đã thay đổi vai trò của user "${userData?.name}" (${userData?.email}) từ ${userData?.role} thành ${role}`
-    );
-
-    res.json({ success: true, userId: targetUserId, role, customClaimWarning });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 24. ADMIN: Lock/Unlock (Change status) user account
-app.put("/api/admin/users/:userId/status", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthenticated" });
-    const targetUserId = req.params.userId;
-    const { status } = req.body; // 'active' | 'pending' | 'blocked' | 'deleted'
-
-    if (!['active', 'pending', 'blocked', 'deleted'].includes(status)) {
-      return res.status(400).json({ error: "Trạng thái không hợp lệ." });
-    }
-
-    const userRef = adminDb.collection("users").doc(targetUserId);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: "Người dùng không tồn tại." });
-    }
-
-    const userData = userDoc.data();
-    await userRef.update({ status });
-
-    // Audit Log
-    await logAuditAction(
-      req.user.id,
-      req.user.name,
-      req.user.email,
-      status === "blocked" ? "LOCK_USER" : "UNLOCK_USER",
-      `Đã chuyển trạng thái của user "${userData?.name}" (${userData?.email}) thành ${status}`
-    );
-
-    res.json({ success: true, userId: targetUserId, status });
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-// 25. ADMIN: List all audit logs
-app.get("/api/admin/audit-logs", authenticateUser, requireRole(["super_admin"]), async (req, res) => {
-  try {
-    const snapshot = await adminDb.collection("audit_logs").orderBy("timestamp", "desc").get();
-    const logs: any[] = [];
-    snapshot.forEach(doc => logs.push(doc.data()));
-    res.json(logs);
-  } catch (err: any) {
-    sendApiError(res, err);
-  }
-});
-
-
-// ============================================================================
+// Account, guest-profile, and audit routes are mounted through createAccountRouter above.
 // VITE OR STATIC SERVING MIDDLEWARE
 // ============================================================================
 

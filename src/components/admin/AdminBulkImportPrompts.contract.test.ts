@@ -3,15 +3,18 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const dashboardSource = readFileSync(new URL('./AdminDashboard.tsx', import.meta.url), 'utf8');
+const editorSource = readFileSync(new URL('./vocabulary/VocabularyEditorPanel.tsx', import.meta.url), 'utf8');
+const grammarEditorSource = readFileSync(new URL('./grammar/GrammarEditorPanel.tsx', import.meta.url), 'utf8');
+const adminUiSource = `${dashboardSource}\n${editorSource}\n${grammarEditorSource}`;
 
 test('admin quick-import panels expose the three ChatGPT prompt labels', () => {
   for (const label of [
     'Sao chép prompt từ vựng',
     'Sao chép prompt trắc nghiệm',
     'Sao chép prompt tự luận',
-  ]) assert.ok(dashboardSource.includes(label), `Missing prompt action: ${label}`);
-  assert.match(dashboardSource, /grammarQuestionType === 'rewrite' \? 'grammar-rewrite' : 'grammar-multiple-choice'/);
-  assert.match(dashboardSource, /handleCopyBulkImportPrompt\('vocabulary'\)/);
+  ]) assert.ok(adminUiSource.includes(label), `Missing prompt action: ${label}`);
+  assert.match(grammarEditorSource, /grammarQuestionType === 'rewrite' \? 'grammar-rewrite' : 'grammar-multiple-choice'/);
+  assert.match(editorSource, /handleCopyBulkImportPrompt\('vocabulary'\)/);
 });
 
 test('copy action has clipboard fallback and never changes quick-import text', () => {
@@ -24,10 +27,10 @@ test('copy action has clipboard fallback and never changes quick-import text', (
 });
 
 test('prompt buttons are non-submit controls with accessible copied feedback', () => {
-  assert.ok((dashboardSource.match(/aria-live="polite"/g) || []).length >= 2);
-  assert.match(dashboardSource, /copiedBulkPrompt === 'vocabulary'/);
-  assert.match(dashboardSource, /\? 'Đã sao chép'/);
-  const promptButtonBlocks = dashboardSource.match(/<button[\s\S]*?Sao chép prompt[\s\S]*?<\/button>/g) || [];
+  assert.ok((adminUiSource.match(/aria-live="polite"/g) || []).length >= 2);
+  assert.match(editorSource, /copiedBulkPrompt === 'vocabulary'/);
+  assert.match(adminUiSource, /\? 'Đã sao chép'/);
+  const promptButtonBlocks = adminUiSource.match(/<button[\s\S]*?Sao chép prompt[\s\S]*?<\/button>/g) || [];
   assert.equal(promptButtonBlocks.length, 2);
   promptButtonBlocks.forEach(block => assert.match(block, /type="button"/));
 });

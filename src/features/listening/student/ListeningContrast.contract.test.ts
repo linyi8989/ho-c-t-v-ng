@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readCssBundle } from '../../../styles/cssTestUtils.js';
 
 const learningAreaSource = readFileSync(new URL('./ListeningLearningArea.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./ListeningPartViews.tsx', import.meta.url), 'utf8');
 const visualReviewSource = readFileSync(new URL('../review/ListeningVisualReview.tsx', import.meta.url), 'utf8');
 const historyDetailSource = readFileSync(new URL('../../../components/history/HistoryDetailModal.tsx', import.meta.url), 'utf8');
-const globalCss = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
+const globalCss = readCssBundle(new URL('../../../index.css', import.meta.url));
 
 const hexToRgb = (hex: string) => {
   const value = Number.parseInt(hex.replace('#', ''), 16);
@@ -93,17 +94,11 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
   assert.ok(playerContractIndex > globalOverrideIndex, 'Player contract must come after the legacy global override');
 });
 
-test('Legacy glass-button rules never blur transparent Listening scene hitboxes', () => {
-  const glassButtonSelectors = globalCss.match(/button:not\(\.bg-indigo-600\)[^{]+(?=\s*\{)/g) ?? [];
-  assert.equal(glassButtonSelectors.length, 2, 'Expected the normal and hover glass-button selectors');
-
-  for (const selector of glassButtonSelectors) {
-    for (const className of transparentListeningHitboxes) {
-      assert.ok(
-        selector.includes(`:not(.${className})`),
-        `Glass-button selector must exclude .${className}`,
-      );
-    }
+test('No legacy broad Glass button rule can reach transparent Listening scene hitboxes', () => {
+  assert.doesNotMatch(globalCss, /button:not\(\.bg-indigo-600\)/);
+  assert.doesNotMatch(globalCss, /\.glass-button/);
+  for (const className of transparentListeningHitboxes) {
+    assert.match(globalCss, new RegExp(`button\\.${className}[^}]+backdrop-filter: none !important`, 's'));
   }
 });
 
@@ -245,7 +240,7 @@ test('completed Listening attempts share one visual result renderer with Learnin
   assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-tab\[data-active="false"\]/);
   assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-tab\[data-active="true"\]/);
   assert.match(globalCss, /\[data-listening-visual-review\] button\.listening-review-part-nav:not\(:disabled\)/);
-  assert.match(globalCss, /:not\(\.listening-review-part-tab\):not\(\.listening-review-part-nav\)/);
+  assert.doesNotMatch(globalCss, /:not\(\.listening-review-part-tab\):not\(\.listening-review-part-nav\)/);
   assert.match(globalCss, /listening-review-part-tab\[aria-selected="true"\]/);
   assert.match(globalCss, /background-color: #1e40af !important/);
   assert.match(globalCss, /backdrop-filter: none !important/);

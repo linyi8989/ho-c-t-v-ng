@@ -324,6 +324,18 @@ test('generic exam API preserves immutable publish, private grading and manual W
   assert.equal(retryResponse.status, 200);
   assert.equal((await retryResponse.json() as any).id, attempt.id);
 
+  const expiredCompletedTicket = signedTicket({
+    ...ticketPayload(prepared.ticket),
+    ticketExpiresAt: Date.now() - 1_000,
+    ticketRecoveryEndsAt: Date.now() - 500,
+  });
+  const expiredReplayResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...submission, ticket: expiredCompletedTicket }),
+  });
+  assert.equal(expiredReplayResponse.status, 200);
+  assert.equal((await expiredReplayResponse.json() as any).id, attempt.id);
+
   const recoveryIdentity = { guestId: 'guest-exam-recovery', studentName: 'Minh Anh' };
   const recoveryPrepareResponse = await fetch(`${baseUrl}/modules/starter/papers/reading-writing/sets/${created.id}/attempts/prepare`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

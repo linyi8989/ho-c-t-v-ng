@@ -13,6 +13,14 @@ import { moverReadingWritingExternalTemplate } from '../../features/mover-readin
 import { createMoverReadingWritingRouter } from './moverReadingWritingRouter';
 import { getLearningHistory, getLearningHistoryDetail } from '../learning-history/learningHistoryService';
 
+function rewriteSignedTicket(ticket: string, secret: string, updates: Record<string, unknown>) {
+  const [encoded] = ticket.split('.');
+  const payload = { ...JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')), ...updates };
+  const nextEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(nextEncoded).digest('base64url');
+  return `${nextEncoded}.${signature}`;
+}
+
 function publishedFixture() {
   const content = createDefaultMoverReadingWritingContent();
   content.title = 'Movers Reading API fixture';
@@ -257,6 +265,17 @@ test('Reading & Writing uses dedicated storage, immutable publish, sanitized pla
   assert.equal(retryResponse.status, 200);
   assert.equal((await retryResponse.json() as any).id, result.id);
 
+  const expiredCompletedTicket = rewriteSignedTicket(prepared.ticket, 'reading-writing-router-test-secret', {
+    ticketExpiresAt: Date.now() - 1_000,
+    ticketRecoveryEndsAt: Date.now() - 500,
+  });
+  const expiredReplayResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...submission, ticket: expiredCompletedTicket }),
+  });
+  assert.equal(expiredReplayResponse.status, 200);
+  assert.equal((await expiredReplayResponse.json() as any).id, result.id);
+
   const forbiddenReview = await fetch(`${baseUrl}/sets/${created.id}/attempts/${result.id}/review?guestId=${identity.guestId}&studentName=Lan%20Anh`, {
     headers: { 'X-Mover-Reading-Run-Secret': 'wrong' },
   });
@@ -318,4 +337,47 @@ test('Reading & Writing uses dedicated storage, immutable publish, sanitized pla
   assert.equal(diagnostics.tableCounts.mover_reading_attempts, 1);
   assert.equal(diagnostics.tableCounts.listening_sets, 0);
   assert.equal(diagnostics.tableCounts.listening_attempts, 0);
+
+  const recoveryPrepareResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, clientRunId: 'reading-recovery-run', runSecret: 'reading-recovery-secret' }),
+  });
+  assert.equal(recoveryPrepareResponse.status, 200);
+  const recoveryPrepared = await recoveryPrepareResponse.json() as any;
+  const expiredTicket = rewriteSignedTicket(recoveryPrepared.ticket, 'reading-writing-router-test-secret', {
+    ticketExpiresAt: Date.now() - 1_000,
+    ticketRecoveryEndsAt: Date.now() + 60_000,
+  });
+  const expiredSubmitResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: expiredTicket, runSecret: 'reading-recovery-secret', answers: fixture.answers }),
+  });
+  assert.equal(expiredSubmitResponse.status, 410);
+  assert.equal((await expiredSubmitResponse.json() as any).details.code, 'MOVER_READING_ATTEMPT_TICKET_EXPIRED');
+
+  const recoveryResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/renew`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test-Teacher': 'yes' },
+    body: JSON.stringify({ ...identity, ticket: expiredTicket, runSecret: 'reading-recovery-secret' }),
+  });
+  assert.equal(recoveryResponse.status, 200);
+  const recovered = await recoveryResponse.json() as any;
+  assert.equal(recovered.clientRunId, 'reading-recovery-run');
+  assert.equal(recovered.versionId, recoveryPrepared.set.versionId);
+  const recoveredSubmitResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test-Teacher': 'yes' },
+    body: JSON.stringify({ ...identity, ticket: recovered.ticket, runSecret: 'reading-recovery-secret', answers: fixture.answers }),
+  });
+  assert.equal(recoveredSubmitResponse.status, 201);
+
+  const staleTicket = rewriteSignedTicket(recoveryPrepared.ticket, 'reading-writing-router-test-secret', {
+    startedAt: new Date(Date.now() - 9 * 24 * 60 * 60_000).toISOString(),
+    ticketExpiresAt: Date.now() - 8 * 24 * 60 * 60_000,
+    ticketRecoveryEndsAt: Date.now() - 24 * 60 * 60_000,
+  });
+  const staleRecoveryResponse = await fetch(`${baseUrl}/sets/${created.id}/attempts/renew`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: staleTicket, runSecret: 'reading-recovery-secret' }),
+  });
+  assert.equal(staleRecoveryResponse.status, 410);
+  assert.equal((await staleRecoveryResponse.json() as any).details.code, 'MOVER_READING_ATTEMPT_TICKET_RECOVERY_EXPIRED');
 });

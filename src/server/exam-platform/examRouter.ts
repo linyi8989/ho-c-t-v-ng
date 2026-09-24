@@ -1014,7 +1014,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
   router.post('/modules/:moduleId/papers/:paperId/sets/:setId/attempts/submit', authenticateOptionalUser, async (req, res) => {
     try {
       const { moduleId, paperId } = routeIdentity(req);
-      const ticket = decodeTicket(req.body?.ticket, ticketSecret);
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
       if (ticket.moduleId !== moduleId || ticket.paperId !== paperId || ticket.setId !== req.params.setId) throw apiError(401, 'Phiếu làm bài không khớp bộ đề.');
       const set = await getSet(db, req.params.setId);
       assertRouteSet(set, moduleId, paperId);
@@ -1034,6 +1034,10 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           scheduleAiWritingGrade(existing.id, Number(existing.aiGradingCycle || 1), delay);
         }
         return res.json(attemptSummary(existing));
+      }
+      const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+      if (!Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
+        throw apiError(410, 'Phiếu làm bài đã hết hạn.', { code: 'EXAM_ATTEMPT_TICKET_EXPIRED' });
       }
       const version = await getVersion(db, ticket.versionId);
       if (!version || version.setId !== set.id || version.moduleId !== moduleId || version.paperId !== paperId) throw apiError(409, 'Phiên bản đề thi không còn hợp lệ.');

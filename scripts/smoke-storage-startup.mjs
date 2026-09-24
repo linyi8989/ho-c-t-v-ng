@@ -24,6 +24,8 @@ function commonEnvironment(databasePath, allowCreate, port) {
     DIAGNOSTIC_SECRET: 'startup-smoke-secret',
     TTS_AUDIO_DIR: path.join(temporaryDirectory, 'audio'),
     LISTENING_MEDIA_DIR: path.join(temporaryDirectory, 'listening-media'),
+    VOCAB_IMAGE_DIR: path.join(temporaryDirectory, 'vocab-images'),
+    LISTENING_TICKET_SECRET: 'startup-smoke-listening-ticket-secret',
     PORT: String(port),
   };
 }

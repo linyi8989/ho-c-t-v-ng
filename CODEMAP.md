@@ -1,6 +1,6 @@
 # CODEMAP - V-Homework Vocabulary Learning Platform
 
-Last updated: 2026-09-16
+Last updated: 2026-09-24
 
 ## 1. Project Overview
 
@@ -5756,3 +5756,228 @@ Rollout and verification:
   line box and baseline-aligned so inline blanks sit level with printed text.
   PET Writing Part 1 also consumes this shared control instead of maintaining
   a second copy of the same visual rules.
+
+## 118. Admin shell and Vocabulary presentation boundaries - 2026-09-21
+
+- `src/components/admin/AdminDashboard.tsx` remains the compatibility entry and
+  mounted controller for the Admin area. It still owns authentication-aware
+  loading, every existing mutation, notifications, overlays and all unsaved
+  Vocabulary editor state. Consequently a teacher can leave the editor tab and
+  return without losing a draft; no API, storage, route or refresh contract was
+  moved in this structural pass.
+- `AdminShell.tsx` now owns the unchanged Admin frame: root, sidebar, role-aware
+  navigation, user footer and main content container. Existing IDs, classes,
+  labels, tab order and callbacks are preserved. `LibraryPagination.tsx` is the
+  shared presentation-only pagination control used by both Vocabulary and
+  Grammar directories.
+- Vocabulary presentation is split into
+  `vocabulary/VocabularyLibraryPanel.tsx`,
+  `vocabulary/VocabularyResultsPanel.tsx` and
+  `vocabulary/VocabularyEditorPanel.tsx`. These files receive state and actions
+  through props and contain no fetch, effect or persistence logic. The
+  Vocabulary action order remains `Play → Sửa → Sao chép → Kết quả → Xóa`, and
+  semantic IDs used by tests and CSS remain unchanged.
+- `AdminShell.contract.test.ts` locks the compatibility boundary, preserved DOM
+  hooks, always-mounted draft ownership, presentation-only fetch rule, baseline
+  Admin request inventory and Vocabulary action order. `test:admin` is part of
+  `test:phase1`; existing Admin, image and Exam contracts now read UI hooks from
+  their new owning files.
+- Initial Admin loading is intentionally unchanged in this phase: 11 request
+  groups for a teacher and 12 for a super-admin (the additional audit request).
+  Dashboard summary, lazy domain fetch, server pagination and targeted refresh
+  remain reserved for the separately approved second upgrade pass.
+
+## 119. Admin lazy data boundary and paged domain APIs - 2026-09-22
+
+- `src/server/admin-data/` is the Phase 2 modular-monolith boundary. Its
+  `contracts.ts`, `repository.ts`, `service.ts` and `router.ts` layers parse a
+  capped page request, enforce teacher/super-admin scope, query data and expose
+  authenticated staff endpoints below `/api/admin`. `server.ts` remains the
+  composition root and injects the existing authorization, sanitization,
+  account, audit and result helpers. Existing legacy endpoints remain live.
+- Initial Admin entry now calls only `GET /api/admin/dashboard-summary`.
+  Against the local Phase 2 fixture, super-admin startup changed from 12
+  requests/461,146 bytes to 1 request/1,831 bytes (91.7% fewer requests and
+  about 99.6% less initial payload). The summary contains counts, at most 30
+  recent activity summaries and five gold-table rows, never full domain lists.
+- `GET /api/admin/vocab-sets` and `/grammar-sets` return scoped summary pages;
+  `GET /api/admin/vocab-sets/:id` and `/grammar-sets/:id` are authorized point
+  reads for editors/previews. Summary rows carry `itemCount`/`questionCount`
+  instead of item/question bodies. The controller debounces search by 300 ms,
+  aborts replaced requests and ignores stale generations.
+- `/classes`, `/class-members`, `/assignments`, `/assignment-options`,
+  `/accounts-page` and `/audit-logs-page` are lazy staff endpoints for their
+  matching tabs. Assignment options are separate from the visible page so a
+  dropdown is not truncated by pagination. Teacher assignment visibility and
+  Dashboard counts both include records created by the teacher and records
+  attached to a class managed by that teacher.
+- `AdminDashboard.tsx` remains the compatibility controller, but each domain
+  owns one lazy loader. Results/leaderboard and the existing versioned
+  Listening, Movers, Writing and Exam APIs are not fetched until their surface
+  needs them. The compatibility refresh function now invalidates Dashboard
+  plus only the active/edited domain; it no longer reloads every Admin domain.
+- `adminData.test.ts`, `AdminShell.contract.test.ts`, performance contracts and
+  legacy integration tests lock the scope, summary/detail separation, lazy
+  startup inventory and old API behavior. `test:phase2` runs the full Phase 1
+  gate plus Admin data, History and legacy contracts under Node 22.
+- Phase 2 deliberately does not change `App.tsx`, `appRoutes.ts`, database
+  schema, storage contract, CSS, intended layout or user data. Visual redesign
+  and App/Home extraction remain behind the separately approved Phase 3 gate.
+
+## 120. Phase 3 App/Home, scoped visual theme and Classes boundary - 2026-09-22
+
+- `src/App.tsx` is now the application composition gateway (378 lines instead
+  of 1,038). `features/app-shell/useAppNavigation.ts` owns location state,
+  existing `appRoutes.ts` parsing, `pushState`, `popstate` and scroll reset.
+  The router framework and canonical/legacy URLs are unchanged.
+- `features/home/HomePage.tsx` owns the existing Home DOM and semantic hooks;
+  `useHomeController.ts` owns the one abortable route-scoped data generation;
+  `homeSearch.ts` owns accent-insensitive metadata/item search and grade
+  filtering; `homeContent.ts` owns static weekly copy. Presentational Home
+  components do not fetch or persist data.
+- Home deliberately keeps the existing full Vocab/Grammar endpoints because
+  public search covers nested vocabulary term, meaning, IPA, part of speech,
+  example, example meaning, notes and aliases. A future summary endpoint may
+  replace it only after preserving that search contract server-side.
+- The final block of `src/index.css`, marked `Phase 3 scoped visual theme`,
+  defines reusable ink/brand/teal/coral/pastel/border/shadow tokens and applies
+  them only below `#app-root`, `#admin-dashboard-container` and
+  `#student-area-root`. It changes visual color/treatment only; a contract test
+  forbids layout/grid/size/spacing mutations and protects Exam/Listening
+  selectors. `#learning-golden-toggle` has explicit normal, hover and focus
+  states meeting WCAG AA contrast.
+- `src/server/classes/` is a modular-monolith vertical slice for the six legacy
+  Classes/Class Members endpoints. `router.ts` preserves the exact `/api`
+  routes and middleware; `service.ts` preserves role/ownership/status/audit
+  behavior; `repository.ts` owns Firestore-compatible CRUD, class soft archive
+  and transactional assignment archive/share-token revocation. `server.ts`
+  only composes and injects the existing policy/storage helpers.
+- Phase 3 introduces `test:home`, `test:classes` and aggregate `test:phase3`.
+  Contracts lock App/Home ownership, route navigation, full search fields,
+  stable Home DOM hooks, scoped CSS/contrast, unchanged class URLs and teacher
+  scope. The Node 22 full gate passes lint, all Phase 1/2 suites, Home 9/9,
+  Classes 2/2, Listening 139/139, production build and startup smoke.
+- No database schema, storage contract, user data or production deployment is
+  changed by Phase 3. Generated `dist/` output is excluded from the source
+  change set after build verification.
+
+## 121. Browser speech fallback and recoverable learning runs - 2026-09-23
+
+- `src/lib/game-engine/speech.ts` is the single vocabulary playback boundary.
+  Saved media remains preferred; missing or failed media falls back to Web
+  Speech. It retains the active utterance and serializes Chromium cancellation
+  so a new utterance is not silently discarded.
+- `src/lib/attemptRecovery.ts` owns client error-code classification and a
+  bounded local archive of expired answers. The archive excludes tickets and
+  run secrets. Generic Exam, Movers Reading & Writing and Listening all use
+  this contract.
+- The three learning-run servers now share the same lifecycle semantics:
+  active signed ticket -> bounded authenticated renewal -> submit, or explicit
+  recovery-expired state. Movers and Listening add their matching existing-URL
+  `attempts/renew` endpoint; no database migration or record rewrite is used.
+- Submit remains idempotent after ticket expiry when the immutable attempt was
+  already committed, which covers a lost HTTP response without creating a
+  duplicate result. Guest-owned runs remain guest-owned if browser login state
+  changes before retry.
+- Recovery tests cover signature/owner/run-secret/version binding, successful
+  renewal, expired recovery windows, idempotent replay and credential-free
+  local answer archives.
+
+## 122. Admin domain presentation boundaries - 2026-09-23
+
+- `src/components/admin/AdminDashboard.tsx` remains the mounted Admin controller
+  and compatibility entry. It owns every domain state, effect, lazy fetch,
+  mutation, unsaved draft, notification and overlay so tab changes do not alter
+  data lifetime. Moving the domain JSX reduced the file from about 4,470 to
+  2,972 content lines (3,211 physical lines including blanks) without changing
+  API, route, schema, storage or authorization.
+- Dashboard, Grammar library/editor, Classes/Class Members, Assignments,
+  Results/leaderboard, Accounts and Audit now render through presentation-only
+  panels below `src/components/admin/{dashboard,grammar,classes,assignments,
+  results,accounts,audit}/`. The panels receive typed controller props, render
+  the existing DOM and emit events; they do not call `fetch`, `authFetchJson`,
+  `useEffect` or persistence APIs.
+- Existing semantic hooks, pagination, role guards and row-action ordering stay
+  unchanged. Grammar draft state remains mounted in `AdminDashboard`; Accounts
+  retains teacher/super-admin scope and Audit remains super-admin-only.
+  Assignments was not added to the sidebar because that would be a separately
+  approved layout change.
+- `AdminShell.contract.test.ts` now locks all eight presentation boundaries and
+  their no-fetch rule. Grammar and Listening contracts read shared library UI
+  hooks from `GrammarLibraryPanel.tsx`, their current owner, rather than the old
+  monolithic file.
+- Browser QA confirmed the extracted tabs, lazy request inventory and a 390 px
+  no-overflow viewport without writing application data. The Node 22
+  `test:phase3` gate passes lint, all unit/integration/contract suites,
+  production build and startup smoke; Listening passes 139/139.
+- This step does not reorganize `server.ts` or the CSS generations. Those remain
+  separate, gated steps so a structural regression can be attributed to one
+  boundary at a time.
+
+## 123. Server domain router/service/repository boundaries - 2026-09-24
+
+- `server.ts` is now the backend composition root: it initializes Express,
+  storage, middleware and provider/helper dependencies, mounts domain routers,
+  serves the application and owns startup/shutdown. It contains no direct
+  `app.get`, `app.post`, `app.put`, `app.patch` or `app.delete` declarations.
+  The physical file decreased from the Step 3 baseline of about 6,659 lines to
+  3,712 lines without changing the public URL set.
+- The remaining direct-route domains now live below `src/server/` as explicit
+  router/service/repository slices: `assignments`, `diagnostics`,
+  `auth-profile`, `guest-identity`, `vocabulary-ai`, `vocabulary`, `tts`,
+  `grammar`, `grammar-attempts`, `vocabulary-runs`, `results` and `accounts`.
+  Routers own HTTP parsing/status mapping, services own policy and workflow,
+  and repositories own Firebase/SQLite-compatible reads and writes. Provider
+  boundaries are separate where external auth/TTS behavior is involved.
+- Existing `admin-data`, `classes`, `learning-history`, `listening-library`,
+  Movers, Exam and vocabulary-image routers remain mounted through their
+  established boundaries. Shared legacy-compatible helpers are injected by the
+  composition root instead of being duplicated in each domain.
+- Existing endpoint paths, response/error schemas, authentication, role and
+  ownership checks, audit behavior, archive/share-token semantics, atomic
+  batches, idempotency, run secrets, grading snapshots and bounded result reads
+  are preserved. This checkpoint performs no database migration, production
+  data write, deployment, CSS change or layout change.
+- `test:server-domains` runs 41 contract tests across all 12 newly extracted
+  domain boundaries. `test:phase3` includes that suite and passes under the
+  release Node 22 runtime together with lint, production build, startup/storage
+  smoke, security, performance, legacy API, Admin, Home, Classes, Listening,
+  Movers and Exam regression suites.
+- Tests that previously inspected a route body inside `server.ts` now inspect
+  the domain module that owns that behavior. Their assertions were retained;
+  only the source-owner location changed. Generated `dist/` content was
+  restored after build verification, and the existing localhost process was
+  not stopped.
+
+## 124. CSS surface ownership and Dark Glass retirement - 2026-09-24
+
+- `src/index.css` is now an eight-line entrypoint with one deterministic cascade:
+  Google Fonts, Tailwind, tokens/base, shared components, Home, Admin, Student,
+  then Exam/Listening. It no longer contains component styling directly.
+- CSS ownership lives below `src/styles/`: `tokens-base.css` owns tokens and true
+  global primitives; `shared-components.css` owns the single light/accessibility
+  normalization; `home.css`, `admin.css` and `student.css` own their surface
+  roots; `exam-listening.css` owns the sensitive exam, authoring, player and
+  image-hitbox contracts.
+- The obsolete Dark Glass generation was removed, including its page pseudo
+  layer, `glass-*` hooks and broad Glass button override. Surface contract tests
+  forbid owner files from reaching into sibling roots and prevent Home/Admin
+  rules from changing Exam/Listening hitboxes.
+- `src/styles/cssTestUtils.ts` expands local CSS imports for source contracts, so
+  splitting the physical files did not weaken existing contrast, interaction or
+  feature assertions. `VisualTheme.contract.test.ts` additionally locks import
+  order, import-only entrypoint, retired selectors and bounded override metrics.
+- `scripts/css-browser-smoke.mjs` provides local, read-only computed-style and
+  screenshot QA at 1440 px and 390 px for Home, Admin and Student. It checks
+  horizontal overflow, button backdrop filters, page pseudo content, Home hero,
+  Student game stage and Bảng vàng hover/focus. It is exposed as
+  `npm run test:css-browser` and does not submit forms or mutate application data.
+- The physical CSS decreased from a 4,823-line monolith to an eight-line entry
+  plus about 3,902 owner lines. `!important` occurrences decreased from 1,945 to
+  1,828 and backdrop declarations from 156 to 139. Remaining high-specificity
+  rules are predominantly published Exam/Listening compatibility contracts and
+  are retained until separately migrated with feature-level visual coverage.
+- No DOM, layout, route, API, schema, storage, authorization or production data
+  changed in this step. Node 22 lint, production build, startup/storage smoke,
+  the complete `test:phase3` regression gate and desktop/mobile browser QA pass;
+  generated `dist/` content was restored after verification.

@@ -96,6 +96,8 @@ export interface VocabSet {
   accessType?: 'assignment' | 'vocab_set';
   ttsSettings?: TtsSettings;
   items: VocabItem[];
+  /** Present on the lightweight admin list response; full detail still uses items. */
+  itemCount?: number;
   lifecycleStatus?: 'active' | 'archived';
   archivedAt?: string;
   archivedBy?: string;
@@ -178,6 +180,8 @@ export interface GrammarSet {
   createdAt: string;
   updatedAt: string;
   questions: GrammarQuestion[];
+  /** Present on the lightweight admin list response; full detail still uses questions. */
+  questionCount?: number;
   lifecycleStatus?: 'active' | 'archived';
   archivedAt?: string;
   archivedBy?: string;

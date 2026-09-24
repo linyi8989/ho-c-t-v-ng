@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readCssBundle } from '../../styles/cssTestUtils.js';
 import { filterExamAdminSetsByTitle } from './admin/examAdminSearch';
 
 const homeSource = readFileSync(new URL('./student/ListeningLibraryHome.tsx', import.meta.url), 'utf8');
@@ -13,7 +14,7 @@ const listeningAdminSource = readFileSync(new URL('../listening/admin/ListeningA
 const readingAdminSource = readFileSync(new URL('../mover-reading-writing/admin/MoverReadingWritingAdmin.tsx', import.meta.url), 'utf8');
 const genericAdminSource = readFileSync(new URL('../exam-platform/admin/GenericExamAdmin.tsx', import.meta.url), 'utf8');
 const dashboardSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
-const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+const globalCssSource = readCssBundle(new URL('../../index.css', import.meta.url));
 
 const rgb = (hex: string) => [1, 3, 5].map(offset => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
 const luminance = (hex: string) => rgb(hex)

@@ -18,7 +18,11 @@ const listeningAdminSource = readFileSync(
   'utf8',
 );
 const grammarAdminSource = readFileSync(
-  new URL('../../../components/admin/AdminDashboard.tsx', import.meta.url),
+  new URL('../../../components/admin/grammar/GrammarLibraryPanel.tsx', import.meta.url),
+  'utf8',
+);
+const vocabularyPanelSource = readFileSync(
+  new URL('../../../components/admin/vocabulary/VocabularyLibraryPanel.tsx', import.meta.url),
   'utf8',
 );
 const listeningApiSource = readFileSync(
@@ -52,7 +56,8 @@ test('Grammar and Listening libraries share the canonical row actions in the req
     assert.ok(controlsSource.includes(label), `Missing shared action label: ${label}`);
   }
 
-  assert.match(grammarAdminSource, /import \{ LibraryLinkStatus, LibraryPlayAction, LibraryRowActions \} from '\.\/LibraryRowControls'/);
+  assert.match(grammarAdminSource, /import \{ LibraryLinkStatus, LibraryRowActions \} from '\.\.\/LibraryRowControls'/);
+  assert.match(vocabularyPanelSource, /import \{ LibraryPlayAction \} from '\.\.\/LibraryRowControls'/);
   assert.match(listeningAdminSource, /import \{ LibraryLinkStatus, LibraryRowActions \} from '\.\.\/\.\.\/\.\.\/components\/admin\/LibraryRowControls'/);
   assert.match(grammarAdminSource, /<LibraryRowActions/);
   assert.match(listeningAdminSource, /<LibraryRowActions/);
@@ -86,7 +91,7 @@ test('only library Play actions open their preview URL in a new tab', () => {
     assert.match(rowMarkup, new RegExp(`<button[^>]+data-library-action="${action}"`));
   }
 
-  assert.match(grammarAdminSource, /teacherLibraryPreviewPath\('vocabulary', set\.id\)/);
+  assert.match(vocabularyPanelSource, /teacherLibraryPreviewPath\('vocabulary', set\.id\)/);
   assert.match(grammarAdminSource, /playHref=\{teacherLibraryPreviewPath\('grammar', set\.id\)\}/);
   assert.match(listeningAdminSource, /playHref=\{previewUrl\(set\)\}/);
   assert.match(moverAdminSource, /playHref=\{previewUrl\(set\)\}/);

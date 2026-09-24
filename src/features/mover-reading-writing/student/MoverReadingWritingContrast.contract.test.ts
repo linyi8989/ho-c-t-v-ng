@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readCssBundle } from '../../../styles/cssTestUtils.js';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createDefaultMoverReadingWritingContent } from '../defaultContent';
@@ -11,7 +12,7 @@ const playerSource = readFileSync(new URL('./MoverReadingWritingLearningArea.tsx
 const partViewsSource = readFileSync(new URL('./MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
 const visualReviewSource = readFileSync(new URL('../review/MoverReadingWritingVisualReview.tsx', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../admin/MoverReadingWritingAdmin.tsx', import.meta.url), 'utf8');
-const globalCss = readFileSync(new URL('../../../index.css', import.meta.url), 'utf8');
+const globalCss = readCssBundle(new URL('../../../index.css', import.meta.url));
 
 const rgb = (hex: string) => {
   const value = Number.parseInt(hex.slice(1), 16);

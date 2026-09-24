@@ -1,0 +1,315 @@
+/* Student home polish requested from visual review */
+#student-preview-admin-bar {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid #1d4ed8 !important;
+}
+
+#student-preview-admin-bar > span {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+}
+
+#back-to-admin-btn {
+  background: #ffffff !important;
+  border: 1px solid #bfdbfe !important;
+  color: #1d4ed8 !important;
+  font-weight: 900 !important;
+  box-shadow: 0 4px 12px rgba(30, 64, 175, 0.18) !important;
+}
+
+#back-to-admin-btn:hover {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1e40af !important;
+}
+
+#admin-mode-banner {
+  background: #fef3c7 !important;
+  border-bottom: 1px solid #f59e0b !important;
+  color: #78350f !important;
+}
+
+#admin-mode-banner > span {
+  color: #78350f !important;
+  font-weight: 900 !important;
+}
+
+#view-student-page-btn {
+  background: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22) !important;
+}
+
+#view-student-page-btn:hover {
+  background: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  color: #ffffff !important;
+}
+
+#admin-banner-logout-btn {
+  background: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  color: #1f2937 !important;
+  font-weight: 900 !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
+}
+
+#admin-banner-logout-btn svg,
+#admin-banner-logout-btn span {
+  color: #1f2937 !important;
+}
+
+#admin-banner-logout-btn:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+
+#admin-banner-logout-btn:hover svg,
+#admin-banner-logout-btn:hover span {
+  color: #b91c1c !important;
+}
+
+#home-hero {
+  background: #ffffff !important;
+  border: 2px solid #dbeafe !important;
+  border-radius: 1.75rem !important;
+  box-shadow: 0 18px 46px rgba(37, 99, 235, 0.1) !important;
+  margin-top: 1.5rem !important;
+  padding: 2rem 2.25rem !important;
+}
+
+#home-hero-badge {
+  background: #dbeafe !important;
+  border: 1px solid #60a5fa !important;
+  color: #1d4ed8 !important;
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+  padding: 0.45rem 0.85rem !important;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12) !important;
+}
+
+#home-hero-badge,
+#home-hero-badge span,
+#home-hero-badge svg {
+  color: #1d4ed8 !important;
+}
+
+#system-info-card {
+  background: #ffffff !important;
+  border: 2px solid #dbeafe !important;
+  color: #111827 !important;
+  box-shadow: 0 18px 42px rgba(37, 99, 235, 0.1) !important;
+}
+
+#system-info-card h4,
+#system-info-card p,
+#system-info-card span {
+  color: #111827 !important;
+}
+
+#system-info-card > div,
+#system-info-card svg {
+  color: #2563eb !important;
+}
+
+@media (max-width: 767px) {
+  #home-hero {
+    margin-inline: 1rem !important;
+    padding: 1.5rem 1rem !important;
+  }
+
+  #home-hero-badge {
+    font-size: 0.8125rem !important;
+  }
+}
+
+/* Home surface palette */
+#app-root {
+  background: radial-gradient(circle at 8% 9%, rgba(255, 190, 167, 0.42), transparent 28%), radial-gradient(circle at 88% 13%, rgba(135, 221, 204, 0.38), transparent 31%), var(--phase3-canvas) !important;
+  color: var(--phase3-ink) !important;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
+}
+
+#navbar {
+  background: rgba(255, 253, 249, 0.96) !important;
+  border-color: var(--phase3-border) !important;
+  box-shadow: 0 8px 24px rgba(23, 37, 84, 0.06) !important;
+}
+
+#navbar > div > div:first-child > span:first-child {
+  background: var(--phase3-brand) !important;
+  border-color: var(--phase3-brand) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, 0.2) !important;
+}
+
+#navbar > div > div:first-child > span:first-child svg {
+  color: #ffffff !important;
+}
+
+#home-hero {
+  background: linear-gradient(122deg, var(--phase3-peach), #fffaf2 48%, var(--phase3-mint)) !important;
+  border-color: #f5cfc0 !important;
+  box-shadow: var(--phase3-shadow) !important;
+}
+
+#home-hero h1,
+#home-hero h1 span {
+  color: var(--phase3-ink) !important;
+}
+
+#home-hero h1 span span {
+  color: var(--phase3-teal) !important;
+  text-decoration-color: #f29b7f !important;
+}
+
+#home-hero p {
+  color: var(--phase3-muted) !important;
+}
+
+#home-hero-badge {
+  background: #ffffff !important;
+  border-color: #8bd3c7 !important;
+  color: var(--phase3-teal) !important;
+  box-shadow: 0 7px 18px rgba(15, 118, 110, 0.12) !important;
+}
+
+#home-hero-badge span,
+#home-hero-badge svg {
+  color: var(--phase3-teal) !important;
+}
+
+#home-sets-directory > div,
+#home-grammar-directory,
+#home-sidebar > div {
+  border-color: var(--phase3-border) !important;
+}
+
+#home-sets-grid > div {
+  background: var(--phase3-peach) !important;
+  border-color: #f4c6b4 !important;
+  color: var(--phase3-ink) !important;
+  box-shadow: 0 10px 26px rgba(194, 65, 59, 0.08) !important;
+}
+
+#home-sets-grid > div:nth-child(4n + 2) {
+  background: var(--phase3-sun) !important;
+  border-color: #eadb89 !important;
+}
+
+#home-sets-grid > div:nth-child(4n + 3) {
+  background: var(--phase3-mint) !important;
+  border-color: #9edbcf !important;
+}
+
+#home-sets-grid > div:nth-child(4n + 4) {
+  background: var(--phase3-blue-soft) !important;
+  border-color: #b8cdf4 !important;
+}
+
+#home-sets-grid > div:hover,
+#home-grammar-directory > .grid > div:hover {
+  border-color: #75bfb2 !important;
+  box-shadow: 0 16px 34px rgba(23, 37, 84, 0.12) !important;
+}
+
+#home-sets-grid h3,
+#home-sets-grid p,
+#home-sets-grid span,
+#home-grammar-directory h2,
+#home-grammar-directory h3,
+#home-grammar-directory p,
+#home-grammar-directory span {
+  color: var(--phase3-ink) !important;
+}
+
+#home-sets-grid > div button {
+  background: var(--phase3-coral) !important;
+  border-color: #9f332f !important;
+  color: #ffffff !important;
+  box-shadow: 0 9px 20px rgba(194, 65, 59, 0.2) !important;
+}
+
+#home-sets-grid > div button:hover {
+  background: #9f332f !important;
+  border-color: #842a27 !important;
+  color: #ffffff !important;
+}
+
+#home-sets-grid > div button *,
+#home-grammar-directory > .grid > div button * {
+  color: #ffffff !important;
+}
+
+#home-grammar-directory > .grid > div {
+  background: var(--phase3-mint) !important;
+  border-color: #9edbcf !important;
+  box-shadow: 0 10px 26px rgba(15, 118, 110, 0.08) !important;
+}
+
+#home-grammar-directory > .grid > div:nth-child(even) {
+  background: var(--phase3-sun) !important;
+  border-color: #eadb89 !important;
+}
+
+#home-grammar-directory > .grid > div button {
+  background: var(--phase3-teal) !important;
+  border-color: #0b5f59 !important;
+  color: #ffffff !important;
+  box-shadow: 0 9px 20px rgba(15, 118, 110, 0.18) !important;
+}
+
+#home-grammar-directory > .grid > div button:hover {
+  background: #0b5f59 !important;
+  border-color: #084c48 !important;
+  color: #ffffff !important;
+}
+
+#student-golden-board {
+  background: linear-gradient(155deg, #ddf6ee, #e6f7f8) !important;
+  border-color: #82cfc2 !important;
+  color: var(--phase3-ink) !important;
+  box-shadow: var(--phase3-shadow) !important;
+}
+
+#student-golden-board h3,
+#student-golden-board p,
+#student-golden-board span {
+  color: var(--phase3-ink) !important;
+}
+
+#student-golden-board select {
+  background: #ffffff !important;
+  border-color: #75bfb2 !important;
+  color: var(--phase3-ink) !important;
+}
+
+#system-info-card {
+  background: linear-gradient(145deg, #172554, #1e3a5f) !important;
+  border-color: #2f4f78 !important;
+  color: #ffffff !important;
+  box-shadow: 0 16px 34px rgba(23, 37, 84, 0.2) !important;
+}
+
+#system-info-card h4,
+#system-info-card p,
+#system-info-card span,
+#system-info-card svg,
+#system-info-card > div {
+  color: #ffffff !important;
+}
+
+#footer {
+  background: #172554 !important;
+  border-color: #243a69 !important;
+  color: #ffffff !important;
+}
+
+#footer blockquote,
+#footer span {
+  color: #ffffff !important;
+}

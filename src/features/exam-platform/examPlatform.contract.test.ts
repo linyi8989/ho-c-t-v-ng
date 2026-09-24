@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readCssBundle } from '../../styles/cssTestUtils.js';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
@@ -22,7 +23,9 @@ import { starterSpellingCharacters, updateStarterSpellingValue } from './student
 import PetListeningPartView, { petListeningFormLayout } from './student/PetListeningViews';
 
 const adminSource = readFileSync(new URL('../../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
+const adminShellSource = readFileSync(new URL('../../components/admin/AdminShell.tsx', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../../../server.ts', import.meta.url), 'utf8');
+const assignmentServiceSource = readFileSync(new URL('../../server/assignments/service.ts', import.meta.url), 'utf8');
 const registrySource = readFileSync(new URL('../listening-library/clientRegistry.ts', import.meta.url), 'utf8');
 const listeningRouterSource = readFileSync(new URL('../../server/listening/listeningRouter.ts', import.meta.url), 'utf8');
 const examRouterSource = readFileSync(new URL('../../server/exam-platform/examRouter.ts', import.meta.url), 'utf8');
@@ -75,7 +78,7 @@ const listeningPartViewsSource = readFileSync(new URL('../listening/student/List
 const listeningRegionEditorSource = readFileSync(new URL('../listening/admin/ListeningRegionEditor.tsx', import.meta.url), 'utf8');
 const fixedRegionEditorSource = readFileSync(new URL('../listening-editor/regions/FixedRegionEditor.tsx', import.meta.url), 'utf8');
 const validationSource = readFileSync(new URL('../../server/exam-platform/examValidation.ts', import.meta.url), 'utf8');
-const globalCssSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+const globalCssSource = readCssBundle(new URL('../../index.css', import.meta.url));
 const listeningAssetPickerSource = readFileSync(new URL('../listening/admin/ListeningAssetPicker.tsx', import.meta.url), 'utf8');
 const audioPreviewButtonSource = readFileSync(new URL('../listening/admin/AudioPreviewButton.tsx', import.meta.url), 'utf8');
 const standaloneWritingAuthoringSource = readFileSync(new URL('../writing-library/admin/StandaloneWritingAuthoring.tsx', import.meta.url), 'utf8');
@@ -121,13 +124,13 @@ test('assignment scheduler, server and canonical route share the generic exam co
     assert.ok(adminSource.includes(contract), `Admin exam assignment contract is missing: ${contract}`);
   }
   for (const contract of [
-    'payload.resourceType === "exam"',
-    'collection("exam_sets")',
+    "value === 'exam'",
+    "collection: 'exam_sets'",
     'examSetId: resource.id',
     'examModuleId: resource.moduleId',
     'examPaperId: resource.paperId',
   ]) {
-    assert.ok(serverSource.includes(contract), `Server exam assignment contract is missing: ${contract}`);
+    assert.ok(assignmentServiceSource.includes(contract), `Server exam assignment contract is missing: ${contract}`);
   }
 });
 
@@ -157,7 +160,9 @@ test('expired generic exam tickets use one bounded authenticated recovery before
   assert.match(examRouterSource, /allowExpired: true/);
   assert.match(examRouterSource, /ticketRecoveryEndsAt/);
   assert.match(genericPlayerSource, /examPlatformApi\.renewAttempt/);
-  assert.match(genericPlayerSource, /Number\(reason\?\.status\) !== 410/);
+  assert.match(genericPlayerSource, /isExpiredAttemptTicket\(reason, 'exam-platform'\)/);
+  assert.match(genericPlayerSource, /isAttemptRecoveryExpired\(reason, 'exam-platform'\)/);
+  assert.match(genericPlayerSource, /archiveExpiredAttemptAnswers/);
   assert.match(genericPlayerSource, /submissionPending: retryable/);
   assert.doesNotMatch(genericPlayerSource, /reason\.message\} Bạn có thể nộp lại với cùng lượt làm bài/);
 });
@@ -454,9 +459,10 @@ test('answer coordinates follow the rendered image pixels instead of letterboxed
 });
 
 test('standalone Writing is a separate admin library with flexible AI grading and 0–10 history', () => {
-  assert.ok(adminSource.indexOf('tab-writing-library') > adminSource.indexOf('tab-listening-library'));
-  for (const contract of ['WritingLibraryAdmin', 'Kho đề Writing', "activeTab === 'writing-library'"]) {
-    assert.ok(adminSource.includes(contract), `Standalone Writing menu is missing: ${contract}`);
+  assert.ok(adminShellSource.indexOf('tab-writing-library') > adminShellSource.indexOf('tab-listening-library'));
+  assert.ok(adminShellSource.includes('Kho đề Writing'), 'Standalone Writing sidebar label is missing.');
+  for (const contract of ['WritingLibraryAdmin', "activeTab === 'writing-library'"]) {
+    assert.ok(adminSource.includes(contract), `Standalone Writing panel is missing: ${contract}`);
   }
   for (const column of ['STT', 'Bộ đề Writing', 'Lớp', 'Chủ đề', 'Số lượng', 'Trạng thái', 'Ngày tạo', 'Link', 'Thao tác']) {
     assert.ok(genericAdminSource.includes(column), `Standalone Writing column is missing: ${column}`);

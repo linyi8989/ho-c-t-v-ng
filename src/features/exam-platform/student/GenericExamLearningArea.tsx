@@ -23,6 +23,11 @@ import {
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
 import { createClientLearningRun } from '../../../lib/learningRuns';
+import {
+  archiveExpiredAttemptAnswers,
+  isAttemptRecoveryExpired,
+  isExpiredAttemptTicket,
+} from '../../../lib/attemptRecovery';
 import { validateStudentDisplayName } from '../../../lib/studentIdentity';
 import type { ExamModuleId, ExamPaperId } from '../../listening-library/types';
 import ExamSplitTaskLayout from '../../exam-media/ExamSplitTaskLayout';
@@ -188,6 +193,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   const [gradeRetrying, setGradeRetrying] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
   const [error, setError] = useState('');
+  const [attemptRecoveryExpired, setAttemptRecoveryExpired] = useState(false);
   const submitGuard = useRef(false);
   const automaticSubmitStarted = useRef(false);
   const ownerKey = user?.id ? `user:${user.id}` : `guest:${guestId}`;
@@ -258,17 +264,29 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     }
   };
 
-  const start = async (replaceResult = false) => {
+  const start = async (replaceResult = false, archiveExpiredRun = false) => {
     if (!playable || !identityReady || authLoading) return;
     setLoading(true); setError('');
     try {
       const credentials = createClientLearningRun();
       const prepared = await examPlatformApi.prepare(moduleId, paperId, setId, token, { shareToken: accessToken, guestId, studentName, clientRunId: credentials.clientRunId, runSecret: credentials.runSecret });
       const next: SavedRun = { setId: playable.id, versionId: playable.versionId, ticket: prepared.ticket, clientRunId: credentials.clientRunId, runSecret: credentials.runSecret, startedAt: prepared.startedAt, deadlineAt: prepared.deadlineAt, answers: {}, currentPart: 0 };
+      if (archiveExpiredRun && run) {
+        const archived = archiveExpiredAttemptAnswers(window.localStorage, {
+          source: 'exam-platform', setId: run.setId, versionId: run.versionId,
+          clientRunId: run.clientRunId, startedAt: run.startedAt, deadlineAt: run.deadlineAt,
+          currentPart, answers,
+        });
+        if (!archived) throw new Error('Không thể lưu bản sao câu trả lời trên thiết bị. Lượt cũ vẫn được giữ nguyên.');
+      }
       automaticSubmitStarted.current = false;
-      setRun(next); setSubmittedRunAccess(null); setAnswers({}); setCurrentPart(0); setReview(null); setReviewRunSecret(''); setReviewActorType(undefined); if (replaceResult) setResult(null);
+      setRun(next); setSubmittedRunAccess(null); setAnswers({}); setCurrentPart(0); setReview(null); setReviewRunSecret(''); setReviewActorType(undefined); setAttemptRecoveryExpired(false); if (replaceResult) setResult(null);
     } catch (reason: any) { setError(reason.message); }
     finally { setLoading(false); }
+  };
+  const startFreshAfterExpired = () => {
+    if (!window.confirm('Lượt cũ không còn có thể nộp. Hệ thống sẽ lưu một bản sao câu trả lời trên thiết bị rồi bắt đầu lượt mới. Tiếp tục?')) return;
+    void start(false, true);
   };
 
   const totalQuestions = playable?.content.parts.reduce((sum, part) => sum + part.questions.length, 0) || definition.totalQuestionCount;
@@ -286,7 +304,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       try {
         completed = await examPlatformApi.submit(moduleId, paperId, setId, authTokenForExamRun(pending.ticket, token), { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers });
       } catch (reason: any) {
-        if (Number(reason?.status) !== 410) throw reason;
+        if (!isExpiredAttemptTicket(reason, 'exam-platform')) throw reason;
         const renewed = await examPlatformApi.renewAttempt(moduleId, paperId, setId, authTokenForExamRun(pending.ticket, token), { ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName });
         if (renewed.clientRunId !== pending.clientRunId || renewed.versionId !== pending.versionId) {
           throw Object.assign(new Error('Phiếu khôi phục không khớp lượt làm bài đã lưu.'), { status: 409 });
@@ -302,22 +320,26 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
         completed = await examPlatformApi.submit(moduleId, paperId, setId, authTokenForExamRun(activePending.ticket, token), { ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers });
       }
       const submittedAccess = { ...activePending, submissionPending: false, submittedAttempt: completed };
-      setReviewRunSecret(activePending.runSecret); setReviewActorType(examRunActorTypeFromTicket(activePending.ticket)); setSubmittedRunAccess(submittedAccess); setResult(completed); setRun(null);
+      setReviewRunSecret(activePending.runSecret); setReviewActorType(examRunActorTypeFromTicket(activePending.ticket)); setSubmittedRunAccess(submittedAccess); setResult(completed); setRun(null); setAttemptRecoveryExpired(false);
       if (activeStorageKey) {
         if (completed.status === 'completed') window.localStorage.removeItem(activeStorageKey);
         else window.localStorage.setItem(activeStorageKey, JSON.stringify(submittedAccess));
       }
     } catch (reason: any) {
       const status = Number(reason?.status);
+      const recoveryExpired = isAttemptRecoveryExpired(reason, 'exam-platform');
       const retryable = !Number.isFinite(status) || status >= 500 || [408, 425, 429].includes(status);
       const identityMismatch = [401, 403].includes(status);
       const retained = { ...activePending, submissionPending: retryable };
-      const suffix = retryable
+      const suffix = recoveryExpired
+        ? 'Câu trả lời vẫn được lưu trên thiết bị. Bạn có thể lưu bản sao và bắt đầu một lượt mới.'
+        : retryable
         ? 'Câu trả lời đã được lưu; bạn có thể nộp lại với cùng lượt làm bài.'
         : identityMismatch
           ? 'Câu trả lời vẫn được lưu trên thiết bị. Hãy giữ nguyên trang, đăng nhập lại đúng tài khoản đã bắt đầu bài (nếu có), rồi bấm Nộp bài lần nữa.'
           : 'Câu trả lời vẫn được lưu trên thiết bị. Hãy giữ nguyên trang và báo giáo viên trước khi bắt đầu lượt mới.';
       setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} ${suffix}`);
+      setAttemptRecoveryExpired(recoveryExpired);
       setRun(retained);
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(retained));
     }
@@ -450,9 +472,9 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
       <button type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>
       <div className="flex gap-2">{playable.content.parts.map((part, index) => <button key={part.id} type="button" aria-label={`Mở Part ${part.part}`} data-active={currentPart === index ? 'true' : 'false'} onClick={() => setCurrentPart(index)} className={`listening-part-step h-9 w-9 rounded-full text-xs font-black ${currentPart === index ? 'bg-blue-700 text-white' : 'bg-white text-slate-500'}`}>{part.part}</button>)}</div>
-      {currentPart < playable.content.parts.length - 1 ? <button type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button> : <button type="button" disabled={submitting} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50"><Send size={18} />Nộp bài</button>}
+      {currentPart < playable.content.parts.length - 1 ? <button type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button> : <button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50"><Send size={18} />Nộp bài</button>}
     </footer>
-    {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl">{error}</div>}
+    {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}
   </main>;
-  return <main id="generic-exam-player" className="min-h-screen bg-slate-100"><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answered}/{totalQuestions}</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting} onClick={() => void submit()} className="exam-platform-primary-action inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-white"><Send size={15} />Nộp bài</button></div></div></header><div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist">{playable.content.parts.map((part, index) => <button key={part.id} type="button" role="tab" aria-selected={currentPart === index} onClick={() => setCurrentPart(index)} data-active={currentPart === index ? 'true' : 'false'} className={`exam-platform-part-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-700 text-white shadow-md' : 'border border-slate-300 bg-white text-indigo-900'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}{moduleId === 'writing' ? 'Bài viết' : `Part ${index + 1}`}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-800">{error}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{!hidePetWritingPartHeader && <div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">{moduleId === 'writing' ? 'Writing task' : `Part ${activePart.part}`}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{activePart.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{activePart.instruction}</p></div>}<PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} standaloneWriting={moduleId === 'writing' && paperId === 'writing'} starterReadingWriting={moduleId === 'starter' && paperId === 'reading-writing'} flyerReadingWriting={moduleId === 'flyer' && paperId === 'reading-writing'} ketReadingWriting={moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9} petReading={isFixedPetReadingContent(playable.content)} petWriting={fixedPetWriting} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></section>{moduleId !== 'writing' && <div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} data-direction="previous" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 font-black text-slate-800 disabled:opacity-50"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === playable.content.parts.length - 1} onClick={() => setCurrentPart(value => Math.min(playable.content.parts.length - 1, value + 1))} data-direction="next" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-3 font-black text-white disabled:opacity-50">Part sau<ChevronRight size={17} /></button></div>}</div></main>;
+  return <main id="generic-exam-player" className="min-h-screen bg-slate-100"><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answered}/{totalQuestions}</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="exam-platform-primary-action inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-white disabled:opacity-50"><Send size={15} />Nộp bài</button></div></div></header><div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist">{playable.content.parts.map((part, index) => <button key={part.id} type="button" role="tab" aria-selected={currentPart === index} onClick={() => setCurrentPart(index)} data-active={currentPart === index ? 'true' : 'false'} className={`exam-platform-part-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-700 text-white shadow-md' : 'border border-slate-300 bg-white text-indigo-900'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}{moduleId === 'writing' ? 'Bài viết' : `Part ${index + 1}`}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-800"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{!hidePetWritingPartHeader && <div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">{moduleId === 'writing' ? 'Writing task' : `Part ${activePart.part}`}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{activePart.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{activePart.instruction}</p></div>}<PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} standaloneWriting={moduleId === 'writing' && paperId === 'writing'} starterReadingWriting={moduleId === 'starter' && paperId === 'reading-writing'} flyerReadingWriting={moduleId === 'flyer' && paperId === 'reading-writing'} ketReadingWriting={moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9} petReading={isFixedPetReadingContent(playable.content)} petWriting={fixedPetWriting} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></section>{moduleId !== 'writing' && <div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} data-direction="previous" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 font-black text-slate-800 disabled:opacity-50"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === playable.content.parts.length - 1} onClick={() => setCurrentPart(value => Math.min(playable.content.parts.length - 1, value + 1))} data-direction="next" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-3 font-black text-white disabled:opacity-50">Part sau<ChevronRight size={17} /></button></div>}</div></main>;
 }

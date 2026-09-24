@@ -2,6 +2,16 @@
  * Web Speech API wrapper for pronouncing English words.
  */
 let activeAudio: HTMLAudioElement | null = null;
+let activeUtterance: SpeechSynthesisUtterance | null = null;
+let pendingSpeechTimer: ReturnType<typeof setTimeout> | null = null;
+let speechGeneration = 0;
+let speechCancellationPending = false;
+
+function cancelSpeechSynthesis(synthesis: SpeechSynthesis) {
+  synthesis.cancel();
+  speechCancellationPending = true;
+  setTimeout(() => { speechCancellationPending = false; }, 0);
+}
 
 export function normalizeAudioPlaybackRate(value?: number) {
   const parsed = Number(value);
@@ -15,39 +25,83 @@ export function resolveTtsPlaybackRate(provider?: string, speed?: number) {
 }
 
 export function stopManagedAudio() {
+  speechGeneration += 1;
+  if (pendingSpeechTimer) {
+    clearTimeout(pendingSpeechTimer);
+    pendingSpeechTimer = null;
+  }
   if (activeAudio) {
     activeAudio.pause();
     activeAudio.currentTime = 0;
     activeAudio = null;
   }
 
-  if (typeof window !== 'undefined' && window.speechSynthesis) {
-    window.speechSynthesis.cancel();
+  if (typeof window !== 'undefined' && window.speechSynthesis
+    && (activeUtterance || window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+    cancelSpeechSynthesis(window.speechSynthesis);
   }
+  activeUtterance = null;
 }
 
 export function speakEnglish(text: string, rate = 0.9) {
-  if (typeof window === 'undefined' || !window.speechSynthesis) {
+  if (typeof window === 'undefined' || !window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
     console.warn('Speech synthesis not supported in this browser.');
     return;
   }
 
-  stopManagedAudio();
-
   // Clean the text from symbols/IPA slash patterns
   const cleanText = text.replace(/[\/\\#]/g, '').trim();
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.lang = 'en-US';
-  
-  // Try to find a standard US English voice
-  const voices = window.speechSynthesis.getVoices();
-  const usVoice = voices.find(v => v.lang === 'en-US' || v.lang.includes('en_US'));
-  if (usVoice) {
-    utterance.voice = usVoice;
+  if (!cleanText) return;
+
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+    activeAudio = null;
   }
-  
-  utterance.rate = normalizeAudioPlaybackRate(rate);
-  window.speechSynthesis.speak(utterance);
+  if (pendingSpeechTimer) {
+    clearTimeout(pendingSpeechTimer);
+    pendingSpeechTimer = null;
+  }
+
+  const synthesis = window.speechSynthesis;
+  const mustCancelPreviousSpeech = Boolean(activeUtterance || synthesis.speaking || synthesis.pending);
+  const mustWaitForCancellation = speechCancellationPending;
+  const generation = ++speechGeneration;
+
+  const speak = () => {
+    pendingSpeechTimer = null;
+    if (generation !== speechGeneration) return;
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    activeUtterance = utterance;
+    utterance.lang = 'en-US';
+    const voices = synthesis.getVoices();
+    const englishVoice = voices.find(voice => voice.lang === 'en-US' || voice.lang.includes('en_US'))
+      || voices.find(voice => voice.lang.toLowerCase().startsWith('en'));
+    if (englishVoice) utterance.voice = englishVoice;
+    utterance.rate = normalizeAudioPlaybackRate(rate);
+    const release = () => {
+      if (activeUtterance === utterance) activeUtterance = null;
+    };
+    utterance.onend = release;
+    utterance.onerror = release;
+    if (synthesis.paused) synthesis.resume();
+    synthesis.speak(utterance);
+  };
+
+  if (mustCancelPreviousSpeech) {
+    cancelSpeechSynthesis(synthesis);
+    activeUtterance = null;
+    // Chromium needs a new task after cancel() or it can silently discard speak().
+    pendingSpeechTimer = setTimeout(speak, 0);
+    return;
+  }
+  if (mustWaitForCancellation) {
+    pendingSpeechTimer = setTimeout(speak, 0);
+    return;
+  }
+  // Do not cancel an idle engine: doing so immediately before speak() is the
+  // cause of silent browser fallback on Chromium-based browsers.
+  speak();
 }
 
 export function playAudioUrl(audioUrl: string, fallbackText?: string, playbackRate = 1) {
@@ -57,13 +111,21 @@ export function playAudioUrl(audioUrl: string, fallbackText?: string, playbackRa
   activeAudio = audio;
   audio.volume = 0.85;
   audio.playbackRate = normalizeAudioPlaybackRate(playbackRate);
+  let fallbackStarted = false;
+  const fallbackToSpeech = () => {
+    if (fallbackStarted || activeAudio !== audio) return;
+    fallbackStarted = true;
+    activeAudio = null;
+    audio.removeEventListener('error', fallbackToSpeech);
+    if (fallbackText?.trim()) speakEnglish(fallbackText, playbackRate);
+  };
   audio.addEventListener('ended', () => {
     if (activeAudio === audio) activeAudio = null;
   }, { once: true });
-  audio.play().catch(() => {
-    if (activeAudio === audio) activeAudio = null;
-    if (fallbackText) speakEnglish(fallbackText, playbackRate);
-  });
+  // play() may resolve before the media decoder or network reports failure.
+  // The media error event is therefore required in addition to the promise.
+  audio.addEventListener('error', fallbackToSpeech, { once: true });
+  audio.play().catch(fallbackToSpeech);
 }
 
 export function playVocabAudio(

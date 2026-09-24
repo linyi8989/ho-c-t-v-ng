@@ -4,9 +4,18 @@ import test from 'node:test';
 
 const serverSource = readFileSync(new URL('../../server.ts', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+const homeControllerSource = readFileSync(new URL('../features/home/useHomeController.ts', import.meta.url), 'utf8');
+const appNavigationSource = readFileSync(new URL('../features/app-shell/useAppNavigation.ts', import.meta.url), 'utf8');
 const authSource = readFileSync(new URL('../context/AuthContext.tsx', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../components/admin/AdminDashboard.tsx', import.meta.url), 'utf8');
 const storageSource = readFileSync(new URL('../lib/sqliteStorage.ts', import.meta.url), 'utf8');
+const guestIdentityRepositorySource = readFileSync(
+  new URL('./guest-identity/repository.ts', import.meta.url),
+  'utf8'
+);
+const accountServiceSource = readFileSync(new URL('./accounts/service.ts', import.meta.url), 'utf8');
+const resultsRouterSource = readFileSync(new URL('./results/router.ts', import.meta.url), 'utf8');
+const resultsServiceSource = readFileSync(new URL('./results/service.ts', import.meta.url), 'utf8');
 const studentLearningSource = readFileSync(
   new URL('../components/games/StudentLearningArea.tsx', import.meta.url),
   'utf8'
@@ -28,14 +37,6 @@ const backfillSource = readFileSync(
   'utf8'
 );
 
-function routeBody(path: string, nextPath?: string) {
-  const start = serverSource.indexOf(`app.get("${path}"`);
-  assert.notEqual(start, -1, `missing route ${path}`);
-  const end = nextPath ? serverSource.indexOf(`app.get("${nextPath}"`, start + 1) : serverSource.length;
-  assert.notEqual(end, -1, `missing following route ${nextPath}`);
-  return serverSource.slice(start, end);
-}
-
 test('auth and App release one route-scoped, abortable home-data generation', () => {
   assert.match(authSource, /onIdTokenChanged/);
   assert.doesNotMatch(authSource, /onAuthStateChanged/);
@@ -45,12 +46,13 @@ test('auth and App release one route-scoped, abortable home-data generation', ()
   assert.match(authSource, /if \(initialAuthEvent\) setLoading\(true\)/);
   assert.match(authSource, /if \(initialAuthEvent\) setLoading\(false\)/);
   assert.match(authSource, /authSessionKnown/);
-  assert.match(appSource, /if \(loading \|\| !isHomeDataView\) return/);
+  assert.match(appSource, /useHomeController\(\{ enabled: isHomeDataView, loading, token \}\)/);
   assert.match(appSource, /currentPathname === '\/'/);
   assert.match(appSource, /\(!isStaff \|\| adminMode\)/);
-  assert.match(appSource, /new AbortController\(\)/);
-  assert.match(appSource, /homeDataRequestIdRef\.current === requestId/);
-  assert.doesNotMatch(appSource, /loadJson\('\/api\/results'/);
+  assert.match(homeControllerSource, /if \(loading \|\| !enabled\) return/);
+  assert.match(homeControllerSource, /new AbortController\(\)/);
+  assert.match(homeControllerSource, /homeDataRequestIdRef\.current === requestId/);
+  assert.doesNotMatch(homeControllerSource, /loadJson\('\/api\/results'/);
 });
 
 test('auth middleware distinguishes invalid ID tokens from profile-storage failures', () => {
@@ -68,16 +70,20 @@ test('auth middleware distinguishes invalid ID tokens from profile-storage failu
 
 test('admin owns one stale-safe summary loader and fetches result detail on demand', () => {
   assert.match(adminSource, /refreshGenerationRef/);
-  assert.match(adminSource, /refreshData\(controller\.signal\)/);
+  assert.match(adminSource, /refreshDashboard\(controller\.signal\)/);
+  assert.match(adminSource, /\/api\/admin\/dashboard-summary/);
+  assert.match(adminSource, /vocabRequestGenerationRef/);
+  assert.match(adminSource, /grammarRequestGenerationRef/);
   assert.match(adminSource, /\/api\/results\?view=summary&limit=500/);
   assert.match(adminSource, /\/api\/results\/\$\{encodeURIComponent\(sourceType\)\}/);
   assert.match(adminSource, /activityDetailLoading/);
 });
 
 test('canonical exam navigation updates App route state without document reloads', () => {
-  assert.match(appSource, /const navigateInternal = React\.useCallback/);
-  assert.match(appSource, /window\.history\.pushState/);
-  assert.match(appSource, /setBrowserLocation/);
+  assert.match(appSource, /useAppNavigation\(\)/);
+  assert.match(appNavigationSource, /const navigateInternal = React\.useCallback/);
+  assert.match(appNavigationSource, /window\.history\.pushState/);
+  assert.match(appNavigationSource, /setBrowserLocation/);
   assert.match(examHomeSource, /onNavigate\(href\)/);
   assert.match(examModuleSource, /event\.preventDefault\(\)/);
   assert.match(examPaperSource, /onNavigate\(examPaperExamPath/);
@@ -87,18 +93,17 @@ test('canonical exam navigation updates App route state without document reloads
 });
 
 test('hot read routes are timed and summary mode never eagerly joins listening detail', () => {
-  const publicResults = routeBody('/api/public/results', '/api/public/leaderboard-results');
-  const publicLeaderboard = routeBody('/api/public/leaderboard-results', '/api/vocab-sets');
-  const resultDetail = routeBody('/api/results/:sourceType/:resultId', '/api/results');
-  const results = routeBody('/api/results', '/api/leaderboard-results');
-  const leaderboard = routeBody('/api/leaderboard-results', '/api/admin/users');
-  for (const body of [publicResults, publicLeaderboard, resultDetail, results, leaderboard]) {
-    assert.match(body, /createApiTiming/);
-    assert.match(body, /timing\.finish\(res\)/);
+  for (const path of [
+    '/public/results', '/public/leaderboard-results', '/public/leaderboard-summary',
+    '/results/:sourceType/:resultId', '/results', '/leaderboard-results',
+  ]) {
+    assert.match(resultsRouterSource, new RegExp(`router\\.get\\('${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
   }
-  assert.match(results, /summaryView \|\| !isStaffResultReview/);
-  assert.match(results, /toActivitySummary/);
-  assert.match(resultDetail, /resolveListeningActivityDetailForStaff/);
+  assert.match(resultsRouterSource, /createApiTiming/);
+  assert.match(resultsRouterSource, /timing\.finish\(response\)/);
+  assert.match(resultsServiceSource, /if \(!isStaff\) return options\.listeningAttemptToActivity/);
+  assert.match(resultsServiceSource, /toActivitySummary/);
+  assert.match(resultsServiceSource, /resolveListeningDetail/);
 });
 
 test('request reads do not run guest migration and leaderboard has a durable readiness gate', () => {
@@ -132,25 +137,20 @@ test('student entry hot path uses indexed token lookup and lazy summary data', (
   assert.doesNotMatch(studentLearningSource, /\/api\/public\/leaderboard-results/);
   assert.match(studentLearningSource, /\/api\/public\/leaderboard-summary/);
   assert.match(studentLearningSource, /leaderboardOpen/);
-  assert.match(serverSource, /LEADERBOARD_NOT_READY/);
+  assert.match(resultsServiceSource, /LEADERBOARD_NOT_READY/);
 });
 
 test('guest identity normal path is one profile point-read without legacy activity scans', () => {
-  const start = serverSource.indexOf('async function findExistingGuestIdentity');
-  const end = serverSource.indexOf('const GUEST_ACTIVITY_TOUCH_INTERVAL_MS', start);
-  const identify = serverSource.slice(start, end);
-  assert.match(identify, /collection\("guest_profiles"\)\.doc\(guestId\)\.get\(\)/);
-  assert.doesNotMatch(identify, /game_sessions|grammar_attempts/);
+  assert.match(serverSource, /createGuestIdentityRepository/);
+  assert.match(guestIdentityRepositorySource, /collection\('guest_profiles'\)\.doc\(id\)\.get\(\)/);
+  assert.doesNotMatch(guestIdentityRepositorySource, /game_sessions|grammar_attempts/);
   assert.doesNotMatch(serverSource, /findLegacyGuestIdentity/);
 });
 
 test('teacher account directory computes guest scope in bulk instead of an N+1 loop', () => {
   assert.match(serverSource, /getManageableGuestProfileIdsForTeacher/);
-  const start = serverSource.indexOf('app.get("/api/admin/accounts"');
-  const end = serverSource.indexOf('app.put("/api/admin/users/:userId/display-name"', start);
-  const route = serverSource.slice(start, end);
-  assert.match(route, /manageableGuestIds/);
-  assert.doesNotMatch(route, /await canManageGuestProfile/);
+  assert.match(accountServiceSource, /manageableGuestIds/);
+  assert.doesNotMatch(accountServiceSource, /for \([^)]*\)[\s\S]{0,200}await options\.canManageGuestProfile/);
 });
 
 test('additive index migration and explicit maintenance CLI keep source rows protected', () => {

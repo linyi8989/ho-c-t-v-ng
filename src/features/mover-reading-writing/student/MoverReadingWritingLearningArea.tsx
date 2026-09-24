@@ -22,6 +22,11 @@ import {
   storeGuestAccessCredential,
 } from '../../../lib/guestIdentity';
 import { createClientLearningRun } from '../../../lib/learningRuns';
+import {
+  archiveExpiredAttemptAnswers,
+  isAttemptRecoveryExpired,
+  isExpiredAttemptTicket,
+} from '../../../lib/attemptRecovery';
 import { validateStudentDisplayName } from '../../../lib/studentIdentity';
 import { moverReadingWritingApi } from '../api';
 import type {
@@ -92,6 +97,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   const [submitting, setSubmitting] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [error, setError] = useState('');
+  const [attemptRecoveryExpired, setAttemptRecoveryExpired] = useState(false);
   const submitGuard = useRef(false);
   const automaticSubmitStarted = useRef(false);
   const ownerKey = user?.id ? `user:${user.id}` : `guest:${guestId}`;
@@ -171,7 +177,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
     }
   };
 
-  const start = async (replaceResult = false) => {
+  const start = async (replaceResult = false, archiveExpiredRun = false) => {
     if (!playable || !identityReady) return;
     setLoading(true);
     setError('');
@@ -195,15 +201,28 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
         answers: createEmptyMoverReadingWritingAnswers(),
         currentPart: 0,
       };
+      if (archiveExpiredRun && run) {
+        const archived = archiveExpiredAttemptAnswers(window.localStorage, {
+          source: 'mover-reading-writing', setId: run.setId, versionId: run.versionId,
+          clientRunId: run.clientRunId, startedAt: run.startedAt, deadlineAt: run.deadlineAt,
+          currentPart, answers,
+        });
+        if (!archived) throw new Error('Không thể lưu bản sao câu trả lời trên thiết bị. Lượt cũ vẫn được giữ nguyên.');
+      }
       automaticSubmitStarted.current = false;
       setRun(next);
       setAnswers(next.answers);
       setCurrentPart(0);
       setReview(null);
       setReviewRunSecret('');
+      setAttemptRecoveryExpired(false);
       if (replaceResult) setResult(null);
     } catch (reason: any) { setError(reason.message); }
     finally { setLoading(false); }
+  };
+  const startFreshAfterExpired = () => {
+    if (!window.confirm('Lượt cũ không còn có thể nộp. Hệ thống sẽ lưu một bản sao câu trả lời trên thiết bị rồi bắt đầu lượt mới. Tiếp tục?')) return;
+    void start(false, true);
   };
 
   const submit = async (automatic = false) => {
@@ -214,19 +233,49 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
     setSubmitting(true);
     setError('');
     const pending = { ...run, answers, currentPart, submissionPending: true };
+    let activePending = pending;
     setRun(pending);
     try {
       if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(pending));
-      const completed = await moverReadingWritingApi.submit(setId, token, {
-        ticket: run.ticket, runSecret: run.runSecret, guestId, studentName, answers,
-      });
-      setReviewRunSecret(run.runSecret);
+      let completed: MoverReadingWritingCompletedAttempt;
+      try {
+        completed = await moverReadingWritingApi.submit(setId, token, {
+          ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName, answers,
+        });
+      } catch (reason: any) {
+        if (!isExpiredAttemptTicket(reason, 'mover-reading-writing')) throw reason;
+        const renewed = await moverReadingWritingApi.renewAttempt(setId, token, {
+          ticket: pending.ticket, runSecret: pending.runSecret, guestId, studentName,
+        });
+        if (renewed.clientRunId !== pending.clientRunId || renewed.versionId !== pending.versionId) {
+          throw Object.assign(new Error('Phiếu khôi phục không khớp lượt làm bài đã lưu.'), { status: 409 });
+        }
+        activePending = { ...pending, ticket: renewed.ticket, startedAt: renewed.startedAt, deadlineAt: renewed.deadlineAt };
+        setRun(activePending);
+        if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(activePending));
+        completed = await moverReadingWritingApi.submit(setId, token, {
+          ticket: activePending.ticket, runSecret: activePending.runSecret, guestId, studentName, answers,
+        });
+      }
+      setReviewRunSecret(activePending.runSecret);
       setResult(completed);
       setRun(null);
+      setAttemptRecoveryExpired(false);
       if (activeStorageKey) window.localStorage.removeItem(activeStorageKey);
     } catch (reason: any) {
-      setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} Bạn có thể nộp lại với cùng mã lượt làm bài.`);
-      setRun(pending);
+      const status = Number(reason?.status);
+      const recoveryExpired = isAttemptRecoveryExpired(reason, 'mover-reading-writing');
+      const retryable = !Number.isFinite(status) || status >= 500 || [408, 425, 429].includes(status);
+      const retained = { ...activePending, submissionPending: retryable };
+      const suffix = recoveryExpired
+        ? 'Câu trả lời vẫn được lưu trên thiết bị. Bạn có thể lưu bản sao và bắt đầu một lượt mới.'
+        : retryable
+          ? 'Câu trả lời đã được lưu; bạn có thể nộp lại với cùng lượt làm bài.'
+          : 'Câu trả lời vẫn được lưu trên thiết bị. Hãy kiểm tra tài khoản hoặc nhờ giáo viên hỗ trợ trước khi bắt đầu lượt mới.';
+      setError(`${automatic ? 'Hết giờ. ' : ''}${reason.message} ${suffix}`);
+      setAttemptRecoveryExpired(recoveryExpired);
+      setRun(retained);
+      if (activeStorageKey) window.localStorage.setItem(activeStorageKey, JSON.stringify(retained));
     } finally { submitGuard.current = false; setSubmitting(false); }
   };
 
@@ -301,8 +350,8 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
 
   return (
     <main className="min-h-screen bg-slate-100" id="mover-reading-writing-player">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">Movers Reading & Writing</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answeredCount(answers)}/40 câu</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting} onClick={() => void submit()} className="mover-reading-submit-action inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-white"><Send size={15} />Nộp bài</button></div></div></header>
-      <div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Các Part Reading & Writing">{playable.content.parts.map((part, index) => <button key={part.part} type="button" role="tab" aria-selected={currentPart === index} data-active={currentPart === index} onClick={() => setCurrentPart(index)} className={`mover-reading-part-step shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-600 text-white shadow-md' : 'border border-slate-200 bg-white text-indigo-800'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}Part {index + 1}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-5"><p className="text-xs font-black uppercase text-indigo-600">Part {currentPart + 1}</p><h2 className="mt-1 text-2xl font-black text-slate-900">{playable.content.parts[currentPart].title}</h2><p className="mt-2 text-sm font-semibold text-slate-500">{playable.content.parts[currentPart].instruction}</p></div>{views[currentPart]}</section><div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} className="mover-reading-secondary-action inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-black text-slate-700 disabled:opacity-60"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === 5} onClick={() => setCurrentPart(value => Math.min(5, value + 1))} className="mover-reading-primary-action inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:opacity-60">Part sau<ChevronRight size={17} /></button></div></div>
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">Movers Reading & Writing</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answeredCount(answers)}/40 câu</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="mover-reading-submit-action inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-white disabled:opacity-50"><Send size={15} />Nộp bài</button></div></div></header>
+      <div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Các Part Reading & Writing">{playable.content.parts.map((part, index) => <button key={part.part} type="button" role="tab" aria-selected={currentPart === index} data-active={currentPart === index} onClick={() => setCurrentPart(index)} className={`mover-reading-part-step shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-600 text-white shadow-md' : 'border border-slate-200 bg-white text-indigo-800'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}Part {index + 1}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-5"><p className="text-xs font-black uppercase text-indigo-600">Part {currentPart + 1}</p><h2 className="mt-1 text-2xl font-black text-slate-900">{playable.content.parts[currentPart].title}</h2><p className="mt-2 text-sm font-semibold text-slate-500">{playable.content.parts[currentPart].instruction}</p></div>{views[currentPart]}</section><div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} className="mover-reading-secondary-action inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-black text-slate-700 disabled:opacity-60"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === 5} onClick={() => setCurrentPart(value => Math.min(5, value + 1))} className="mover-reading-primary-action inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:opacity-60">Part sau<ChevronRight size={17} /></button></div></div>
     </main>
   );
 }

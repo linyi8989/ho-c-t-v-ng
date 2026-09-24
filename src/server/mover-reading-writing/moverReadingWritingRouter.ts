@@ -80,6 +80,10 @@ const SMART_IMPORT_TIMEOUT_MS = Math.min(
   180_000,
   Math.max(15_000, Number(process.env.LISTENING_SMART_IMPORT_TIMEOUT_MS) || 180_000),
 );
+const MOVER_READING_TICKET_DEFAULT_TTL_MS = 7 * 24 * 60 * 60_000;
+const MOVER_READING_TICKET_RENEWAL_TTL_MS = 15 * 60_000;
+const MOVER_READING_TICKET_RENEWAL_GRACE_MS = 7 * 24 * 60 * 60_000;
+const MOVER_READING_TICKET_CLOCK_SKEW_MS = 5 * 60_000;
 
 function hasValidImageMagic(buffer: Buffer, mimeType: string) {
   if (mimeType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
@@ -135,19 +139,49 @@ function encodeTicket(payload: Record<string, unknown>, secret: string) {
   return `${encoded}.${signature}`;
 }
 
-function decodeTicket(ticket: unknown, secret: string) {
+function decodeTicket(ticket: unknown, secret: string, options: { allowExpired?: boolean } = {}) {
   const [encoded, signature, extra] = String(ticket || '').split('.');
   if (!encoded || !signature || extra) throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   const expected = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
   if (!timingSafeEqual(signature, expected)) throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   try {
     const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-    if (Number(payload.ticketExpiresAt || 0) < Date.now()) throw apiError(410, 'Phiếu làm bài đã hết hạn.');
+    const expiresAt = Number(payload.ticketExpiresAt);
+    if (!options.allowExpired && (!Number.isFinite(expiresAt) || expiresAt <= Date.now())) {
+      throw apiError(410, 'Phiếu làm bài đã hết hạn.', { code: 'MOVER_READING_ATTEMPT_TICKET_EXPIRED' });
+    }
     return payload;
   } catch (error: any) {
     if (error?.status) throw error;
     throw apiError(401, 'Phiếu làm bài không hợp lệ.');
   }
+}
+
+function validateRecoverableTicket(ticket: any) {
+  const startedAt = new Date(ticket.startedAt).getTime();
+  const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+  if (!text(ticket.versionId, 180)
+    || !text(ticket.clientRunId, 180)
+    || !/^[a-f0-9]{64}$/i.test(String(ticket.runSecretHash || ''))
+    || !Number.isFinite(startedAt)
+    || startedAt > Date.now() + MOVER_READING_TICKET_CLOCK_SKEW_MS) {
+    throw apiError(401, 'Phiếu làm bài không hợp lệ.');
+  }
+  const originalExpiry = Number.isFinite(ticketExpiresAt) && ticketExpiresAt > startedAt
+    ? ticketExpiresAt
+    : startedAt + MOVER_READING_TICKET_DEFAULT_TTL_MS;
+  const maximumRecoveryEndsAt = originalExpiry + MOVER_READING_TICKET_RENEWAL_GRACE_MS;
+  const claimedRecoveryEndsAt = Number(ticket.ticketRecoveryEndsAt);
+  const recoveryEndsAt = Number.isFinite(claimedRecoveryEndsAt) && claimedRecoveryEndsAt >= originalExpiry
+    ? Math.min(claimedRecoveryEndsAt, maximumRecoveryEndsAt)
+    : maximumRecoveryEndsAt;
+  if (Date.now() >= recoveryEndsAt) {
+    throw apiError(410, 'Lượt làm bài đã quá thời hạn khôi phục.', {
+      code: 'MOVER_READING_ATTEMPT_TICKET_RECOVERY_EXPIRED',
+      recoverable: false,
+    });
+  }
+  return { recoveryEndsAt };
 }
 
 async function getSet(db: any, id: string) {
@@ -203,9 +237,11 @@ async function resolveActor(
   req: express.Request,
   resolveGuestProfile: MoverReadingWritingRouterDependencies['resolveGuestProfile'],
   classInfo: { classId?: unknown; className?: unknown; verified?: boolean } = {},
+  expectedOwnerKey = '',
 ) {
   if ((req as any).authBlocked) throw apiError(403, 'Tài khoản đã bị khóa.');
-  if (req.user) {
+  const ticketOwnsGuestRun = String(expectedOwnerKey).startsWith('guest:');
+  if (req.user && !ticketOwnsGuestRun) {
     return {
       ownerKey: `user:${req.user.id}`,
       userId: req.user.id,
@@ -803,6 +839,7 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
       if (!version) throw apiError(404, 'Không tìm thấy phiên bản đã xuất bản.');
       const startedAt = nowIso();
       const deadlineAt = set.timeLimitMinutes ? new Date(Date.now() + Number(set.timeLimitMinutes) * 60_000).toISOString() : undefined;
+      const ticketExpiresAt = Date.now() + (deadlineAt ? 24 * 60 * 60_000 : MOVER_READING_TICKET_DEFAULT_TTL_MS);
       const payload = {
         schemaVersion: MOVER_READING_WRITING_SCHEMA_VERSION,
         paperId: MOVER_READING_WRITING_PAPER_ID,
@@ -818,7 +855,8 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
         runSecretHash: sha256(runSecret),
         startedAt,
         deadlineAt,
-        ticketExpiresAt: Date.now() + (deadlineAt ? 24 * 60 * 60_000 : 7 * 24 * 60 * 60_000),
+        ticketExpiresAt,
+        ticketRecoveryEndsAt: ticketExpiresAt + MOVER_READING_TICKET_RENEWAL_GRACE_MS,
       };
       res.json({
         ticket: encodeTicket(payload, ticketSecret),
@@ -829,13 +867,51 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
     } catch (error) { sendError(res, error); }
   });
 
+  router.post('/sets/:id/attempts/renew', authenticateOptionalUser, async (req, res) => {
+    try {
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
+      if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) {
+        throw apiError(401, 'Phiếu làm bài không khớp bộ đề.');
+      }
+      const runSecret = text(req.body?.runSecret, 300);
+      const actor = await resolveActor(req, resolveGuestProfile, {
+        classId: ticket.classId,
+        className: ticket.className,
+        verified: Boolean(ticket.assignmentId),
+      }, ticket.ownerKey);
+      if (actor.ownerKey !== ticket.ownerKey
+        || !runSecret
+        || !timingSafeEqual(sha256(runSecret), String(ticket.runSecretHash || ''))) {
+        throw apiError(401, 'Không có quyền khôi phục lượt làm bài này.');
+      }
+      const { recoveryEndsAt } = validateRecoverableTicket(ticket);
+      const set = await getSet(db, ticket.setId);
+      const version = await getVersion(db, ticket.versionId);
+      if (!set || !version || version.setId !== set.id) {
+        throw apiError(409, 'Phiên bản bộ đề không còn hợp lệ.');
+      }
+      const renewedTicket = encodeTicket({
+        ...ticket,
+        ticketExpiresAt: Math.min(Date.now() + MOVER_READING_TICKET_RENEWAL_TTL_MS, recoveryEndsAt),
+        ticketRecoveryEndsAt: recoveryEndsAt,
+      }, ticketSecret);
+      res.json({
+        ticket: renewedTicket,
+        clientRunId: ticket.clientRunId,
+        versionId: ticket.versionId,
+        startedAt: ticket.startedAt,
+        ...(ticket.deadlineAt ? { deadlineAt: ticket.deadlineAt } : {}),
+      });
+    } catch (error) { sendError(res, error); }
+  });
+
   router.post('/sets/:id/attempts/submit', authenticateOptionalUser, async (req, res) => {
     try {
-      const ticket = decodeTicket(req.body?.ticket, ticketSecret);
+      const ticket = decodeTicket(req.body?.ticket, ticketSecret, { allowExpired: true });
       if (ticket.paperId !== MOVER_READING_WRITING_PAPER_ID || ticket.setId !== req.params.id) throw apiError(401, 'Phiếu làm bài không khớp bộ đề.');
       const runSecret = text(req.body?.runSecret, 300);
       if (!runSecret || !timingSafeEqual(sha256(runSecret), String(ticket.runSecretHash))) throw apiError(401, 'Mã bảo vệ lượt làm bài không hợp lệ.');
-      const actor = await resolveActor(req, resolveGuestProfile);
+      const actor = await resolveActor(req, resolveGuestProfile, {}, ticket.ownerKey);
       if (actor.ownerKey !== ticket.ownerKey) throw apiError(404, 'Không tìm thấy lượt làm bài.');
       const set = await getSet(db, ticket.setId);
       const version = await getVersion(db, ticket.versionId);
@@ -847,6 +923,10 @@ export function createMoverReadingWritingRouter(dependencies: MoverReadingWritin
         if (!timingSafeEqual(String(existing.runSecretHash), sha256(runSecret))) throw apiError(409, 'Mã lượt làm bài đã được sử dụng.');
         const { runSecretHash: _secret, ownerKey: _owner, userId: _user, guestId: _guest, ...summary } = existing;
         return res.json(summary);
+      }
+      const ticketExpiresAt = Number(ticket.ticketExpiresAt);
+      if (!Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
+        throw apiError(410, 'Phiếu làm bài đã hết hạn.', { code: 'MOVER_READING_ATTEMPT_TICKET_EXPIRED' });
       }
       const content = version.content as MoverReadingWritingContent;
       const answers = sanitizeMoverReadingWritingAnswers(content, req.body?.answers) as MoverReadingWritingAnswers;

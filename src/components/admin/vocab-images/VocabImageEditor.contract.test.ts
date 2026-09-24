@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const dashboardSource = readFileSync(new URL("../AdminDashboard.tsx", import.meta.url), "utf8");
+const editorSource = readFileSync(new URL("../vocabulary/VocabularyEditorPanel.tsx", import.meta.url), "utf8");
 const thumbnailSource = readFileSync(new URL("./VocabImageThumbnail.tsx", import.meta.url), "utf8");
 const generateSource = readFileSync(new URL("./VocabImageGenerateDialog.tsx", import.meta.url), "utf8");
 
 test("editor exposes automatic batch, single regenerate, clipboard and local-upload image workflows", () => {
-  assert.match(dashboardSource, /id="batch-generate-vocab-images-btn"/);
+  assert.match(editorSource, /id="batch-generate-vocab-images-btn"/);
   assert.match(dashboardSource, /\/api\/image-library\/generate/);
   assert.match(dashboardSource, /\/api\/image-library\/batch-generate/);
   assert.match(dashboardSource, /\/api\/image-library\/upload/);
@@ -35,7 +36,7 @@ test("editor exposes automatic batch, single regenerate, clipboard and local-upl
 });
 
 test("new UI contains only AI generation providers and no image-search services", () => {
-  for (const source of [dashboardSource, generateSource]) {
+  for (const source of [dashboardSource, editorSource, generateSource]) {
     assert.doesNotMatch(source, /\/api\/image-library\/search/);
     assert.doesNotMatch(source, /image-library\/(?:batch-preview|batch-import)/);
     assert.doesNotMatch(source, /Wikimedia|Pixabay|Pexels/i);

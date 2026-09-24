@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
@@ -16,6 +17,14 @@ import {
 import { containsInternalListeningDisplayValue } from '../../features/listening/reviewPresentation';
 import { createListeningRouter } from './listeningRouter';
 import { gradeListeningAttempt } from './listeningGrader';
+
+function rewriteSignedTicket(ticket: string, secret: string, updates: Record<string, unknown>) {
+  const [encoded] = ticket.split('.');
+  const payload = { ...JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')), ...updates };
+  const nextEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(nextEncoded).digest('base64url');
+  return `${nextEncoded}.${signature}`;
+}
 
 function moverFixture(): { content: ListeningSetContent; answers: ListeningAnswers } {
   const region = (index: number) => ({
@@ -243,6 +252,12 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   });
 
   const pass: express.RequestHandler = (_req, _res, next) => next();
+  const optional: express.RequestHandler = (req, _res, next) => {
+    if (req.headers['x-test-teacher'] === 'yes') {
+      (req as any).user = { id: 'teacher-1', name: 'Teacher One', email: 'teacher-one@example.test', role: 'teacher' };
+    }
+    next();
+  };
   const authenticateTeacher: express.RequestHandler = (req, _res, next) => {
     (req as any).user = {
       id: 'teacher-1',
@@ -257,7 +272,7 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   app.use('/api/listening', createListeningRouter({
     db,
     authenticateUser: authenticateTeacher,
-    authenticateOptionalUser: pass,
+    authenticateOptionalUser: optional,
     requireStaff: pass,
     mediaDir: path.join(temporaryDirectory, 'media'),
     mediaPublicPrefix: '/listening-media',
@@ -479,19 +494,70 @@ test('legacy Mover API keeps its URL, sanitizes answers, and submits idempotentl
   assert.equal(replayResult.id, firstResult.id);
   assert.equal(replayResult.idempotentReplay, true);
 
+  const expiredCompletedTicket = rewriteSignedTicket(prepared.ticket, 'compatibility-test-secret-with-sufficient-length', {
+    ticketExpiresAt: Date.now() - 1_000,
+    ticketRecoveryEndsAt: Date.now() - 500,
+  });
+  const expiredReplayResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...submission, ticket: expiredCompletedTicket }),
+  });
+  assert.equal(expiredReplayResponse.status, 200);
+  assert.equal((await expiredReplayResponse.json() as any).id, firstResult.id);
+
+  const recoveryPrepareResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, clientRunId: 'listening-recovery-run', runSecret: 'listening-recovery-secret' }),
+  });
+  assert.equal(recoveryPrepareResponse.status, 200);
+  const recoveryPrepared = await recoveryPrepareResponse.json() as any;
+  const expiredTicket = rewriteSignedTicket(recoveryPrepared.ticket, 'compatibility-test-secret-with-sufficient-length', {
+    ticketExpiresAt: Date.now() - 1_000,
+    ticketRecoveryEndsAt: Date.now() + 60_000,
+  });
+  const expiredSubmitResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: expiredTicket, runSecret: 'listening-recovery-secret', answers: fixture.answers }),
+  });
+  assert.equal(expiredSubmitResponse.status, 410);
+  assert.equal((await expiredSubmitResponse.json() as any).details.code, 'LISTENING_ATTEMPT_TICKET_EXPIRED');
+
+  const renewalResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/renew`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test-Teacher': 'yes' },
+    body: JSON.stringify({ ...identity, ticket: expiredTicket, runSecret: 'listening-recovery-secret' }),
+  });
+  assert.equal(renewalResponse.status, 200);
+  const renewed = await renewalResponse.json() as any;
+  assert.equal(renewed.clientRunId, 'listening-recovery-run');
+  const recoveredSubmitResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test-Teacher': 'yes' },
+    body: JSON.stringify({ ...identity, ticket: renewed.ticket, runSecret: 'listening-recovery-secret', answers: fixture.answers }),
+  });
+  assert.equal(recoveredSubmitResponse.status, 201);
+
+  const staleTicket = rewriteSignedTicket(recoveryPrepared.ticket, 'compatibility-test-secret-with-sufficient-length', {
+    startedAt: new Date(Date.now() - 9 * 24 * 60 * 60_000).toISOString(),
+    ticketExpiresAt: Date.now() - 8 * 24 * 60 * 60_000,
+    ticketRecoveryEndsAt: Date.now() - 24 * 60 * 60_000,
+  });
+  const staleRenewalResponse = await fetch(`${baseUrl}/api/listening/sets/legacy-mover-set/attempts/renew`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: staleTicket, runSecret: 'listening-recovery-secret' }),
+  });
+  assert.equal(staleRenewalResponse.status, 410);
+  assert.equal((await staleRenewalResponse.json() as any).details.code, 'LISTENING_ATTEMPT_TICKET_RECOVERY_EXPIRED');
+
   const attempts = await db.collection('listening_attempts').get();
-  assert.equal(attempts.size, 1);
+  assert.equal(attempts.size, 2);
 });
 
 test('authenticated results join listening detail only inside the staff review branch', () => {
-  const serverSource = fs.readFileSync(path.resolve(process.cwd(), 'server.ts'), 'utf8');
-  const resultsRouteStart = serverSource.indexOf('app.get("/api/results"');
-  const nextRouteStart = serverSource.indexOf('app.get("/api/leaderboard-results"', resultsRouteStart);
-  const resultsRoute = serverSource.slice(resultsRouteStart, nextRouteStart);
-
-  assert.match(resultsRoute, /isStaffResultReview/);
-  assert.match(resultsRoute, /resolveListeningActivityDetailForStaff/);
-  assert.match(resultsRoute, /listeningAttemptToActivity\(data, detail\)/);
-  assert.match(resultsRoute, /if \(summaryView \|\| !isStaffResultReview\)/);
-  assert.match(resultsRoute, /summaryView \? toActivitySummary\(activity, "listening", data\.id\) : activity/);
+  const resultsService = fs.readFileSync(path.resolve(process.cwd(), 'src/server/results/service.ts'), 'utf8');
+  assert.match(resultsService, /if \(summaryView\)/);
+  assert.match(resultsService, /return \{ body: summaries \}/);
+  assert.match(resultsService, /const isStaff =/);
+  assert.match(resultsService, /if \(!isStaff\) return options\.listeningAttemptToActivity\(data\)/);
+  assert.match(resultsService, /repository\.resolveListeningDetail\(data, detailCache\)/);
+  assert.match(resultsService, /options\.listeningAttemptToActivity\(data, await/);
 });

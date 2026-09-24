@@ -12,6 +12,8 @@ const projectRoot = process.cwd();
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vhomework-legacy-contracts-'));
 const databasePath = path.join(temporaryDirectory, 'app.sqlite');
 const audioDirectory = path.join(temporaryDirectory, 'audio');
+const listeningMediaDirectory = path.join(temporaryDirectory, 'listening-media');
+const vocabImageDirectory = path.join(temporaryDirectory, 'vocab-images');
 const publicIdentitySecret = 'legacy-contract-public-identity-secret';
 const firebaseProjectId = 'demo-vhomework-contracts';
 const now = Date.now();
@@ -461,6 +463,8 @@ async function startApplication() {
       LEARNING_HISTORY_ENABLED: 'false',
       RECENT_ACTIVITY_DAYS: '7',
       TTS_AUDIO_DIR: audioDirectory,
+      LISTENING_MEDIA_DIR: listeningMediaDirectory,
+      VOCAB_IMAGE_DIR: vocabImageDirectory,
       GUEST_PUBLIC_ID_SECRET: publicIdentitySecret,
       FIREBASE_PROJECT_ID: firebaseProjectId,
       FIREBASE_AUTH_EMULATOR_HOST: `127.0.0.1:${authPort}`,
@@ -700,6 +704,8 @@ test('authenticated result and leaderboard contracts enforce auth and owner/teac
     'ownerType',
     'rawScore',
     'score',
+    'sourceId',
+    'sourceType',
     'startedAt',
     'status',
     'studentId',
@@ -816,7 +822,7 @@ test('teacher preview endpoints require staff ownership and return only the requ
   const vocabulary = await apiRequest('/api/admin/vocab-sets/vocab-1/preview', ownerToken);
   assert.equal(vocabulary.status, 200);
   assert.equal(vocabulary.body.id, 'vocab-1');
-  assert.equal(vocabulary.body.items[0].term, 'apple');
+  assert.equal(vocabulary.body.items[0].term, 'hello');
   assert.equal('audioPath' in vocabulary.body.items[0], false);
 
   const grammar = await apiRequest('/api/admin/grammar-sets/grammar-1/preview', ownerToken);

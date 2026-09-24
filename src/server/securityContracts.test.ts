@@ -20,6 +20,18 @@ const mediaMaintenanceSource = readFileSync(
   new URL("../../scripts/media-orphan-maintenance.mjs", import.meta.url),
   "utf8"
 );
+const classRouterSource = readFileSync(new URL("./classes/router.ts", import.meta.url), "utf8");
+const classServiceSource = readFileSync(new URL("./classes/service.ts", import.meta.url), "utf8");
+const classRepositorySource = readFileSync(new URL("./classes/repository.ts", import.meta.url), "utf8");
+const assignmentRouterSource = readFileSync(new URL("./assignments/router.ts", import.meta.url), "utf8");
+const assignmentServiceSource = readFileSync(new URL("./assignments/service.ts", import.meta.url), "utf8");
+const assignmentRepositorySource = readFileSync(new URL("./assignments/repository.ts", import.meta.url), "utf8");
+const vocabularyRouterSource = readFileSync(new URL("./vocabulary/router.ts", import.meta.url), "utf8");
+const vocabularyServiceSource = readFileSync(new URL("./vocabulary/service.ts", import.meta.url), "utf8");
+const vocabularyRepositorySource = readFileSync(new URL("./vocabulary/repository.ts", import.meta.url), "utf8");
+const grammarRouterSource = readFileSync(new URL("./grammar/router.ts", import.meta.url), "utf8");
+const grammarServiceSource = readFileSync(new URL("./grammar/service.ts", import.meta.url), "utf8");
+const grammarRepositorySource = readFileSync(new URL("./grammar/repository.ts", import.meta.url), "utf8");
 
 test("bootstrap administrators come from configuration and stored backend roles remain valid", () => {
   const configured = parseBootstrapSuperAdminEmails(" OWNER@example.com, second@example.com ");
@@ -162,38 +174,48 @@ test("media orphan maintenance is dry-run first and quarantines only after backu
 });
 
 test("legacy resource delete routes archive records instead of deleting history-linked parents", () => {
-  for (const [startMarker, endMarker] of [
-    ['app.delete("/api/vocab-sets/:id"', '// 10. VOCAB SETS: Clone set'],
-    ['app.delete("/api/classes/:id"', '// 13. CLASS MEMBERS: Get class members'],
-    ['app.delete("/api/assignments/:id"', '// 19. GRAMMAR SETS: List grammar lessons'],
-    ['app.delete("/api/admin/grammar-sets/:id"', 'app.post("/api/admin/grammar-sets/:id/clone"'],
-  ]) {
-    const start = serverSource.indexOf(startMarker);
-    const end = serverSource.indexOf(endMarker, start);
-    assert.notEqual(start, -1);
-    assert.notEqual(end, -1);
-    const route = serverSource.slice(start, end);
-    assert.match(route, /archiveResourceRecord/);
-    assert.doesNotMatch(route, /await [^;\n]+\.delete\(|batch\d*\.delete\(/);
-  }
+  assert.match(classRouterSource, /router\.delete\("\/classes\/:id", options\.authenticateUser, options\.requireStaff/);
+  assert.match(classServiceSource, /canManageClass\(actor, classRecord\)/);
+  assert.match(classServiceSource, /archiveClassAndAssignments/);
+  const archiveStart = classRepositorySource.indexOf('async archiveClassAndAssignments');
+  const archiveEnd = classRepositorySource.indexOf('\n\n    async listClassMembers', archiveStart);
+  assert.notEqual(archiveStart, -1);
+  assert.notEqual(archiveEnd, -1);
+  const archiveClassRoute = classRepositorySource.slice(archiveStart, archiveEnd);
+  assert.match(archiveClassRoute, /archiveResourceRecord\(record, actorId, archivedAt\)/);
+  assert.match(archiveClassRoute, /revokeShareToken: true/);
+  assert.doesNotMatch(archiveClassRoute, /\.delete\(/);
+
+  assert.match(assignmentRouterSource, /router\.delete\("\/assignments\/:id", options\.authenticateUser, options\.requireStaff/);
+  assert.match(assignmentServiceSource, /canManageAssignment\(actor, assignment, classRecord\)/);
+  assert.match(assignmentServiceSource, /repository\.archiveAssignment\(assignment, actor\.id/);
+  const archiveAssignmentStart = assignmentRepositorySource.indexOf('async archiveAssignment');
+  assert.notEqual(archiveAssignmentStart, -1);
+  const archiveAssignmentRoute = assignmentRepositorySource.slice(archiveAssignmentStart);
+  assert.match(archiveAssignmentRoute, /archiveResourceRecord\(record, actorId, archivedAt/);
+  assert.match(archiveAssignmentRoute, /revokeShareToken: true/);
+  assert.doesNotMatch(archiveAssignmentRoute, /\.delete\(/);
+
+  assert.match(vocabularyRouterSource, /router\.delete\("\/vocab-sets\/:id", options\.authenticateUser, options\.requireStaff/);
+  assert.match(vocabularyServiceSource, /repository\.archiveSetAndAssignments/);
+  assert.match(vocabularyRepositorySource, /archiveResourceRecord\(set, actorId, archivedAt/);
+  assert.match(vocabularyRepositorySource, /revokeShareToken: true/);
+  assert.doesNotMatch(vocabularyRepositorySource, /batch\.delete|\.delete\(/);
+
+  assert.match(grammarRouterSource, /router\.delete\("\/admin\/grammar-sets\/:id", options\.authenticateUser, options\.requireStaff/);
+  assert.match(grammarServiceSource, /repository\.archiveSet\(existing, actor\.id/);
+  assert.match(grammarRepositorySource, /archiveResourceRecord\(record, actorId, archivedAt/);
+  assert.match(grammarRepositorySource, /revokeShareToken: true/);
+  assert.doesNotMatch(grammarRepositorySource, /\.delete\(/);
 });
 
 test("teacher library preview point-reads are authenticated and owner-scoped", () => {
-  for (const [routeMarker, ownerCheck] of [
-    ['app.get("/api/admin/grammar-sets/:id/preview"', "canManageGrammarSet"],
-    ['app.get("/api/admin/vocab-sets/:id/preview"', "canManageVocabSet"],
-  ] as const) {
-    const start = serverSource.indexOf(routeMarker);
-    const end = serverSource.indexOf("\napp.", start + routeMarker.length);
-    assert.notEqual(start, -1, `Missing ${routeMarker}`);
-    assert.notEqual(end, -1, `Cannot bound ${routeMarker}`);
-    const route = serverSource.slice(start, end);
-    assert.match(route, /authenticateUser/);
-    assert.match(route, /requireRole\(\["teacher", "super_admin"\]\)/);
-    assert.ok(route.includes(ownerCheck), `Missing ${ownerCheck}`);
-    assert.match(route, /status\(404\)/);
-    assert.doesNotMatch(route, /\.set\(|\.update\(|\.delete\(/);
-  }
+  assert.match(grammarRouterSource, /router\.get\("\/admin\/grammar-sets\/:id\/preview", options\.authenticateUser, options\.requireStaff/);
+  assert.match(grammarServiceSource, /canManageSet\(actor, set\)/);
+  assert.match(grammarServiceSource, /throw grammarHttpError\(404/);
+  assert.match(vocabularyRouterSource, /router\.get\("\/admin\/vocab-sets\/:id\/preview", options\.authenticateUser, options\.requireStaff/);
+  assert.match(vocabularyServiceSource, /canManageSet\(actor, set\)/);
+  assert.match(vocabularyServiceSource, /throw vocabularyHttpError\(404/);
 
   assert.match(teacherPreviewSource, /\/api\/admin\/vocab-sets\/\$\{encodeURIComponent\(setId\)\}\/preview/);
   assert.match(teacherPreviewSource, /\/api\/admin\/grammar-sets\/\$\{encodeURIComponent\(setId\)\}\/preview/);
