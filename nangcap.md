@@ -970,3 +970,17 @@ Trạng thái: **hoàn thành kỹ thuật ngày 2026-09-24; chưa deploy produc
 - [ ] Chưa triển khai production trong lượt này. Còn phải thực hiện checklist có
   người vận hành, backup được xác minh, cài dependency từ lockfile mới, backfill
   production và theo dõi sau deploy.
+
+### Hotfix bảo toàn cấu hình cPanel/Passenger - 2026-09-25
+
+- [x] Xác định sự cố production: pipeline đã thay `.htaccess` sống bằng file trong
+  Git, khiến LiteSpeed trả HTML 404 cho `/api/me` trước khi request tới Express.
+- [x] Người vận hành phục hồi `.htaccess` có Passenger/environment blocks và restart
+  bằng CloudLinux Node.js Selector; HTTP/HTTPS `/api/me` trở lại JSON 401 và đăng
+  nhập Admin hoạt động.
+- [x] Pipeline chỉ còn preflight marker Passenger theo kiểu read-only; cấm copy,
+  snapshot hoặc move `.htaccess`. Rollback ứng dụng chỉ áp dụng cho server bundle
+  và root/dist index, không chạm database, media hay cấu hình môi trường.
+- [x] Hotfix local đạt security/deployment contract 17/17, TypeScript, production
+  build và kiểm tra artifact History; lần triển khai guard này phải được xác minh
+  riêng bằng Passenger/API/Admin smoke trong checklist.

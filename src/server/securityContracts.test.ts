@@ -79,17 +79,33 @@ test("production static layer preserves security, cache and compression policy",
   assert.match(indexSource, /<html lang="vi">/);
 });
 
-test("deployment stages immutable assets and activates index last without deleting live files", () => {
+test("deployment stages immutable assets, preserves cPanel configuration and activates index last", () => {
   assert.doesNotMatch(deploymentSource, /rm -rf .*assets|rm -f .*index\.html/);
   assert.match(deploymentSource, /index\.html\.next/);
   assert.match(deploymentSource, /server\.cjs\.next/);
   assert.match(deploymentSource, /server\.cjs\.previous/);
   assert.match(deploymentSource, /index\.html\.previous/);
   assert.match(deploymentSource, /test -s/);
+  assert.match(deploymentSource, /grep -q "CLOUDLINUX PASSENGER CONFIGURATION BEGIN" \$DEPLOYPATH\/\.htaccess/);
+  assert.doesNotMatch(deploymentSource, /\.htaccess\.(?:next|previous)/);
+  const liveHtaccessTasks = deploymentSource
+    .split(/\r?\n/)
+    .filter(line => line.includes('$DEPLOYPATH/.htaccess'))
+    .map(line => line.trim());
+  assert.deepEqual(liveHtaccessTasks, [
+    '- /usr/bin/test -s $DEPLOYPATH/.htaccess',
+    '- /usr/bin/grep -q "CLOUDLINUX PASSENGER CONFIGURATION BEGIN" $DEPLOYPATH/.htaccess',
+  ]);
   const assetsIndex = deploymentSource.indexOf('dist/client/assets');
+  const passengerPreflightIndex = deploymentSource.indexOf('CLOUDLINUX PASSENGER CONFIGURATION BEGIN');
   const rollbackSnapshotIndex = deploymentSource.indexOf('server.cjs.previous');
   const activationIndex = deploymentSource.lastIndexOf('index.html.next $DEPLOYPATH/index.html');
-  assert.ok(assetsIndex >= 0 && rollbackSnapshotIndex > assetsIndex && activationIndex > rollbackSnapshotIndex);
+  assert.ok(
+    assetsIndex >= 0
+      && passengerPreflightIndex > assetsIndex
+      && rollbackSnapshotIndex > passengerPreflightIndex
+      && activationIndex > rollbackSnapshotIndex
+  );
 });
 
 test("fixed-window limits cost and resets without accepting over-limit work", () => {

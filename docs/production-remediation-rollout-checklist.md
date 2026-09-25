@@ -97,7 +97,8 @@ Nếu execute thất bại trước readiness marker, giữ database, điều tr
 - [ ] Chạy pipeline `.cpanel.yml` từ đúng commit.
 - [ ] Xác nhận bundle hash được copy trước index.
 - [ ] Xác nhận các file `.next` có kích thước lớn hơn 0 trước activation.
-- [ ] Xác nhận snapshot rollback `.previous` đã được tạo cho server, root/dist index và `.htaccess`.
+- [ ] Xác nhận snapshot rollback `.previous` đã được tạo cho server và root/dist index.
+- [ ] Xác nhận `.htaccess` sống vẫn có marker `CLOUDLINUX PASSENGER CONFIGURATION BEGIN`; pipeline chỉ đọc preflight và không copy, snapshot hoặc thay file này.
 - [ ] Xác nhận pipeline chỉ touch `tmp/restart.txt` một lần và root `index.html` được activation cuối cùng.
 - [ ] Không xóa bundle hash cũ trong cửa sổ deploy; dọn asset cũ là maintenance riêng sau thời gian cache tối đa.
 
@@ -158,7 +159,8 @@ Trong 30 phút đầu và kiểm lại sau 24 giờ:
 Rollback ứng dụng nếu có một trong các dấu hiệu: auth scope sai, dữ liệu public vượt allowlist, 5xx liên tục, latency summary vượt 2 giây khi warm, process crash-loop, route chính hỏng, hoặc SQLite busy/locked tăng rõ rệt.
 
 - [ ] Dừng activation mới/đặt maintenance nếu cần ngăn ghi sai.
-- [ ] Khôi phục đồng bộ `server.cjs.previous`, server map, root/dist `index.html.previous` và `.htaccess.previous`.
+- [ ] Khôi phục đồng bộ `server.cjs.previous`, server map và root/dist `index.html.previous`.
+- [ ] Không thay `.htaccess` trong rollback ứng dụng. Đây là cấu hình sống do cPanel/CloudLinux quản lý; nếu chính file này gặp sự cố, phục hồi từ bản sao đã kiểm tra có Passenger/environment blocks rồi restart bằng Node.js Selector.
 - [ ] Touch restart đúng một lần, rồi smoke lại API/route/auth.
 - [ ] Giữ bundle hash cũ nên index cũ vẫn tải được.
 - [ ] Không restore database production nếu đã phát sinh ghi mới sau backup. Backfill leaderboard là additive và tương thích app cũ; ưu tiên rollback ứng dụng.

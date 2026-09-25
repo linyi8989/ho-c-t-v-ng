@@ -19,18 +19,19 @@ deployment:
     - /bin/cp -f dist/server.cjs.map $DEPLOYPATH/dist/server.cjs.map.next
     - /bin/cp -f dist/client/index.html $DEPLOYPATH/index.html.next
     - /bin/cp -f dist/client/index.html $DEPLOYPATH/dist/client/index.html.next
-    - /bin/cp -f .htaccess $DEPLOYPATH/.htaccess.next
     - /usr/bin/test -s $DEPLOYPATH/dist/server.cjs.next
     - /usr/bin/test -s $DEPLOYPATH/index.html.next
     - /usr/bin/test -s $DEPLOYPATH/dist/client/index.html.next
+    # cPanel/CloudLinux owns the live file, including Passenger and environment blocks.
+    # Validate it before activation, but never copy, replace or snapshot it from Git.
+    - /usr/bin/test -s $DEPLOYPATH/.htaccess
+    - /usr/bin/grep -q "CLOUDLINUX PASSENGER CONFIGURATION BEGIN" $DEPLOYPATH/.htaccess
     - /usr/bin/test ! -f $DEPLOYPATH/dist/server.cjs || /bin/cp -f $DEPLOYPATH/dist/server.cjs $DEPLOYPATH/dist/server.cjs.previous
     - /usr/bin/test ! -f $DEPLOYPATH/dist/server.cjs.map || /bin/cp -f $DEPLOYPATH/dist/server.cjs.map $DEPLOYPATH/dist/server.cjs.map.previous
     - /usr/bin/test ! -f $DEPLOYPATH/index.html || /bin/cp -f $DEPLOYPATH/index.html $DEPLOYPATH/index.html.previous
     - /usr/bin/test ! -f $DEPLOYPATH/dist/client/index.html || /bin/cp -f $DEPLOYPATH/dist/client/index.html $DEPLOYPATH/dist/client/index.html.previous
-    - /usr/bin/test ! -f $DEPLOYPATH/.htaccess || /bin/cp -f $DEPLOYPATH/.htaccess $DEPLOYPATH/.htaccess.previous
     - /bin/mv -f $DEPLOYPATH/dist/server.cjs.next $DEPLOYPATH/dist/server.cjs
     - /bin/mv -f $DEPLOYPATH/dist/server.cjs.map.next $DEPLOYPATH/dist/server.cjs.map
     - /bin/mv -f $DEPLOYPATH/dist/client/index.html.next $DEPLOYPATH/dist/client/index.html
-    - /bin/mv -f $DEPLOYPATH/.htaccess.next $DEPLOYPATH/.htaccess
     - /usr/bin/touch $DEPLOYPATH/tmp/restart.txt
     - /bin/mv -f $DEPLOYPATH/index.html.next $DEPLOYPATH/index.html

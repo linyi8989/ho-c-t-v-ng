@@ -219,10 +219,16 @@ In production, `server.ts` serves `dist/client` statically and returns `index.ht
 
 `.cpanel.yml` copies:
 
-- `dist/client/*` to `/home/qzmivzbj/app.msdieu.com`.
-- full `dist` folder.
+- hashed client assets additively to the root and `dist/client/assets` trees.
+- staged root/dist client indexes and the staged server bundle, with `.previous`
+  rollback snapshots for those application artifacts.
 - `app.js`, `package.json`, `package-lock.json`.
 - `scripts/*.mjs` maintenance/preflight tools.
+
+The live `.htaccess` is host-managed state because cPanel/CloudLinux stores its
+Passenger registration and environment blocks there. Deployment only verifies
+that the Passenger marker exists; it never copies, snapshots or replaces this
+file from Git.
 
 The host must have production env vars available to Node. Static-only hosting will show the React app, but API-backed features need the Node server running.
 
@@ -6112,9 +6118,26 @@ Rollout and verification:
 - cPanel deployment copies hash assets additively before activation, stages and
   verifies `.next` artifacts, snapshots current runtime files as `.previous`,
   activates the root index last and never deletes the live asset tree during deploy.
+  The host-managed live `.htaccess` is read-only to the pipeline: a Passenger-marker
+  preflight fails closed before artifact activation, and a regression contract forbids
+  `.htaccess.next`, `.htaccess.previous`, or any deploy `cp`/`mv` targeting it.
 - Dependency lockfile was updated without `--force`; production audit reports
   zero advisories. Node 22 `test:phase3` passes 513/513 tests plus startup/history
   CLI, production build and browser smoke at 1440/390 px.
 - The operator runbook is `docs/production-remediation-rollout-checklist.md`.
   Source is ready for a controlled rollout; no production deployment, restart,
   migration or database write was performed as part of this implementation turn.
+
+## 128. cPanel Passenger configuration preservation hotfix - 2026-09-25
+
+- A production deploy replaced the live cPanel-managed `.htaccess` with the
+  repository static-policy file. LiteSpeed then returned its own HTML 404 for
+  `/api/*`, so Firebase authentication could not complete `/api/me` profile
+  verification. Restoring the live file and restarting through CloudLinux Node.js
+  Selector returned `/api/me` to the expected unauthenticated JSON 401 and restored
+  Admin login.
+- `.cpanel.yml` now treats the live `.htaccess` as host-managed state. It performs
+  only a read-only Passenger-marker preflight and never copies, snapshots or moves
+  the file. Application rollback remains limited to server and root/dist index
+  artifacts; database, persistent media and cPanel environment blocks are outside
+  that operation.
