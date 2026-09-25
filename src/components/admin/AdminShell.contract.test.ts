@@ -175,12 +175,13 @@ test('Lần 2 starts Admin with one summary request and lazy domain loaders', ()
     '/api/admin/class-members?',
     '/api/admin/assignments?',
     '/api/results?view=summary&limit=500',
-    '/api/leaderboard-results',
+    '/api/admin/leaderboard-summary',
     '/api/admin/accounts-page?',
     '/api/admin/audit-logs-page?'
   ]) {
     assert.ok(dashboardSource.includes(endpoint), `Missing lazy Admin request: ${endpoint}`);
   }
+  assert.doesNotMatch(dashboardSource, /authFetchJson<GameSession\[]>\('\/api\/leaderboard-results'/);
   assert.match(dashboardSource, /activeTab !== 'vocab-sets'/);
   assert.match(dashboardSource, /activeTab !== 'grammar-sets'/);
   assert.match(dashboardSource, /const refreshData = \(\) => \{[\s\S]*activeTab === 'editor'[\s\S]*activeTab === 'grammar-editor'/);

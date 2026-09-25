@@ -96,6 +96,7 @@ import {
   resolveDevQuotaApiKey,
   resolvePersistentDirectory,
 } from "./src/server/runtimeConfig.js";
+import { isSpaNavigationRequest } from "./src/server/spaFallback.js";
 import {
   archiveResourceRecord,
   isArchivedRecord,
@@ -273,8 +274,9 @@ function sendApiError(res: express.Response, err: any) {
     : status === 503
       ? "Service temporarily unavailable. Please try again."
       : "Internal server error.";
-  res.status(status).json({
+  res.set("Cache-Control", "no-store").status(status).json({
     error: message,
+    ...(err?.code ? { code: String(err.code).slice(0, 120) } : {}),
     ...((!serverFailure || exposeInternal) && err?.details ? { details: err.details } : {})
   });
 }
@@ -1257,7 +1259,7 @@ async function resolveVocabLearningAccess(
   tokenValue: any,
   expectedVocabSetId = "",
   expectedAssignmentId = "",
-  timing?: ReturnType<typeof createApiTiming>
+  timing?: { mark(name: string): void }
 ) {
   const token = safeText(tokenValue, 200);
   if (!token) return null;
@@ -1549,9 +1551,12 @@ function mergeLeaderboardEvents(events: any[]) {
   return [...bySource.values()].sort((a, b) => new Date(getLeaderboardEventTime(b)).getTime() - new Date(getLeaderboardEventTime(a)).getTime());
 }
 
-async function loadLeaderboardEventsFromSources(timing?: ReturnType<typeof createApiTiming>) {
+async function loadLeaderboardEventsFromSources(timing?: ReturnType<typeof createApiTiming>, requestedCutoff = "") {
   const events: any[] = [];
-  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const retentionCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const leaderboardCutoff = requestedCutoff && requestedCutoff > retentionCutoff
+    ? requestedCutoff
+    : retentionCutoff;
   const [storedSnapshot, readModelSettingDoc] = await Promise.all([
     adminDb.collection("leaderboard_events")
       .where("completedAt", ">=", leaderboardCutoff)
@@ -2607,8 +2612,11 @@ app.use(
   createDiagnosticsRouter({ requireDiagnosticAccess, sendApiError, service: diagnosticsService }),
 );
 
-async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTiming>) {
-  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTiming>, requestedCutoff = "") {
+  const retentionCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const leaderboardCutoff = requestedCutoff && requestedCutoff > retentionCutoff
+    ? requestedCutoff
+    : retentionCutoff;
   const [storedSnapshot, readModelSettingDoc] = await Promise.all([
     adminDb.collection("leaderboard_events")
       .where("completedAt", ">=", leaderboardCutoff)
@@ -2644,6 +2652,14 @@ const guestIdentityRateLimit = createFixedWindowRateLimiter({
   maxCost: 120,
   key: req => `ip:${getRequestIp(req)}`,
   message: "Too many identity requests. Please wait and try again."
+});
+
+const publicLeaderboardRateLimit = createFixedWindowRateLimiter({
+  namespace: "public-leaderboard",
+  windowMs: 10 * 60 * 1000,
+  maxCost: 120,
+  key: req => `ip:${getRequestIp(req)}`,
+  message: "Too many leaderboard requests. Please wait and try again."
 });
 
 const aiRateLimit = createFixedWindowRateLimiter({
@@ -2857,6 +2873,11 @@ const resultsRepository = createResultsRepository({
   loadReadyLeaderboardEvents,
   resolveListeningDetail: resolveListeningActivityDetailForStaff,
 });
+const allowLegacyLeaderboardFallback = process.env.NODE_ENV !== "production"
+  && process.env.LEADERBOARD_ALLOW_LEGACY_FALLBACK !== "false";
+if (process.env.NODE_ENV === "production" && process.env.LEADERBOARD_ALLOW_LEGACY_FALLBACK === "true") {
+  throw new Error("LEADERBOARD_ALLOW_LEGACY_FALLBACK must not be enabled in production.");
+}
 const resultsService = createResultsService({
   repository: resultsRepository,
   activityTtlMs: ACTIVITY_TTL_MS,
@@ -2879,11 +2900,34 @@ const resultsService = createResultsService({
   buildLeaderboard,
   getCachedLeaderboardSummary: key => publicLeaderboardSummaryCache.get(key),
   cacheLeaderboardSummary: cachePublicLeaderboardSummary,
+  allowLegacyLeaderboardFallback,
+  resolveLearningLeaderboardScope: async (request, timing) => {
+    const vocabSetId = safeText(request.query?.vocabSetId, 180);
+    const assignmentId = safeText(request.query?.assignmentId, 180);
+    const accessToken = safeText(request.headers?.["x-vocab-share-token"], 200);
+    if (accessToken) {
+      const access = await resolveVocabLearningAccess(accessToken, vocabSetId, assignmentId, timing);
+      if (!access) return null;
+      return {
+        vocabSetId: access.set.id,
+        ...(access.assignment?.classId ? { classId: access.assignment.classId } : {}),
+      };
+    }
+    if (!vocabSetId || assignmentId) return null;
+    const setDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+    timing?.mark("vocab_point_read");
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set) || getVocabVisibility(set) !== "public") return null;
+    return { vocabSetId: set.id };
+  },
 });
 app.use(
   "/api",
   createResultsRouter({
     authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    publicLeaderboardRateLimit,
     createApiTiming,
     sendApiError,
     service: resultsService,
@@ -3010,19 +3054,14 @@ const adminDataService = createAdminDataService({
   canViewGrammarSet,
   sanitizeVocabSet: (record) => stripPrivateVocabSetFields(normalizeVocabSetForRead(record)),
   loadDashboardActivity: async (actor) => {
-    const [recentActivities, leaderboardResults, assignmentsSnapshot] = await Promise.all([
+    const [recentActivities, leaderboardSummary] = await Promise.all([
       resultsService.loadScopedRecentActivitySummaries(actor, MAX_ACTIVITY_RESULT_LIMIT),
-      resultsService.loadScopedLeaderboardResults(actor),
-      adminDb.collection("assignments").get(),
+      resultsService.getAdminLeaderboardSummary({
+        user: actor,
+        query: { period: "week", category: "gold", page: 1, pageSize: 5 },
+      }),
     ]);
-    const assignments: any[] = [];
-    assignmentsSnapshot.forEach((doc: any) => {
-      const assignment = { id: doc.id, ...doc.data() };
-      if (!isArchivedRecord(assignment) && (isSuperAdmin(actor) || assignment.createdBy === actor.id)) {
-        assignments.push(assignment);
-      }
-    });
-    const goldRows = buildLeaderboard(leaderboardResults as any, assignments, { period: "week" }).gold.slice(0, 5);
+    const goldRows = leaderboardSummary.body.entries;
     return {
       total: recentActivities.length,
       recentActivities: recentActivities.slice(0, 30),
@@ -3323,6 +3362,10 @@ async function start() {
     console.log("[Startup] Seed data disabled.");
   }
 
+  app.use("/api", (_req, res) => {
+    res.status(404).set("Cache-Control", "no-store").json({ error: "Not found" });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     // Start Vite in middleware mode
     const viteMode = process.env.VITE_MODE?.trim() || undefined;
@@ -3343,11 +3386,19 @@ async function start() {
     const distPath = path.join(process.cwd(), "dist", "client");
     app.use("/assets", express.static(path.join(distPath, "assets"), {
       immutable: true,
-      maxAge: "365d"
+      maxAge: "365d",
     }));
-    app.use(express.static(distPath));
+    app.use("/assets", (_req, res) => res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found"));
+    app.use(express.static(distPath, {
+      index: false,
+      maxAge: "1h",
+    }));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      if (!isSpaNavigationRequest(req.path, req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "")) {
+        return res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found");
+      }
+      res.set("Cache-Control", "no-cache");
+      return res.sendFile(path.join(distPath, "index.html"));
     });
     console.log("Production static build routing active.");
   }

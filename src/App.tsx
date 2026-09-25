@@ -129,6 +129,21 @@ export default function App() {
     );
   }
 
+  if (appShellRoute.kind === 'other' && !listeningLibraryRoute) {
+    return (
+      <main className="min-h-screen bg-slate-50 p-6 flex items-center justify-center" id="not-found-screen">
+        <section className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <p className="text-sm font-black uppercase tracking-widest text-blue-700">404</p>
+          <h1 className="mt-3 text-2xl font-black text-slate-950">Không tìm thấy trang</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-600">Đường dẫn này không tồn tại hoặc đã thay đổi.</p>
+          <button type="button" onClick={() => navigateInternal('/')} className="mt-6 rounded-xl bg-blue-700 px-5 py-3 font-black text-white hover:bg-blue-800">
+            Về trang chủ
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   if (authRoute === 'register' && !user) {
     return (
       <Register
@@ -362,6 +377,7 @@ export default function App() {
       isStaff={isStaff}
       leaderboard={home.leaderboard}
       leaderboardPeriod={home.leaderboardPeriod}
+      leaderboardStatus={home.leaderboardStatus}
       onBackToAdmin={() => setAdminMode(false)}
       onLogout={logout}
       onNavigate={navigateInternal}

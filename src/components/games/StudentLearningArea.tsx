@@ -134,10 +134,8 @@ export default function StudentLearningArea({
   const [gameResult, setGameResult] = useState<{ score: number; correct: number; incorrect: number } | null>(null);
   const [gameRunId, setGameRunId] = useState(0);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('week');
-  const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [learningLeaderboard, setLearningLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [leaderboardClassOptions, setLeaderboardClassOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [leaderboardStatus, setLeaderboardStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [leaderboardError, setLeaderboardError] = useState('');
   const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
@@ -223,24 +221,23 @@ export default function StudentLearningArea({
   useEffect(() => {
     if (!leaderboardOpen) return;
     const controller = new AbortController();
-    const params = new URLSearchParams({ period: leaderboardPeriod, limit: '8' });
-    if (leaderboardClassId) params.set('classId', leaderboardClassId);
+    const params = new URLSearchParams({
+      period: leaderboardPeriod,
+      limit: '8',
+      vocabSetId: vocabSet.id,
+    });
+    if (assignmentId) params.set('assignmentId', assignmentId);
     setLeaderboardStatus('loading');
     setLeaderboardError('');
 
-    fetch(`/api/public/leaderboard-summary?${params.toString()}`, { signal: controller.signal })
+    fetch(`/api/learning/leaderboard-summary?${params.toString()}`, {
+      signal: controller.signal,
+      headers: accessToken ? { 'X-Vocab-Share-Token': accessToken } : undefined,
+    })
       .then(async response => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || 'Không thể tải bảng vàng.');
         setLearningLeaderboard(Array.isArray(data.entries) ? data.entries : []);
-        setLeaderboardClassOptions(
-          Array.isArray(data.classes)
-            ? data.classes.map((option: any) => ({
-                id: String(option.id || ''),
-                name: compactClassName(String(option.name || option.id || ''))
-              })).filter((option: { id: string }) => option.id)
-            : []
-        );
         setLeaderboardStatus('ready');
       })
       .catch((err: any) => {
@@ -251,7 +248,7 @@ export default function StudentLearningArea({
       });
 
     return () => controller.abort();
-  }, [leaderboardClassId, leaderboardOpen, leaderboardPeriod, leaderboardRefreshKey]);
+  }, [accessToken, assignmentId, leaderboardOpen, leaderboardPeriod, leaderboardRefreshKey, vocabSet.id]);
 
   const handleSubmitName = async () => {
     if (isSavingName) return;
@@ -657,13 +654,6 @@ export default function StudentLearningArea({
     setGameRunId(prev => prev + 1);
   };
 
-  useEffect(() => {
-    if (!leaderboardClassId) return;
-    if (!leaderboardClassOptions.some(option => option.id === leaderboardClassId)) {
-      setLeaderboardClassId('');
-    }
-  }, [leaderboardClassId, leaderboardClassOptions]);
-
   // Render game in focus
   const renderActiveGame = () => {
     if (!selectedGame) return null;
@@ -1012,17 +1002,6 @@ export default function StudentLearningArea({
                         >
                           <option value="week">Tuần này</option>
                           <option value="month">Tháng này</option>
-                        </select>
-                        <select
-                          value={leaderboardClassId}
-                          onChange={(e) => setLeaderboardClassId(e.target.value)}
-                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-800 outline-none"
-                          id="learning-golden-class-filter"
-                        >
-                          <option value="">T&#7845;t c&#7843; l&#7899;p</option>
-                          {leaderboardClassOptions.map(option => (
-                            <option key={option.id} value={option.id}>{option.name}</option>
-                          ))}
                         </select>
                       </>
                     )}

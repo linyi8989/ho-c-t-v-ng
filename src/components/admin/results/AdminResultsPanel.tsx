@@ -1,13 +1,7 @@
 import { Search } from 'lucide-react';
 import type { GameSession } from '../../../types';
 import { GAMES_LIST } from '../../../lib/game-engine/gameList';
-import type {
-  getLeaderboardByCategory,
-  LeaderboardCategory,
-  LeaderboardPeriod,
-} from '../../../lib/leaderboard';
-
-type LeaderboardEntry = ReturnType<typeof getLeaderboardByCategory>[number];
+import type { LeaderboardCategory, LeaderboardEntry, LeaderboardPeriod } from '../../../lib/leaderboard';
 
 export interface AdminResultsController {
   leaderboardPeriod: LeaderboardPeriod;
@@ -17,6 +11,9 @@ export interface AdminResultsController {
   leaderboardClassOptions: Array<{ id: string; name: string }>;
   leaderboardSetOptions: Array<{ id: string; title: string }>;
   leaderboardRows: LeaderboardEntry[];
+  leaderboardPage: number;
+  leaderboardTotalItems: number;
+  leaderboardTotalPages: number;
   leaderboardTitleMap: Record<LeaderboardCategory, string>;
   activitySearch: string;
   filteredActivityResults: GameSession[];
@@ -25,6 +22,7 @@ export interface AdminResultsController {
   setLeaderboardCategory: (value: LeaderboardCategory) => void;
   setLeaderboardClassId: (value: string) => void;
   setLeaderboardVocabSetId: (value: string) => void;
+  setLeaderboardPage: (value: number) => void;
   setActivitySearch: (value: string) => void;
   openActivityDetail: (activity: GameSession) => Promise<void>;
   formatLeaderboardDisplayName: (entry: { studentName: string; className?: string }) => string;
@@ -46,6 +44,9 @@ export default function AdminResultsPanel({
     leaderboardClassOptions,
     leaderboardSetOptions,
     leaderboardRows,
+    leaderboardPage,
+    leaderboardTotalItems,
+    leaderboardTotalPages,
     leaderboardTitleMap,
     activitySearch,
     filteredActivityResults,
@@ -54,6 +55,7 @@ export default function AdminResultsPanel({
     setLeaderboardCategory,
     setLeaderboardClassId,
     setLeaderboardVocabSetId,
+    setLeaderboardPage,
     setActivitySearch,
     openActivityDetail,
     formatLeaderboardDisplayName,
@@ -190,7 +192,7 @@ export default function AdminResultsPanel({
 
             <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm overflow-hidden" id="leaderboard-sheet">
               <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                <h3 className="font-extrabold text-gray-950 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardRows.length})</h3>
+                <h3 className="font-extrabold text-gray-950 text-base">{leaderboardTitleMap[leaderboardCategory]} ({leaderboardTotalItems})</h3>
                 <p className="text-[10px] text-gray-500 font-bold uppercase">Điểm = Bài x50 + Tỷ lệ đúng x3 + Ngày học x20 + Tiến bộ</p>
               </div>
 
@@ -219,7 +221,7 @@ export default function AdminResultsPanel({
                     ) : (
                       leaderboardRows.map((entry, index) => (
                         <tr key={`${entry.studentKey || entry.studentName}-${index}`} className="hover:bg-blue-50/50 text-sm font-semibold text-gray-800">
-                          <td className="p-4 text-gray-500 text-xs font-bold">{index + 1}</td>
+                          <td className="p-4 text-gray-500 text-xs font-bold">{(leaderboardPage - 1) * 50 + index + 1}</td>
                           <td className="p-4">
                             <div className="flex items-center space-x-2">
                               <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center font-bold text-xs">
@@ -253,8 +255,28 @@ export default function AdminResultsPanel({
                   </tbody>
                 </table>
               </div>
+              {leaderboardTotalPages > 1 && (
+                <div className="mt-4 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    disabled={leaderboardPage <= 1}
+                    onClick={() => setLeaderboardPage(Math.max(1, leaderboardPage - 1))}
+                    className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Trang trước
+                  </button>
+                  <span className="text-xs font-bold text-gray-600">{leaderboardPage}/{leaderboardTotalPages}</span>
+                  <button
+                    type="button"
+                    disabled={leaderboardPage >= leaderboardTotalPages}
+                    onClick={() => setLeaderboardPage(Math.min(leaderboardTotalPages, leaderboardPage + 1))}
+                    className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Trang sau
+                  </button>
+                </div>
+              )}
             </div>
           </div>
   );
 }
-

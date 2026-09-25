@@ -1,7 +1,7 @@
 interface ResultsRepositoryOptions {
   db: any;
-  loadLeaderboardEvents: (timing?: any) => Promise<any[]>;
-  loadReadyLeaderboardEvents: (timing?: any) => Promise<any[] | null>;
+  loadLeaderboardEvents: (timing?: any, cutoff?: string) => Promise<any[]>;
+  loadReadyLeaderboardEvents: (timing?: any, cutoff?: string) => Promise<any[] | null>;
   resolveListeningDetail: (db: any, attempt: any, cache?: Map<any, any>) => Promise<any>;
 }
 

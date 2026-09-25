@@ -236,8 +236,15 @@ function buildMissingLeaderboardEvents(db, cutoff) {
   return events;
 }
 
-function assertSchema(db) {
-  for (const tableName of ['guest_profiles', 'game_results', 'grammar_attempts', 'leaderboard_events', 'settings']) {
+function assertSchema(db, { runGuestProfileBackfill, runLeaderboardBackfill }) {
+  const requiredTables = new Set(['game_results', 'grammar_attempts']);
+  if (runGuestProfileBackfill) requiredTables.add('guest_profiles');
+  if (runLeaderboardBackfill) {
+    for (const tableName of ['leaderboard_events', 'settings', 'vocab_sets', 'grammar_sets']) {
+      requiredTables.add(tableName);
+    }
+  }
+  for (const tableName of requiredTables) {
     const exists = db.prepare(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
     ).get(tableName);
@@ -326,6 +333,12 @@ try {
   assertExistingFile(databasePath);
   const mode = getSafeCliMode();
   if (mode === 'resume') throw new Error('Use --execute; inserts are already idempotent.');
+  const target = readArg('--target') || 'all';
+  if (!['all', 'leaderboard', 'guest-profiles'].includes(target)) {
+    throw new Error('--target must be one of: leaderboard, guest-profiles, all.');
+  }
+  const runGuestProfileBackfill = target === 'all' || target === 'guest-profiles';
+  const runLeaderboardBackfill = target === 'all' || target === 'leaderboard';
   const asOf = readArg('--as-of') || new Date().toISOString();
   if (!Number.isFinite(new Date(asOf).getTime())) throw new Error('--as-of must be a valid ISO instant.');
   const cutoff = new Date(new Date(asOf).getTime() - RETENTION_DAYS * 86_400_000).toISOString();
@@ -333,21 +346,22 @@ try {
   db = new Database(databasePath, { fileMustExist: true, readonly: mode === 'dry-run', timeout: 10_000 });
   db.pragma('busy_timeout = 10000');
   assertQuickCheck(db, 'database');
-  assertSchema(db);
-  const guestCandidates = buildGuestCandidates(db);
-  const leaderboardCandidates = buildMissingLeaderboardEvents(db, cutoff);
+  assertSchema(db, { runGuestProfileBackfill, runLeaderboardBackfill });
+  const guestCandidates = runGuestProfileBackfill ? buildGuestCandidates(db) : [];
+  const leaderboardCandidates = runLeaderboardBackfill ? buildMissingLeaderboardEvents(db, cutoff) : [];
 
   if (mode === 'dry-run') {
     printJson({
       ok: true,
       mode,
+      target,
       database: redactPath(databasePath),
       quickCheck: 'ok',
       asOf,
       leaderboardCutoff: cutoff,
       plannedGuestProfiles: guestCandidates.length,
       plannedLeaderboardEvents: leaderboardCandidates.length,
-      readModelReady: false,
+      readModelReady: runLeaderboardBackfill ? false : null,
       sourceMutation: 'none',
       note: 'Dry-run is read-only. Create/review a backup, then re-run with --execute.',
     });
@@ -362,30 +376,24 @@ try {
     db.pragma('busy_timeout = 10000');
     db.pragma('foreign_keys = ON');
     assertQuickCheck(db, 'database');
-    assertSchema(db);
-    const executeGuestCandidates = buildGuestCandidates(db);
-    const executeLeaderboardCandidates = buildMissingLeaderboardEvents(db, cutoff);
+    assertSchema(db, { runGuestProfileBackfill, runLeaderboardBackfill });
+    const executeGuestCandidates = runGuestProfileBackfill ? buildGuestCandidates(db) : [];
+    const executeLeaderboardCandidates = runLeaderboardBackfill ? buildMissingLeaderboardEvents(db, cutoff) : [];
     const sourceCountsBefore = {
       gameResults: number(db.prepare('SELECT COUNT(*) AS count FROM game_results').get().count),
       grammarAttempts: number(db.prepare('SELECT COUNT(*) AS count FROM grammar_attempts').get().count),
     };
     const now = new Date().toISOString();
-    const guestInserted = insertGuestProfiles(db, executeGuestCandidates, now);
-    const leaderboardInserted = insertLeaderboardEvents(db, executeLeaderboardCandidates);
-    const missingAfter = buildMissingLeaderboardEvents(db, cutoff);
-    if (missingAfter.length !== 0) {
+    const guestInserted = runGuestProfileBackfill
+      ? insertGuestProfiles(db, executeGuestCandidates, now)
+      : 0;
+    const leaderboardInserted = runLeaderboardBackfill
+      ? insertLeaderboardEvents(db, executeLeaderboardCandidates)
+      : 0;
+    const missingAfter = runLeaderboardBackfill ? buildMissingLeaderboardEvents(db, cutoff) : [];
+    if (runLeaderboardBackfill && missingAfter.length !== 0) {
       throw new Error(`Leaderboard reconciliation still has ${missingAfter.length} missing source rows.`);
     }
-    db.prepare(
-      `INSERT INTO settings (key, value_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
-    ).run(READ_MODEL_SETTING_ID, JSON.stringify({
-      ready: true,
-      version: 1,
-      backfilledThrough: asOf,
-      retentionDays: RETENTION_DAYS,
-    }), now);
     assertQuickCheck(db, 'post-backfill database');
     const sourceCountsAfter = {
       gameResults: number(db.prepare('SELECT COUNT(*) AS count FROM game_results').get().count),
@@ -394,9 +402,23 @@ try {
     if (JSON.stringify(sourceCountsBefore) !== JSON.stringify(sourceCountsAfter)) {
       throw new Error('Source row counts changed during additive backfill.');
     }
+    if (runLeaderboardBackfill) {
+      db.prepare(
+        `INSERT INTO settings (key, value_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+      ).run(READ_MODEL_SETTING_ID, JSON.stringify({
+        ready: true,
+        version: 1,
+        backfilledThrough: asOf,
+        retentionDays: RETENTION_DAYS,
+      }), now);
+      assertQuickCheck(db, 'read-model-ready database');
+    }
     printJson({
       ok: true,
       mode,
+      target,
       database: redactPath(databasePath),
       backup: redactPath(backupPath),
       backupQuickCheck: 'ok',
@@ -406,7 +428,7 @@ try {
       guestProfiles: { planned: executeGuestCandidates.length, inserted: guestInserted },
       leaderboardEvents: { planned: executeLeaderboardCandidates.length, inserted: leaderboardInserted, missingAfter: 0 },
       sourceCounts: { before: sourceCountsBefore, after: sourceCountsAfter, unchanged: true },
-      readModelReady: true,
+      readModelReady: runLeaderboardBackfill ? true : null,
       sourceMutation: 'none',
     });
   }

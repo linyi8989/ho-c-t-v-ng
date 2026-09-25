@@ -95,6 +95,7 @@ test('canonical exam navigation updates App route state without document reloads
 test('hot read routes are timed and summary mode never eagerly joins listening detail', () => {
   for (const path of [
     '/public/results', '/public/leaderboard-results', '/public/leaderboard-summary',
+    '/learning/leaderboard-summary', '/admin/leaderboard-summary',
     '/results/:sourceType/:resultId', '/results', '/leaderboard-results',
   ]) {
     assert.match(resultsRouterSource, new RegExp(`router\\.get\\('${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
@@ -117,7 +118,8 @@ test('request reads do not run guest migration and leaderboard has a durable rea
   assert.match(nameLoader, /runWithConcurrency\(lookups, 20/);
   assert.match(serverSource, /LEADERBOARD_READ_MODEL_SETTING_ID/);
   assert.match(serverSource, /readModelSetting\?\.ready === true/);
-  assert.match(serverSource, /Compatibility path for installations that have not run/);
+  assert.match(resultsServiceSource, /allowLegacyLeaderboardFallback/);
+  assert.match(resultsServiceSource, /LEADERBOARD_NOT_READY/);
 });
 
 test('student entry hot path uses indexed token lookup and lazy summary data', () => {
@@ -135,11 +137,14 @@ test('student entry hot path uses indexed token lookup and lazy summary data', (
   assert.match(storageSource, /idx_vocab_sets_share_token/);
 
   assert.doesNotMatch(studentLearningSource, /\/api\/public\/leaderboard-results/);
-  assert.match(studentLearningSource, /\/api\/public\/leaderboard-summary/);
+  assert.match(studentLearningSource, /\/api\/learning\/leaderboard-summary/);
+  assert.match(studentLearningSource, /X-Vocab-Share-Token/);
   assert.match(studentLearningSource, /leaderboardOpen/);
   assert.match(resultsServiceSource, /loadReadyLeaderboardEvents/);
-  assert.match(resultsServiceSource, /read_model_fallback/);
-  assert.match(resultsServiceSource, /events = await options\.repository\.loadLeaderboardEvents\(timing\)/);
+  assert.match(resultsServiceSource, /allowLegacyLeaderboardFallback/);
+  assert.match(resultsServiceSource, /LEADERBOARD_NOT_READY/);
+  assert.doesNotMatch(homeControllerSource, /\/api\/(?:public\/)?leaderboard-results/);
+  assert.match(homeControllerSource, /\/api\/public\/leaderboard-summary/);
 });
 
 test('guest identity normal path is one profile point-read without legacy activity scans', () => {
@@ -172,4 +177,24 @@ test('additive index migration and explicit maintenance CLI keep source rows pro
   assert.match(backfillSource, /INSERT OR IGNORE INTO leaderboard_events/);
   assert.match(backfillSource, /sourceCountsBefore/);
   assert.match(backfillSource, /sourceMutation: 'none'/);
+});
+
+test('leaderboard backfill can run without creating guest profiles and publishes readiness last', () => {
+  assert.match(backfillSource, /readArg\('--target'\)/);
+  assert.match(backfillSource, /target === 'leaderboard'/);
+  assert.match(backfillSource, /runGuestProfileBackfill/);
+  assert.match(backfillSource, /runLeaderboardBackfill/);
+  const verificationIndex = backfillSource.indexOf("assertQuickCheck(db, 'post-backfill database')");
+  const markerIndex = backfillSource.indexOf('INSERT INTO settings (key, value_json, updated_at)');
+  assert.ok(verificationIndex > 0, 'post-backfill quick_check must exist');
+  assert.ok(markerIndex > verificationIndex, 'readiness marker must be written only after reconciliation and quick_check');
+});
+
+test('SQLite document read-modify-write updates acquire an immediate transaction', () => {
+  const updateStart = storageSource.indexOf('function updateDoc(');
+  const updateEnd = storageSource.indexOf('function deleteDoc(', updateStart);
+  const updateSource = storageSource.slice(updateStart, updateEnd);
+  assert.match(updateSource, /withTransaction\(\(\) => \{/);
+  assert.match(updateSource, /readRow[\s\S]*upsertDoc/);
+  assert.match(updateSource, /}, 'immediate'\)/);
 });

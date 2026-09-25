@@ -32,6 +32,9 @@ const vocabularyRepositorySource = readFileSync(new URL("./vocabulary/repository
 const grammarRouterSource = readFileSync(new URL("./grammar/router.ts", import.meta.url), "utf8");
 const grammarServiceSource = readFileSync(new URL("./grammar/service.ts", import.meta.url), "utf8");
 const grammarRepositorySource = readFileSync(new URL("./grammar/repository.ts", import.meta.url), "utf8");
+const htaccessSource = readFileSync(new URL("../../.htaccess", import.meta.url), "utf8");
+const indexSource = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+const deploymentSource = readFileSync(new URL("../../.cpanel.yml", import.meta.url), "utf8");
 
 test("bootstrap administrators come from configuration and stored backend roles remain valid", () => {
   const configured = parseBootstrapSuperAdminEmails(" OWNER@example.com, second@example.com ");
@@ -61,6 +64,32 @@ test("baseline browser security headers are explicit without blocking exam media
   assert.doesNotMatch(headers.get("Content-Security-Policy") || "", /default-src/);
   assert.match(headers.get("Strict-Transport-Security") || "", /max-age=/);
   assert.match(serverSource, /app\.disable\("x-powered-by"\)/);
+});
+
+test("production static layer preserves security, cache and compression policy", () => {
+  assert.match(htaccessSource, /X-Content-Type-Options/);
+  assert.match(htaccessSource, /Content-Security-Policy/);
+  assert.match(htaccessSource, /Cache-Control.*immutable/);
+  assert.match(htaccessSource, /Request_URI "\^\/assets\/" immutable_asset/);
+  assert.doesNotMatch(htaccessSource, /FilesMatch[^>]+(?:png|jpe\?g)[^>]*>[\s\S]*?immutable/);
+  assert.match(htaccessSource, /DEFLATE/);
+  assert.match(htaccessSource, /RewriteRule \^api/);
+  assert.match(htaccessSource, /assets\|audio\|listening-media\|vocab-images/);
+  assert.doesNotMatch(htaccessSource, /RewriteRule \. \/index\.html/);
+  assert.match(indexSource, /<html lang="vi">/);
+});
+
+test("deployment stages immutable assets and activates index last without deleting live files", () => {
+  assert.doesNotMatch(deploymentSource, /rm -rf .*assets|rm -f .*index\.html/);
+  assert.match(deploymentSource, /index\.html\.next/);
+  assert.match(deploymentSource, /server\.cjs\.next/);
+  assert.match(deploymentSource, /server\.cjs\.previous/);
+  assert.match(deploymentSource, /index\.html\.previous/);
+  assert.match(deploymentSource, /test -s/);
+  const assetsIndex = deploymentSource.indexOf('dist/client/assets');
+  const rollbackSnapshotIndex = deploymentSource.indexOf('server.cjs.previous');
+  const activationIndex = deploymentSource.lastIndexOf('index.html.next $DEPLOYPATH/index.html');
+  assert.ok(assetsIndex >= 0 && rollbackSnapshotIndex > assetsIndex && activationIndex > rollbackSnapshotIndex);
 });
 
 test("fixed-window limits cost and resets without accepting over-limit work", () => {

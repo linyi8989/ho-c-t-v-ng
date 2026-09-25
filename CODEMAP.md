@@ -6087,3 +6087,34 @@ Rollout and verification:
   unchanged. Home contracts and browser smoke lock region ownership, ordering,
   containment, layer order, integrated media styling and desktop/mobile
   overflow behavior.
+
+## 130. Production remediation: bounded leaderboard, safe routing and rollout - 2026-09-25
+
+- The raw leaderboard feeds are retired with HTTP 410. Home consumes only
+  `/api/public/leaderboard-summary`; student learning uses the capability-scoped
+  `/api/learning/leaderboard-summary`; staff uses the authenticated, role-scoped,
+  filtered and paginated `/api/admin/leaderboard-summary`.
+- Public leaderboard output is a bounded anonymous allowlist. It has a 30-second
+  cache, cold-request single-flight, an IP fixed-window limiter, explicit
+  Vietnam UTC+7 period boundaries and deterministic tie ordering. Production
+  fails closed with `LEADERBOARD_NOT_READY`; legacy aggregation is development-only.
+- `db-backfill-hot-read-models.mjs --target leaderboard` is dry-run first,
+  creates a verified backup on execute, reconciles missing events, proves source
+  counts unchanged, runs `quick_check`, and publishes readiness last. It does
+  not create guest profiles in leaderboard-only mode.
+- SQLite document patch read/merge/write is protected by one `BEGIN IMMEDIATE`
+  transaction. The native driver test now includes two concurrent processes
+  patching different fields of the same document and verifies neither update is lost.
+- Production API/asset/SPA fallbacks now distinguish JSON 404, text 404 and
+  allowlisted browser routes. API errors are `no-store`; fingerprinted
+  `/assets/` are immutable while `index.html` is no-cache. Apache supplies the
+  same security/compression policy and `index.html` declares Vietnamese.
+- cPanel deployment copies hash assets additively before activation, stages and
+  verifies `.next` artifacts, snapshots current runtime files as `.previous`,
+  activates the root index last and never deletes the live asset tree during deploy.
+- Dependency lockfile was updated without `--force`; production audit reports
+  zero advisories. Node 22 `test:phase3` passes 513/513 tests plus startup/history
+  CLI, production build and browser smoke at 1440/390 px.
+- The operator runbook is `docs/production-remediation-rollout-checklist.md`.
+  Source is ready for a controlled rollout; no production deployment, restart,
+  migration or database write was performed as part of this implementation turn.

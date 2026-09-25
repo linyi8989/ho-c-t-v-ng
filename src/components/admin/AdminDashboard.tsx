@@ -5,7 +5,7 @@ import { GAMES_LIST } from '../../lib/game-engine/gameList';
 import { playAudioUrl, playVocabAudio, resolveTtsPlaybackRate, speakEnglish } from '../../lib/game-engine/speech';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
-import { getLeaderboardByCategory, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
+import { type LeaderboardEntry, LeaderboardCategory, LeaderboardPeriod } from '../../lib/leaderboard';
 import {
   formatListeningReviewAnswer,
   formatListeningReviewQuestion,
@@ -69,6 +69,16 @@ interface AdminDashboardSummary {
   };
   recentActivities: GameSession[];
   goldRows: any[];
+}
+
+interface AdminLeaderboardSummary {
+  entries: LeaderboardEntry[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  classes: Array<{ id: string; name: string }>;
+  vocabSets: Array<{ id: string; title: string }>;
 }
 
 const EMPTY_DASHBOARD_SUMMARY: AdminDashboardSummary = {
@@ -507,7 +517,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [classMembers, setClassMembers] = useState<ClassMember[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [results, setResults] = useState<GameSession[]>([]);
-  const [leaderboardResults, setLeaderboardResults] = useState<GameSession[]>([]);
+  const [leaderboardResults, setLeaderboardResults] = useState<LeaderboardEntry[]>([]);
 
   // Super Admin States
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -559,6 +569,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [leaderboardCategory, setLeaderboardCategory] = useState<LeaderboardCategory>('gold');
   const [leaderboardClassId, setLeaderboardClassId] = useState('');
   const [leaderboardVocabSetId, setLeaderboardVocabSetId] = useState('');
+  const [leaderboardClassOptions, setLeaderboardClassOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [leaderboardSetOptions, setLeaderboardSetOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [leaderboardTotalItems, setLeaderboardTotalItems] = useState(0);
+  const [leaderboardTotalPages, setLeaderboardTotalPages] = useState(1);
   const [selectedActivity, setSelectedActivity] = useState<GameSession | null>(null);
   const [activityDetailLoading, setActivityDetailLoading] = useState(false);
   const [activityDetailError, setActivityDetailError] = useState('');
@@ -809,23 +824,37 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const refreshResultsData = async (signal?: AbortSignal) => {
     const requestOptions = signal ? { signal } : {};
     try {
-      const [resultData, leaderboardData, assignmentData, classData, vocabData, grammarData] = await Promise.all([
-        authFetchJson<GameSession[]>('/api/results?view=summary&limit=500', requestOptions),
-        authFetchJson<GameSession[]>('/api/leaderboard-results', requestOptions),
-        authFetchJson<Assignment[]>('/api/assignments', requestOptions),
-        authFetchJson<Class[]>('/api/classes', requestOptions),
-        authFetchJson<AdminPageResponse<VocabSet>>('/api/admin/vocab-sets?page=1&pageSize=100', requestOptions),
-        authFetchJson<AdminPageResponse<GrammarSet>>('/api/admin/grammar-sets?page=1&pageSize=100', requestOptions)
-      ]);
+      const resultData = await authFetchJson<GameSession[]>('/api/results?view=summary&limit=500', requestOptions);
       if (signal?.aborted) return;
       setResults(Array.isArray(resultData) ? resultData : []);
-      setLeaderboardResults(Array.isArray(leaderboardData) ? leaderboardData : []);
-      setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
-      setClasses(Array.isArray(classData) ? classData : []);
-      setVocabSets((vocabData.items || []).map(set => ({ ...set, items: set.items || [] })));
-      setGrammarSets((grammarData.items || []).map(set => ({ ...set, questions: set.questions || [] })));
     } catch (err) {
       reportLoadError('results', err, signal);
+    }
+  };
+
+  const refreshLeaderboardData = async (signal?: AbortSignal) => {
+    const params = new URLSearchParams({
+      period: leaderboardPeriod,
+      category: leaderboardCategory,
+      page: String(leaderboardPage),
+      pageSize: '50',
+    });
+    if (leaderboardClassId) params.set('classId', leaderboardClassId);
+    if (leaderboardVocabSetId) params.set('vocabSetId', leaderboardVocabSetId);
+    try {
+      const data = await authFetchJson<AdminLeaderboardSummary>(
+        `/api/admin/leaderboard-summary?${params}`,
+        signal ? { signal } : {},
+      );
+      if (signal?.aborted) return;
+      setLeaderboardResults(Array.isArray(data.entries) ? data.entries : []);
+      setLeaderboardClassOptions(Array.isArray(data.classes) ? data.classes : []);
+      setLeaderboardSetOptions(Array.isArray(data.vocabSets) ? data.vocabSets : []);
+      setLeaderboardTotalItems(Number(data.total || 0));
+      setLeaderboardTotalPages(Math.max(1, Number(data.totalPages || 1)));
+      if (data.page && data.page !== leaderboardPage) setLeaderboardPage(data.page);
+    } catch (err) {
+      reportLoadError('leaderboard', err, signal);
     }
   };
 
@@ -935,6 +964,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     });
     return () => controller.abort();
   }, [activeTab, token, user?.id, user?.role, classPage, classPageSize, assignmentPage, assignmentPageSize, usersPage, usersPageSize, debouncedUsersSearch, usersRoleFilter, usersStatusFilter, auditPage, auditPageSize]);
+
+  useEffect(() => {
+    if (!token || (activeTab !== 'results' && !(activeTab === 'dashboard' && isDashboardLeaderboardExpanded))) return;
+    const controller = new AbortController();
+    void refreshLeaderboardData(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, token, isDashboardLeaderboardExpanded, leaderboardPeriod, leaderboardCategory, leaderboardClassId, leaderboardVocabSetId, leaderboardPage]);
 
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -2321,18 +2357,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     if (grammarPage > grammarTotalPages) setGrammarPage(grammarTotalPages);
   }, [grammarPage, grammarTotalPages]);
 
-  const leaderboardRows = React.useMemo(() => {
-    return getLeaderboardByCategory(
-      leaderboardResults,
-      assignments,
-      {
-        period: leaderboardPeriod,
-        classId: leaderboardClassId || undefined,
-        vocabSetId: leaderboardVocabSetId || undefined
-      },
-      leaderboardCategory
-    );
-  }, [leaderboardResults, assignments, leaderboardPeriod, leaderboardClassId, leaderboardVocabSetId, leaderboardCategory]);
+  const leaderboardRows = leaderboardResults;
 
   const completedActivityResults = React.useMemo(() => {
     return [...results]
@@ -2379,23 +2404,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     normalizeActivitySearchText(vocabResultsNameFilter) || vocabResultsGameFilter
   );
 
-  const leaderboardClassOptions = React.useMemo(() => {
-    const byId = new Map<string, string>();
-    classes.forEach(cls => {
-      if (cls.id && cls.name) byId.set(cls.id, cls.name);
-    });
-    leaderboardResults.forEach(res => {
-      if (res.classId && res.className) byId.set(res.classId, formatGradeLabel(res.className));
-    });
-    return Array.from(byId.entries()).map(([id, name]) => ({ id, name }));
-  }, [classes, leaderboardResults]);
+  React.useEffect(() => {
+    setLeaderboardPage(1);
+  }, [leaderboardPeriod, leaderboardCategory, leaderboardClassId, leaderboardVocabSetId]);
 
-  const leaderboardSetOptions = React.useMemo(() => {
-    return [
-      ...vocabSets.map(set => ({ id: set.id, title: set.title })),
-      ...grammarSets.map(set => ({ id: `grammar:${set.id}`, title: `Grammar: ${set.title}` }))
-    ];
-  }, [vocabSets, grammarSets]);
+  React.useEffect(() => {
+    if (leaderboardPage > leaderboardTotalPages) setLeaderboardPage(leaderboardTotalPages);
+  }, [leaderboardPage, leaderboardTotalPages]);
 
   const closeActivityDetail = () => {
     activityDetailRequestRef.current += 1;
@@ -2447,23 +2462,6 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const toggleDashboardLeaderboard = async () => {
     const nextExpanded = !isDashboardLeaderboardExpanded;
     setIsDashboardLeaderboardExpanded(nextExpanded);
-    if (!nextExpanded || leaderboardResults.length > 0) return;
-    try {
-      const [leaderboardData, assignmentData, classData, vocabData, grammarData] = await Promise.all([
-        authFetchJson<GameSession[]>('/api/leaderboard-results'),
-        authFetchJson<Assignment[]>('/api/assignments'),
-        authFetchJson<Class[]>('/api/classes'),
-        authFetchJson<AdminPageResponse<VocabSet>>('/api/admin/vocab-sets?page=1&pageSize=100'),
-        authFetchJson<AdminPageResponse<GrammarSet>>('/api/admin/grammar-sets?page=1&pageSize=100')
-      ]);
-      setLeaderboardResults(Array.isArray(leaderboardData) ? leaderboardData : []);
-      setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
-      setClasses(Array.isArray(classData) ? classData : []);
-      setVocabSets((vocabData.items || []).map(set => ({ ...set, items: set.items || [] })));
-      setGrammarSets((grammarData.items || []).map(set => ({ ...set, questions: set.questions || [] })));
-    } catch (err: any) {
-      showNotification(err.message || 'Không thể tải bảng vàng.', 'error');
-    }
   };
 
   const leaderboardTitleMap: Record<LeaderboardCategory, string> = {
@@ -3129,6 +3127,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               leaderboardClassOptions,
               leaderboardSetOptions,
               leaderboardRows,
+              leaderboardPage,
+              leaderboardTotalItems,
+              leaderboardTotalPages,
               leaderboardTitleMap,
               activitySearch,
               filteredActivityResults,
@@ -3137,6 +3138,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               setLeaderboardCategory,
               setLeaderboardClassId,
               setLeaderboardVocabSetId,
+              setLeaderboardPage,
               setActivitySearch,
               openActivityDetail,
               formatLeaderboardDisplayName,

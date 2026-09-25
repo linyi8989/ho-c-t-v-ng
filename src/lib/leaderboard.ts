@@ -7,6 +7,8 @@ export interface LeaderboardFilters {
   period: LeaderboardPeriod;
   classId?: string;
   vocabSetId?: string;
+  now?: Date | string | number;
+  utcOffsetMinutes?: number;
 }
 
 export interface LeaderboardEntry {
@@ -27,6 +29,8 @@ export interface LeaderboardEntry {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const LEADERBOARD_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+export const LEADERBOARD_UTC_OFFSET_MINUTES = 7 * 60;
 
 function normalizeStudentName(name: string) {
   return (name || 'Học sinh').trim().toLowerCase();
@@ -43,24 +47,58 @@ function getStudentIdentity(session: GameSession) {
   return `name:${normalizeStudentName(session.studentName)}`;
 }
 
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function resolveNow(value?: Date | string | number) {
+  if (value instanceof Date) return new Date(value.getTime());
+  if (value !== undefined) return new Date(value);
+  return new Date();
 }
 
-function getPeriodStart(period: LeaderboardPeriod, now = new Date()) {
+function toBusinessClock(date: Date, utcOffsetMinutes: number) {
+  return new Date(date.getTime() + utcOffsetMinutes * 60_000);
+}
+
+function fromBusinessClock(year: number, month: number, day: number, utcOffsetMinutes: number) {
+  return new Date(Date.UTC(year, month, day) - utcOffsetMinutes * 60_000);
+}
+
+function getPeriodStart(
+  period: LeaderboardPeriod,
+  now = new Date(),
+  utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES,
+) {
+  const businessNow = toBusinessClock(now, utcOffsetMinutes);
   if (period === 'month') {
-    return new Date(now.getFullYear(), now.getMonth(), 1);
+    return fromBusinessClock(
+      businessNow.getUTCFullYear(),
+      businessNow.getUTCMonth(),
+      1,
+      utcOffsetMinutes,
+    );
   }
 
-  const today = startOfDay(now);
-  const day = today.getDay();
+  const day = businessNow.getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
-  return new Date(today.getTime() + mondayOffset * MS_PER_DAY);
+  return fromBusinessClock(
+    businessNow.getUTCFullYear(),
+    businessNow.getUTCMonth(),
+    businessNow.getUTCDate() + mondayOffset,
+    utcOffsetMinutes,
+  );
 }
 
-function getPreviousPeriodStart(period: LeaderboardPeriod, periodStart: Date) {
+function getPreviousPeriodStart(
+  period: LeaderboardPeriod,
+  periodStart: Date,
+  utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES,
+) {
   if (period === 'month') {
-    return new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);
+    const businessStart = toBusinessClock(periodStart, utcOffsetMinutes);
+    return fromBusinessClock(
+      businessStart.getUTCFullYear(),
+      businessStart.getUTCMonth() - 1,
+      1,
+      utcOffsetMinutes,
+    );
   }
   return new Date(periodStart.getTime() - 7 * MS_PER_DAY);
 }
@@ -137,7 +175,11 @@ function getBestSessions(
   return [...bestByKey.values()];
 }
 
-function summarizeSessions(bestSessions: GameSession[], assignments: Assignment[]) {
+function summarizeSessions(
+  bestSessions: GameSession[],
+  assignments: Assignment[],
+  utcOffsetMinutes: number,
+) {
   const byStudent = new Map<string, LeaderboardEntry>();
 
   for (const session of bestSessions) {
@@ -166,7 +208,9 @@ function summarizeSessions(bestSessions: GameSession[], assignments: Assignment[
     entry.totalQuestions += session.totalQuestions || session.correctAnswers + session.incorrectAnswers || 0;
     if (!entry.className) entry.className = getSessionClassName(session, assignments);
 
-    const dayKey = completedAt?.toISOString().slice(0, 10);
+    const dayKey = completedAt
+      ? toBusinessClock(completedAt, utcOffsetMinutes).toISOString().slice(0, 10)
+      : undefined;
     const days = new Set((entry as any)._days || []);
     if (dayKey) days.add(dayKey);
     (entry as any)._days = days;
@@ -199,15 +243,19 @@ export function buildLeaderboard(
   assignments: Assignment[],
   filters: LeaderboardFilters
 ) {
-  const periodStart = getPeriodStart(filters.period);
-  const previousStart = getPreviousPeriodStart(filters.period, periodStart);
+  const now = resolveNow(filters.now);
+  const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes)
+    ? Number(filters.utcOffsetMinutes)
+    : LEADERBOARD_UTC_OFFSET_MINUTES;
+  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  const previousStart = getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
   const previousEnd = getPreviousPeriodEnd(filters.period, periodStart);
 
   const currentBest = getBestSessions(sessions, assignments, filters, periodStart);
   const previousBest = getBestSessions(sessions, assignments, filters, previousStart, previousEnd);
 
-  const currentSummary = summarizeSessions(currentBest, assignments);
-  const previousSummary = summarizeSessions(previousBest, assignments);
+  const currentSummary = summarizeSessions(currentBest, assignments, utcOffsetMinutes);
+  const previousSummary = summarizeSessions(previousBest, assignments, utcOffsetMinutes);
   const previousByStudent = new Map(previousSummary.map(entry => [entry.studentKey || normalizeStudentName(entry.studentName), entry]));
 
   const entries = currentSummary.map(entry => {
@@ -223,14 +271,27 @@ export function buildLeaderboard(
     return entry;
   });
 
-  const gold = [...entries].sort((a, b) => b.honorScore - a.honorScore || b.averageAccuracy - a.averageAccuracy);
-  const diligent = [...entries].sort((a, b) => b.studyDays - a.studyDays || b.completedLessons - a.completedLessons || b.honorScore - a.honorScore);
+  const stableNameOrder = (a: LeaderboardEntry, b: LeaderboardEntry) => (
+    a.studentName.localeCompare(b.studentName, 'vi')
+      || String(a.studentKey || '').localeCompare(String(b.studentKey || ''))
+  );
+  const gold = [...entries].sort((a, b) => b.honorScore - a.honorScore || b.averageAccuracy - a.averageAccuracy || stableNameOrder(a, b));
+  const diligent = [...entries].sort((a, b) => b.studyDays - a.studyDays || b.completedLessons - a.completedLessons || b.honorScore - a.honorScore || stableNameOrder(a, b));
   const accurate = [...entries]
     .filter(entry => entry.completedLessons >= 3 || entry.totalQuestions >= 60)
-    .sort((a, b) => b.averageAccuracy - a.averageAccuracy || b.totalQuestions - a.totalQuestions);
-  const improved = [...entries].sort((a, b) => b.improvementPoints - a.improvementPoints || b.honorScore - a.honorScore);
+    .sort((a, b) => b.averageAccuracy - a.averageAccuracy || b.totalQuestions - a.totalQuestions || stableNameOrder(a, b));
+  const improved = [...entries].sort((a, b) => b.improvementPoints - a.improvementPoints || b.honorScore - a.honorScore || stableNameOrder(a, b));
 
   return { gold, diligent, accurate, improved };
+}
+
+export function getLeaderboardQueryStart(filters: Pick<LeaderboardFilters, 'period' | 'now' | 'utcOffsetMinutes'>) {
+  const now = resolveNow(filters.now);
+  const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes)
+    ? Number(filters.utcOffsetMinutes)
+    : LEADERBOARD_UTC_OFFSET_MINUTES;
+  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  return getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
 }
 
 export function getLeaderboardByCategory(

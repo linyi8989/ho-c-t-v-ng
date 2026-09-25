@@ -15,6 +15,13 @@ mkdirSync(screenshotDir, { recursive: true });
 const chrome = spawn(chromePath, [
   '--headless=new',
   '--disable-gpu',
+  '--disable-gpu-compositing',
+  '--disable-gpu-shader-disk-cache',
+  '--disable-features=Vulkan,SkiaGraphite,Dawn,UseDMSAA',
+  '--use-angle=swiftshader',
+  '--use-gl=angle',
+  '--enable-unsafe-swiftshader',
+  '--no-sandbox',
   '--no-first-run',
   '--no-default-browser-check',
   `--remote-debugging-port=${debugPort}`,

@@ -1,3 +1,5 @@
+import { getLeaderboardQueryStart } from '../../lib/leaderboard.js';
+
 interface ResultsServiceOptions {
   repository: ReturnType<typeof import('./repository.js').createResultsRepository>;
   activityTtlMs: number;
@@ -20,17 +22,35 @@ interface ResultsServiceOptions {
   buildLeaderboard: (events: any[], assignments: any[], options: any) => any;
   getCachedLeaderboardSummary: (key: string) => { expiresAt: number; value: any } | undefined;
   cacheLeaderboardSummary: (key: string, value: any) => void;
+  allowLegacyLeaderboardFallback?: boolean;
+  resolveLearningLeaderboardScope?: (request: any, timing?: TimingLike) => Promise<{
+    classId?: string;
+    vocabSetId?: string;
+  } | null>;
   nowMs?: () => number;
 }
 
 interface TimingLike { mark(label: string): void }
 
-function httpError(status: number, message: string) {
-  return Object.assign(new Error(message), { status });
+function httpError(status: number, message: string, code?: string) {
+  return Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
+}
+
+function publicLeaderboardEntry(entry: any, index: number) {
+  return {
+    rank: index + 1,
+    studentName: `Học viên #${index + 1}`,
+    completedLessons: Number(entry?.completedLessons || 0),
+    averageAccuracy: Number(entry?.averageAccuracy || 0),
+    studyDays: Number(entry?.studyDays || 0),
+    honorScore: Number(entry?.honorScore || 0),
+    badges: Array.isArray(entry?.badges) ? entry.badges.slice(0, 5).map((badge: any) => String(badge).slice(0, 120)) : [],
+  };
 }
 
 export function createResultsService(options: ResultsServiceOptions) {
   const nowMs = options.nowMs || Date.now;
+  const summaryInFlight = new Map<string, Promise<any>>();
   const recentCutoff = () => new Date(nowMs() - options.activityTtlMs).toISOString();
   const recentEnough = (activity: any) => new Date(options.getActivityTime(activity)).getTime() >= nowMs() - options.activityTtlMs;
   const canViewListening = (user: any, attempt: any, set: any) => user?.role === 'super_admin'
@@ -115,45 +135,158 @@ export function createResultsService(options: ResultsServiceOptions) {
     return { body: named.map(options.sanitizePublicStudentRecord) };
   };
 
-  const getPublicLeaderboardResults = async (timing?: TimingLike) => {
-    const list = await options.repository.loadLeaderboardEvents(timing);
-    return { body: list.map(options.sanitizePublicStudentRecord) };
+  const getPublicLeaderboardResults = async (_timing?: TimingLike) => {
+    return {
+      status: 410,
+      headers: { 'Cache-Control': 'no-store' },
+      body: {
+        error: 'The public raw leaderboard feed has been retired. Use /api/public/leaderboard-summary.',
+        code: 'LEADERBOARD_RAW_RETIRED',
+      },
+    };
+  };
+
+  const loadSummaryEvents = async (period: 'week' | 'month', timing?: TimingLike) => {
+    const cutoff = getLeaderboardQueryStart({ period, now: nowMs() }).toISOString();
+    let events = await options.repository.loadReadyLeaderboardEvents(timing, cutoff);
+    if (!events && options.allowLegacyLeaderboardFallback) {
+      timing?.mark('read_model_fallback');
+      events = await options.repository.loadLeaderboardEvents(timing, cutoff);
+    }
+    if (!events) {
+      throw httpError(
+        503,
+        'Leaderboard is temporarily unavailable while its read model is being prepared.',
+        'LEADERBOARD_NOT_READY',
+      );
+    }
+    return events;
+  };
+
+  const buildPublicSummary = async (
+    period: 'week' | 'month',
+    limit: number,
+    timing?: TimingLike,
+    scope: { classId?: string; vocabSetId?: string } = {},
+  ) => {
+    const events = await loadSummaryEvents(period, timing);
+    const publicEvents = events.map(options.sanitizePublicStudentRecord);
+    const leaderboard = options.buildLeaderboard(publicEvents, [], {
+      period,
+      now: nowMs(),
+      ...(scope.classId ? { classId: scope.classId } : {}),
+      ...(scope.vocabSetId ? { vocabSetId: scope.vocabSetId } : {}),
+    });
+    timing?.mark('aggregate');
+    return {
+      entries: leaderboard.gold.slice(0, limit).map(publicLeaderboardEntry),
+      period,
+    };
+  };
+
+  const withSummarySingleFlight = async (key: string, load: () => Promise<any>) => {
+    const active = summaryInFlight.get(key);
+    if (active) return active;
+    const pending = load();
+    summaryInFlight.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (summaryInFlight.get(key) === pending) summaryInFlight.delete(key);
+    }
   };
 
   const getPublicLeaderboardSummary = async (request: any, timing?: TimingLike) => {
     const period = request.query.period === 'month' ? 'month' : 'week';
-    const classId = options.safeText(request.query.classId, 180);
     const requestedLimit = Number(request.query.limit || 8);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
-    const cacheKey = `${period}:${classId}:${limit}`;
+    const cacheKey = `public:${period}:${limit}`;
     const cached = options.getCachedLeaderboardSummary(cacheKey);
-    const headers = { 'Cache-Control': 'public, max-age=30, stale-while-revalidate=60' };
+    const headers = { 'Cache-Control': 'public, max-age=30' };
     if (cached && cached.expiresAt > nowMs()) {
       timing?.mark('memory_cache');
       return { body: cached.value, headers };
     }
-    let events = await options.repository.loadReadyLeaderboardEvents(timing);
-    if (!events) {
-      timing?.mark('read_model_fallback');
-      events = await options.repository.loadLeaderboardEvents(timing);
-    }
-    const publicEvents = events.map(options.sanitizePublicStudentRecord);
-    const classesById = new Map<string, string>();
-    for (const event of publicEvents) {
-      const eventClassId = options.safeText(event.classId, 180);
-      if (!eventClassId) continue;
-      const eventClassName = options.safeText(event.className, 180) || eventClassId;
-      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
-    }
-    const entries = options.buildLeaderboard(publicEvents, [], { period, ...(classId ? { classId } : {}) }).gold.slice(0, limit);
-    const value = {
-      entries,
-      classes: [...classesById.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'vi')),
-      period,
-    };
-    options.cacheLeaderboardSummary(cacheKey, value);
-    timing?.mark('aggregate');
+    const value = await withSummarySingleFlight(cacheKey, async () => {
+      const result = await buildPublicSummary(period, limit, timing);
+      options.cacheLeaderboardSummary(cacheKey, result);
+      return result;
+    });
     return { body: value, headers };
+  };
+
+  const getLearningLeaderboardSummary = async (request: any, timing?: TimingLike) => {
+    if (!options.resolveLearningLeaderboardScope) throw httpError(503, 'Learning leaderboard scope is unavailable.');
+    const scope = await options.resolveLearningLeaderboardScope(request, timing);
+    if (!scope) throw httpError(403, 'A valid lesson or assignment capability is required.');
+    const period = request.query.period === 'month' ? 'month' : 'week';
+    const requestedLimit = Number(request.query.limit || 8);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
+    const cacheKey = `learning:${period}:${scope.classId || ''}:${scope.vocabSetId || ''}:${limit}`;
+    const cached = options.getCachedLeaderboardSummary(cacheKey);
+    const headers = { 'Cache-Control': 'private, max-age=30', Vary: 'X-Vocab-Share-Token' };
+    if (cached && cached.expiresAt > nowMs()) return { body: cached.value, headers };
+    const value = await withSummarySingleFlight(cacheKey, async () => {
+      const result = await buildPublicSummary(period, limit, timing, scope);
+      options.cacheLeaderboardSummary(cacheKey, result);
+      return result;
+    });
+    return { body: value, headers };
+  };
+
+  const getAdminLeaderboardSummary = async (request: any, timing?: TimingLike) => {
+    if (!request.user) throw httpError(401, 'Unauthenticated');
+    const period = request.query.period === 'month' ? 'month' : 'week';
+    const category = ['gold', 'diligent', 'accurate', 'improved'].includes(String(request.query.category))
+      ? String(request.query.category)
+      : 'gold';
+    const classId = options.safeText(request.query.classId, 180);
+    const vocabSetId = options.safeText(request.query.vocabSetId, 180);
+    const requestedPage = Number(request.query.page || 1);
+    const requestedPageSize = Number(request.query.pageSize || 50);
+    const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+    const pageSize = Number.isFinite(requestedPageSize) ? Math.max(1, Math.min(100, Math.floor(requestedPageSize))) : 50;
+    const [events, metadata] = await Promise.all([
+      loadSummaryEvents(period, timing),
+      options.repository.loadScopeMetadata(),
+    ]);
+    const scoped = events.filter((event: any) => event.sourceType === 'grammar'
+      ? options.canViewGrammarActivity(request.user, event, metadata.grammarSets.get(event.grammarSetId))
+      : options.canViewResultSession(request.user, event, metadata.vocabSets, metadata.assignments, metadata.classes));
+    timing?.mark('scope');
+    const named = await options.enrichStudentNames(scoped);
+    timing?.mark('names');
+    const leaderboard = options.buildLeaderboard(named, [], {
+      period,
+      now: nowMs(),
+      ...(classId ? { classId } : {}),
+      ...(vocabSetId ? { vocabSetId } : {}),
+    });
+    const rows = leaderboard[category] || leaderboard.gold;
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const boundedPage = Math.min(page, totalPages);
+    const start = (boundedPage - 1) * pageSize;
+    const classesById = new Map<string, string>();
+    const setsById = new Map<string, string>();
+    for (const event of scoped) {
+      if (event.classId && event.className) classesById.set(String(event.classId), String(event.className));
+      if (event.vocabSetId) setsById.set(String(event.vocabSetId), String(event.vocabSetTitle || event.vocabSetId));
+    }
+    return {
+      headers: { 'Cache-Control': 'private, no-store' },
+      body: {
+        entries: rows.slice(start, start + pageSize),
+        page: boundedPage,
+        pageSize,
+        total,
+        totalPages,
+        period,
+        category,
+        classes: [...classesById.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'vi')),
+        vocabSets: [...setsById.entries()].map(([id, title]) => ({ id, title })).sort((a, b) => a.title.localeCompare(b.title, 'vi')),
+      },
+    };
   };
 
   const loadScopedRecentActivitySummaries = async (user: any, limit = options.maxResultLimit) => {
@@ -276,10 +409,19 @@ export function createResultsService(options: ResultsServiceOptions) {
     return { body: named };
   };
 
-  const getLeaderboardResults = async (request: any, timing?: TimingLike) => ({ body: await loadScopedLeaderboardResults(request.user, timing) });
+  const getLeaderboardResults = async (_request: any, _timing?: TimingLike) => ({
+    status: 410,
+    headers: { 'Cache-Control': 'no-store' },
+    body: {
+      error: 'The raw leaderboard feed has been retired. Use a scoped leaderboard summary endpoint.',
+      code: 'LEADERBOARD_RAW_RETIRED',
+    },
+  });
 
   return {
     getLeaderboardResults,
+    getAdminLeaderboardSummary,
+    getLearningLeaderboardSummary,
     getPublicLeaderboardResults,
     getPublicLeaderboardSummary,
     getPublicResults,

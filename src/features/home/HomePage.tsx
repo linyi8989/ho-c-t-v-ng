@@ -107,6 +107,7 @@ interface HomePageProps {
   isStaff: boolean;
   leaderboard: HomeLeaderboardEntry[];
   leaderboardPeriod: LeaderboardPeriod;
+  leaderboardStatus: 'idle' | 'loading' | 'ready' | 'unavailable';
   onBackToAdmin: () => void;
   onLogout: () => void | Promise<void>;
   onNavigate: (href: string) => void;
@@ -134,6 +135,7 @@ export default function HomePage({
   isStaff,
   leaderboard,
   leaderboardPeriod,
+  leaderboardStatus,
   onBackToAdmin,
   onLogout,
   onNavigate,
@@ -372,7 +374,9 @@ export default function HomePage({
               </select>
             </div>
             <p className="text-xs text-white/70 leading-relaxed">Vinh danh học sinh chăm học dựa trên kết quả chơi game, độ chính xác, số ngày học và mức tiến bộ. Mỗi bộ từ vựng và mỗi chế độ chơi chỉ tính kết quả tốt nhất.</p>
-            {leaderboard.length === 0 ? (
+            {leaderboardStatus === 'loading' || leaderboardStatus === 'unavailable' ? (
+              <div className="text-center py-6 text-white/70 text-xs font-semibold" role="status">Bảng vàng đang cập nhật. Vui lòng thử lại sau.</div>
+            ) : leaderboard.length === 0 ? (
               <div className="text-center py-6 text-white/50 text-xs italic">Chưa có kết quả học tập nào để vinh danh.</div>
             ) : (
               <div className="space-y-4">

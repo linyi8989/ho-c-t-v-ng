@@ -544,6 +544,38 @@ after(async () => {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }, { timeout: 10_000 });
 
+test('production HTTP fallbacks distinguish APIs, assets, SPA routes, and unknown routes', async () => {
+  const request = (route: string) => fetch(`http://127.0.0.1:${applicationPort}${route}`);
+
+  const missingApi = await request('/api/contract-missing');
+  assert.equal(missingApi.status, 404);
+  assert.match(missingApi.headers.get('content-type') || '', /application\/json/);
+  assert.equal(missingApi.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await missingApi.json(), { error: 'Not found' });
+
+  const missingAsset = await request('/assets/contract-missing.js');
+  assert.equal(missingAsset.status, 404);
+  assert.match(missingAsset.headers.get('content-type') || '', /text\/plain/);
+  assert.equal(missingAsset.headers.get('cache-control'), 'no-store');
+  assert.equal(await missingAsset.text(), 'Not found');
+
+  const missingRoute = await request('/contract-missing-route');
+  assert.equal(missingRoute.status, 404);
+  assert.match(missingRoute.headers.get('content-type') || '', /text\/plain/);
+  assert.equal(missingRoute.headers.get('cache-control'), 'no-store');
+  assert.equal(await missingRoute.text(), 'Not found');
+
+  const validSpaRoute = await request('/history');
+  assert.equal(validSpaRoute.status, 200);
+  assert.match(validSpaRoute.headers.get('content-type') || '', /text\/html/);
+  assert.equal(validSpaRoute.headers.get('cache-control'), 'no-cache');
+
+  const unavailableSummary = await request('/api/public/leaderboard-summary');
+  assert.equal(unavailableSummary.status, 503);
+  assert.equal(unavailableSummary.headers.get('cache-control'), 'no-store');
+  assert.equal((await unavailableSummary.json() as any).code, 'LEADERBOARD_NOT_READY');
+});
+
 test('public result contracts preserve seven-day filtering, ordering, shape, and pseudonymous identity', async () => {
   const resultResponse = await apiRequest('/api/public/results');
   assert.equal(resultResponse.status, 200);
@@ -625,46 +657,9 @@ test('public result contracts preserve seven-day filtering, ordering, shape, and
   assert.equal('answerDetails' in grammar, false);
 
   const leaderboardResponse = await apiRequest('/api/public/leaderboard-results');
-  assert.equal(leaderboardResponse.status, 200);
-  assert(Array.isArray(leaderboardResponse.body));
-  const leaderboardItem = leaderboardResponse.body.find((item: any) => item.sourceId === 'game-guest');
-  assert(leaderboardItem);
-  assertExactKeys(leaderboardItem, [
-    'accuracy',
-    'assignmentId',
-    'classId',
-    'className',
-    'completedAt',
-    'correctAnswers',
-    'createdAt',
-    'durationMs',
-    'durationSeconds',
-    'endedAt',
-    'expiresAt',
-    'gameId',
-    'gameName',
-    'gameType',
-    'grammarSetId',
-    'id',
-    'incorrectAnswers',
-    'maxScore',
-    'ownerType',
-    'publicStudentKey',
-    'rawScore',
-    'score',
-    'sourceId',
-    'sourceType',
-    'startedAt',
-    'status',
-    'studentKey',
-    'studentName',
-    'totalQuestions',
-    'vocabSetId',
-    'vocabSetTitle',
-  ], '/api/public/leaderboard-results item');
-  for (const forbidden of ['ownerKey', 'userId', 'studentId', 'guestId']) {
-    assert.equal(forbidden in leaderboardItem, false, `${forbidden} must not be public`);
-  }
+  assert.equal(leaderboardResponse.status, 410);
+  assertExactKeys(leaderboardResponse.body, ['code', 'error'], '/api/public/leaderboard-results retired');
+  assert.equal(leaderboardResponse.body.code, 'LEADERBOARD_RAW_RETIRED');
 });
 
 test('authenticated result and leaderboard contracts enforce auth and owner/teacher scope', async () => {
@@ -726,50 +721,11 @@ test('authenticated result and leaderboard contracts enforce auth and owner/teac
   );
 
   const teacherLeaderboard = await apiRequest('/api/leaderboard-results', teacherToken);
-  assert.equal(teacherLeaderboard.status, 200);
-  assert(teacherLeaderboard.body.some((item: any) => item.sourceId === 'game-guest'));
-  assert(teacherLeaderboard.body.some((item: any) => item.sourceId === 'grammar-other'));
+  assert.equal(teacherLeaderboard.status, 410);
+  assert.equal(teacherLeaderboard.body.code, 'LEADERBOARD_RAW_RETIRED');
   const studentLeaderboard = await apiRequest('/api/leaderboard-results', studentToken);
-  assert.equal(studentLeaderboard.status, 200);
-  assert.deepEqual(
-    studentLeaderboard.body.map((item: any) => item.sourceId),
-    ['game-student', 'grammar-student', 'game-old'],
-  );
-  assertExactKeys(studentLeaderboard.body[0], [
-    'accuracy',
-    'assignmentId',
-    'classId',
-    'className',
-    'completedAt',
-    'correctAnswers',
-    'createdAt',
-    'durationMs',
-    'durationSeconds',
-    'endedAt',
-    'expiresAt',
-    'gameId',
-    'gameName',
-    'gameType',
-    'grammarSetId',
-    'guestId',
-    'id',
-    'incorrectAnswers',
-    'maxScore',
-    'ownerKey',
-    'ownerType',
-    'rawScore',
-    'score',
-    'sourceId',
-    'sourceType',
-    'startedAt',
-    'status',
-    'studentId',
-    'studentName',
-    'totalQuestions',
-    'userId',
-    'vocabSetId',
-    'vocabSetTitle',
-  ], '/api/leaderboard-results item');
+  assert.equal(studentLeaderboard.status, 410);
+  assert.equal(studentLeaderboard.body.code, 'LEADERBOARD_RAW_RETIRED');
 });
 
 test('admin vocab and grammar result contracts enforce role/ownership and preserve response shape', async () => {

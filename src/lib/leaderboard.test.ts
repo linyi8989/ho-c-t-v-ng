@@ -78,3 +78,27 @@ test('raw admin sessions retain user-first identity fallback', () => {
     ])
   );
 });
+
+test('week and study-day boundaries use the explicit Vietnam UTC+7 business timezone', () => {
+  const now = new Date('2026-09-06T18:00:00.000Z');
+  const leaderboard = buildLeaderboard([
+    session('before', { userId: 'before' }, { completedAt: '2026-09-06T16:59:59.000Z' }),
+    session('inside', { userId: 'inside' }, { completedAt: '2026-09-06T17:00:01.000Z' }),
+    session('same-day', { userId: 'inside' }, {
+      vocabSetId: 'vocab-2',
+      completedAt: '2026-09-07T16:59:59.000Z',
+    }),
+  ], [], { period: 'week', now });
+
+  assert.deepEqual(leaderboard.gold.map(entry => entry.studentKey), ['user:inside|no-class']);
+  assert.equal(leaderboard.gold[0].studyDays, 1);
+});
+
+test('leaderboard ties have deterministic Vietnamese-name ordering', () => {
+  const now = new Date('2026-09-24T12:00:00.000Z');
+  const leaderboard = buildLeaderboard([
+    session('b', { userId: 'b' }, { studentName: 'Binh' }),
+    session('a', { userId: 'a' }, { studentName: 'An' }),
+  ], [], { period: 'week', now });
+  assert.deepEqual(leaderboard.gold.map(entry => entry.studentName), ['An', 'Binh']);
+});

@@ -2041,8 +2041,10 @@ function upsertDoc(collectionName: string, id: string, inputData: any) {
 }
 
 function updateDoc(collectionName: string, id: string, patch: any) {
-  const existing = readRow(tableForCollection(collectionName), id) || { id };
-  upsertDoc(collectionName, id, { ...existing, ...patch, id });
+  withTransaction(() => {
+    const existing = readRow(tableForCollection(collectionName), id) || { id };
+    upsertDoc(collectionName, id, { ...existing, ...patch, id });
+  }, 'immediate');
 }
 
 function deleteDoc(collectionName: string, id: string) {

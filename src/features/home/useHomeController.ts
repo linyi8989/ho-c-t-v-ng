@@ -1,6 +1,6 @@
 import React from 'react';
-import type { Assignment, Class, GameSession, GrammarSet, VocabSet } from '../../types';
-import { buildLeaderboard, type LeaderboardPeriod } from '../../lib/leaderboard';
+import type { Assignment, Class, GrammarSet, VocabSet } from '../../types';
+import type { LeaderboardEntry, LeaderboardPeriod } from '../../lib/leaderboard';
 import {
   filterPublicGrammarSets,
   filterPublicVocabSets,
@@ -19,8 +19,9 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
   const [grammarSets, setGrammarSets] = React.useState<GrammarSet[]>([]);
   const [listeningSets, setListeningSets] = React.useState<Array<{ level?: string }>>([]);
   const [classes, setClasses] = React.useState<Class[]>([]);
-  const [assignments, setAssignments] = React.useState<Assignment[]>([]);
-  const [leaderboardResults, setLeaderboardResults] = React.useState<GameSession[]>([]);
+  const [, setAssignments] = React.useState<Assignment[]>([]);
+  const [leaderboard, setLeaderboard] = React.useState<LeaderboardEntry[]>([]);
+  const [leaderboardStatus, setLeaderboardStatus] = React.useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
   const [search, setSearch] = React.useState('');
   const [grade, setGrade] = React.useState('');
   const [grammarSearch, setGrammarSearch] = React.useState('');
@@ -64,18 +65,6 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
         loadJson('/api/listening/sets')
           .then(data => { if (isCurrent()) setListeningSets(Array.isArray(data) ? data : []); })
           .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Public listening API unreachable:', error); setListeningSets([]); } }),
-        loadJson('/api/public/leaderboard-results')
-          .then(data => { if (isCurrent()) setLeaderboardResults(Array.isArray(data) ? data : []); })
-          .catch(async error => {
-            if (isAbortError(error) || !isCurrent()) return;
-            console.warn('Public leaderboard API unreachable; using bounded recent results:', error);
-            try {
-              const fallback = await loadJson('/api/public/results?limit=100');
-              if (isCurrent()) setLeaderboardResults(Array.isArray(fallback) ? fallback : []);
-            } catch (fallbackError) {
-              if (!isAbortError(fallbackError) && isCurrent()) setLeaderboardResults([]);
-            }
-          }),
       ];
       await Promise.allSettled(tasks);
     };
@@ -97,9 +86,6 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
         loadJson('/api/classes')
           .then(data => { if (isCurrent()) setClasses(Array.isArray(data) ? data : []); })
           .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Classes API unreachable:', error); setClasses([]); } }),
-        loadJson('/api/leaderboard-results')
-          .then(data => { if (isCurrent()) setLeaderboardResults(Array.isArray(data) ? data : []); })
-          .catch(error => { if (!isAbortError(error) && isCurrent()) { console.warn('Leaderboard API unreachable:', error); setLeaderboardResults([]); } }),
       ];
       await Promise.allSettled(tasks);
     };
@@ -111,6 +97,28 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     };
   }, [enabled, loading, token]);
 
+  React.useEffect(() => {
+    if (loading || !enabled) return;
+    const controller = new AbortController();
+    setLeaderboardStatus('loading');
+    fetch(`/api/public/leaderboard-summary?period=${leaderboardPeriod}&limit=5`, {
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Leaderboard failed with HTTP ${response.status}`);
+        setLeaderboard(Array.isArray(data.entries) ? data.entries : []);
+        setLeaderboardStatus('ready');
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        console.warn('Leaderboard summary unavailable:', error);
+        setLeaderboard([]);
+        setLeaderboardStatus('unavailable');
+      });
+    return () => controller.abort();
+  }, [enabled, leaderboardPeriod, loading]);
+
   const gradeOptions = React.useMemo(
     () => getHomeGradeOptions(classes, vocabSets, listeningSets),
     [classes, listeningSets, vocabSets],
@@ -118,10 +126,6 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
   const grammarGradeOptions = React.useMemo(
     () => getGrammarGradeOptions(classes, grammarSets),
     [classes, grammarSets],
-  );
-  const leaderboard = React.useMemo(
-    () => buildLeaderboard(leaderboardResults, assignments, { period: leaderboardPeriod }).gold.slice(0, 5),
-    [assignments, leaderboardPeriod, leaderboardResults],
   );
   const filteredVocabSets = React.useMemo(
     () => filterPublicVocabSets(vocabSets, search, grade),
@@ -142,6 +146,7 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     grammarSearch,
     leaderboard,
     leaderboardPeriod,
+    leaderboardStatus,
     search,
     setGrade,
     setGrammarGrade,

@@ -47,6 +47,42 @@ function runConcurrentWriter(targetPath: string, workerId: number) {
   });
 }
 
+function runConcurrentDocumentPatch(targetPath: string, field: string, value: number, holdMs: number) {
+  const source = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1], { fileMustExist: true, timeout: 5000 });
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = db.prepare('SELECT data_json FROM users WHERE id = ?').get('same-document');
+      const data = JSON.parse(row.data_json);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.argv[4]));
+      data[process.argv[2]] = Number(process.argv[3]);
+      db.prepare('UPDATE users SET data_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(data), new Date().toISOString(), 'same-document');
+      db.exec('COMMIT');
+      db.close();
+    } catch (error) {
+      if (db.inTransaction) db.exec('ROLLBACK');
+      db.close();
+      throw error;
+    }
+  `;
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', source, targetPath, field, String(value), String(holdMs)], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let errorOutput = '';
+    child.stderr.on('data', chunk => { errorOutput += chunk.toString(); });
+    child.once('error', reject);
+    child.once('exit', code => {
+      if (code === 0) resolve();
+      else reject(new Error(`Concurrent document patch failed (${code}): ${errorOutput}`));
+    });
+  });
+}
+
 function configureTestDatabase(
   targetPath: string,
   allowCreate: boolean,
@@ -223,6 +259,22 @@ test('better-sqlite3 facade persists CRUD data, enables WAL, and rolls batches b
   } finally {
     concurrencyReader.close();
   }
+
+  await db.collection('users').doc('same-document').set({
+    id: 'same-document',
+    name: 'Concurrent Student',
+    email: 'concurrent@example.test',
+    role: 'student',
+    fieldA: 0,
+    fieldB: 0,
+  });
+  await Promise.all([
+    runConcurrentDocumentPatch(databasePath, 'fieldA', 1, 75),
+    runConcurrentDocumentPatch(databasePath, 'fieldB', 1, 0),
+  ]);
+  const concurrentlyPatched = (await db.collection('users').doc('same-document').get()).data();
+  assert.equal(concurrentlyPatched.fieldA, 1);
+  assert.equal(concurrentlyPatched.fieldB, 1);
 
   await closeSQLiteStorage();
   configureTestDatabase(databasePath, false);

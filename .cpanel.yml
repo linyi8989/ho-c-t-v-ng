@@ -5,11 +5,32 @@ deployment:
     - export DATAPATH=/home/qzmivzbj/app-data/vhomework
     - /bin/mkdir -p $DEPLOYPATH
     - /bin/mkdir -p $DATAPATH
-    - /bin/rm -f $DEPLOYPATH/index.html
-    - /bin/rm -rf $DEPLOYPATH/assets
-    - /bin/cp -Rf dist/client/* $DEPLOYPATH/
-    - /bin/rm -rf $DEPLOYPATH/dist
-    - /bin/cp -Rf dist $DEPLOYPATH/
+    - /bin/mkdir -p $DEPLOYPATH/assets
+    - /bin/mkdir -p $DEPLOYPATH/dist/client/assets
     - /bin/mkdir -p $DEPLOYPATH/scripts
+    - /bin/mkdir -p $DEPLOYPATH/tmp
+    - /bin/cp -Rf dist/client/assets/. $DEPLOYPATH/assets/
+    - /bin/cp -Rf dist/client/assets/. $DEPLOYPATH/dist/client/assets/
+    - /bin/cp -f dist/client/*.png $DEPLOYPATH/
+    - /bin/cp -f dist/client/*.png $DEPLOYPATH/dist/client/
     - /bin/cp -Rf scripts/*.mjs $DEPLOYPATH/scripts/
     - /bin/cp -f app.js package.json package-lock.json $DEPLOYPATH/
+    - /bin/cp -f dist/server.cjs $DEPLOYPATH/dist/server.cjs.next
+    - /bin/cp -f dist/server.cjs.map $DEPLOYPATH/dist/server.cjs.map.next
+    - /bin/cp -f dist/client/index.html $DEPLOYPATH/index.html.next
+    - /bin/cp -f dist/client/index.html $DEPLOYPATH/dist/client/index.html.next
+    - /bin/cp -f .htaccess $DEPLOYPATH/.htaccess.next
+    - /usr/bin/test -s $DEPLOYPATH/dist/server.cjs.next
+    - /usr/bin/test -s $DEPLOYPATH/index.html.next
+    - /usr/bin/test -s $DEPLOYPATH/dist/client/index.html.next
+    - /usr/bin/test ! -f $DEPLOYPATH/dist/server.cjs || /bin/cp -f $DEPLOYPATH/dist/server.cjs $DEPLOYPATH/dist/server.cjs.previous
+    - /usr/bin/test ! -f $DEPLOYPATH/dist/server.cjs.map || /bin/cp -f $DEPLOYPATH/dist/server.cjs.map $DEPLOYPATH/dist/server.cjs.map.previous
+    - /usr/bin/test ! -f $DEPLOYPATH/index.html || /bin/cp -f $DEPLOYPATH/index.html $DEPLOYPATH/index.html.previous
+    - /usr/bin/test ! -f $DEPLOYPATH/dist/client/index.html || /bin/cp -f $DEPLOYPATH/dist/client/index.html $DEPLOYPATH/dist/client/index.html.previous
+    - /usr/bin/test ! -f $DEPLOYPATH/.htaccess || /bin/cp -f $DEPLOYPATH/.htaccess $DEPLOYPATH/.htaccess.previous
+    - /bin/mv -f $DEPLOYPATH/dist/server.cjs.next $DEPLOYPATH/dist/server.cjs
+    - /bin/mv -f $DEPLOYPATH/dist/server.cjs.map.next $DEPLOYPATH/dist/server.cjs.map
+    - /bin/mv -f $DEPLOYPATH/dist/client/index.html.next $DEPLOYPATH/dist/client/index.html
+    - /bin/mv -f $DEPLOYPATH/.htaccess.next $DEPLOYPATH/.htaccess
+    - /usr/bin/touch $DEPLOYPATH/tmp/restart.txt
+    - /bin/mv -f $DEPLOYPATH/index.html.next $DEPLOYPATH/index.html

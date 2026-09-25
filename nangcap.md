@@ -942,3 +942,31 @@ Trạng thái: **hoàn thành kỹ thuật ngày 2026-09-24; chưa deploy produc
 - [x] Home contract đạt 14/14, lint đạt; browser QA tại 1440 px và 390 px xác
   nhận media phủ bề mặt hero, copy nằm ở lớp trên, ảnh không có card riêng và
   không overflow ngang.
+
+## Bổ sung sau nâng cấp: remediation production - 2026-09-25
+
+- [x] Ngừng hai raw leaderboard endpoint bằng HTTP 410; chuyển Home, khu học sinh
+  và Admin sang ba summary endpoint có đúng public/capability/staff scope.
+- [x] Public DTO được allowlist và ẩn danh, giới hạn tối đa 20 dòng; có cache 30 giây,
+  single-flight, rate-limit và filter thời gian UTC+7 trên server.
+- [x] Production fail-closed khi read model chưa sẵn sàng; fallback nguồn cũ chỉ
+  được phép ở development.
+- [x] Backfill leaderboard có target riêng, dry-run, verified backup, reconciliation,
+  source-count invariant, `quick_check` và chỉ ghi readiness marker sau cùng.
+- [x] Bọc SQLite read-merge-upsert bằng transaction `IMMEDIATE`; test hai process
+  đồng thời xác nhận không mất field update.
+- [x] API/asset/broken route trả đúng 404 thay vì SPA 200; route SPA được allowlist;
+  API error no-store, index no-cache, chỉ bundle `/assets/` được immutable.
+- [x] Thêm security headers/compression ở Apache, `lang="vi"`, 404 UI và sửa tương
+  phản CTA; browser QA desktop/mobile không overflow.
+- [x] Deploy cPanel không xóa asset đang live, stage `.next`, kiểm tra artifact,
+  snapshot `.previous`, restart một lần và activation root index cuối.
+- [x] Cập nhật dependency lockfile không dùng `--force`; `npm audit --omit=dev`
+  trả `0 vulnerabilities`.
+- [x] Gate Node 22 đạt: `test:phase3` 513/513, history CLI/startup smoke, production
+  build, lint và browser smoke 1440/390 px đều pass.
+- [x] Checklist Go/No-Go, backfill, deploy, smoke, auth matrix, latency, log,
+  database health và rollback nằm tại `docs/production-remediation-rollout-checklist.md`.
+- [ ] Chưa triển khai production trong lượt này. Còn phải thực hiện checklist có
+  người vận hành, backup được xác minh, cài dependency từ lockfile mới, backfill
+  production và theo dõi sau deploy.

@@ -18,21 +18,23 @@ test('App is a gateway while the Home controller owns fetch and HomePage only pr
   assert.match(controllerSource, /homeDataRequestIdRef\.current === requestId/);
 });
 
-test('Home controller keeps all full-data endpoints required by client-side item search', () => {
+test('Home keeps full lesson search data but consumes only the bounded leaderboard summary', () => {
   for (const endpoint of [
     '/api/public/vocab-sets',
     '/api/public/grammar-sets',
     '/api/listening/sets',
-    '/api/public/leaderboard-results',
+    '/api/public/leaderboard-summary?period=',
     '/api/vocab-sets',
     '/api/grammar-sets',
     '/api/assignments',
     '/api/classes',
-    '/api/leaderboard-results',
   ]) {
     assert.ok(controllerSource.includes(endpoint), `missing Home endpoint ${endpoint}`);
   }
+  assert.doesNotMatch(controllerSource, /\/api\/(?:public\/)?leaderboard-results/);
   assert.doesNotMatch(controllerSource, /\/api\/results['"`]/);
+  assert.match(controllerSource, /leaderboardStatus/);
+  assert.match(pageSource, /Bảng vàng đang cập nhật/);
 });
 
 test('route navigation preserves pushState/popstate and stable Home DOM hooks', () => {
