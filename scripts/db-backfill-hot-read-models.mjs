@@ -252,6 +252,12 @@ function assertSchema(db, { runGuestProfileBackfill, runLeaderboardBackfill }) {
   }
 }
 
+function isLeaderboardReadModelReady(db) {
+  const row = db.prepare('SELECT value_json FROM settings WHERE key = ?').get(READ_MODEL_SETTING_ID);
+  const setting = parseJson(row?.value_json);
+  return setting.ready === true && number(setting.version) === 1;
+}
+
 function insertGuestProfiles(db, candidates, now) {
   const insert = db.prepare(
     `INSERT OR IGNORE INTO guest_profiles
@@ -361,7 +367,7 @@ try {
       leaderboardCutoff: cutoff,
       plannedGuestProfiles: guestCandidates.length,
       plannedLeaderboardEvents: leaderboardCandidates.length,
-      readModelReady: runLeaderboardBackfill ? false : null,
+      readModelReady: runLeaderboardBackfill ? isLeaderboardReadModelReady(db) : null,
       sourceMutation: 'none',
       note: 'Dry-run is read-only. Create/review a backup, then re-run with --execute.',
     });

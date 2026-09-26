@@ -184,6 +184,8 @@ test('leaderboard backfill can run without creating guest profiles and publishes
   assert.match(backfillSource, /target === 'leaderboard'/);
   assert.match(backfillSource, /runGuestProfileBackfill/);
   assert.match(backfillSource, /runLeaderboardBackfill/);
+  assert.match(backfillSource, /isLeaderboardReadModelReady\(db\)/);
+  assert.doesNotMatch(backfillSource, /readModelReady: runLeaderboardBackfill \? false : null/);
   const verificationIndex = backfillSource.indexOf("assertQuickCheck(db, 'post-backfill database')");
   const markerIndex = backfillSource.indexOf('INSERT INTO settings (key, value_json, updated_at)');
   assert.ok(verificationIndex > 0, 'post-backfill quick_check must exist');
