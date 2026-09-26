@@ -6,7 +6,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createDefaultMoverReadingWritingContent } from '../defaultContent';
 import { createEmptyMoverReadingWritingAnswers } from '../types';
-import { ReadingPart1View, ReadingPart2View, ReadingPart4View, ReadingPart5View, ReadingPart6View } from './MoverReadingWritingPartViews';
+import { ReadingPart1View, ReadingPart2View, ReadingPart3View, ReadingPart4View, ReadingPart5View, ReadingPart6View } from './MoverReadingWritingPartViews';
 
 const playerSource = readFileSync(new URL('./MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
@@ -99,6 +99,10 @@ test('Part 6 image-choice mode renders one student image and five three-option q
   assert.equal((markup.match(/data-choice-layout="horizontal"/g) || []).length, 5);
   assert.equal((markup.match(/data-mover-rw-part6-inline-row=/g) || []).length, 5);
   assert.equal((markup.match(/grid-cols-\[2\.75rem_repeat\(3,minmax\(0,1fr\)\)\]/g) || []).length, 5);
+  assert.match(markup, /data-mover-rw-balanced-media="true"/);
+  assert.match(markup, /lg:self-stretch/);
+  assert.match(markup, /data-exam-image-profile="page-scan"/);
+  assert.match(markup, /h-full w-full/);
   assert.match(markup, /Choice 1\.1/);
   assert.doesNotMatch(markup, /Bảng lựa chọn Part 6/);
 });
@@ -126,6 +130,40 @@ test('requested Movers answer fields use PET-style underlines and the specified 
 
   const part5Markup = renderToStaticMarkup(createElement(ReadingPart5View, { part: part5, answers, onAnswers }));
   assert.equal((part5Markup.match(/data-student-underline-answer/g) || []).length, part5.scenes.flatMap(scene => scene.questions).length);
+});
+
+test('Movers Parts 1/4 balance the image column and Part 3 distributes questions across two lanes', () => {
+  const content = createDefaultMoverReadingWritingContent();
+  const answers = createEmptyMoverReadingWritingAnswers();
+  const onAnswers = () => undefined;
+  const [part1, , part3, part4] = content.parts;
+  part1.wordBankUrl = '/media/movers-part-1.png';
+  part4.wordBankUrl = '/media/movers-part-4.png';
+  part3.sceneUrl = '/media/movers-part-3.png';
+  part3.example = {
+    ...part3.questions[0],
+    id: 'part-3-example',
+    prompt: 'Hello. Did you have a good day at school?',
+  };
+
+  const part1Markup = renderToStaticMarkup(createElement(ReadingPart1View, { part: part1, answers, onAnswers }));
+  const part4Markup = renderToStaticMarkup(createElement(ReadingPart4View, { part: part4, answers, onAnswers }));
+  for (const markup of [part1Markup, part4Markup]) {
+    assert.match(markup, /data-mover-rw-balanced-media="true"/);
+    assert.match(markup, /data-exam-image-profile="word-bank"/);
+    assert.match(markup, /lg:self-stretch/);
+    assert.match(markup, /h-full w-full/);
+  }
+
+  const part3Markup = renderToStaticMarkup(createElement(ReadingPart3View, { part: part3, answers, onAnswers }));
+  assert.match(part3Markup, /data-mover-rw-part3-layout/);
+  assert.match(part3Markup, /data-mover-rw-part3-centered-media/);
+  assert.doesNotMatch(part3Markup, /data-mover-rw-part3-example/);
+  assert.ok(part3Markup.indexOf('data-mover-rw-part3-centered-media') < part3Markup.indexOf('data-mover-rw-part3-question-grid'));
+  assert.match(part3Markup, /data-mover-rw-part3-question-grid/);
+  assert.match(part3Markup, /lg:grid-cols-2/);
+  assert.equal((part3Markup.match(/data-mover-rw-part3-question="/g) || []).length, 6);
+  assert.match(part3Markup, /data-mover-rw-part3-question="1"[\s\S]*data-mover-rw-part3-question="2"[\s\S]*data-mover-rw-part3-question="3"[\s\S]*data-mover-rw-part3-question="4"[\s\S]*data-mover-rw-part3-question="5"[\s\S]*data-mover-rw-part3-question="6"/);
 });
 
 test('Part 2 uses one uninterrupted Examples panel and Part 6 inserts the example answer at the printed blank', () => {

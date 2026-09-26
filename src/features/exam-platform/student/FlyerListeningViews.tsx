@@ -8,6 +8,13 @@ import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 
 const answerShell = (): ListeningAnswers => ({ part1: {}, part2: {}, part3: {}, part4: {}, part5: {} });
 
+export const FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH = '912px';
+export const FLYER_LISTENING_PART1_IMAGE_MAX_HEIGHT = 'min(74.4dvh, 744px, max(264px, calc(100dvh - 315px)))';
+export const FLYER_LISTENING_PART1_IMAGE_SCALE = 1.2;
+export const FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH = '1094px';
+export const FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT = 'min(89.28dvh, 893px, max(316px, calc(100dvh - 270px)))';
+export const FLYER_LISTENING_PART5_IMAGE_SCALE = 1.44;
+
 function FlyerNamePlacementView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const unit = examPartUnits(part)[0] || part;
   const layout = unit.interactionLayout?.kind === 'flyer-name-placement-v1' ? unit.interactionLayout : undefined;
@@ -29,7 +36,7 @@ function FlyerNamePlacementView({ part, answers, onAnswer }: { part: ExamPartCon
     const value = answers[target.questionId];
     if (typeof value === 'string' && value) moverAnswers.part1[target.id] = value;
   });
-  return <div data-flyer-listening-part={part.part} data-flyer-interaction="name-placement" className="h-full min-h-0"><ListeningPart1View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div data-flyer-listening-part={part.part} data-flyer-interaction="name-placement" className="h-full min-h-0"><ListeningPart1View part={moverPart} answers={moverAnswers} imageMaxWidth={FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH} imageMaxHeight={FLYER_LISTENING_PART1_IMAGE_MAX_HEIGHT} imageScale={FLYER_LISTENING_PART1_IMAGE_SCALE} onAnswers={next => {
     layout.targets.forEach(target => {
       const nextValue = next.part1[target.id] || '';
       if (nextValue !== moverAnswers.part1[target.id]) onAnswer(target.questionId, nextValue);
@@ -77,6 +84,6 @@ export default function FlyerListeningPartView({ part, answers, onAnswer }: { pa
   if (part.part === 2) return <StarterTextEntryView part={examPartUnits(part)[0] || part} answers={answers} onAnswer={onAnswer} />;
   if (part.part === 3) return <FlyerLetterMatchingView part={part} answers={answers} onAnswer={onAnswer} />;
   if (part.part === 4) return <FlyerPart4ImageOptionsView part={part} answers={answers} onAnswer={onAnswer} />;
-  if (part.part === 5) return <StarterListeningPart4View part={part} answers={answers} onAnswer={onAnswer} />;
+  if (part.part === 5) return <StarterListeningPart4View part={part} answers={answers} onAnswer={onAnswer} imageMaxWidth={FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH} imageMaxHeight={FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT} imageScale={FLYER_LISTENING_PART5_IMAGE_SCALE} />;
   return null;
 }

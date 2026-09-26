@@ -358,12 +358,12 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }, [run?.clientRunId]);
 
   const part = playable?.content.parts[currentPart];
-  const partUsesInternalScroller = currentPart === 0
+  const partUsesContentBoundedInteractiveViewport = currentPart === 0
     || (currentPart === 4 && playable?.content.parts[4]?.displayMode === 'scene-colour-draw');
   const progress = answeredCount(answers);
   const partViews = part ? [
     <ListeningPart1View key={1} part={playable!.content.parts[0]} answers={answers} onAnswers={setAnswers} />,
-    <ListeningPart2View key={2} part={playable!.content.parts[1]} answers={answers} onAnswers={setAnswers} />,
+    <ListeningPart2View key={2} part={playable!.content.parts[1]} answers={answers} onAnswers={setAnswers} balanceMediaColumn />,
     <ListeningPart3View key={3} part={playable!.content.parts[2]} answers={answers} onAnswers={setAnswers} />,
     <ListeningPart4View key={4} part={playable!.content.parts[3]} answers={answers} onAnswers={setAnswers} />,
     <ListeningPart5View key={5} part={playable!.content.parts[4]} answers={answers} onAnswers={setAnswers} />,
@@ -504,8 +504,8 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
           <p className="text-lg font-black uppercase text-slate-950">{part?.instruction}</p>
           {part?.audioUrl && <audio src={part.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}
         </div>
-        <div className={partUsesInternalScroller
-          ? 'h-[calc(100vh-290px)] min-h-[400px] overflow-hidden p-1'
+        <div data-listening-part-viewport={partUsesContentBoundedInteractiveViewport ? 'content-bounded-interactive' : 'standard'} className={partUsesContentBoundedInteractiveViewport
+          ? 'max-h-[calc(100vh-290px)] min-h-0 overflow-y-auto p-1'
           : 'max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1'}>{partViews[currentPart]}</div>
       </main>
       <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">

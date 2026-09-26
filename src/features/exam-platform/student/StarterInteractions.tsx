@@ -96,7 +96,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     const value = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(' ') : '';
     return [question.id, { answer: value }];
   }));
-  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} alignAnswersRight onAnswers={next => {
+  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} alignAnswersRight examplesAboveAnswers onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part2[question.id]?.answer || '';
       if (nextValue !== moverAnswers.part2[question.id]?.answer) onAnswer(question.id, nextValue);
@@ -106,7 +106,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
 
 const moverAnswerShell = (): ListeningAnswers => ({ part1: {}, part2: {}, part3: {}, part4: {}, part5: {} });
 
-export function StarterImageOptionsView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export function StarterImageOptionsView({ part, answers, onAnswer, leadingExample }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void; leadingExample?: { imageUrl?: string; label?: string } }) {
   const moverPart: ListeningPart4 = {
     part: 4,
     title: part.title,
@@ -126,7 +126,7 @@ export function StarterImageOptionsView({ part, answers, onAnswer }: { part: Exa
     const value = answers[question.id];
     return typeof value === 'string' && value ? [[question.id, value]] : [];
   }));
-  return <div data-starter-interaction="image-options"><ListeningPart4View part={moverPart} answers={moverAnswers} onAnswers={next => {
+  return <div data-starter-interaction="image-options"><ListeningPart4View part={moverPart} answers={moverAnswers} leadingExample={leadingExample} onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part4[question.id] || '';
       if (nextValue !== moverAnswers.part4[question.id]) onAnswer(question.id, nextValue);
@@ -136,13 +136,12 @@ export function StarterImageOptionsView({ part, answers, onAnswer }: { part: Exa
 
 export function StarterListeningPart3View({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const unit = examPartUnits(part).find(item => item.interaction?.variant === 'image-options') || examPartUnits(part)[0] || part;
-  return <div className="space-y-5" data-starter-listening-part3>
-    {part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border border-slate-200/80 bg-white p-1" /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">Part 3 chưa có ảnh hiển thị chung.</p>}
-    <StarterImageOptionsView part={unit} answers={answers} onAnswer={onAnswer} />
+  return <div data-starter-listening-part3>
+    <StarterImageOptionsView part={unit} answers={answers} onAnswer={onAnswer} leadingExample={{ imageUrl: part.imageUrl, label: 'Example' }} />
   </div>;
 }
 
-export function StarterListeningPart4View({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export function StarterListeningPart4View({ part, answers, onAnswer, imageMaxWidth = STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH, imageMaxHeight = STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT, imageScale = STARTER_LISTENING_LARGE_IMAGE_SCALE }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void; imageMaxWidth?: string; imageMaxHeight?: string; imageScale?: number }) {
   const units = examPartUnits(part);
   const colourUnits = units.filter(unit => unit.interactionLayout?.kind === 'starter-scene-colour-v1');
   const drawUnits = units.filter(unit => unit.interactionLayout?.kind === 'scene-draw-v1');
@@ -207,7 +206,7 @@ export function StarterListeningPart4View({ part, answers, onAnswer }: { part: E
     const value = answers[target.questionId];
     if (isScenePlacement(value)) moverAnswers.part5[target.id] = { type: 'place_object', paletteItemId: target.id, anchor: { x: value.x, y: value.y } };
   });
-  return <div data-starter-interaction="scene-colour-draw" className="relative h-full"><ListeningPart5View part={moverPart} answers={moverAnswers} imageMaxWidth={STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH} imageMaxHeight={STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT} imageScale={STARTER_LISTENING_LARGE_IMAGE_SCALE} onAnswers={next => {
+  return <div data-starter-interaction="scene-colour-draw" className="relative h-full"><ListeningPart5View part={moverPart} answers={moverAnswers} imageMaxWidth={imageMaxWidth} imageMaxHeight={imageMaxHeight} imageScale={imageScale} onAnswers={next => {
     colourTargets.forEach(({ unit, target }) => {
       const value = next.part5[target.id];
       const colourId = value && typeof value === 'object' && value.type === 'colour_object' ? value.colourId : '';

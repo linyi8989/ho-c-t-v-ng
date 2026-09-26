@@ -13,10 +13,13 @@ import { EXAM_IMAGE_PROFILES } from '../exam-media/imageProfiles';
 import {
   normalizeStarterPart2PromptForMover,
   splitStarterPart2ExampleLines,
+  StarterListeningPart3View,
+  StarterTextEntryView,
   STARTER_LISTENING_LARGE_IMAGE_SCALE,
   STARTER_LISTENING_LARGE_IMAGE_MAX_HEIGHT,
   STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH,
 } from './student/StarterInteractions';
+import type { ExamPartContent } from './types';
 import { starterPart2ExampleEditorLines } from './starterListeningPart2';
 import { resolveExamImageProfile, resolveExamTaskLayout } from './student/examPresentation';
 import { starterSpellingCharacters, updateStarterSpellingValue } from './student/StarterReadingWritingViews';
@@ -244,6 +247,8 @@ test('student exam images use shared viewport-aware profiles and overflow-safe s
   assert.match(imageViewerSource, /exam-platform-image-toolbar/);
   assert.match(imageViewerSource, /exam-platform-image-scale/);
   assert.match(imageViewerSource, /id="exam-platform-image-dialog"/);
+  assert.match(imageViewerSource, /createPortal/);
+  assert.match(imageViewerSource, /document\.body/);
   assert.doesNotMatch(globalCssSource, /:not\(\.exam-platform-image-tool\)/);
   assert.match(globalCssSource, /#exam-platform-image-dialog \.exam-platform-image-toolbar/);
   assert.match(globalCssSource, /#exam-platform-image-dialog \.exam-platform-image-scale/);
@@ -333,7 +338,10 @@ test('Starter Listening Part 2 uses the fixed Movers-style short-answer editor a
   assert.match(starterPlayerSource, /data-starter-interaction="text-entry"/);
   assert.match(starterPlayerSource, /ListeningPart2View/);
   assert.match(starterPlayerSource, /alignAnswersRight/);
+  assert.match(starterPlayerSource, /examplesAboveAnswers/);
   assert.match(listeningPartViewsSource, /data-listening-part2-right-row/);
+  assert.match(listeningPartViewsSource, /data-listening-part2-answer-column/);
+  assert.match(listeningPartViewsSource, /data-listening-part2-example-placement=\{examplesAboveAnswers \? 'answer-column' : 'media-column'\}/);
   assert.match(starterPlayerSource, /const moverPart: ListeningPart2/);
   assert.match(starterPlayerSource, /starterPart2Blank/);
   assert.match(genericPlayerSource, /starterListening && part\.part === 2 && unit\.interaction\.variant === 'inline-gap'/);
@@ -558,9 +566,9 @@ test('Starter Listening Parts 1, 3 and 4 use compact task frames while interacti
   assert.match(genericPlayerSource, /sm:w-\[90%\]/);
   assert.match(genericPlayerSource, /sm:max-w-\[1350px\]/);
   assert.match(starterPlayerSource, /maxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
-  assert.match(starterPlayerSource, /imageMaxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
+  assert.match(starterPlayerSource, /imageMaxWidth = STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH/);
   assert.match(starterPlayerSource, /preferredScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
-  assert.match(starterPlayerSource, /imageScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
+  assert.match(starterPlayerSource, /imageScale = STARTER_LISTENING_LARGE_IMAGE_SCALE/);
   assert.match(listeningPartViewsSource, /maxWidth=\{imageMaxWidth\}/);
   assert.match(starterPlayerSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
   assert.match(listeningPartViewsSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
@@ -578,9 +586,43 @@ test('Starter Listening Part 3 uses Movers image options and keeps manual crop c
   assert.match(starterAuthoringSource, /Ảnh nguồn chỉ dùng để crop 15 đáp án/);
   assert.match(starterAuthoringSource, /không được gửi cho học sinh/);
   assert.match(starterPlayerSource, /data-starter-listening-part3/);
-  assert.match(starterPlayerSource, /alt="Minh họa Part 3"/);
+  assert.match(starterPlayerSource, /leadingExample=\{\{ imageUrl: part\.imageUrl, label: 'Example' \}\}/);
+  assert.match(listeningPartViewsSource, /data-listening-part4-grid/);
+  assert.match(listeningPartViewsSource, /data-listening-part4-leading-example/);
+  assert.match(listeningPartViewsSource, /xl:grid-cols-2/);
+  assert.match(listeningPartViewsSource, /Ảnh example Part 3/);
   assert.match(validationSource, /delete safeBlock\.imageAssetId/);
   assert.match(validationSource, /delete safeBlock\.imageUrl/);
+});
+
+test('Starters Listening learner markup balances Part 2 examples and the six-card Part 3 grid', () => {
+  const shortAnswerPart: ExamPartContent = {
+    id: 'starter-listening-p2', part: 2, title: 'Questions 1–5', instruction: '', passage: 'Example one\nExample two', imageUrl: '/part-2.png',
+    questions: Array.from({ length: 5 }, (_, index) => ({ id: `p2-q${index + 1}`, number: index + 1, type: 'short-answer', prompt: `Prompt ${index + 1}: ____`, options: [], correctOptionIds: [], acceptedAnswers: [], points: 1 })),
+  };
+  const partTwoMarkup = renderToStaticMarkup(createElement(StarterTextEntryView, { part: shortAnswerPart, answers: {}, onAnswer: () => undefined }));
+  assert.match(partTwoMarkup, /data-listening-part2-example-placement="answer-column"/);
+  assert.equal(partTwoMarkup.match(/data-starter-part2-example-lines/g)?.length, 1);
+  assert.equal(partTwoMarkup.match(/data-listening-part2-right-row/g)?.length, 5);
+
+  const imageOptionPart: ExamPartContent = {
+    id: 'starter-listening-p3', part: 3, title: 'Questions 1–5', instruction: '', imageUrl: '/example.png',
+    interaction: { family: 'choice', subtype: 'image-options', variant: 'image-options', schemaVersion: 1 },
+    questions: Array.from({ length: 5 }, (_, questionIndex) => ({
+      id: `p3-q${questionIndex + 1}`, number: questionIndex + 1, type: 'single-choice', prompt: `Question ${questionIndex + 1}`, correctOptionIds: [], acceptedAnswers: [], points: 1,
+      options: Array.from({ length: 3 }, (_, optionIndex) => ({ id: `p3-q${questionIndex + 1}-${optionIndex}`, label: String.fromCharCode(65 + optionIndex), text: `Option ${optionIndex + 1}`, imageUrl: `/option-${questionIndex}-${optionIndex}.png` })),
+    })),
+  };
+  const partThreeMarkup = renderToStaticMarkup(createElement(StarterListeningPart3View, { part: imageOptionPart, answers: {}, onAnswer: () => undefined }));
+  assert.equal(partThreeMarkup.match(/<fieldset/g)?.length, 6);
+  assert.equal(partThreeMarkup.match(/data-listening-part4-leading-example(?==)/g)?.length, 1);
+  assert.equal(partThreeMarkup.match(/type="radio"/g)?.length, 15);
+  assert.ok(partThreeMarkup.indexOf('data-listening-part4-leading-example') < partThreeMarkup.indexOf('Question 1'));
+  assert.match(partThreeMarkup, /<fieldset disabled="" class="[^"]*h-full[^"]*" data-listening-part4-leading-example/);
+  assert.match(partThreeMarkup, /data-listening-part4-leading-example-frame/);
+  assert.match(partThreeMarkup, /h-\[12\.5rem\]/);
+  assert.match(partThreeMarkup, /alt="Ảnh example Part 3" class="h-full w-full object-contain"/);
+  assert.doesNotMatch(partThreeMarkup, /không chấm điểm/i);
 });
 
 test('Starters Reading & Writing keeps five fixed authoring, player and visual-review layouts', () => {
@@ -682,6 +724,12 @@ test('Flyers Listening keeps five fixed Movers-style authoring, player and revie
   assert.match(starterAuthoringSource, /uploadLabel="Tải\/dán PNG"/);
   assert.match(genericAdminSource, /normalizeFixedFlyerListeningContent/);
   for (const contract of ['ListeningPart1View', 'StarterTextEntryView', 'data-flyer-part3-fixed-frames', 'fillFrame', 'data-flyer-listening-part="4"', 'StarterImageOptionsView', 'StarterListeningPart4View']) assert.match(flyerPlayerSource, new RegExp(contract));
+  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART1_IMAGE_SCALE = 1\.2/);
+  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART5_IMAGE_SCALE = 1\.44/);
+  assert.match(flyerPlayerSource, /imageMaxWidth=\{FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH\}/);
+  assert.match(flyerPlayerSource, /imageMaxWidth=\{FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH\}/);
+  assert.match(genericPlayerSource, /data-flyer-listening-work-area/);
+  assert.match(genericPlayerSource, /part-\$\{activePart\.part\}-content-fit/);
   assert.match(starterResultSource, /FlyerNameResults/);
   assert.match(starterResultSource, /FlyerLetterResults/);
   assert.match(starterResultSource, /data-flyer-part3-review-fixed-frames/);
@@ -708,6 +756,12 @@ test('Flyers Reading & Writing keeps seven fixed Part types with flexible scored
   assert.match(flyerReadingPlayerSource, /FlyerLetterMatchingView/);
   assert.match(flyerReadingPlayerSource, /MarkerPassage/);
   assert.match(flyerReadingPlayerSource, /ImageChoiceRows/);
+  assert.match(flyerReadingPlayerSource, /data-flyer-reading-balanced-layout/);
+  assert.match(flyerReadingPlayerSource, /data-flyer-reading-balanced-media/);
+  assert.match(flyerReadingPlayerSource, /fillFrame=\{balanceMediaHeight\}/);
+  assert.match(flyerReadingPlayerSource, /optionalImage=\{optionalImage\} balanceMediaHeight/);
+  assert.match(flyerReadingPlayerSource, /imageUrl=\{unit\.imageUrl\} balanceMediaHeight/);
+  assert.doesNotMatch(flyerReadingPlayerSource, /Chọn một đáp án A, B hoặc C tương ứng với từng số câu trên ảnh\./);
   assert.match(flyerReadingPlayerSource, /data-flyer-reading-part1-rows/);
   assert.match(flyerReadingPlayerSource, /grid-cols-\[minmax\(0,1fr\)_9rem\]/);
   assert.match(flyerReadingPlayerSource, /data-flyer-reading-part2-rows/);

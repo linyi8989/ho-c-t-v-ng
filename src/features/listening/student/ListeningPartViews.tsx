@@ -52,7 +52,7 @@ interface PartProps<T> {
   onAnswers: (answers: ListeningAnswers) => void;
 }
 
-interface Part5PresentationProps {
+interface InteractiveImagePresentationProps {
   imageMaxWidth?: string;
   imageMaxHeight?: string;
   imageScale?: number;
@@ -83,7 +83,7 @@ function compactRegionHeightStyle(region: ListeningRegion): React.CSSProperties 
   };
 }
 
-export function ListeningPart1View({ part, answers, onAnswers }: PartProps<ListeningPart1>) {
+export function ListeningPart1View({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart1> & InteractiveImagePresentationProps) {
   const [selectedChoice, setSelectedChoice] = useState('');
   const [draggingChoice, setDraggingChoice] = useState('');
   const labels = useMemo(() => new Map(part.choices.map(choice => [choice.id, choice.label])), [part.choices]);
@@ -101,7 +101,7 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
     setDraggingChoice('');
   };
   return (
-    <div className="listening-part listening-part1-layout flex h-full min-h-0 flex-col gap-3">
+    <div className="listening-part listening-part1-layout flex h-auto min-h-0 flex-col gap-3">
       <div className="listening-part1-answer-dock shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm">
         <div className="flex min-w-full flex-nowrap justify-start gap-2 overflow-x-auto overscroll-x-contain pb-1 sm:justify-center">
         {part.choices.filter(choice => availableChoiceIds.includes(choice.id)).map(choice => {
@@ -129,7 +129,7 @@ export function ListeningPart1View({ part, answers, onAnswers }: PartProps<Liste
         </div>
       </div>
       <div className="listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-2xl p-1">
-        <ExamImageViewer src={part.sceneUrl} alt="Part 1" profile="interactive-scene" interactionMode="answer-surface" className="border border-slate-200/80 bg-white shadow-sm">
+        <ExamImageViewer src={part.sceneUrl} alt="Part 1" profile="interactive-scene" interactionMode="answer-surface" maxWidth={imageMaxWidth} maxHeight={imageMaxHeight} preferredScale={imageScale} className="border border-slate-200/80 bg-white shadow-sm">
           {part.targets.map((target, index) => {
             const answer = answers.part1[target.id];
             return (
@@ -199,19 +199,21 @@ function part2PromptWithoutBlanks(question: ListeningPart2['questions'][number])
   return question.prompt.replace(/\{\{[a-zA-Z0-9_-]+\}\}/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export function ListeningPart2View({ part, answers, onAnswers, exampleLines, alignAnswersRight = false }: PartProps<ListeningPart2> & { exampleLines?: string[]; alignAnswersRight?: boolean }) {
+export function ListeningPart2View({ part, answers, onAnswers, exampleLines, alignAnswersRight = false, examplesAboveAnswers = false, balanceMediaColumn = false }: PartProps<ListeningPart2> & { exampleLines?: string[]; alignAnswersRight?: boolean; examplesAboveAnswers?: boolean; balanceMediaColumn?: boolean }) {
   const starterExampleLines = exampleLines === undefined ? undefined : [exampleLines[0] || '—', exampleLines[1] || '—'];
+  const exampleBlock = starterExampleLines
+    ? <div className="space-y-1 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700" data-starter-part2-example-lines data-listening-part2-example-placement={examplesAboveAnswers ? 'answer-column' : 'media-column'}>{starterExampleLines.map((line, index) => <p key={`${index}-${line}`}><span className="text-sky-700">Example {index + 1}: </span>{line}</p>)}</div>
+    : part.exampleText
+      ? <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700" data-listening-part2-example-placement={examplesAboveAnswers ? 'answer-column' : 'media-column'}><span className="text-sky-700">Example: </span>{part.exampleText}</div>
+      : null;
   return (
     <div className="grid gap-6 lg:grid-cols-[.9fr_1.1fr]">
-      <div className="space-y-4">
-        {part.illustrationUrl && <ExamImageViewer src={part.illustrationUrl} alt="Ảnh minh họa Part 2" profile="illustration" imageClassName="listening-part2-illustration" className="border border-slate-200/80 bg-white" />}
-        {starterExampleLines
-          ? <div className="space-y-1 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700" data-starter-part2-example-lines>{starterExampleLines.map((line, index) => <p key={`${index}-${line}`}><span className="text-sky-700">Example {index + 1}: </span>{line}</p>)}</div>
-          : part.exampleText
-            ? <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700"><span className="text-sky-700">Example: </span>{part.exampleText}</div>
-            : null}
+      <div className={balanceMediaColumn ? 'flex h-full min-h-0 flex-col gap-4' : 'space-y-4'} data-listening-part2-media-column data-listening-part2-balanced-media={balanceMediaColumn ? 'true' : undefined}>
+        {part.illustrationUrl && <div className={balanceMediaColumn ? 'min-h-48 flex-1' : ''} data-listening-part2-illustration-frame={balanceMediaColumn ? 'balanced' : undefined}><ExamImageViewer src={part.illustrationUrl} alt="Ảnh minh họa Part 2" profile="illustration" fillFrame={balanceMediaColumn} imageClassName="listening-part2-illustration" className="border border-slate-200/80 bg-white" /></div>}
+        {!examplesAboveAnswers && exampleBlock}
       </div>
-      <div>
+      <div className="min-w-0" data-listening-part2-answer-column>
+        {examplesAboveAnswers && <div className="mb-4">{exampleBlock}</div>}
         <h3 className="mb-4 text-center text-2xl font-black uppercase text-rose-500">{part.heading}</h3>
         <div className={alignAnswersRight ? 'space-y-1' : 'space-y-3'} data-listening-part2-right-answers={alignAnswersRight ? 'true' : undefined}>
           {part.questions.map((question, index) => {
@@ -440,9 +442,17 @@ export function ListeningPart3View({ part, answers, onAnswers }: PartProps<Liste
   );
 }
 
-export function ListeningPart4View({ part, answers, onAnswers }: PartProps<ListeningPart4>) {
+export function ListeningPart4View({ part, answers, onAnswers, leadingExample }: PartProps<ListeningPart4> & { leadingExample?: { imageUrl?: string; label?: string } }) {
   return (
-    <div className="grid gap-5 xl:grid-cols-2">
+    <div className="grid gap-5 xl:grid-cols-2" data-listening-part4-grid>
+      {leadingExample && <fieldset disabled className="h-full rounded-2xl border-2 border-sky-200 bg-sky-50/40 p-4" data-listening-part4-leading-example>
+        <legend className="px-2 text-sm font-black text-sky-800">{leadingExample.label || 'Example'}</legend>
+        <div className="mt-2 flex h-[12.5rem] w-full items-center justify-center overflow-hidden rounded-2xl border-4 border-sky-200 bg-white p-2" data-listening-part4-leading-example-frame>
+          {leadingExample.imageUrl
+            ? <img src={leadingExample.imageUrl} alt="Ảnh example Part 3" className="h-full w-full object-contain" />
+            : <span className="text-sm font-bold text-sky-700">Chưa có ảnh example.</span>}
+        </div>
+      </fieldset>}
       {part.example && (
         <fieldset disabled className="rounded-2xl border-2 border-sky-200 bg-sky-50/40 p-4 xl:col-span-2">
           <legend className="px-2 text-sm font-black text-sky-800">Example. {part.example.prompt}</legend>
@@ -488,7 +498,7 @@ export function ListeningPart4View({ part, answers, onAnswers }: PartProps<Liste
   );
 }
 
-function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5SceneColourDraw> & Part5PresentationProps) {
+function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5SceneColourDraw> & InteractiveImagePresentationProps) {
   const [selectedColour, setSelectedColour] = useState('');
   const [selectedPaletteItem, setSelectedPaletteItem] = useState('');
   const [keyboardAnchor, setKeyboardAnchor] = useState({ x: 0.5, y: 0.5 });
@@ -545,7 +555,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imag
     setSelectedPaletteItem('');
   };
   return (
-    <div className="listening-part5-layout flex h-full min-h-0 flex-col gap-3">
+    <div className="listening-part5-layout flex h-auto min-h-0 flex-col gap-3">
       <div className="listening-part5-answer-dock shrink-0 rounded-2xl border border-sky-200 bg-white/95 p-2 shadow-sm">
         <div className="flex flex-nowrap items-center justify-center gap-2 overflow-x-auto py-1">
           {availableColours.map(colour => (
@@ -692,7 +702,7 @@ function ListeningPart5SceneView({ part, answers, onAnswers, imageMaxWidth, imag
   );
 }
 
-export function ListeningPart5View({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5> & Part5PresentationProps) {
+export function ListeningPart5View({ part, answers, onAnswers, imageMaxWidth, imageMaxHeight, imageScale }: PartProps<ListeningPart5> & InteractiveImagePresentationProps) {
   if (part.displayMode === 'scene-colour-draw') {
     return <ListeningPart5SceneView part={part} answers={answers} onAnswers={onAnswers} imageMaxWidth={imageMaxWidth} imageMaxHeight={imageMaxHeight} imageScale={imageScale} />;
   }

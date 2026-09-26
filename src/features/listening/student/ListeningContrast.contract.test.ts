@@ -110,17 +110,34 @@ test('Part 1 keeps its answer dock outside the image scroller and uses transpare
   const scrollerIndex = part1Source.indexOf('listening-part1-image-scroller');
 
   assert.ok(dockIndex >= 0 && scrollerIndex > dockIndex, 'Answer dock must render before and outside the image scroller');
-  assert.match(part1Source, /listening-part1-layout flex h-full min-h-0 flex-col/);
+  assert.match(part1Source, /listening-part1-layout flex h-auto min-h-0 flex-col/);
   assert.match(part1Source, /listening-part1-answer-dock shrink-0/);
   assert.match(part1Source, /listening-part1-image-scroller min-h-0 flex-1 overflow-y-auto/);
   assert.match(part1Source, /ExamImageViewer src=\{part\.sceneUrl\} alt="Part 1" profile="interactive-scene"/);
-  assert.match(learningAreaSource, /currentPart === 0[\s\S]*overflow-hidden[\s\S]*overflow-y-auto/);
+  assert.match(learningAreaSource, /partUsesContentBoundedInteractiveViewport = currentPart === 0/);
+  assert.match(learningAreaSource, /data-listening-part-viewport=\{partUsesContentBoundedInteractiveViewport \? 'content-bounded-interactive' : 'standard'\}/);
+  assert.match(learningAreaSource, /max-h-\[calc\(100vh-290px\)\] min-h-0 overflow-y-auto/);
+  assert.doesNotMatch(learningAreaSource, /h-\[calc\(100vh-290px\)\] min-h-\[400px\] overflow-hidden/);
   assert.match(part1Source, /data-state=\{answer \? 'filled' : activeChoice \? 'eligible' : 'idle'\}/);
   assert.doesNotMatch(part1Source, /bg-emerald-100|bg-rose-100/, 'Target regions must not tint the source image');
   assert.doesNotMatch(part1Source, /correctConnections|correctAnswer/, 'Part 1 target state must not consult the answer key');
   assert.match(globalCss, /button\.listening-part1-target:not\(:disabled\)[\s\S]*background: transparent !important/);
   assert.match(globalCss, /button\.listening-part1-target:not\(:disabled\)[\s\S]*backdrop-filter: none !important/);
   assert.match(globalCss, /button\.listening-part1-target\[data-state="eligible"\]/);
+});
+
+test('Movers Part 2 balances the illustration above the full-width example without changing Starter placement', () => {
+  const start = partViewsSource.indexOf('export function ListeningPart2View');
+  const end = partViewsSource.indexOf('function ListeningPart3ConnectView');
+  const part2Source = partViewsSource.slice(start, end);
+
+  assert.match(learningAreaSource, /<ListeningPart2View[^>]+balanceMediaColumn/);
+  assert.match(part2Source, /balanceMediaColumn = false/);
+  assert.match(part2Source, /data-listening-part2-balanced-media=\{balanceMediaColumn \? 'true' : undefined\}/);
+  assert.match(part2Source, /data-listening-part2-illustration-frame=\{balanceMediaColumn \? 'balanced' : undefined\}/);
+  assert.match(part2Source, /fillFrame=\{balanceMediaColumn\}/);
+  assert.ok(part2Source.indexOf('data-listening-part2-illustration-frame') < part2Source.indexOf('{!examplesAboveAnswers && exampleBlock}'));
+  assert.match(part2Source, /data-listening-part2-example-placement=\{examplesAboveAnswers \? 'answer-column' : 'media-column'\}/);
 });
 
 test('Part 5 palette is visual-only while retaining an accessible colour name', () => {
@@ -154,10 +171,12 @@ test('Part 5 scene mode keeps v2 single-use compatibility and makes v3 colours r
   const scrollerIndex = part5SceneSource.indexOf('listening-part5-image-scroller');
 
   assert.ok(dockIndex >= 0 && scrollerIndex > dockIndex, 'Part 5 answer dock must stay outside the image scroller');
-  assert.match(part5SceneSource, /listening-part5-layout flex h-full min-h-0 flex-col/);
+  assert.match(part5SceneSource, /listening-part5-layout flex h-auto min-h-0 flex-col/);
   assert.match(part5SceneSource, /listening-part5-answer-dock shrink-0/);
   assert.match(part5SceneSource, /listening-part5-image-scroller min-h-0 flex-1 overflow-y-auto/);
   assert.match(learningAreaSource, /currentPart === 4[\s\S]*displayMode === 'scene-colour-draw'/);
+  assert.match(learningAreaSource, /content-bounded-interactive/);
+  assert.match(part5SceneSource, /normalizedPointFromExamImage\(event\.clientX, event\.clientY, sceneImageRef\.current\)/);
   assert.doesNotMatch(part5SceneSource, /activeActionId|setActiveActionId|part\.questions\.map/);
   assert.match(part5SceneSource, /part\.interactionSchemaVersion === 3[\s\S]*\? visibleColours[\s\S]*: visibleColours\.filter\(colour => !usedColourIds\.has\(colour\.id\)\)/);
   assert.match(part5SceneSource, /part\.interactionSchemaVersion < 3 && answer\.colourId === colourId/);

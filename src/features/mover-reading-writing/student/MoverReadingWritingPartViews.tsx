@@ -20,15 +20,15 @@ interface AnswerProps {
   onAnswers: (update: (answers: MoverReadingWritingAnswers) => MoverReadingWritingAnswers) => void;
 }
 
-function ProfiledImage({ src, alt, profile }: { src: string; alt: string; profile: ExamImageProfile }) {
-  return <ExamImageViewer src={src} alt={alt} profile={profile} className="border border-slate-200/80 bg-white" />;
+function ProfiledImage({ src, alt, profile, fillFrame = false }: { src: string; alt: string; profile: ExamImageProfile; fillFrame?: boolean }) {
+  return <ExamImageViewer src={src} alt={alt} profile={profile} fillFrame={fillFrame} className="border border-slate-200/80 bg-white" />;
 }
 
-function Layout({ imageUrl, imageAlt, profile = 'split-page', children }: { imageUrl?: string; imageAlt: string; profile?: ExamImageProfile; children: ReactNode }) {
+function Layout({ imageUrl, imageAlt, profile = 'split-page', balanceMediaHeight = false, children }: { imageUrl?: string; imageAlt: string; profile?: ExamImageProfile; balanceMediaHeight?: boolean; children: ReactNode }) {
   const media = imageUrl
-    ? <ProfiledImage src={imageUrl} alt={imageAlt} profile={profile} />
-    : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
-  return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
+    ? <div className={balanceMediaHeight ? 'h-auto min-h-72 lg:h-full lg:min-h-0' : ''} data-mover-rw-balanced-media={balanceMediaHeight ? 'true' : undefined}><ProfiledImage src={imageUrl} alt={imageAlt} profile={profile} fillFrame={balanceMediaHeight} /></div>
+    : <div className={`rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500 ${balanceMediaHeight ? 'h-full min-h-72' : ''}`} data-mover-rw-balanced-media={balanceMediaHeight ? 'true' : undefined}>Không có ảnh hiển thị.</div>;
+  return <ExamSplitTaskLayout media={media} stretchMedia={balanceMediaHeight}>{children}</ExamSplitTaskLayout>;
 }
 
 const EXAMPLE_BLANK = /(\[\[\s*example\s*\]\]|\{\{[^}]+\}\}|_{3,}|(?:\.\s*){4,})/i;
@@ -133,7 +133,7 @@ function renderTemplate(template: string, renderGap: (id: string, index: number)
 }
 
 export function ReadingPart1View({ part, answers, onAnswers }: { part: MoverReadingWritingPart1 } & AnswerProps) {
-  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <RightAlignedTextQuestion key={question.id} number={index + 1} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} />)}</div></Layout>;
+  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 1" profile="word-bank" balanceMediaHeight><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{part.questions.map((question, index) => <RightAlignedTextQuestion key={question.id} number={index + 1} prompt={question.prompt} value={answers.part1[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part1: { ...current.part1, [question.id]: value } }))} />)}</div></Layout>;
 }
 
 export function ReadingPart2View({ part, answers, onAnswers }: { part: MoverReadingWritingPart2 } & AnswerProps) {
@@ -141,11 +141,19 @@ export function ReadingPart2View({ part, answers, onAnswers }: { part: MoverRead
 }
 
 export function ReadingPart3View({ part, answers, onAnswers }: { part: MoverReadingWritingPart3 } & AnswerProps) {
-  return <Layout imageUrl={part.sceneUrl} imageAlt="Hội thoại Part 3" profile="illustration">{part.example && <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4"><p className="text-xs font-black uppercase text-indigo-700">Example</p><p className="mt-2 text-sm font-bold">{part.example.prompt}</p></div>}{part.questions.map((question, index) => <div key={question.id} className="contents"><ChoiceQuestion number={index + 1} question={question} value={answers.part3[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part3: { ...current.part3, [question.id]: value } }))} /></div>)}</Layout>;
+  const media = part.sceneUrl
+    ? <ProfiledImage src={part.sceneUrl} alt="Hội thoại Part 3" profile="illustration" />
+    : <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>;
+  return <div className="space-y-4" data-mover-rw-part3-layout>
+    <div className="mx-auto flex w-full max-w-3xl justify-center" data-mover-rw-part3-centered-media>{media}</div>
+    <div className="grid gap-4 lg:grid-cols-2" data-mover-rw-part3-question-grid>
+      {part.questions.map((question, index) => <div key={question.id} className="h-full [&>fieldset]:h-full" data-mover-rw-part3-question={index + 1}><ChoiceQuestion number={index + 1} question={question} value={answers.part3[question.id] || ''} onChange={value => onAnswers(current => ({ ...current, part3: { ...current.part3, [question.id]: value } }))} /></div>)}
+    </div>
+  </div>;
 }
 
 export function ReadingPart4View({ part, answers, onAnswers }: { part: MoverReadingWritingPart4 } & AnswerProps) {
-  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 4" profile="word-bank"><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderTemplate(part.storyTemplate, (id, index) => <InlineAnswerInput value={answers.part4.gaps[id] || ''} onChange={value => onAnswers(current => ({ ...current, part4: { ...current.part4, gaps: { ...current.part4.gaps, [id]: value } } }))} label={`Chỗ trống ${index + 1}`} />)}</div><ChoiceQuestion number={7} question={part.titleQuestion} value={answers.part4.titleOptionId} onChange={titleOptionId => onAnswers(current => ({ ...current, part4: { ...current.part4, titleOptionId } }))} /></Layout>;
+  return <Layout imageUrl={part.wordBankUrl} imageAlt="Ngân hàng từ Part 4" profile="word-bank" balanceMediaHeight><Example prompt={part.example?.prompt} answer={part.example?.answer} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderTemplate(part.storyTemplate, (id, index) => <InlineAnswerInput value={answers.part4.gaps[id] || ''} onChange={value => onAnswers(current => ({ ...current, part4: { ...current.part4, gaps: { ...current.part4.gaps, [id]: value } } }))} label={`Chỗ trống ${index + 1}`} />)}</div><ChoiceQuestion number={7} question={part.titleQuestion} value={answers.part4.titleOptionId} onChange={titleOptionId => onAnswers(current => ({ ...current, part4: { ...current.part4, titleOptionId } }))} /></Layout>;
 }
 
 export function ReadingPart5View({ part, answers, onAnswers }: { part: MoverReadingWritingPart5 } & AnswerProps) {
@@ -156,7 +164,7 @@ export function ReadingPart5View({ part, answers, onAnswers }: { part: MoverRead
 export function ReadingPart6View({ part, answers, onAnswers }: { part: MoverReadingWritingPart6 } & AnswerProps) {
   if (isMoverReadingWritingPart6ImageChoice(part)) {
     return (
-      <Layout imageUrl={part.studentImageUrl} imageAlt="Ảnh bài đọc Part 6" profile="page-scan">
+      <Layout imageUrl={part.studentImageUrl} imageAlt="Ảnh bài đọc Part 6" profile="page-scan" balanceMediaHeight>
         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
           Chọn một đáp án A, B hoặc C tương ứng với từng số câu trên ảnh.
         </div>

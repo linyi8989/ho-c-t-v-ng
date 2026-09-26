@@ -450,8 +450,11 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       ? 'Part 5 listening - Question 21–25.'
       : activePart.instruction;
   const compactStarterListeningFrame = moduleId === 'starter' && paperId === 'listening' && !fixedListening && [1, 3, 4].includes(activePart.part);
-  const fixedListeningWorkArea = !fixedListening && (moduleId === 'flyer' ? [1, 5].includes(activePart.part) : [1, 4].includes(activePart.part));
-  const listeningWorkAreaClass = compactStarterListeningFrame
+  const compactFlyerInteractiveFrame = moduleId === 'flyer' && paperId === 'listening' && !fixedListening && [1, 5].includes(activePart.part);
+  const fixedListeningWorkArea = !fixedListening && moduleId !== 'flyer' && [1, 4].includes(activePart.part);
+  const listeningWorkAreaClass = compactFlyerInteractiveFrame
+    ? 'max-h-[calc(100dvh-290px)] overflow-y-auto p-1'
+    : compactStarterListeningFrame
     ? fixedListeningWorkArea
       ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1 sm:h-[calc(90dvh-261px)] sm:min-h-[360px]'
       : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1 sm:max-h-[calc(90dvh-261px)] sm:min-h-[360px]'
@@ -467,7 +470,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     </header>
     <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${compactStarterListeningFrame ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
       <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">{petListening && <h2 className="text-xl font-black text-slate-950">{activePart.title}</h2>}<p className={`${petListening ? 'whitespace-pre-wrap text-sm font-bold leading-6 normal-case' : 'text-lg font-black uppercase'} text-slate-950`}>{listeningHeader}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
-      <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !fixedListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} petListening={petListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
+      <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} data-flyer-listening-work-area={compactFlyerInteractiveFrame ? `part-${activePart.part}-content-fit` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !fixedListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} petListening={petListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
     </section>
     <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
       <button type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>

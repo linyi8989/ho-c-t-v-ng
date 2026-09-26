@@ -5763,6 +5763,71 @@ Rollout and verification:
   PET Writing Part 1 also consumes this shared control instead of maintaining
   a second copy of the same visual rules.
 
+## 132. Starters Listening learner layout balance - 2026-09-26
+
+- Starters Listening Part 2 keeps its illustration alone in the left column.
+  Its two unscored example lines now appear at the top of the right column,
+  immediately above the heading and five right-aligned learner answer rows.
+  Movers and every other consumer of the shared Part 2 renderer retain their
+  existing example placement unless they explicitly request this layout.
+- Starters Listening Part 3 now treats the combined printed example image as
+  the first unscored card in the same responsive two-column grid as the five
+  scored A/B/C image questions. The result is six balanced cards instead of a
+  full-width example followed by an uneven five-card grid. Stored questions,
+  answer IDs, grading and the teacher crop pipeline are unchanged. Its example
+  card now matches the height of the adjacent learner question card. A second
+  inner frame mirrors the exact height of one A/B/C answer card (`12.5rem`),
+  and `object-contain` fits the complete example crop inside it without
+  distortion. The card displays only the concise `Example` label.
+
+## 133. Movers Reading & Writing learner layout balance - 2026-09-26
+
+- Movers Reading & Writing Parts 1 and 4 opt into an equal-height split layout.
+  On desktop the left image frame stretches to the complete height of the
+  example and answer content on the right, while the image remains contained
+  without distortion. Part 4's title-choice question stays last in the right
+  column. Other users of the shared split layout retain the sticky natural-size
+  image behavior unless they explicitly request stretching.
+- Part 3 removes the separate example card from the learner surface and centers
+  the scene image above the exercise. Its six scored questions then occupy a
+  responsive two-column grid in reading order: 1/2, 3/4 and 5/6. On narrow
+  screens the same questions collapse to one column. Answer IDs, grading and
+  persisted attempts are unchanged.
+- Part 6 image-choice mode opts into the same equal-height split mechanism used
+  by Parts 1 and 4: its image frame stretches with the complete instruction and
+  five-answer column, while the image stays fully contained and undistorted.
+
+## 134. Movers Listening compact interactive layouts - 2026-09-26
+
+- Movers Listening Parts 1 and 5 no longer force their outer student viewport
+  to fill the remaining browser height. The viewport now follows the answer
+  dock, interactive image and instruction content, with bounded scrolling only
+  when that content exceeds the available screen. The shared image stage,
+  normalized source-image coordinates and every drag/drop, colour and draw
+  overlay remain unchanged.
+- Part 2 opts into a balanced left media column. Its illustration frame grows
+  to the height available beside the five answer cards and the unscored example
+  stays directly below it at the same width. The shared renderer defaults to
+  its previous behavior, so Starters and other explicit Part 2 presentations
+  keep their existing example placement.
+
+## 135. Flyers learner media balance and image-modal isolation - 2026-09-26
+
+- Flyers Listening Parts 1 and 5 use explicit presentation-only image limits.
+  Part 1 grows to 120% of its prior natural inline size; Part 5 grows another
+  20% from its previous shared 120% presentation. Their surrounding work area
+  is content-fit with bounded viewport scrolling instead of a forced tall empty
+  canvas. Drag, drop, colour and draw coordinates remain normalized against the
+  rendered source image, so grading geometry and stored answers are unchanged.
+- Flyers Reading & Writing Parts 1, 2 and 6 stretch their left image frame to
+  the full height of the adjacent exercise column on desktop while preserving
+  the whole image with `object-contain`. Part 6 no longer repeats the redundant
+  blue A/B/C instruction card above its answer rows.
+- The shared expanded-image dialog is rendered through a React portal directly
+  under `document.body`. It therefore escapes per-card stacking contexts and
+  always overlays sibling images in multi-image Parts such as Starters Reading
+  & Writing Part 5.
+
 ## 118. Admin shell and Vocabulary presentation boundaries - 2026-09-21
 
 - `src/components/admin/AdminDashboard.tsx` remains the compatibility entry and

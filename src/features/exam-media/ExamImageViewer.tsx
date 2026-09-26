@@ -1,4 +1,5 @@
 import { Maximize2, Minimize2, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import {
   useEffect,
   useRef,
@@ -252,7 +253,7 @@ export default function ExamImageViewer({
           {showSeparateExpandControl && <div data-exam-image-actions className="mt-2 flex justify-end"><button type="button" onClick={event => { event.stopPropagation(); openViewer(); }} className="exam-platform-image-expand inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black" aria-label="Phóng to ảnh" title="Phóng to ảnh"><Maximize2 size={18} /><span>Phóng to ảnh</span></button></div>}
         </div>}
 
-    {expandable && open && <div id="exam-platform-image-dialog" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`Xem ảnh toàn màn hình: ${alt}`} onClick={event => event.stopPropagation()} className="exam-platform-image-dialog fixed inset-0 z-[1000] flex flex-col bg-slate-950/95 p-3 outline-none sm:p-5">
+    {expandable && open && typeof document !== 'undefined' && createPortal(<div id="exam-platform-image-dialog" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`Xem ảnh toàn màn hình: ${alt}`} onClick={event => event.stopPropagation()} className="exam-platform-image-dialog fixed inset-0 z-[1000] flex flex-col bg-slate-950/95 p-3 outline-none sm:p-5">
       <div className="exam-platform-image-toolbar mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl bg-slate-900 px-3 py-2 text-white shadow-xl">
         <p className="min-w-0 flex-1 truncate text-sm font-black">{alt || 'Ảnh đề bài'}</p>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -278,6 +279,6 @@ export default function ExamImageViewer({
           />
         </div>
       </div>
-    </div>}
+    </div>, document.body)}
   </>;
 }
