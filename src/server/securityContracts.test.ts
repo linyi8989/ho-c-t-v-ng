@@ -35,6 +35,10 @@ const grammarRepositorySource = readFileSync(new URL("./grammar/repository.ts", 
 const htaccessSource = readFileSync(new URL("../../.htaccess", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
 const deploymentSource = readFileSync(new URL("../../.cpanel.yml", import.meta.url), "utf8");
+const sqliteCliCommonSource = readFileSync(
+  new URL("../../scripts/sqlite-cli-common.mjs", import.meta.url),
+  "utf8"
+);
 
 test("bootstrap administrators come from configuration and stored backend roles remain valid", () => {
   const configured = parseBootstrapSuperAdminEmails(" OWNER@example.com, second@example.com ");
@@ -216,6 +220,13 @@ test("media orphan maintenance is dry-run first and quarantines only after backu
   assert.match(mediaMaintenanceSource, /deleted: 0/);
   assert.doesNotMatch(mediaMaintenanceSource, /unlinkSync\(source/);
   assert.match(mediaMaintenanceSource, /path\.dirname\(target\) !== root/);
+});
+
+test("SQLite backups default to owner-only directories and files", () => {
+  assert.match(sqliteCliCommonSource, /mode: 0o700/);
+  assert.match(sqliteCliCommonSource, /applyPrivatePermissions\(backupDirectory, 0o700\)/);
+  assert.match(sqliteCliCommonSource, /process\.umask\(0o077\)/);
+  assert.match(sqliteCliCommonSource, /applyPrivatePermissions\(destinationPath, 0o600\)/);
 });
 
 test("legacy resource delete routes archive records instead of deleting history-linked parents", () => {

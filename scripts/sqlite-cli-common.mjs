@@ -47,10 +47,15 @@ export function createTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+function applyPrivatePermissions(filePath, mode) {
+  if (process.platform !== 'win32') fs.chmodSync(filePath, mode);
+}
+
 export async function createVerifiedBackup(sourcePath, destinationDirectory) {
   assertExistingFile(sourcePath);
   const backupDirectory = path.resolve(destinationDirectory);
-  fs.mkdirSync(backupDirectory, { recursive: true });
+  fs.mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
+  applyPrivatePermissions(backupDirectory, 0o700);
   const parsed = path.parse(sourcePath);
   const destinationPath = path.join(
     backupDirectory,
@@ -61,10 +66,14 @@ export async function createVerifiedBackup(sourcePath, destinationDirectory) {
   }
 
   const source = new Database(sourcePath, { fileMustExist: true, timeout: 10_000 });
+  let previousUmask;
   try {
     assertQuickCheck(source, 'source');
+    previousUmask = process.umask(0o077);
     await source.backup(destinationPath);
   } finally {
+    if (previousUmask !== undefined) process.umask(previousUmask);
+    if (fs.existsSync(destinationPath)) applyPrivatePermissions(destinationPath, 0o600);
     source.close();
   }
 
