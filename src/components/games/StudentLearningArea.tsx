@@ -25,6 +25,7 @@ import {
   removePendingSubmission,
   storePendingSubmission
 } from '../../lib/learningRuns';
+import { buildLearningLeaderboardRequest } from './learningLeaderboardRequest';
 
 const FlashcardGame = React.lazy(() => import('./FlashcardGame'));
 const QuizGame = React.lazy(() => import('./QuizGame'));
@@ -220,19 +221,24 @@ export default function StudentLearningArea({
 
   useEffect(() => {
     if (!leaderboardOpen) return;
-    const controller = new AbortController();
-    const params = new URLSearchParams({
+    const request = buildLearningLeaderboardRequest({
       period: leaderboardPeriod,
-      limit: '8',
       vocabSetId: vocabSet.id,
+      assignmentId,
+      assignmentClassId,
+      accessToken,
+      authToken: token,
+      role: user?.role,
     });
-    if (assignmentId) params.set('assignmentId', assignmentId);
     setLeaderboardStatus('loading');
     setLeaderboardError('');
+    if (!request) return;
 
-    fetch(`/api/learning/leaderboard-summary?${params.toString()}`, {
+    const controller = new AbortController();
+
+    fetch(request.url, {
       signal: controller.signal,
-      headers: accessToken ? { 'X-Vocab-Share-Token': accessToken } : undefined,
+      headers: request.headers,
     })
       .then(async response => {
         const data = await response.json().catch(() => ({}));
@@ -248,7 +254,7 @@ export default function StudentLearningArea({
       });
 
     return () => controller.abort();
-  }, [accessToken, assignmentId, leaderboardOpen, leaderboardPeriod, leaderboardRefreshKey, vocabSet.id]);
+  }, [accessToken, assignmentClassId, assignmentId, leaderboardOpen, leaderboardPeriod, leaderboardRefreshKey, token, user?.role, vocabSet.id]);
 
   const handleSubmitName = async () => {
     if (isSavingName) return;

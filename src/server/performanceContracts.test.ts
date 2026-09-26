@@ -20,6 +20,10 @@ const studentLearningSource = readFileSync(
   new URL('../components/games/StudentLearningArea.tsx', import.meta.url),
   'utf8'
 );
+const learningLeaderboardRequestSource = readFileSync(
+  new URL('../components/games/learningLeaderboardRequest.ts', import.meta.url),
+  'utf8'
+);
 const examHomeSource = readFileSync(
   new URL('../features/listening-library/student/ListeningLibraryHome.tsx', import.meta.url),
   'utf8'
@@ -137,8 +141,11 @@ test('student entry hot path uses indexed token lookup and lazy summary data', (
   assert.match(storageSource, /idx_vocab_sets_share_token/);
 
   assert.doesNotMatch(studentLearningSource, /\/api\/public\/leaderboard-results/);
-  assert.match(studentLearningSource, /\/api\/learning\/leaderboard-summary/);
-  assert.match(studentLearningSource, /X-Vocab-Share-Token/);
+  assert.match(studentLearningSource, /buildLearningLeaderboardRequest/);
+  assert.match(learningLeaderboardRequestSource, /\/api\/learning\/leaderboard-summary/);
+  assert.match(learningLeaderboardRequestSource, /\/api\/admin\/leaderboard-summary/);
+  assert.match(learningLeaderboardRequestSource, /X-Vocab-Share-Token/);
+  assert.match(learningLeaderboardRequestSource, /Authorization/);
   assert.match(studentLearningSource, /leaderboardOpen/);
   assert.match(resultsServiceSource, /loadReadyLeaderboardEvents/);
   assert.match(resultsServiceSource, /allowLegacyLeaderboardFallback/);

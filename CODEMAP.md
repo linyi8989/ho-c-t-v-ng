@@ -6141,3 +6141,30 @@ Rollout and verification:
   the file. Application rollback remains limited to server and root/dist index
   artifacts; database, persistent media and cPanel environment blocks are outside
   that operation.
+
+## 131. Staff vocabulary-preview leaderboard routing - 2026-09-26
+
+- The production remediation split leaderboard reads into public, capability and
+  staff endpoints, but `StudentLearningArea` continued to call only the
+  capability endpoint. An Admin/teacher assignment preview carries an assignment
+  ID without a share token, so the backend correctly rejected its `Xem bảng vàng`
+  request with HTTP 403 `A valid lesson or assignment capability is required.`
+- `learningLeaderboardRequest.ts` is now the client routing boundary. A real
+  assignment or private-set share token always takes precedence and continues to
+  call `/api/learning/leaderboard-summary` with only
+  `X-Vocab-Share-Token`. A verified teacher/super-admin preview without a share
+  token calls `/api/admin/leaderboard-summary` with its Firebase bearer token and
+  bounded `gold`, page 1, page-size 8, vocabulary-set and optional class filters.
+  Staff state waits for its bearer token instead of falling through to a request
+  that is guaranteed to be denied.
+- Guest and student public lessons keep the capability-scoped learning route.
+  Private assignments without a valid share token remain denied. No server role,
+  ownership policy, public endpoint, response shape or cache rule was weakened.
+- Regression coverage locks assignment preview, public staff preview, share-token
+  precedence, student/guest behavior and the missing-bearer wait state. The full
+  Node 22.16 `test:phase3` gate passes, including native SQLite storage, production
+  client/server build and startup smoke. A local HTTP smoke returns 200 for the
+  authenticated staff summary while the same fake private assignment without a
+  capability remains 403; the temporary local server and database are removed.
+- This fix adds no database migration, data backfill, persistent-data write,
+  `.htaccess` change, runtime environment change or production restart/deploy.
