@@ -2331,8 +2331,10 @@ function upsertDoc(collectionName, id2, inputData) {
   }
 }
 function updateDoc(collectionName, id2, patch) {
-  const existing = readRow(tableForCollection(collectionName), id2) || { id: id2 };
-  upsertDoc(collectionName, id2, { ...existing, ...patch, id: id2 });
+  withTransaction(() => {
+    const existing = readRow(tableForCollection(collectionName), id2) || { id: id2 };
+    upsertDoc(collectionName, id2, { ...existing, ...patch, id: id2 });
+  }, "immediate");
 }
 function deleteDoc(collectionName, id2) {
   const table = tableForCollection(collectionName);
@@ -17264,6 +17266,163 @@ function resolveDevQuotaApiKey(env, warn = console.warn) {
   return "";
 }
 
+// src/appRoutes.ts
+function normalizePathname(pathname) {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+function decodeRouteToken(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return "";
+  }
+}
+function parseAppShellRoute(pathnameValue) {
+  const pathname = normalizePathname(pathnameValue);
+  if (pathname === "/") return { kind: "home", pathname };
+  if (pathname === "/history") return { kind: "history", pathname };
+  if (pathname === "/reg" || pathname === "/register") {
+    return { kind: "auth", pathname, mode: "register" };
+  }
+  if (pathname === "/login" || pathname === "/admin") {
+    return { kind: "auth", pathname, mode: "login" };
+  }
+  const vocabularyMatch = pathname.match(/^\/(?:assignment|vocabulary\/private)\/([^/?#]+)$/);
+  if (vocabularyMatch) {
+    return {
+      kind: "private-vocabulary",
+      pathname,
+      token: decodeRouteToken(vocabularyMatch[1])
+    };
+  }
+  const grammarMatch = pathname.match(/^\/grammar\/private\/([^/?#]+)$/);
+  if (grammarMatch) {
+    return {
+      kind: "private-grammar",
+      pathname,
+      token: decodeRouteToken(grammarMatch[1])
+    };
+  }
+  const teacherPreviewMatch = pathname.match(/^\/teacher-preview\/(vocabulary|grammar)\/([^/?#]+)$/);
+  if (teacherPreviewMatch) {
+    return {
+      kind: "teacher-preview",
+      pathname,
+      resourceType: teacherPreviewMatch[1],
+      setId: decodeRouteToken(teacherPreviewMatch[2])
+    };
+  }
+  return { kind: "other", pathname };
+}
+
+// src/features/listening-library/routes.ts
+function decodeSegment(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+function parseListeningLibraryRoute(pathname, search = "") {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  if (normalizedPath === "/exams" || normalizedPath === "/listening") return { kind: "library" };
+  const standaloneWritingExam = normalizedPath.match(/^\/writing\/([^/?#]+)$/);
+  if (standaloneWritingExam) {
+    const params2 = new URLSearchParams(search);
+    return {
+      kind: "paper-exam",
+      moduleId: "writing",
+      paperId: "writing",
+      examId: decodeSegment(standaloneWritingExam[1]),
+      accessToken: params2.get("accessToken") || params2.get("shareToken") || ""
+    };
+  }
+  const examPaperExam = normalizedPath.match(/^\/exams\/([^/?#]+)\/([^/?#]+)\/([^/?#]+)$/);
+  if (examPaperExam) {
+    const moduleId = decodeSegment(examPaperExam[1]);
+    const paperId = decodeSegment(examPaperExam[2]);
+    if (!isListeningModuleId(moduleId) || !isListeningPaperId(paperId)) return null;
+    const params2 = new URLSearchParams(search);
+    return {
+      kind: "paper-exam",
+      moduleId,
+      paperId,
+      examId: decodeSegment(examPaperExam[3]),
+      accessToken: params2.get("accessToken") || params2.get("shareToken") || ""
+    };
+  }
+  const examPaperDirectory = normalizedPath.match(/^\/exams\/([^/?#]+)\/([^/?#]+)$/);
+  if (examPaperDirectory) {
+    const moduleId = decodeSegment(examPaperDirectory[1]);
+    const paperId = decodeSegment(examPaperDirectory[2]);
+    return isListeningModuleId(moduleId) && isListeningPaperId(paperId) ? { kind: "paper", moduleId, paperId } : null;
+  }
+  const examModuleDirectory = normalizedPath.match(/^\/exams\/([^/?#]+)$/);
+  if (examModuleDirectory) {
+    const moduleId = decodeSegment(examModuleDirectory[1]);
+    return isListeningModuleId(moduleId) ? { kind: "module", moduleId } : null;
+  }
+  const paperExam = normalizedPath.match(/^\/listening\/modules\/([^/?#]+)\/papers\/([^/?#]+)\/exams\/([^/?#]+)$/);
+  if (paperExam) {
+    const moduleId = decodeSegment(paperExam[1]);
+    const paperId = decodeSegment(paperExam[2]);
+    if (!isListeningModuleId(moduleId) || !isListeningPaperId(paperId)) return null;
+    const params2 = new URLSearchParams(search);
+    return {
+      kind: "paper-exam",
+      moduleId,
+      paperId,
+      examId: decodeSegment(paperExam[3]),
+      accessToken: params2.get("accessToken") || params2.get("shareToken") || ""
+    };
+  }
+  const paperDirectory = normalizedPath.match(/^\/listening\/modules\/([^/?#]+)\/papers\/([^/?#]+)$/);
+  if (paperDirectory) {
+    const moduleId = decodeSegment(paperDirectory[1]);
+    const paperId = decodeSegment(paperDirectory[2]);
+    return isListeningModuleId(moduleId) && isListeningPaperId(paperId) ? { kind: "paper", moduleId, paperId } : null;
+  }
+  const canonicalExam = normalizedPath.match(/^\/listening\/modules\/([^/?#]+)\/exams\/([^/?#]+)$/);
+  if (canonicalExam) {
+    const moduleId = decodeSegment(canonicalExam[1]);
+    if (!isListeningModuleId(moduleId)) return null;
+    const params2 = new URLSearchParams(search);
+    return {
+      kind: "exam",
+      moduleId,
+      examId: decodeSegment(canonicalExam[2]),
+      accessToken: params2.get("accessToken") || params2.get("shareToken") || "",
+      legacy: false
+    };
+  }
+  const moduleDirectory = normalizedPath.match(/^\/listening\/modules\/([^/?#]+)$/);
+  if (moduleDirectory) {
+    const moduleId = decodeSegment(moduleDirectory[1]);
+    return isListeningModuleId(moduleId) ? { kind: "module", moduleId } : null;
+  }
+  const legacyExam = normalizedPath.match(/^\/listening\/([^/?#]+)$/);
+  if (!legacyExam) return null;
+  const params = new URLSearchParams(search);
+  return {
+    kind: "exam",
+    moduleId: DEFAULT_LISTENING_MODULE_ID,
+    examId: decodeSegment(legacyExam[1]),
+    accessToken: params.get("accessToken") || params.get("shareToken") || "",
+    legacy: true
+  };
+}
+
+// src/server/spaFallback.ts
+var FILE_EXTENSION = /\.[a-z0-9]{1,12}$/i;
+function isSpaNavigationRequest(pathnameValue, search = "") {
+  const pathname = pathnameValue.replace(/\/{2,}/g, "/");
+  if (pathname === "/api" || pathname.startsWith("/api/")) return false;
+  if (pathname === "/assets" || pathname.startsWith("/assets/")) return false;
+  if (FILE_EXTENSION.test(pathname)) return false;
+  if (parseAppShellRoute(pathname).kind !== "other") return true;
+  return Boolean(parseListeningLibraryRoute(pathname, search));
+}
+
 // src/server/resourceLifecycle.ts
 function isArchivedRecord(record2) {
   if (!record2) return false;
@@ -17290,6 +17449,7 @@ function archiveResourceRecord(record2, actorId, now = (/* @__PURE__ */ new Date
 
 // src/lib/leaderboard.ts
 var MS_PER_DAY = 24 * 60 * 60 * 1e3;
+var LEADERBOARD_UTC_OFFSET_MINUTES = 7 * 60;
 function normalizeStudentName(name) {
   return (name || "H\u1ECDc sinh").trim().toLowerCase();
 }
@@ -17303,21 +17463,45 @@ function getStudentIdentity(session) {
   if (source.studentId) return `student:${source.studentId}`;
   return `name:${normalizeStudentName(session.studentName)}`;
 }
-function startOfDay(date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function resolveNow(value) {
+  if (value instanceof Date) return new Date(value.getTime());
+  if (value !== void 0) return new Date(value);
+  return /* @__PURE__ */ new Date();
 }
-function getPeriodStart(period, now = /* @__PURE__ */ new Date()) {
+function toBusinessClock(date, utcOffsetMinutes) {
+  return new Date(date.getTime() + utcOffsetMinutes * 6e4);
+}
+function fromBusinessClock(year, month, day, utcOffsetMinutes) {
+  return new Date(Date.UTC(year, month, day) - utcOffsetMinutes * 6e4);
+}
+function getPeriodStart(period, now = /* @__PURE__ */ new Date(), utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES) {
+  const businessNow = toBusinessClock(now, utcOffsetMinutes);
   if (period === "month") {
-    return new Date(now.getFullYear(), now.getMonth(), 1);
+    return fromBusinessClock(
+      businessNow.getUTCFullYear(),
+      businessNow.getUTCMonth(),
+      1,
+      utcOffsetMinutes
+    );
   }
-  const today = startOfDay(now);
-  const day = today.getDay();
+  const day = businessNow.getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
-  return new Date(today.getTime() + mondayOffset * MS_PER_DAY);
+  return fromBusinessClock(
+    businessNow.getUTCFullYear(),
+    businessNow.getUTCMonth(),
+    businessNow.getUTCDate() + mondayOffset,
+    utcOffsetMinutes
+  );
 }
-function getPreviousPeriodStart(period, periodStart) {
+function getPreviousPeriodStart(period, periodStart, utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES) {
   if (period === "month") {
-    return new Date(periodStart.getFullYear(), periodStart.getMonth() - 1, 1);
+    const businessStart = toBusinessClock(periodStart, utcOffsetMinutes);
+    return fromBusinessClock(
+      businessStart.getUTCFullYear(),
+      businessStart.getUTCMonth() - 1,
+      1,
+      utcOffsetMinutes
+    );
   }
   return new Date(periodStart.getTime() - 7 * MS_PER_DAY);
 }
@@ -17375,7 +17559,7 @@ function getBestSessions(sessions, assignments, filters, rangeStart, rangeEnd) {
   }
   return [...bestByKey.values()];
 }
-function summarizeSessions(bestSessions, assignments) {
+function summarizeSessions(bestSessions, assignments, utcOffsetMinutes) {
   const byStudent = /* @__PURE__ */ new Map();
   for (const session of bestSessions) {
     const key = getLeaderboardStudentKey(session, assignments);
@@ -17401,7 +17585,7 @@ function summarizeSessions(bestSessions, assignments) {
     entry.incorrectAnswers += session.incorrectAnswers || 0;
     entry.totalQuestions += session.totalQuestions || session.correctAnswers + session.incorrectAnswers || 0;
     if (!entry.className) entry.className = getSessionClassName(session, assignments);
-    const dayKey = completedAt?.toISOString().slice(0, 10);
+    const dayKey = completedAt ? toBusinessClock(completedAt, utcOffsetMinutes).toISOString().slice(0, 10) : void 0;
     const days = new Set(entry._days || []);
     if (dayKey) days.add(dayKey);
     entry._days = days;
@@ -17424,13 +17608,15 @@ function assignBadges(entry) {
   return badges.length ? badges : ["\u0110ang t\u1ECFa s\xE1ng"];
 }
 function buildLeaderboard(sessions, assignments, filters) {
-  const periodStart = getPeriodStart(filters.period);
-  const previousStart = getPreviousPeriodStart(filters.period, periodStart);
+  const now = resolveNow(filters.now);
+  const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes) ? Number(filters.utcOffsetMinutes) : LEADERBOARD_UTC_OFFSET_MINUTES;
+  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  const previousStart = getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
   const previousEnd = getPreviousPeriodEnd(filters.period, periodStart);
   const currentBest = getBestSessions(sessions, assignments, filters, periodStart);
   const previousBest = getBestSessions(sessions, assignments, filters, previousStart, previousEnd);
-  const currentSummary = summarizeSessions(currentBest, assignments);
-  const previousSummary = summarizeSessions(previousBest, assignments);
+  const currentSummary = summarizeSessions(currentBest, assignments, utcOffsetMinutes);
+  const previousSummary = summarizeSessions(previousBest, assignments, utcOffsetMinutes);
   const previousByStudent = new Map(previousSummary.map((entry) => [entry.studentKey || normalizeStudentName(entry.studentName), entry]));
   const entries = currentSummary.map((entry) => {
     const previous = previousByStudent.get(entry.studentKey || normalizeStudentName(entry.studentName));
@@ -17442,11 +17628,18 @@ function buildLeaderboard(sessions, assignments, filters) {
     entry.badges = assignBadges(entry);
     return entry;
   });
-  const gold = [...entries].sort((a, b) => b.honorScore - a.honorScore || b.averageAccuracy - a.averageAccuracy);
-  const diligent = [...entries].sort((a, b) => b.studyDays - a.studyDays || b.completedLessons - a.completedLessons || b.honorScore - a.honorScore);
-  const accurate = [...entries].filter((entry) => entry.completedLessons >= 3 || entry.totalQuestions >= 60).sort((a, b) => b.averageAccuracy - a.averageAccuracy || b.totalQuestions - a.totalQuestions);
-  const improved = [...entries].sort((a, b) => b.improvementPoints - a.improvementPoints || b.honorScore - a.honorScore);
+  const stableNameOrder = (a, b) => a.studentName.localeCompare(b.studentName, "vi") || String(a.studentKey || "").localeCompare(String(b.studentKey || ""));
+  const gold = [...entries].sort((a, b) => b.honorScore - a.honorScore || b.averageAccuracy - a.averageAccuracy || stableNameOrder(a, b));
+  const diligent = [...entries].sort((a, b) => b.studyDays - a.studyDays || b.completedLessons - a.completedLessons || b.honorScore - a.honorScore || stableNameOrder(a, b));
+  const accurate = [...entries].filter((entry) => entry.completedLessons >= 3 || entry.totalQuestions >= 60).sort((a, b) => b.averageAccuracy - a.averageAccuracy || b.totalQuestions - a.totalQuestions || stableNameOrder(a, b));
+  const improved = [...entries].sort((a, b) => b.improvementPoints - a.improvementPoints || b.honorScore - a.honorScore || stableNameOrder(a, b));
   return { gold, diligent, accurate, improved };
+}
+function getLeaderboardQueryStart(filters) {
+  const now = resolveNow(filters.now);
+  const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes) ? Number(filters.utcOffsetMinutes) : LEADERBOARD_UTC_OFFSET_MINUTES;
+  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  return getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
 }
 
 // src/server/vocab-images/router.ts
@@ -21638,11 +21831,23 @@ function createResultsRepository(options) {
 }
 
 // src/server/results/service.ts
-function httpError5(status, message) {
-  return Object.assign(new Error(message), { status });
+function httpError5(status, message, code) {
+  return Object.assign(new Error(message), { status, ...code ? { code } : {} });
+}
+function publicLeaderboardEntry(entry, index) {
+  return {
+    rank: index + 1,
+    studentName: `H\u1ECDc vi\xEAn #${index + 1}`,
+    completedLessons: Number(entry?.completedLessons || 0),
+    averageAccuracy: Number(entry?.averageAccuracy || 0),
+    studyDays: Number(entry?.studyDays || 0),
+    honorScore: Number(entry?.honorScore || 0),
+    badges: Array.isArray(entry?.badges) ? entry.badges.slice(0, 5).map((badge) => String(badge).slice(0, 120)) : []
+  };
 }
 function createResultsService(options) {
   const nowMs = options.nowMs || Date.now;
+  const summaryInFlight = /* @__PURE__ */ new Map();
   const recentCutoff = () => new Date(nowMs() - options.activityTtlMs).toISOString();
   const recentEnough = (activity) => new Date(options.getActivityTime(activity)).getTime() >= nowMs() - options.activityTtlMs;
   const canViewListening = (user, attempt, set) => user?.role === "super_admin" || attempt.userId === user?.id || attempt.ownerKey === `user:${user?.id}` || user?.role === "teacher" && set?.ownerId === user.id;
@@ -21717,44 +21922,143 @@ function createResultsService(options) {
     timing?.mark("names");
     return { body: named.map(options.sanitizePublicStudentRecord) };
   };
-  const getPublicLeaderboardResults = async (timing) => {
-    const list2 = await options.repository.loadLeaderboardEvents(timing);
-    return { body: list2.map(options.sanitizePublicStudentRecord) };
+  const getPublicLeaderboardResults = async (_timing) => {
+    return {
+      status: 410,
+      headers: { "Cache-Control": "no-store" },
+      body: {
+        error: "The public raw leaderboard feed has been retired. Use /api/public/leaderboard-summary.",
+        code: "LEADERBOARD_RAW_RETIRED"
+      }
+    };
+  };
+  const loadSummaryEvents = async (period, timing) => {
+    const cutoff = getLeaderboardQueryStart({ period, now: nowMs() }).toISOString();
+    let events = await options.repository.loadReadyLeaderboardEvents(timing, cutoff);
+    if (!events && options.allowLegacyLeaderboardFallback) {
+      timing?.mark("read_model_fallback");
+      events = await options.repository.loadLeaderboardEvents(timing, cutoff);
+    }
+    if (!events) {
+      throw httpError5(
+        503,
+        "Leaderboard is temporarily unavailable while its read model is being prepared.",
+        "LEADERBOARD_NOT_READY"
+      );
+    }
+    return events;
+  };
+  const buildPublicSummary = async (period, limit, timing, scope = {}) => {
+    const events = await loadSummaryEvents(period, timing);
+    const publicEvents = events.map(options.sanitizePublicStudentRecord);
+    const leaderboard = options.buildLeaderboard(publicEvents, [], {
+      period,
+      now: nowMs(),
+      ...scope.classId ? { classId: scope.classId } : {},
+      ...scope.vocabSetId ? { vocabSetId: scope.vocabSetId } : {}
+    });
+    timing?.mark("aggregate");
+    return {
+      entries: leaderboard.gold.slice(0, limit).map(publicLeaderboardEntry),
+      period
+    };
+  };
+  const withSummarySingleFlight = async (key, load) => {
+    const active = summaryInFlight.get(key);
+    if (active) return active;
+    const pending = load();
+    summaryInFlight.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (summaryInFlight.get(key) === pending) summaryInFlight.delete(key);
+    }
   };
   const getPublicLeaderboardSummary = async (request, timing) => {
     const period = request.query.period === "month" ? "month" : "week";
-    const classId = options.safeText(request.query.classId, 180);
     const requestedLimit = Number(request.query.limit || 8);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
-    const cacheKey = `${period}:${classId}:${limit}`;
+    const cacheKey = `public:${period}:${limit}`;
     const cached = options.getCachedLeaderboardSummary(cacheKey);
-    const headers = { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" };
+    const headers = { "Cache-Control": "public, max-age=30" };
     if (cached && cached.expiresAt > nowMs()) {
       timing?.mark("memory_cache");
       return { body: cached.value, headers };
     }
-    let events = await options.repository.loadReadyLeaderboardEvents(timing);
-    if (!events) {
-      timing?.mark("read_model_fallback");
-      events = await options.repository.loadLeaderboardEvents(timing);
-    }
-    const publicEvents = events.map(options.sanitizePublicStudentRecord);
-    const classesById = /* @__PURE__ */ new Map();
-    for (const event of publicEvents) {
-      const eventClassId = options.safeText(event.classId, 180);
-      if (!eventClassId) continue;
-      const eventClassName = options.safeText(event.className, 180) || eventClassId;
-      if (!classesById.has(eventClassId)) classesById.set(eventClassId, eventClassName);
-    }
-    const entries = options.buildLeaderboard(publicEvents, [], { period, ...classId ? { classId } : {} }).gold.slice(0, limit);
-    const value = {
-      entries,
-      classes: [...classesById.entries()].map(([id2, name]) => ({ id: id2, name })).sort((a, b) => a.name.localeCompare(b.name, "vi")),
-      period
-    };
-    options.cacheLeaderboardSummary(cacheKey, value);
-    timing?.mark("aggregate");
+    const value = await withSummarySingleFlight(cacheKey, async () => {
+      const result = await buildPublicSummary(period, limit, timing);
+      options.cacheLeaderboardSummary(cacheKey, result);
+      return result;
+    });
     return { body: value, headers };
+  };
+  const getLearningLeaderboardSummary = async (request, timing) => {
+    if (!options.resolveLearningLeaderboardScope) throw httpError5(503, "Learning leaderboard scope is unavailable.");
+    const scope = await options.resolveLearningLeaderboardScope(request, timing);
+    if (!scope) throw httpError5(403, "A valid lesson or assignment capability is required.");
+    const period = request.query.period === "month" ? "month" : "week";
+    const requestedLimit = Number(request.query.limit || 8);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
+    const cacheKey = `learning:${period}:${scope.classId || ""}:${scope.vocabSetId || ""}:${limit}`;
+    const cached = options.getCachedLeaderboardSummary(cacheKey);
+    const headers = { "Cache-Control": "private, max-age=30", Vary: "X-Vocab-Share-Token" };
+    if (cached && cached.expiresAt > nowMs()) return { body: cached.value, headers };
+    const value = await withSummarySingleFlight(cacheKey, async () => {
+      const result = await buildPublicSummary(period, limit, timing, scope);
+      options.cacheLeaderboardSummary(cacheKey, result);
+      return result;
+    });
+    return { body: value, headers };
+  };
+  const getAdminLeaderboardSummary = async (request, timing) => {
+    if (!request.user) throw httpError5(401, "Unauthenticated");
+    const period = request.query.period === "month" ? "month" : "week";
+    const category = ["gold", "diligent", "accurate", "improved"].includes(String(request.query.category)) ? String(request.query.category) : "gold";
+    const classId = options.safeText(request.query.classId, 180);
+    const vocabSetId = options.safeText(request.query.vocabSetId, 180);
+    const requestedPage = Number(request.query.page || 1);
+    const requestedPageSize = Number(request.query.pageSize || 50);
+    const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
+    const pageSize = Number.isFinite(requestedPageSize) ? Math.max(1, Math.min(100, Math.floor(requestedPageSize))) : 50;
+    const [events, metadata] = await Promise.all([
+      loadSummaryEvents(period, timing),
+      options.repository.loadScopeMetadata()
+    ]);
+    const scoped = events.filter((event) => event.sourceType === "grammar" ? options.canViewGrammarActivity(request.user, event, metadata.grammarSets.get(event.grammarSetId)) : options.canViewResultSession(request.user, event, metadata.vocabSets, metadata.assignments, metadata.classes));
+    timing?.mark("scope");
+    const named = await options.enrichStudentNames(scoped);
+    timing?.mark("names");
+    const leaderboard = options.buildLeaderboard(named, [], {
+      period,
+      now: nowMs(),
+      ...classId ? { classId } : {},
+      ...vocabSetId ? { vocabSetId } : {}
+    });
+    const rows = leaderboard[category] || leaderboard.gold;
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const boundedPage = Math.min(page, totalPages);
+    const start2 = (boundedPage - 1) * pageSize;
+    const classesById = /* @__PURE__ */ new Map();
+    const setsById = /* @__PURE__ */ new Map();
+    for (const event of scoped) {
+      if (event.classId && event.className) classesById.set(String(event.classId), String(event.className));
+      if (event.vocabSetId) setsById.set(String(event.vocabSetId), String(event.vocabSetTitle || event.vocabSetId));
+    }
+    return {
+      headers: { "Cache-Control": "private, no-store" },
+      body: {
+        entries: rows.slice(start2, start2 + pageSize),
+        page: boundedPage,
+        pageSize,
+        total,
+        totalPages,
+        period,
+        category,
+        classes: [...classesById.entries()].map(([id2, name]) => ({ id: id2, name })).sort((a, b) => a.name.localeCompare(b.name, "vi")),
+        vocabSets: [...setsById.entries()].map(([id2, title]) => ({ id: id2, title })).sort((a, b) => a.title.localeCompare(b.title, "vi"))
+      }
+    };
   };
   const loadScopedRecentActivitySummaries = async (user, limit = options.maxResultLimit) => {
     const boundedLimit = Math.max(1, Math.min(options.maxResultLimit, Math.floor(limit)));
@@ -21870,9 +22174,18 @@ function createResultsService(options) {
     timing?.mark("names");
     return { body: named };
   };
-  const getLeaderboardResults = async (request, timing) => ({ body: await loadScopedLeaderboardResults(request.user, timing) });
+  const getLeaderboardResults = async (_request, _timing) => ({
+    status: 410,
+    headers: { "Cache-Control": "no-store" },
+    body: {
+      error: "The raw leaderboard feed has been retired. Use a scoped leaderboard summary endpoint.",
+      code: "LEADERBOARD_RAW_RETIRED"
+    }
+  });
   return {
     getLeaderboardResults,
+    getAdminLeaderboardSummary,
+    getLearningLeaderboardSummary,
     getPublicLeaderboardResults,
     getPublicLeaderboardSummary,
     getPublicResults,
@@ -21900,8 +22213,10 @@ function createResultsRouter(options) {
     }
   };
   router.get("/public/results", timed("GET /api/public/results", (request, timing) => options.service.getPublicResults(request, timing)));
-  router.get("/public/leaderboard-results", timed("GET /api/public/leaderboard-results", (_request, timing) => options.service.getPublicLeaderboardResults(timing)));
-  router.get("/public/leaderboard-summary", timed("GET /api/public/leaderboard-summary", (request, timing) => options.service.getPublicLeaderboardSummary(request, timing)));
+  router.get("/public/leaderboard-results", options.publicLeaderboardRateLimit, timed("GET /api/public/leaderboard-results", (_request, timing) => options.service.getPublicLeaderboardResults(timing)));
+  router.get("/public/leaderboard-summary", options.publicLeaderboardRateLimit, timed("GET /api/public/leaderboard-summary", (request, timing) => options.service.getPublicLeaderboardSummary(request, timing)));
+  router.get("/learning/leaderboard-summary", options.publicLeaderboardRateLimit, timed("GET /api/learning/leaderboard-summary", (request, timing) => options.service.getLearningLeaderboardSummary(request, timing)));
+  router.get("/admin/leaderboard-summary", options.authenticateUser, options.requireStaff, timed("GET /api/admin/leaderboard-summary", (request, timing) => options.service.getAdminLeaderboardSummary(request, timing)));
   router.get("/results/:sourceType/:resultId", options.authenticateUser, timed("GET /api/results/:sourceType/:resultId", (request, timing) => options.service.getResultDetail(request, timing)));
   router.get("/results", options.authenticateUser, timed("GET /api/results", (request, timing) => options.service.getResults(request, timing)));
   router.get("/leaderboard-results", options.authenticateUser, timed("GET /api/leaderboard-results", (request, timing) => options.service.getLeaderboardResults(request, timing)));
@@ -22284,8 +22599,9 @@ function sendApiError(res, err) {
   }
   const exposeInternal = process.env.NODE_ENV !== "production";
   const message = !serverFailure || exposeInternal ? String(err?.message || "Request failed.").slice(0, 500) : status === 503 ? "Service temporarily unavailable. Please try again." : "Internal server error.";
-  res.status(status).json({
+  res.set("Cache-Control", "no-store").status(status).json({
     error: message,
+    ...err?.code ? { code: String(err.code).slice(0, 120) } : {},
     ...(!serverFailure || exposeInternal) && err?.details ? { details: err.details } : {}
   });
 }
@@ -23380,9 +23696,10 @@ function mergeLeaderboardEvents(events) {
   }
   return [...bySource.values()].sort((a, b) => new Date(getLeaderboardEventTime(b)).getTime() - new Date(getLeaderboardEventTime(a)).getTime());
 }
-async function loadLeaderboardEventsFromSources(timing) {
+async function loadLeaderboardEventsFromSources(timing, requestedCutoff = "") {
   const events = [];
-  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const retentionCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const leaderboardCutoff = requestedCutoff && requestedCutoff > retentionCutoff ? requestedCutoff : retentionCutoff;
   const [storedSnapshot, readModelSettingDoc] = await Promise.all([
     adminDb.collection("leaderboard_events").where("completedAt", ">=", leaderboardCutoff).get(),
     adminDb.collection("settings").doc(LEADERBOARD_READ_MODEL_SETTING_ID).get()
@@ -24213,8 +24530,9 @@ app2.use(
   "/api",
   createDiagnosticsRouter({ requireDiagnosticAccess, sendApiError, service: diagnosticsService })
 );
-async function loadReadyLeaderboardEvents(timing) {
-  const leaderboardCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+async function loadReadyLeaderboardEvents(timing, requestedCutoff = "") {
+  const retentionCutoff = new Date(Date.now() - LEADERBOARD_RETENTION_MS).toISOString();
+  const leaderboardCutoff = requestedCutoff && requestedCutoff > retentionCutoff ? requestedCutoff : retentionCutoff;
   const [storedSnapshot, readModelSettingDoc] = await Promise.all([
     adminDb.collection("leaderboard_events").where("completedAt", ">=", leaderboardCutoff).get(),
     adminDb.collection("settings").doc(LEADERBOARD_READ_MODEL_SETTING_ID).get()
@@ -24243,6 +24561,13 @@ var guestIdentityRateLimit = createFixedWindowRateLimiter({
   maxCost: 120,
   key: (req) => `ip:${getRequestIp(req)}`,
   message: "Too many identity requests. Please wait and try again."
+});
+var publicLeaderboardRateLimit = createFixedWindowRateLimiter({
+  namespace: "public-leaderboard",
+  windowMs: 10 * 60 * 1e3,
+  maxCost: 120,
+  key: (req) => `ip:${getRequestIp(req)}`,
+  message: "Too many leaderboard requests. Please wait and try again."
 });
 var aiRateLimit = createFixedWindowRateLimiter({
   namespace: "ai-tools",
@@ -24447,6 +24772,10 @@ var resultsRepository = createResultsRepository({
   loadReadyLeaderboardEvents,
   resolveListeningDetail: resolveListeningActivityDetailForStaff
 });
+var allowLegacyLeaderboardFallback = process.env.NODE_ENV !== "production" && process.env.LEADERBOARD_ALLOW_LEGACY_FALLBACK !== "false";
+if (process.env.NODE_ENV === "production" && process.env.LEADERBOARD_ALLOW_LEGACY_FALLBACK === "true") {
+  throw new Error("LEADERBOARD_ALLOW_LEGACY_FALLBACK must not be enabled in production.");
+}
 var resultsService = createResultsService({
   repository: resultsRepository,
   activityTtlMs: ACTIVITY_TTL_MS,
@@ -24468,12 +24797,35 @@ var resultsService = createResultsService({
   canViewGrammarActivity,
   buildLeaderboard,
   getCachedLeaderboardSummary: (key) => publicLeaderboardSummaryCache.get(key),
-  cacheLeaderboardSummary: cachePublicLeaderboardSummary
+  cacheLeaderboardSummary: cachePublicLeaderboardSummary,
+  allowLegacyLeaderboardFallback,
+  resolveLearningLeaderboardScope: async (request, timing) => {
+    const vocabSetId = safeText2(request.query?.vocabSetId, 180);
+    const assignmentId = safeText2(request.query?.assignmentId, 180);
+    const accessToken = safeText2(request.headers?.["x-vocab-share-token"], 200);
+    if (accessToken) {
+      const access = await resolveVocabLearningAccess(accessToken, vocabSetId, assignmentId, timing);
+      if (!access) return null;
+      return {
+        vocabSetId: access.set.id,
+        ...access.assignment?.classId ? { classId: access.assignment.classId } : {}
+      };
+    }
+    if (!vocabSetId || assignmentId) return null;
+    const setDoc = await adminDb.collection("vocab_sets").doc(vocabSetId).get();
+    timing?.mark("vocab_point_read");
+    if (!setDoc.exists) return null;
+    const set = { id: setDoc.id, ...setDoc.data() };
+    if (isArchivedRecord(set) || getVocabVisibility(set) !== "public") return null;
+    return { vocabSetId: set.id };
+  }
 });
 app2.use(
   "/api",
   createResultsRouter({
     authenticateUser,
+    requireStaff: requireRole(["teacher", "super_admin"]),
+    publicLeaderboardRateLimit,
     createApiTiming,
     sendApiError,
     service: resultsService
@@ -24593,19 +24945,14 @@ var adminDataService = createAdminDataService({
   canViewGrammarSet,
   sanitizeVocabSet: (record2) => stripPrivateVocabSetFields(normalizeVocabSetForRead(record2)),
   loadDashboardActivity: async (actor) => {
-    const [recentActivities, leaderboardResults, assignmentsSnapshot] = await Promise.all([
+    const [recentActivities, leaderboardSummary] = await Promise.all([
       resultsService.loadScopedRecentActivitySummaries(actor, MAX_ACTIVITY_RESULT_LIMIT),
-      resultsService.loadScopedLeaderboardResults(actor),
-      adminDb.collection("assignments").get()
+      resultsService.getAdminLeaderboardSummary({
+        user: actor,
+        query: { period: "week", category: "gold", page: 1, pageSize: 5 }
+      })
     ]);
-    const assignments = [];
-    assignmentsSnapshot.forEach((doc) => {
-      const assignment = { id: doc.id, ...doc.data() };
-      if (!isArchivedRecord(assignment) && (isSuperAdmin3(actor) || assignment.createdBy === actor.id)) {
-        assignments.push(assignment);
-      }
-    });
-    const goldRows = buildLeaderboard(leaderboardResults, assignments, { period: "week" }).gold.slice(0, 5);
+    const goldRows = leaderboardSummary.body.entries;
     return {
       total: recentActivities.length,
       recentActivities: recentActivities.slice(0, 30),
@@ -24860,6 +25207,9 @@ async function start() {
   } else {
     console.log("[Startup] Seed data disabled.");
   }
+  app2.use("/api", (_req, res) => {
+    res.status(404).set("Cache-Control", "no-store").json({ error: "Not found" });
+  });
   if (process.env.NODE_ENV !== "production") {
     const viteMode = process.env.VITE_MODE?.trim() || void 0;
     const vite = await (0, import_vite.createServer)({
@@ -24880,9 +25230,17 @@ async function start() {
       immutable: true,
       maxAge: "365d"
     }));
-    app2.use(import_express21.default.static(distPath));
+    app2.use("/assets", (_req, res) => res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found"));
+    app2.use(import_express21.default.static(distPath, {
+      index: false,
+      maxAge: "1h"
+    }));
     app2.get("*", (req, res) => {
-      res.sendFile(import_path5.default.join(distPath, "index.html"));
+      if (!isSpaNavigationRequest(req.path, req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "")) {
+        return res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found");
+      }
+      res.set("Cache-Control", "no-cache");
+      return res.sendFile(import_path5.default.join(distPath, "index.html"));
     });
     console.log("Production static build routing active.");
   }
