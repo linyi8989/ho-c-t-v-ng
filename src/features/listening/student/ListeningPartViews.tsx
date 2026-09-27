@@ -225,7 +225,29 @@ export function ListeningPart2View({ part, answers, onAnswers, exampleLines, ali
                   [question.id]: { ...(answers.part2[question.id] || {}), [blankId]: value },
                 },
               });
-            return alignAnswersRight
+            return balanceMediaColumn
+              ? <div
+                  key={question.id}
+                  className="grid min-h-[4.5rem] grid-cols-[2rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-2xl border border-slate-100 bg-white p-4 text-base font-bold leading-7 text-slate-800 shadow-sm md:grid-cols-[2rem_minmax(0,1fr)_18rem] md:gap-x-4"
+                  data-listening-part2-balanced-answer-row
+                >
+                  <span className="text-rose-500">{index + 1}.</span>
+                  <p className="min-w-0">{part2PromptWithoutBlanks(question)}</p>
+                  <div className="col-start-2 flex min-w-0 items-center gap-2 md:col-start-3 md:row-start-1" data-listening-part2-balanced-answer-slot>
+                    {part2BlankIds(question).map(blankId => <StudentUnderlineInput
+                      key={blankId}
+                      value={values[blankId] || ''}
+                      onChange={event => updateBlank(blankId, event.target.value)}
+                      aria-label={`Ô trống ${blankId}`}
+                      className="min-w-0 flex-1"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                    />)}
+                  </div>
+                </div>
+              : alignAnswersRight
               ? <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-bold leading-7 text-slate-800" data-listening-part2-right-row>
                   <p className="min-w-0"><span className="mr-2 text-rose-500">{index + 1}.</span>{part2PromptWithoutBlanks(question)}</p>
                   <div className="flex shrink-0 items-center justify-end gap-2">{part2BlankIds(question).map(blankId => <StudentUnderlineInput key={blankId} value={values[blankId] || ''} onChange={event => updateBlank(blankId, event.target.value)} aria-label={`Ô trống ${blankId}`} className="w-44" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />)}</div>

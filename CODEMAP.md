@@ -6294,3 +6294,15 @@ Rollout and verification:
   implementation. Inner audio, images, Part views and normalized image-coordinate
   calculations remain unchanged, so drag/drop, colour and drawing targets keep
   their existing geometry.
+
+## 140. Movers Listening Part 2 answer-line alignment - 2026-09-27
+
+- The learner rows in Movers Listening Part 2 use a fixed three-column desktop
+  grid for question number, prompt and answer area. Every dotted answer line now
+  begins and ends on the same vertical guides, keeps the same gap from the prompt
+  column and sits vertically centred inside an equal-height question row.
+- On narrow screens the answer area wraps below the prompt instead of shrinking
+  outside the card. Multiple blanks still share the same fixed answer area.
+- The change is presentation-only and remains scoped through the existing Movers
+  `balanceMediaColumn` path. Answer IDs, stored values, text-entry guards,
+  submission and grading are unchanged; the Starter Part 2 layout is unaffected.

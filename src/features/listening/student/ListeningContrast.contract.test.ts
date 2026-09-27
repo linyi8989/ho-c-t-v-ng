@@ -145,6 +145,10 @@ test('Movers Part 2 balances the illustration above the full-width example witho
   assert.match(part2Source, /fillFrame=\{balanceMediaColumn\}/);
   assert.ok(part2Source.indexOf('data-listening-part2-illustration-frame') < part2Source.indexOf('{!examplesAboveAnswers && exampleBlock}'));
   assert.match(part2Source, /data-listening-part2-example-placement=\{examplesAboveAnswers \? 'answer-column' : 'media-column'\}/);
+  assert.match(part2Source, /data-listening-part2-balanced-answer-row/);
+  assert.match(part2Source, /md:grid-cols-\[2rem_minmax\(0,1fr\)_18rem\]/);
+  assert.match(part2Source, /data-listening-part2-balanced-answer-slot/);
+  assert.match(part2Source, /className="min-w-0 flex-1"/);
 });
 
 test('Every Movers Listening Part uses the Reading & Writing frame width without changing image coordinates', () => {
