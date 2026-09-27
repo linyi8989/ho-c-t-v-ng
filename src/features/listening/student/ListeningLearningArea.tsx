@@ -360,6 +360,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const part = playable?.content.parts[currentPart];
   const partUsesContentBoundedInteractiveViewport = currentPart === 0
     || (currentPart === 4 && playable?.content.parts[4]?.displayMode === 'scene-colour-draw');
+  const uniformMoversListeningFrameWidth = currentPart < 4;
   const progress = answeredCount(answers);
   const partViews = part ? [
     <ListeningPart1View key={1} part={playable!.content.parts[0]} answers={answers} onAnswers={setAnswers} />,
@@ -499,7 +500,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
         {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
         <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{progress}/25 câu</div>
       </header>
-      <main className="mx-auto max-w-[1500px] rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6">
+      <main data-listening-frame-width={uniformMoversListeningFrameWidth ? 'starter-standard' : 'default'} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${uniformMoversListeningFrameWidth ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
         <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">
           <p className="text-lg font-black uppercase text-slate-950">{part?.instruction}</p>
           {part?.audioUrl && <audio src={part.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}

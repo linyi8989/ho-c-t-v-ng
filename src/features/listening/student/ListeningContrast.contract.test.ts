@@ -140,6 +140,14 @@ test('Movers Part 2 balances the illustration above the full-width example witho
   assert.match(part2Source, /data-listening-part2-example-placement=\{examplesAboveAnswers \? 'answer-column' : 'media-column'\}/);
 });
 
+test('Movers Listening Parts 1-4 use the same outer frame width as Starters without changing image coordinates', () => {
+  assert.match(learningAreaSource, /const uniformMoversListeningFrameWidth = currentPart < 4/);
+  assert.match(learningAreaSource, /data-listening-frame-width=\{uniformMoversListeningFrameWidth \? 'starter-standard' : 'default'\}/);
+  assert.match(learningAreaSource, /uniformMoversListeningFrameWidth \? 'w-full sm:w-\[90%\] sm:max-w-\[1350px\]'/);
+  assert.match(partViewsSource, /normalizedPointFromExamImage\(event\.clientX, event\.clientY, sceneImageRef\.current\)/);
+  assert.match(partViewsSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
+});
+
 test('Part 5 palette is visual-only while retaining an accessible colour name', () => {
   const part5Source = partViewsSource.slice(partViewsSource.indexOf('export function ListeningPart5View'));
   assert.match(part5Source, /aria-label=\{`Chọn màu \$\{colour\.label\}`\}/);

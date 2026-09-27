@@ -58,14 +58,14 @@ function FramedImage({ src, alt, className = 'h-32', transparentFrame = false }:
   </div>;
 }
 
-function LargeLeftImage({ src, alt, profile }: { src?: string; alt: string; profile: ExamImageProfile }) {
-  return <div className="h-[clamp(380px,64dvh,650px)] min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-2" data-starter-rw-large-image-frame>
+function LargeLeftImage({ src, alt, profile, balanceHeight = false }: { src?: string; alt: string; profile: ExamImageProfile; balanceHeight?: boolean }) {
+  return <div className={`${balanceHeight ? 'h-auto min-h-72 lg:h-full lg:min-h-0' : 'h-[clamp(380px,64dvh,650px)]'} min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 p-2`} data-starter-rw-large-image-frame data-starter-rw-balanced-media={balanceHeight ? 'true' : undefined}>
     {src ? <ExamImageViewer src={src} alt={alt} profile={profile} fillFrame className="rounded-xl bg-white" /> : <div className="flex h-full items-center justify-center text-sm font-bold text-slate-500">Không có ảnh hiển thị.</div>}
   </div>;
 }
 
-function TwoColumn({ media, children }: { media: ReactNode; children: ReactNode }) {
-  return <ExamSplitTaskLayout media={media}>{children}</ExamSplitTaskLayout>;
+function TwoColumn({ media, balanceMediaHeight = false, children }: { media: ReactNode; balanceMediaHeight?: boolean; children: ReactNode }) {
+  return <ExamSplitTaskLayout media={media} stretchMedia={balanceMediaHeight}>{children}</ExamSplitTaskLayout>;
 }
 
 function YesNoQuestion({ question, index, value, onChange }: { key?: string; question: ExamQuestion; index: number; value: ExamAnswerValue | undefined; onChange: (value: string) => void }) {
@@ -172,7 +172,7 @@ function PartOne({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<P
 }
 
 function PartTwo({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<LargeLeftImage src={unit.imageUrl} alt="Tranh tình huống Part 2" profile="illustration" />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <InlineYesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
+  return <TwoColumn balanceMediaHeight media={<LargeLeftImage src={unit.imageUrl} alt="Tranh tình huống Part 2" profile="illustration" balanceHeight />}><ExampleBlock examples={unit.examples} />{unit.questions.map((question, index) => <InlineYesNoQuestion key={question.id} question={question} index={index} value={answers[question.id]} onChange={value => onAnswer(question.id, value)} />)}</TwoColumn>;
 }
 
 function PartThree({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
@@ -205,13 +205,13 @@ function renderStory(unit: ExamPartContent, answers: ExamAnswers, onAnswer: Prop
 }
 
 function PartFour({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
-  return <TwoColumn media={<LargeLeftImage src={unit.imageUrl} alt="Ngân hàng từ Part 4" profile="word-bank" />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
+  return <TwoColumn balanceMediaHeight media={<LargeLeftImage src={unit.imageUrl} alt="Ngân hàng từ Part 4" profile="word-bank" balanceHeight />}><ExampleBlock examples={unit.examples} /><div className="rounded-2xl border border-slate-200 bg-white p-5 text-base font-semibold leading-10 text-slate-800 shadow-sm">{renderStory(unit, answers, onAnswer)}</div></TwoColumn>;
 }
 
 function PartFive({ unit, answers, onAnswer }: { unit: ExamPartContent } & Omit<Props, 'part'>) {
   const questions = new Map(unit.questions.map(question => [question.id, question]));
   let number = 0;
-  return <div className="space-y-8">{(unit.readingScenes || []).map((scene, sceneIndex) => <section key={scene.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4"><ExamSplitTaskLayout media={<Image src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} profile="story-scene" />}><div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>{sceneIndex === 0 && <ExampleBlock examples={unit.examples} />}<div className="border-t border-slate-200 pt-3">{scene.questionIds.map(questionId => {
+  return <div className="space-y-8">{(unit.readingScenes || []).map((scene, sceneIndex) => <section key={scene.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4"><ExamSplitTaskLayout stretchMedia media={<LargeLeftImage src={scene.imageUrl} alt={`Tranh ${sceneIndex + 1} Part 5`} profile="story-scene" balanceHeight />}><div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{scene.passage}</p>{sceneIndex === 0 && <ExampleBlock examples={unit.examples} />}<div className="border-t border-slate-200 pt-3">{scene.questionIds.map(questionId => {
     const question = questions.get(questionId);
     if (!question) return null;
     number += 1;

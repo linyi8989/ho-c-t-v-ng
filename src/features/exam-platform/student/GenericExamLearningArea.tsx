@@ -450,13 +450,17 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       ? 'Part 5 listening - Question 21–25.'
       : activePart.instruction;
   const compactStarterListeningFrame = moduleId === 'starter' && paperId === 'listening' && !fixedListening && [1, 3, 4].includes(activePart.part);
+  const uniformYoungLearnerListeningFrameWidth = ['starter', 'flyer'].includes(moduleId) && paperId === 'listening' && !fixedListening;
+  const starterListeningPart4 = moduleId === 'starter' && paperId === 'listening' && !fixedListening && activePart.part === 4;
   const compactFlyerInteractiveFrame = moduleId === 'flyer' && paperId === 'listening' && !fixedListening && [1, 5].includes(activePart.part);
   const fixedListeningWorkArea = !fixedListening && moduleId !== 'flyer' && [1, 4].includes(activePart.part);
   const listeningWorkAreaClass = compactFlyerInteractiveFrame
     ? 'max-h-[calc(100dvh-290px)] overflow-y-auto p-1'
     : compactStarterListeningFrame
     ? fixedListeningWorkArea
-      ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1 sm:h-[calc(90dvh-261px)] sm:min-h-[360px]'
+      ? starterListeningPart4
+        ? 'min-h-[calc(100dvh-290px)] overflow-visible p-1 pb-3 sm:min-h-[calc(90dvh-261px)]'
+        : 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1 sm:h-[calc(90dvh-261px)] sm:min-h-[360px]'
       : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1 sm:max-h-[calc(90dvh-261px)] sm:min-h-[360px]'
     : fixedListeningWorkArea
       ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1'
@@ -468,7 +472,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
       <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{answered}/{totalQuestions} câu</div>
     </header>
-    <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${compactStarterListeningFrame ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
+    <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} data-young-learner-listening-width={uniformYoungLearnerListeningFrameWidth ? 'starter-standard' : undefined} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${uniformYoungLearnerListeningFrameWidth ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
       <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">{petListening && <h2 className="text-xl font-black text-slate-950">{activePart.title}</h2>}<p className={`${petListening ? 'whitespace-pre-wrap text-sm font-bold leading-6 normal-case' : 'text-lg font-black uppercase'} text-slate-950`}>{listeningHeader}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
       <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} data-flyer-listening-work-area={compactFlyerInteractiveFrame ? `part-${activePart.part}-content-fit` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !fixedListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} petListening={petListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
     </section>

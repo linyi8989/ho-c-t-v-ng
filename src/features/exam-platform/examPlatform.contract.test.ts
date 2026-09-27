@@ -563,6 +563,11 @@ test('Starter Listening Parts 1, 3 and 4 use compact task frames while interacti
   assert.match(genericPlayerSource, /data-starter-listening-frame/);
   assert.match(genericPlayerSource, /data-starter-listening-work-area/);
   assert.match(genericPlayerSource, /sm:h-\[calc\(90dvh-261px\)\]/);
+  assert.match(genericPlayerSource, /const starterListeningPart4 = .*activePart\.part === 4/);
+  assert.match(genericPlayerSource, /starterListeningPart4\s*\? 'min-h-\[calc\(100dvh-290px\)\] overflow-visible p-1 pb-3 sm:min-h-\[calc\(90dvh-261px\)\]'/);
+  assert.match(genericPlayerSource, /const uniformYoungLearnerListeningFrameWidth = \['starter', 'flyer'\]\.includes\(moduleId\) && paperId === 'listening' && !fixedListening/);
+  assert.match(genericPlayerSource, /data-young-learner-listening-width=\{uniformYoungLearnerListeningFrameWidth \? 'starter-standard' : undefined\}/);
+  assert.match(genericPlayerSource, /uniformYoungLearnerListeningFrameWidth \? 'w-full sm:w-\[90%\] sm:max-w-\[1350px\]'/);
   assert.match(genericPlayerSource, /sm:w-\[90%\]/);
   assert.match(genericPlayerSource, /sm:max-w-\[1350px\]/);
   assert.match(starterPlayerSource, /maxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
@@ -667,6 +672,10 @@ test('Starters Reading & Writing keeps five fixed authoring, player and visual-r
   assert.match(starterReadingPlayerSource, /data-starter-rw-spelling-example/);
   assert.match(starterReadingPlayerSource, /data-starter-rw-yes-no-row/);
   assert.match(starterReadingPlayerSource, /data-starter-rw-large-image-frame/);
+  assert.match(starterReadingPlayerSource, /data-starter-rw-balanced-media=\{balanceHeight \? 'true' : undefined\}/);
+  assert.match(starterReadingPlayerSource, /function PartTwo[\s\S]*?<TwoColumn balanceMediaHeight[\s\S]*?balanceHeight/);
+  assert.match(starterReadingPlayerSource, /function PartFour[\s\S]*?<TwoColumn balanceMediaHeight[\s\S]*?balanceHeight/);
+  assert.match(starterReadingPlayerSource, /function PartFive[\s\S]*?<ExamSplitTaskLayout stretchMedia[\s\S]*?balanceHeight/);
   assert.match(starterReadingAuthoringSource, /id="starter-reading-writing-authoring"/);
   assert.match(starterReadingAuthoringSource, /starter-rw-crop-action/);
   assert.match(starterReadingAuthoringSource, /starter-rw-crop-confirm/);

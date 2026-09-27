@@ -132,12 +132,13 @@ test('requested Movers answer fields use PET-style underlines and the specified 
   assert.equal((part5Markup.match(/data-student-underline-answer/g) || []).length, part5.scenes.flatMap(scene => scene.questions).length);
 });
 
-test('Movers Parts 1/4 balance the image column and Part 3 distributes questions across two lanes', () => {
+test('Movers Parts 1/2/4 balance the image column and Part 3 distributes questions across two lanes', () => {
   const content = createDefaultMoverReadingWritingContent();
   const answers = createEmptyMoverReadingWritingAnswers();
   const onAnswers = () => undefined;
-  const [part1, , part3, part4] = content.parts;
+  const [part1, part2, part3, part4] = content.parts;
   part1.wordBankUrl = '/media/movers-part-1.png';
+  part2.sceneUrl = '/media/movers-part-2.png';
   part4.wordBankUrl = '/media/movers-part-4.png';
   part3.sceneUrl = '/media/movers-part-3.png';
   part3.example = {
@@ -147,13 +148,16 @@ test('Movers Parts 1/4 balance the image column and Part 3 distributes questions
   };
 
   const part1Markup = renderToStaticMarkup(createElement(ReadingPart1View, { part: part1, answers, onAnswers }));
+  const part2Markup = renderToStaticMarkup(createElement(ReadingPart2View, { part: part2, answers, onAnswers }));
   const part4Markup = renderToStaticMarkup(createElement(ReadingPart4View, { part: part4, answers, onAnswers }));
-  for (const markup of [part1Markup, part4Markup]) {
+  for (const markup of [part1Markup, part2Markup, part4Markup]) {
     assert.match(markup, /data-mover-rw-balanced-media="true"/);
-    assert.match(markup, /data-exam-image-profile="word-bank"/);
     assert.match(markup, /lg:self-stretch/);
     assert.match(markup, /h-full w-full/);
   }
+  assert.match(part1Markup, /data-exam-image-profile="word-bank"/);
+  assert.match(part2Markup, /data-exam-image-profile="illustration"/);
+  assert.match(part4Markup, /data-exam-image-profile="word-bank"/);
 
   const part3Markup = renderToStaticMarkup(createElement(ReadingPart3View, { part: part3, answers, onAnswers }));
   assert.match(part3Markup, /data-mover-rw-part3-layout/);

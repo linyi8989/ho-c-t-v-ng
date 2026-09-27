@@ -6244,3 +6244,18 @@ Rollout and verification:
   capability remains 403; the temporary local server and database are removed.
 - This fix adds no database migration, data backfill, persistent-data write,
   `.htaccess` change, runtime environment change or production restart/deploy.
+
+## 137. Young Learner media-height and Listening-width alignment - 2026-09-27
+
+- Starters Reading & Writing Parts 2 and 4 opt into the shared stretched split
+  layout; Part 5 applies the same rule independently to every story scene. The
+  left image frame now follows the full height of its adjacent example/task
+  column on desktop while the complete image remains fitted with
+  `object-contain`. Movers Reading & Writing Part 2 now opts into the same
+  already-released balance mechanism used by its Parts 1, 4 and 6.
+- Every Flyers Listening Part and Starters Listening Part uses the same outer
+  student frame width (`90%`, capped at `1350px`). Movers Listening Parts 1–4
+  use that width while Part 5 retains its previously tuned frame. These are
+  presentation-only container changes: image stages, normalized rendered-image
+  coordinate conversion, drag/drop targets, colour overlays, drawing geometry,
+  submitted answers and grading remain unchanged.
