@@ -39,6 +39,7 @@ const universalImporterSource = readFileSync(new URL('./universalImport.ts', imp
 const universalPromptSource = readFileSync(new URL('./universalImportPrompt.ts', import.meta.url), 'utf8');
 const starterPlayerSource = readFileSync(new URL('./student/StarterInteractions.tsx', import.meta.url), 'utf8');
 const genericPlayerSource = readFileSync(new URL('./student/GenericExamLearningArea.tsx', import.meta.url), 'utf8');
+const attemptShellSource = readFileSync(new URL('./student/StudentExamAttemptShell.tsx', import.meta.url), 'utf8');
 const moverListeningPlayerSource = readFileSync(new URL('../listening/student/ListeningLearningArea.tsx', import.meta.url), 'utf8');
 const moverReadingLearningSource = readFileSync(new URL('../mover-reading-writing/student/MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
 const starterResultSource = readFileSync(new URL('./student/StarterListeningResult.tsx', import.meta.url), 'utf8');
@@ -171,7 +172,7 @@ test('expired generic exam tickets use one bounded authenticated recovery before
 });
 
 test('generic exam start actions keep explicit contrast without touching Movers players', () => {
-  assert.match(genericPlayerSource, /id="generic-exam-player"/);
+  assert.match(genericPlayerSource, /rootId="generic-exam-player"/);
   assert.match(genericPlayerSource, /exam-platform-primary-action/);
   assert.match(genericPlayerSource, /exam-platform-secondary-action/);
   assert.doesNotMatch(genericPlayerSource, /mover-reading-primary-action/);
@@ -184,7 +185,7 @@ test('new exam modules keep readable navigation, protected transcripts and respo
     'exam-platform-result-retry',
     'exam-platform-part-tab',
     'exam-platform-part-nav',
-  ]) assert.ok(genericPlayerSource.includes(contract), `Generic student navigation is missing: ${contract}`);
+  ]) assert.ok(genericPlayerSource.includes(contract) || attemptShellSource.includes(contract), `Generic student navigation is missing: ${contract}`);
   for (const contract of [
     'listening-primary-action',
     'listening-review-action',
@@ -207,6 +208,28 @@ test('new exam modules keep readable navigation, protected transcripts and respo
   }
   assert.match(genericPlayerSource, /ExamImageViewer/);
   assert.match(starterPlayerSource, /ExamImageViewer/);
+});
+
+test('Listening attempts reuse Reading & Writing header, Part tabs and bottom navigation without moving Part views', () => {
+  assert.match(genericPlayerSource, /import StudentExamAttemptShell/);
+  assert.match(moverListeningPlayerSource, /import StudentExamAttemptShell/);
+  assert.match(genericPlayerSource, /rootId="listening-exam-root"/);
+  assert.match(moverListeningPlayerSource, /rootId="listening-exam-root"/);
+  assert.match(attemptShellSource, /student-exam-shell-header sticky top-0/);
+  assert.match(attemptShellSource, /student-exam-part-tabs/);
+  assert.match(attemptShellSource, /student-exam-part-navigation/);
+  assert.equal((attemptShellSource.match(/student-exam-shell-container/g) || []).length, 3);
+  assert.match(attemptShellSource, /student-exam-shell-container mx-auto flex w-full max-w-7xl/);
+  assert.match(attemptShellSource, /disabled={currentPart === 0}/);
+  assert.match(attemptShellSource, /disabled={currentPart === lastPartIndex}/);
+  assert.match(attemptShellSource, /student-exam-submit-action/);
+  assert.match(genericPlayerSource, /data-starter-listening-work-area/);
+  assert.match(moverListeningPlayerSource, /data-listening-part-viewport/);
+  assert.match(genericPlayerSource, /data-listening-frame-style="reading-writing-standard"/);
+  assert.match(genericPlayerSource, /data-young-learner-listening-width="reading-writing-standard"/);
+  assert.match(genericPlayerSource, /className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"/);
+  assert.doesNotMatch(genericPlayerSource, /listening-part-arrow/);
+  assert.doesNotMatch(moverListeningPlayerSource, /listening-part-arrow/);
 });
 
 test('student exam images use shared viewport-aware profiles and overflow-safe split layouts', () => {
@@ -565,11 +588,10 @@ test('Starter Listening Parts 1, 3 and 4 use compact task frames while interacti
   assert.match(genericPlayerSource, /sm:h-\[calc\(90dvh-261px\)\]/);
   assert.match(genericPlayerSource, /const starterListeningPart4 = .*activePart\.part === 4/);
   assert.match(genericPlayerSource, /starterListeningPart4\s*\? 'min-h-\[calc\(100dvh-290px\)\] overflow-visible p-1 pb-3 sm:min-h-\[calc\(90dvh-261px\)\]'/);
-  assert.match(genericPlayerSource, /const uniformYoungLearnerListeningFrameWidth = \['starter', 'flyer'\]\.includes\(moduleId\) && paperId === 'listening' && !fixedListening/);
-  assert.match(genericPlayerSource, /data-young-learner-listening-width=\{uniformYoungLearnerListeningFrameWidth \? 'starter-standard' : undefined\}/);
-  assert.match(genericPlayerSource, /uniformYoungLearnerListeningFrameWidth \? 'w-full sm:w-\[90%\] sm:max-w-\[1350px\]'/);
-  assert.match(genericPlayerSource, /sm:w-\[90%\]/);
-  assert.match(genericPlayerSource, /sm:max-w-\[1350px\]/);
+  assert.doesNotMatch(genericPlayerSource, /uniformYoungLearnerListeningFrameWidth/);
+  assert.match(genericPlayerSource, /data-young-learner-listening-width="reading-writing-standard"/);
+  assert.match(genericPlayerSource, /student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6/);
+  assert.match(genericPlayerSource, /data-listening-frame-style="reading-writing-standard"/);
   assert.match(starterPlayerSource, /maxWidth=\{STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH\}/);
   assert.match(starterPlayerSource, /imageMaxWidth = STARTER_LISTENING_LARGE_IMAGE_MAX_WIDTH/);
   assert.match(starterPlayerSource, /preferredScale=\{STARTER_LISTENING_LARGE_IMAGE_SCALE\}/);
@@ -734,9 +756,12 @@ test('Flyers Listening keeps five fixed Movers-style authoring, player and revie
   assert.match(genericAdminSource, /normalizeFixedFlyerListeningContent/);
   for (const contract of ['ListeningPart1View', 'StarterTextEntryView', 'data-flyer-part3-fixed-frames', 'fillFrame', 'data-flyer-listening-part="4"', 'StarterImageOptionsView', 'StarterListeningPart4View']) assert.match(flyerPlayerSource, new RegExp(contract));
   assert.match(flyerPlayerSource, /FLYER_LISTENING_PART1_IMAGE_SCALE = 1\.2/);
-  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART5_IMAGE_SCALE = 1\.44/);
+  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH = FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH/);
+  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT = FLYER_LISTENING_PART1_IMAGE_MAX_HEIGHT/);
+  assert.match(flyerPlayerSource, /FLYER_LISTENING_PART5_IMAGE_SCALE = FLYER_LISTENING_PART1_IMAGE_SCALE/);
   assert.match(flyerPlayerSource, /imageMaxWidth=\{FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH\}/);
   assert.match(flyerPlayerSource, /imageMaxWidth=\{FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH\}/);
+  assert.match(listeningPartViewsSource, /normalizedPointFromExamImage\(event\.clientX, event\.clientY, sceneImageRef\.current\)/);
   assert.match(genericPlayerSource, /data-flyer-listening-work-area/);
   assert.match(genericPlayerSource, /part-\$\{activePart\.part\}-content-fit/);
   assert.match(starterResultSource, /FlyerNameResults/);

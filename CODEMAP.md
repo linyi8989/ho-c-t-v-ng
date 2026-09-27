@@ -5813,12 +5813,12 @@ Rollout and verification:
 
 ## 135. Flyers learner media balance and image-modal isolation - 2026-09-26
 
-- Flyers Listening Parts 1 and 5 use explicit presentation-only image limits.
-  Part 1 grows to 120% of its prior natural inline size; Part 5 grows another
-  20% from its previous shared 120% presentation. Their surrounding work area
-  is content-fit with bounded viewport scrolling instead of a forced tall empty
-  canvas. Drag, drop, colour and draw coordinates remain normalized against the
-  rendered source image, so grading geometry and stored answers are unchanged.
+- Flyers Listening Parts 1 and 5 use the same explicit presentation-only image
+  limits (`912px`, `1.2` scale and the same viewport-height cap). Their
+  surrounding work area is content-fit with bounded viewport scrolling instead
+  of a forced tall empty canvas. Drag, drop, colour and draw coordinates remain
+  normalized against the rendered source image, so grading geometry and stored
+  answers are unchanged.
 - Flyers Reading & Writing Parts 1, 2 and 6 stretch their left image frame to
   the full height of the adjacent exercise column on desktop while preserving
   the whole image with `object-contain`. Part 6 no longer repeats the redundant
@@ -6259,3 +6259,38 @@ Rollout and verification:
   presentation-only container changes: image stages, normalized rendered-image
   coordinate conversion, drag/drop targets, colour overlays, drawing geometry,
   submitted answers and grading remain unchanged.
+
+## 138. Shared student attempt chrome for Listening and Reading & Writing - 2026-09-27
+
+- `StudentExamAttemptShell.tsx` is the presentation-only boundary for the live
+  attempt header, answered counter, timer, submit action, rectangular Part tabs
+  and rectangular previous/next controls. It intentionally does not own Part
+  content, answers, media, grading or coordinate conversion.
+- `GenericExamLearningArea.tsx` now uses that shell for Reading & Writing and
+  for the Young Learner/KET/PET Listening branch. Generic future Listening
+  definitions (including FCE/IELTS when enabled) inherit the same shell without
+  adding an exam-specific navigation implementation.
+- `ListeningLearningArea.tsx` uses the same shell for Movers Listening while
+  preserving its fullscreen and hint actions and the exact existing Part-view,
+  audio, image-stage and normalized-coordinate hooks.
+- The old Listening-only orange progress strip, oversized level badge, circular
+  Part dots and circular edge arrows were removed from live attempts only.
+  Authoring, preview/result/history screens, APIs, schemas and graders are not
+  changed. Regression contracts lock the shared shell and the unchanged
+  content-stage hooks.
+
+## 139. Reading-width alignment for Listening attempt frames - 2026-09-27
+
+- The shared attempt shell now gives its header, Part tabs and bottom
+  previous/next controls the same `max-w-7xl` container and horizontal padding,
+  so their left and right edges stay aligned at every supported viewport.
+- Starters and Movers Listening Parts now share one Reading & Writing-width
+  outer frame; Movers Part 5 no longer switches to the wider legacy container.
+  Flyers, KET and PET Listening use the same thin Reading & Writing border and
+  width, while future generic FCE/IELTS Listening papers inherit that frame from
+  the common shell.
+- Dedicated Movers Reading & Writing now also consumes
+  `StudentExamAttemptShell`, eliminating its separate header/Part navigation
+  implementation. Inner audio, images, Part views and normalized image-coordinate
+  calculations remain unchanged, so drag/drop, colour and drawing targets keep
+  their existing geometry.

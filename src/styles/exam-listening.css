@@ -992,6 +992,98 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   opacity: 1 !important;
 }
 
+/* Live Listening and Reading & Writing attempts share one high-contrast exam
+   chrome. Part content keeps its existing feature root and geometry. */
+#generic-exam-player button.student-exam-submit-action:not(:disabled),
+#mover-reading-writing-player button.student-exam-submit-action:not(:disabled),
+#listening-exam-root button.student-exam-submit-action:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 6px 14px rgba(4, 120, 87, 0.22) !important;
+}
+
+#generic-exam-player button.student-exam-submit-action:disabled,
+#mover-reading-writing-player button.student-exam-submit-action:disabled,
+#listening-exam-root button.student-exam-submit-action:disabled {
+  background: #d1fae5 !important;
+  border: 2px solid #6ee7b7 !important;
+  color: #065f46 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+#generic-exam-player button.student-exam-part-tab[data-active="false"]:not(:disabled),
+#mover-reading-writing-player button.student-exam-part-tab[data-active="false"]:not(:disabled),
+#listening-exam-root button.student-exam-part-tab[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #60a5fa !important;
+  color: #1d4ed8 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+#generic-exam-player button.student-exam-part-tab[data-active="true"]:not(:disabled),
+#mover-reading-writing-player button.student-exam-part-tab[data-active="true"]:not(:disabled),
+#listening-exam-root button.student-exam-part-tab[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 5px 12px rgba(29, 78, 216, 0.26) !important;
+}
+
+#generic-exam-player button.student-exam-part-nav:not(:disabled),
+#mover-reading-writing-player button.student-exam-part-nav:not(:disabled),
+#listening-exam-root button.student-exam-part-nav:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e40af !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, 0.22) !important;
+}
+
+#generic-exam-player button.student-exam-part-nav[data-direction="previous"]:not(:disabled),
+#mover-reading-writing-player button.student-exam-part-nav[data-direction="previous"]:not(:disabled),
+#listening-exam-root button.student-exam-part-nav[data-direction="previous"]:not(:disabled) {
+  background: #ffffff !important;
+  border-color: #60a5fa !important;
+  color: #1d4ed8 !important;
+}
+
+#generic-exam-player button.student-exam-part-nav:disabled,
+#mover-reading-writing-player button.student-exam-part-nav:disabled,
+#listening-exam-root button.student-exam-part-nav:disabled {
+  background: #e2e8f0 !important;
+  border: 2px solid #94a3b8 !important;
+  color: #475569 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+#generic-exam-player button.student-exam-submit-action *,
+#generic-exam-player button.student-exam-part-tab *,
+#generic-exam-player button.student-exam-part-nav *,
+#mover-reading-writing-player button.student-exam-submit-action *,
+#mover-reading-writing-player button.student-exam-part-tab *,
+#mover-reading-writing-player button.student-exam-part-nav *,
+#listening-exam-root button.student-exam-submit-action *,
+#listening-exam-root button.student-exam-part-tab *,
+#listening-exam-root button.student-exam-part-nav * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
 /* PET Writing task cards and result actions own readable selected and primary
    action states. */
 #generic-exam-player button.pet-writing-task-option[data-selected="false"]:not(:disabled) {

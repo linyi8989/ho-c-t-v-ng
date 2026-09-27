@@ -1,14 +1,9 @@
 import {
   ArrowLeft,
   BookOpenText,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   Eye,
   LoaderCircle,
   RotateCcw,
-  Send,
   Trophy,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -47,6 +42,7 @@ import {
   ReadingPart5View,
   ReadingPart6View,
 } from './MoverReadingWritingPartViews';
+import StudentExamAttemptShell from '../../exam-platform/student/StudentExamAttemptShell';
 
 const coverImageProfile = getExamImageProfile('cover');
 
@@ -65,7 +61,6 @@ interface SavedRun {
 }
 
 const RUN_PREFIX = 'msdieu_mover_reading_run_v1';
-const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 const storageKey = (ownerKey: string, setId: string, versionId: string, accessToken: string) => `${RUN_PREFIX}:${ownerKey}:${setId}:${versionId}:${encodeURIComponent(accessToken || 'public')}`;
 const storedName = () => { try { return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || ''; } catch { return ''; } };
 const answeredCount = (answers: MoverReadingWritingAnswers) => [
@@ -349,9 +344,25 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   );
 
   return (
-    <main className="min-h-screen bg-slate-100" id="mover-reading-writing-player">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">Movers Reading & Writing</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answeredCount(answers)}/40 câu</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="mover-reading-submit-action inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-white disabled:opacity-50"><Send size={15} />Nộp bài</button></div></div></header>
-      <div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Các Part Reading & Writing">{playable.content.parts.map((part, index) => <button key={part.part} type="button" role="tab" aria-selected={currentPart === index} data-active={currentPart === index} onClick={() => setCurrentPart(index)} className={`mover-reading-part-step shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-600 text-white shadow-md' : 'border border-slate-200 bg-white text-indigo-800'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}Part {index + 1}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-5"><p className="text-xs font-black uppercase text-indigo-600">Part {currentPart + 1}</p><h2 className="mt-1 text-2xl font-black text-slate-900">{playable.content.parts[currentPart].title}</h2><p className="mt-2 text-sm font-semibold text-slate-500">{playable.content.parts[currentPart].instruction}</p></div>{views[currentPart]}</section><div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} className="mover-reading-secondary-action inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 font-black text-slate-700 disabled:opacity-60"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === 5} onClick={() => setCurrentPart(value => Math.min(5, value + 1))} className="mover-reading-primary-action inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:opacity-60">Part sau<ChevronRight size={17} /></button></div></div>
-    </main>
+    <StudentExamAttemptShell
+      rootId="mover-reading-writing-player"
+      eyebrow="A1 Movers · Reading & Writing"
+      title={playable.title}
+      answered={answeredCount(answers)}
+      totalQuestions={40}
+      remainingSeconds={remainingSeconds}
+      parts={playable.content.parts.map(part => ({ key: part.part, number: part.part }))}
+      currentPart={currentPart}
+      onPartChange={setCurrentPart}
+      onSubmit={() => void submit()}
+      submitting={submitting}
+      submitDisabled={attemptRecoveryExpired}
+      partTabsLabel="Các Part Reading & Writing"
+      errorBanner={error ? <div className="student-exam-shell-container mx-auto mt-4 w-full max-w-7xl px-3 sm:px-6"><div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div></div> : null}
+    >
+      <div className="student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6">
+        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-5"><p className="text-xs font-black uppercase text-indigo-600">Part {currentPart + 1}</p><h2 className="mt-1 text-2xl font-black text-slate-900">{playable.content.parts[currentPart].title}</h2><p className="mt-2 text-sm font-semibold text-slate-500">{playable.content.parts[currentPart].instruction}</p></div>{views[currentPart]}</section>
+      </div>
+    </StudentExamAttemptShell>
   );
 }

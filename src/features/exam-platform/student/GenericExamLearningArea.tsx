@@ -1,16 +1,11 @@
 import {
   ArrowLeft,
   BookOpenText,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   Eye,
   FileClock,
   Headphones,
   LoaderCircle,
   RotateCcw,
-  Send,
   Trophy,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -68,6 +63,7 @@ import PetReadingResult from './PetReadingResult';
 import PetWritingPartView, { PetWritingResult } from './PetWritingViews';
 import { StandaloneWritingPartView, StandaloneWritingResult } from '../../writing-library/student/StandaloneWritingViews';
 import { studentTypedAnswerGuards } from './studentTextEntryGuards';
+import StudentExamAttemptShell from './StudentExamAttemptShell';
 
 interface Props {
   moduleId: Exclude<ExamModuleId, 'mover'>;
@@ -91,7 +87,6 @@ interface SavedRun {
   submittedAttempt?: ExamCompletedAttempt;
 }
 
-const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 const storedName = () => { try { return window.localStorage.getItem(STUDENT_NAME_STORAGE_KEY) || ''; } catch { return ''; } };
 const storageKey = (owner: string, moduleId: string, paperId: string, setId: string, versionId: string, token: string) => `msdieu_exam_run_v1:${owner}:${moduleId}:${paperId}:${setId}:${versionId}:${encodeURIComponent(token || 'public')}`;
 const answerPresent = (value: ExamAnswerValue | undefined) => {
@@ -450,7 +445,6 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       ? 'Part 5 listening - Question 21–25.'
       : activePart.instruction;
   const compactStarterListeningFrame = moduleId === 'starter' && paperId === 'listening' && !fixedListening && [1, 3, 4].includes(activePart.part);
-  const uniformYoungLearnerListeningFrameWidth = ['starter', 'flyer'].includes(moduleId) && paperId === 'listening' && !fixedListening;
   const starterListeningPart4 = moduleId === 'starter' && paperId === 'listening' && !fixedListening && activePart.part === 4;
   const compactFlyerInteractiveFrame = moduleId === 'flyer' && paperId === 'listening' && !fixedListening && [1, 5].includes(activePart.part);
   const fixedListeningWorkArea = !fixedListening && moduleId !== 'flyer' && [1, 4].includes(activePart.part);
@@ -465,23 +459,49 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     : fixedListeningWorkArea
       ? 'h-[calc(100dvh-290px)] min-h-[400px] overflow-hidden p-1'
       : 'max-h-[calc(100dvh-290px)] min-h-[400px] overflow-y-auto p-1';
-  if (((moduleId === 'starter' || moduleId === 'flyer') && paperId === 'listening') || fixedListening) return <main id="listening-exam-root" className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100 p-2 sm:p-4">
-    <header className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-1 py-2 text-white">
-      <div className="rounded-2xl bg-sky-700/80 px-5 py-2 shadow"><p className="text-lg font-black">{petListening ? 'PET' : ketListening ? 'KET' : moduleId === 'flyer' ? 'Flyers' : 'Starters'}</p><p className="text-[10px] font-black uppercase">Listening · Part {currentPart + 1}</p></div>
-      <div className="order-3 h-4 w-full flex-1 overflow-hidden rounded-full border-2 border-slate-600 bg-orange-500 sm:order-none sm:w-auto"><div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${totalQuestions ? answered / totalQuestions * 100 : 0}%` }} /></div>
-      {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
-      <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{answered}/{totalQuestions} câu</div>
-    </header>
-    <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} data-young-learner-listening-width={uniformYoungLearnerListeningFrameWidth ? 'starter-standard' : undefined} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${uniformYoungLearnerListeningFrameWidth ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
-      <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">{petListening && <h2 className="text-xl font-black text-slate-950">{activePart.title}</h2>}<p className={`${petListening ? 'whitespace-pre-wrap text-sm font-bold leading-6 normal-case' : 'text-lg font-black uppercase'} text-slate-950`}>{listeningHeader}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
-      <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} data-flyer-listening-work-area={compactFlyerInteractiveFrame ? `part-${activePart.part}-content-fit` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !fixedListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} petListening={petListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
-    </section>
-    <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
-      <button type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>
-      <div className="flex gap-2">{playable.content.parts.map((part, index) => <button key={part.id} type="button" aria-label={`Mở Part ${part.part}`} data-active={currentPart === index ? 'true' : 'false'} onClick={() => setCurrentPart(index)} className={`listening-part-step h-9 w-9 rounded-full text-xs font-black ${currentPart === index ? 'bg-blue-700 text-white' : 'bg-white text-slate-500'}`}>{part.part}</button>)}</div>
-      {currentPart < playable.content.parts.length - 1 ? <button type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button> : <button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50"><Send size={18} />Nộp bài</button>}
-    </footer>
-    {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}
-  </main>;
-  return <main id="generic-exam-player" className="min-h-screen bg-slate-100"><header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{moduleId === 'writing' ? playable.content.level : definition.level} · {definition.displayName}</p><h1 className="text-base font-black text-slate-900">{playable.title}</h1></div><div className="flex items-center gap-3 text-xs font-black text-slate-600"><span>{answered}/{totalQuestions}</span>{remainingSeconds !== null && <span className="inline-flex items-center gap-1 rounded-xl bg-amber-50 px-3 py-2 text-amber-800"><Clock3 size={14} />{formatTime(remainingSeconds)}</span>}<button type="button" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="exam-platform-primary-action inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-white disabled:opacity-50"><Send size={15} />Nộp bài</button></div></div></header><div className="mx-auto max-w-7xl p-3 sm:p-6"><div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist">{playable.content.parts.map((part, index) => <button key={part.id} type="button" role="tab" aria-selected={currentPart === index} onClick={() => setCurrentPart(index)} data-active={currentPart === index ? 'true' : 'false'} className={`exam-platform-part-tab shrink-0 rounded-xl px-4 py-2.5 text-xs font-black ${currentPart === index ? 'bg-indigo-700 text-white shadow-md' : 'border border-slate-300 bg-white text-indigo-900'}`}>{index < currentPart ? <CheckCircle2 size={13} className="mr-1 inline" /> : null}{moduleId === 'writing' ? 'Bài viết' : `Part ${index + 1}`}</button>)}</div>{error && <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-800"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}<section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{!hidePetWritingPartHeader && <div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">{moduleId === 'writing' ? 'Writing task' : `Part ${activePart.part}`}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{activePart.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{activePart.instruction}</p></div>}<PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} standaloneWriting={moduleId === 'writing' && paperId === 'writing'} starterReadingWriting={moduleId === 'starter' && paperId === 'reading-writing'} flyerReadingWriting={moduleId === 'flyer' && paperId === 'reading-writing'} ketReadingWriting={moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9} petReading={isFixedPetReadingContent(playable.content)} petWriting={fixedPetWriting} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></section>{moduleId !== 'writing' && <div className="mt-5 flex items-center justify-between"><button type="button" disabled={currentPart === 0} onClick={() => setCurrentPart(value => Math.max(0, value - 1))} data-direction="previous" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 font-black text-slate-800 disabled:opacity-50"><ChevronLeft size={17} />Part trước</button><button type="button" disabled={currentPart === playable.content.parts.length - 1} onClick={() => setCurrentPart(value => Math.min(playable.content.parts.length - 1, value + 1))} data-direction="next" className="exam-platform-part-nav inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-3 font-black text-white disabled:opacity-50">Part sau<ChevronRight size={17} /></button></div>}</div></main>;
+  if (((moduleId === 'starter' || moduleId === 'flyer') && paperId === 'listening') || fixedListening) return <StudentExamAttemptShell
+    rootId="listening-exam-root"
+    eyebrow={`${definition.level} · ${definition.displayName}`}
+    title={playable.title}
+    answered={answered}
+    totalQuestions={totalQuestions}
+    remainingSeconds={remainingSeconds}
+    parts={playable.content.parts.map(part => ({ key: part.id, number: part.part }))}
+    currentPart={currentPart}
+    onPartChange={setCurrentPart}
+    onSubmit={() => void submit()}
+    submitting={submitting}
+    submitDisabled={attemptRecoveryExpired}
+    partTabsLabel={`Các Part ${definition.displayName}`}
+    rootClassName="bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100"
+    errorBanner={error ? <div className="mx-auto mt-4 max-w-7xl px-3 sm:px-6"><div className="rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div></div> : null}
+  >
+    <div className="student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6">
+      <section data-starter-listening-frame={compactStarterListeningFrame ? `part-${activePart.part}-compact` : undefined} data-young-learner-listening-width="reading-writing-standard" data-listening-frame-style="reading-writing-standard" className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">{petListening && <h2 className="text-xl font-black text-slate-950">{activePart.title}</h2>}<p className={`${petListening ? 'whitespace-pre-wrap text-sm font-bold leading-6 normal-case' : 'text-lg font-black uppercase'} text-slate-950`}>{listeningHeader}</p>{activePart.audioUrl && <audio src={activePart.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}</div>
+        <div data-starter-listening-work-area={compactStarterListeningFrame ? `part-${activePart.part}-90-percent` : undefined} data-flyer-listening-work-area={compactFlyerInteractiveFrame ? `part-${activePart.part}-content-fit` : undefined} className={listeningWorkAreaClass}><PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} starterListening={moduleId === 'starter' && !fixedListening} flyerListening={moduleId === 'flyer'} ketListening={ketListening} petListening={petListening} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></div>
+      </section>
+    </div>
+  </StudentExamAttemptShell>;
+  return <StudentExamAttemptShell
+    rootId="generic-exam-player"
+    eyebrow={`${moduleId === 'writing' ? playable.content.level : definition.level} · ${definition.displayName}`}
+    title={playable.title}
+    answered={answered}
+    totalQuestions={totalQuestions}
+    remainingSeconds={remainingSeconds}
+    parts={playable.content.parts.map(part => ({ key: part.id, number: part.part }))}
+    currentPart={currentPart}
+    onPartChange={setCurrentPart}
+    onSubmit={() => void submit()}
+    submitting={submitting}
+    submitDisabled={attemptRecoveryExpired}
+    partLabel={(_part, index) => moduleId === 'writing' ? 'Bài viết' : `Part ${index + 1}`}
+    showBottomNavigation={moduleId !== 'writing'}
+    errorBanner={error ? <div className="mx-auto mt-4 max-w-7xl px-3 sm:px-6"><div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-800"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div></div> : null}
+  >
+    <div className="student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6">
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{!hidePetWritingPartHeader && <div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">{moduleId === 'writing' ? 'Writing task' : `Part ${activePart.part}`}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{activePart.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{activePart.instruction}</p></div>}<PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} standaloneWriting={moduleId === 'writing' && paperId === 'writing'} starterReadingWriting={moduleId === 'starter' && paperId === 'reading-writing'} flyerReadingWriting={moduleId === 'flyer' && paperId === 'reading-writing'} ketReadingWriting={moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9} petReading={isFixedPetReadingContent(playable.content)} petWriting={fixedPetWriting} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></section>
+    </div>
+  </StudentExamAttemptShell>;
 }

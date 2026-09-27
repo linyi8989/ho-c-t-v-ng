@@ -9,6 +9,7 @@ import { createEmptyMoverReadingWritingAnswers } from '../types';
 import { ReadingPart1View, ReadingPart2View, ReadingPart3View, ReadingPart4View, ReadingPart5View, ReadingPart6View } from './MoverReadingWritingPartViews';
 
 const playerSource = readFileSync(new URL('./MoverReadingWritingLearningArea.tsx', import.meta.url), 'utf8');
+const attemptShellSource = readFileSync(new URL('../../exam-platform/student/StudentExamAttemptShell.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./MoverReadingWritingPartViews.tsx', import.meta.url), 'utf8');
 const visualReviewSource = readFileSync(new URL('../review/MoverReadingWritingVisualReview.tsx', import.meta.url), 'utf8');
 const adminSource = readFileSync(new URL('../admin/MoverReadingWritingAdmin.tsx', import.meta.url), 'utf8');
@@ -34,17 +35,22 @@ test('Mover Reading & Writing controls keep scoped semantic contrast hooks', () 
     'mover-reading-writing-player',
     'mover-reading-primary-action',
     'mover-reading-secondary-action',
-    'mover-reading-submit-action',
-    'mover-reading-part-step',
   ]) {
     assert.ok(playerSource.includes(hook), `Missing player hook: ${hook}`);
   }
+  for (const hook of ['student-exam-submit-action', 'student-exam-part-tab', 'student-exam-part-nav']) {
+    assert.ok(attemptShellSource.includes(hook), `Missing shared attempt hook: ${hook}`);
+  }
+  assert.match(playerSource, /import StudentExamAttemptShell/);
+  assert.match(playerSource, /rootId="mover-reading-writing-player"/);
+  assert.match(playerSource, /eyebrow="A1 Movers · Reading & Writing"/);
   assert.ok(adminSource.includes('mover-reading-writing-admin'));
   assert.ok(adminSource.includes('mover-reading-writing-wizard'));
   for (const selector of [
     '#mover-reading-writing-player button.mover-reading-primary-action',
-    '#mover-reading-writing-player button.mover-reading-submit-action',
-    '#mover-reading-writing-player button.mover-reading-part-step',
+    '#mover-reading-writing-player button.student-exam-submit-action',
+    '#mover-reading-writing-player button.student-exam-part-tab',
+    '#mover-reading-writing-player button.student-exam-part-nav',
     '#mover-reading-writing-wizard button.listening-editor-publish-action',
   ]) {
     assert.ok(globalCss.includes(selector), `Missing scoped CSS selector: ${selector}`);

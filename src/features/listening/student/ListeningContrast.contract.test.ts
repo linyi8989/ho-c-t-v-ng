@@ -4,6 +4,7 @@ import test from 'node:test';
 import { readCssBundle } from '../../../styles/cssTestUtils.js';
 
 const learningAreaSource = readFileSync(new URL('./ListeningLearningArea.tsx', import.meta.url), 'utf8');
+const attemptShellSource = readFileSync(new URL('../../exam-platform/student/StudentExamAttemptShell.tsx', import.meta.url), 'utf8');
 const partViewsSource = readFileSync(new URL('./ListeningPartViews.tsx', import.meta.url), 'utf8');
 const visualReviewSource = readFileSync(new URL('../review/ListeningVisualReview.tsx', import.meta.url), 'utf8');
 const historyDetailSource = readFileSync(new URL('../../../components/history/HistoryDetailModal.tsx', import.meta.url), 'utf8');
@@ -55,7 +56,7 @@ const transparentListeningHitboxes = [
 
 test('Listening player controls keep stable feature-scoped contrast hooks', () => {
   for (const hook of requiredPlayerHooks) {
-    assert.ok(learningAreaSource.includes(`id="${hook}"`), `Missing UI hook: ${hook}`);
+    assert.ok(learningAreaSource.includes(hook) || attemptShellSource.includes(hook), `Missing UI hook: ${hook}`);
   }
 
   const requiredScopedSelectors = [
@@ -71,17 +72,23 @@ test('Listening player controls keep stable feature-scoped contrast hooks', () =
     '#listening-exam-root #listening-fullscreen-btn',
     '#listening-exam-root button.listening-part1-choice',
     '#listening-exam-root .listening-part1-target-answer',
-    '#listening-exam-root button.listening-part-arrow',
-    '#listening-exam-root button.listening-part-step',
-    '#listening-exam-root #listening-submit-btn',
+    '#listening-exam-root button.student-exam-part-nav',
+    '#listening-exam-root button.student-exam-part-tab',
+    '#listening-exam-root button.student-exam-submit-action',
     '#listening-exam-root button.listening-part5-colour-choice',
   ];
   for (const selector of requiredScopedSelectors) {
     assert.ok(globalCss.includes(selector), `Missing scoped CSS contract: ${selector}`);
   }
 
-  assert.ok(learningAreaSource.includes('className={`listening-part-step'));
-  assert.ok(learningAreaSource.includes("data-active={currentPart === index ? 'true' : 'false'}"));
+  assert.match(learningAreaSource, /<StudentExamAttemptShell/);
+  assert.match(learningAreaSource, /rootId="listening-exam-root"/);
+  assert.match(attemptShellSource, /student-exam-part-tab exam-platform-part-tab/);
+  assert.match(attemptShellSource, /student-exam-part-nav exam-platform-part-nav/);
+  assert.match(attemptShellSource, /data-active={currentPart === index \? 'true' : 'false'}/);
+  assert.match(attemptShellSource, /role="tablist"/);
+  assert.match(attemptShellSource, /aria-selected={currentPart === index}/);
+  assert.doesNotMatch(learningAreaSource, /order-3 h-4 w-full flex-1 overflow-hidden rounded-full/);
   assert.ok(partViewsSource.includes('listening-part1-choice'));
   assert.ok(partViewsSource.includes("data-state={selectedChoice === choice.id ? 'selected' : 'available'}"));
   assert.match(learningAreaSource, /listeningApi\.getAttemptReview\(setId, result\.id/);
@@ -140,10 +147,11 @@ test('Movers Part 2 balances the illustration above the full-width example witho
   assert.match(part2Source, /data-listening-part2-example-placement=\{examplesAboveAnswers \? 'answer-column' : 'media-column'\}/);
 });
 
-test('Movers Listening Parts 1-4 use the same outer frame width as Starters without changing image coordinates', () => {
-  assert.match(learningAreaSource, /const uniformMoversListeningFrameWidth = currentPart < 4/);
-  assert.match(learningAreaSource, /data-listening-frame-width=\{uniformMoversListeningFrameWidth \? 'starter-standard' : 'default'\}/);
-  assert.match(learningAreaSource, /uniformMoversListeningFrameWidth \? 'w-full sm:w-\[90%\] sm:max-w-\[1350px\]'/);
+test('Every Movers Listening Part uses the Reading & Writing frame width without changing image coordinates', () => {
+  assert.doesNotMatch(learningAreaSource, /uniformMoversListeningFrameWidth/);
+  assert.match(learningAreaSource, /data-listening-frame-width="reading-writing-standard"/);
+  assert.match(learningAreaSource, /student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6/);
+  assert.match(learningAreaSource, /w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6/);
   assert.match(partViewsSource, /normalizedPointFromExamImage\(event\.clientX, event\.clientY, sceneImageRef\.current\)/);
   assert.match(partViewsSource, /normalizedPointFromExamImage\(clientX, clientY, boardImageRef\.current\)/);
 });

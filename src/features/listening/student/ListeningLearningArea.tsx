@@ -1,10 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   Expand,
   Eye,
   Headphones,
@@ -12,7 +8,6 @@ import {
   Lightbulb,
   LoaderCircle,
   RotateCcw,
-  Send,
   Trophy,
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
@@ -46,6 +41,7 @@ import {
   ListeningPart5View,
 } from './ListeningPartViews';
 import ListeningVisualReview from '../review/ListeningVisualReview';
+import StudentExamAttemptShell from '../../exam-platform/student/StudentExamAttemptShell';
 
 interface ListeningLearningAreaProps {
   setId: string;
@@ -78,8 +74,6 @@ const answeredCount = (answers: ListeningAnswers) =>
   + Object.keys(answers.part3).length
   + Object.keys(answers.part4).length
   + Object.keys(answers.part5).length;
-const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
-
 export default function ListeningLearningArea({ setId, accessToken = '', onBack }: ListeningLearningAreaProps) {
   const { token, user, firebaseUser, authSessionKnown, loading: authLoading } = useAuth();
   const [guestBootstrap] = useState(() => getOrCreateLearningGuest());
@@ -360,7 +354,6 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   const part = playable?.content.parts[currentPart];
   const partUsesContentBoundedInteractiveViewport = currentPart === 0
     || (currentPart === 4 && playable?.content.parts[4]?.displayMode === 'scene-colour-draw');
-  const uniformMoversListeningFrameWidth = currentPart < 4;
   const progress = answeredCount(answers);
   const partViews = part ? [
     <ListeningPart1View key={1} part={playable!.content.parts[0]} answers={answers} onAnswers={setAnswers} />,
@@ -492,38 +485,40 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }
 
   return (
-    <div id="listening-exam-root" className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100 p-2 sm:p-4" style={backgroundStyle}>
-      <header className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-3 px-1 py-2 text-white">
-        <div className="rounded-2xl bg-sky-700/80 px-5 py-2 shadow"><p className="text-lg font-black">{playable.level}</p><p className="text-[10px] font-black uppercase">Listening • Part {currentPart + 1}</p></div>
-        <div className="order-3 h-4 w-full flex-1 overflow-hidden rounded-full border-2 border-slate-600 bg-orange-500 sm:order-none sm:w-auto"><div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${(progress / 25) * 100}%` }} /></div>
-        <button id="listening-fullscreen-btn" type="button" title="Phóng to toàn màn hình" aria-label="Phóng to toàn màn hình" onClick={() => document.documentElement.requestFullscreen?.()} className="listening-icon-action rounded-xl bg-sky-700/80 p-3"><Expand size={18} /></button>
-        {remainingSeconds !== null && <div className={`rounded-2xl px-5 py-2 text-right shadow ${remainingSeconds <= 60 ? 'bg-rose-600' : 'bg-sky-700/80'}`}><p className="text-[10px] font-bold">Thời gian còn lại</p><p className="text-xl font-black">{formatTime(remainingSeconds)}</p></div>}
-        <div className="rounded-2xl bg-sky-700/80 px-4 py-2 text-xs font-black">{progress}/25 câu</div>
-      </header>
-      <main data-listening-frame-width={uniformMoversListeningFrameWidth ? 'starter-standard' : 'default'} className={`mx-auto rounded-[1.75rem] border-[10px] border-sky-700 bg-white p-3 shadow-2xl sm:p-6 ${uniformMoversListeningFrameWidth ? 'w-full sm:w-[90%] sm:max-w-[1350px]' : 'max-w-[1500px]'}`}>
-        <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">
-          <p className="text-lg font-black uppercase text-slate-950">{part?.instruction}</p>
-          {part?.audioUrl && <audio src={part.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}
-        </div>
-        <div data-listening-part-viewport={partUsesContentBoundedInteractiveViewport ? 'content-bounded-interactive' : 'standard'} className={partUsesContentBoundedInteractiveViewport
-          ? 'max-h-[calc(100vh-290px)] min-h-0 overflow-y-auto p-1'
-          : 'max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1'}>{partViews[currentPart]}</div>
-      </main>
-      <footer className="mx-auto mt-3 flex max-w-[1500px] items-center justify-between gap-3">
-        <button id="listening-prev-part-btn" type="button" aria-label={currentPart === 0 ? 'Quay lại' : 'Part trước'} onClick={() => currentPart === 0 ? onBack() : setCurrentPart(value => value - 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronLeft size={28} /></button>
-        <div className="flex gap-2">
-          {playable.content.parts.map((item, index) => <button key={item.part} type="button" aria-label={`Mở Part ${item.part}`} aria-current={currentPart === index ? 'step' : undefined} data-active={currentPart === index ? 'true' : 'false'} onClick={() => setCurrentPart(index)} className={`listening-part-step h-9 w-9 rounded-full text-xs font-black ${currentPart === index ? 'bg-blue-700 text-white' : 'bg-white text-slate-500'}`}>{item.part}</button>)}
-        </div>
-        {currentPart < 4 ? (
-          <button id="listening-next-part-btn" type="button" aria-label="Part tiếp theo" onClick={() => setCurrentPart(value => value + 1)} className="listening-part-arrow flex h-14 w-14 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-white shadow-lg"><ChevronRight size={28} /></button>
-        ) : (
-          <button id="listening-submit-btn" disabled={submitting || attemptRecoveryExpired} onClick={() => void submit()} className="inline-flex items-center gap-2 rounded-2xl border-4 border-white bg-emerald-600 px-5 py-3 font-black text-white shadow-lg disabled:opacity-50">
-            {submitting ? <LoaderCircle className="animate-spin" size={18} /> : <Send size={18} />} Nộp bài
-          </button>
-        )}
-      </footer>
-      {error && <div className="fixed bottom-4 left-1/2 z-50 max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow-xl"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div>}
-      <button title="Gợi ý" className="fixed right-4 top-28 flex h-12 w-12 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-amber-200 shadow-lg"><Lightbulb size={22} /></button>
-    </div>
+    <StudentExamAttemptShell
+      rootId="listening-exam-root"
+      eyebrow={`${playable.level} · Listening`}
+      title={playable.title}
+      answered={progress}
+      totalQuestions={25}
+      remainingSeconds={remainingSeconds}
+      parts={playable.content.parts.map(item => ({ key: item.part, number: item.part }))}
+      currentPart={currentPart}
+      onPartChange={setCurrentPart}
+      onSubmit={() => void submit()}
+      submitting={submitting}
+      submitDisabled={attemptRecoveryExpired}
+      submitButtonId="listening-submit-btn"
+      previousButtonId="listening-prev-part-btn"
+      nextButtonId="listening-next-part-btn"
+      partTabsLabel="Các Part Listening"
+      rootClassName="bg-gradient-to-b from-sky-300 via-sky-100 to-emerald-100"
+      style={backgroundStyle}
+      headerActions={<button id="listening-fullscreen-btn" type="button" title="Phóng to toàn màn hình" aria-label="Phóng to toàn màn hình" onClick={() => document.documentElement.requestFullscreen?.()} className="listening-icon-action rounded-xl bg-sky-700 p-2.5 text-white"><Expand size={18} /></button>}
+      errorBanner={error ? <div className="mx-auto mt-4 max-w-7xl px-3 sm:px-6"><div className="rounded-2xl border border-rose-200 bg-white px-5 py-3 text-center text-xs font-black text-rose-700 shadow"><p>{error}</p>{attemptRecoveryExpired && <button type="button" onClick={startFreshAfterExpired} className="mt-3 rounded-xl bg-rose-700 px-4 py-2 text-white">Lưu bản sao và bắt đầu lượt mới</button>}</div></div> : null}
+    >
+      <div className="student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6">
+        <section data-listening-frame-width="reading-writing-standard" className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-col items-center gap-3 rounded-2xl border-2 border-orange-300 bg-slate-50 p-4 text-center">
+            <p className="text-lg font-black uppercase text-slate-950">{part?.instruction}</p>
+            {part?.audioUrl && <audio src={part.audioUrl} controls controlsList="nodownload" className="h-10 w-full max-w-4xl" />}
+          </div>
+          <div data-listening-part-viewport={partUsesContentBoundedInteractiveViewport ? 'content-bounded-interactive' : 'standard'} className={partUsesContentBoundedInteractiveViewport
+            ? 'max-h-[calc(100vh-290px)] min-h-0 overflow-y-auto p-1'
+            : 'max-h-[calc(100vh-290px)] min-h-[400px] overflow-y-auto p-1'}>{partViews[currentPart]}</div>
+        </section>
+      </div>
+      <button title="Gợi ý" aria-label="Gợi ý" className="fixed right-4 top-28 flex h-12 w-12 items-center justify-center rounded-full border-4 border-white bg-rose-500 text-amber-200 shadow-lg"><Lightbulb size={22} /></button>
+    </StudentExamAttemptShell>
   );
 }

@@ -11,9 +11,9 @@ const answerShell = (): ListeningAnswers => ({ part1: {}, part2: {}, part3: {}, 
 export const FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH = '912px';
 export const FLYER_LISTENING_PART1_IMAGE_MAX_HEIGHT = 'min(74.4dvh, 744px, max(264px, calc(100dvh - 315px)))';
 export const FLYER_LISTENING_PART1_IMAGE_SCALE = 1.2;
-export const FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH = '1094px';
-export const FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT = 'min(89.28dvh, 893px, max(316px, calc(100dvh - 270px)))';
-export const FLYER_LISTENING_PART5_IMAGE_SCALE = 1.44;
+export const FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH = FLYER_LISTENING_PART1_IMAGE_MAX_WIDTH;
+export const FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT = FLYER_LISTENING_PART1_IMAGE_MAX_HEIGHT;
+export const FLYER_LISTENING_PART5_IMAGE_SCALE = FLYER_LISTENING_PART1_IMAGE_SCALE;
 
 function FlyerNamePlacementView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   const unit = examPartUnits(part)[0] || part;
