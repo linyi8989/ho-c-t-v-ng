@@ -5828,6 +5828,17 @@ Rollout and verification:
   always overlays sibling images in multi-image Parts such as Starters Reading
   & Writing Part 5.
 
+## 136. Admin exam-directory current-position indicators - 2026-09-27
+
+- The top Cambridge/IELTS module shortcuts and the Listening/Reading & Writing
+  paper filters expose their selected state through `aria-pressed`,
+  `aria-current="page"` and `data-active` together.
+- The active module uses a dark-blue filled card, an outer focus-like ring and
+  a visible check badge. The active paper uses the same filled treatment and a
+  check icon in place of its normal paper icon. Final high-specificity styles
+  are scoped under the admin dashboard so broad legacy button rules cannot
+  wash out either current-position indicator.
+
 ## 118. Admin shell and Vocabulary presentation boundaries - 2026-09-21
 
 - `src/components/admin/AdminDashboard.tsx` remains the compatibility entry and

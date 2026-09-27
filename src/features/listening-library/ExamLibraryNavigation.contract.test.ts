@@ -36,7 +36,10 @@ test('exam directory uses the approved Cambridge & IELTS labels and one unified 
   assert.doesNotMatch(moduleSource, /listeningPaperPath/);
   assert.match(libraryAdminSource, /aria-label="Truy cập nhanh module kho đề"/);
   assert.match(libraryAdminSource, /data-exam-module-quick-link=\{module\.id\}/);
+  assert.match(libraryAdminSource, /data-active=\{selected \? 'true' : 'false'\}/);
   assert.match(libraryAdminSource, /aria-pressed=\{selected\}/);
+  assert.match(libraryAdminSource, /aria-current=\{selected \? 'page' : undefined\}/);
+  assert.match(libraryAdminSource, /exam-module-quick-link-selected-indicator/);
   assert.match(libraryAdminSource, /selectedModuleId === module\.id/);
   assert.match(libraryAdminSource, /className="exam-module-quick-link group/);
   assert.match(libraryAdminSource, /xl:grid-cols-7/);
@@ -92,6 +95,9 @@ test('admin module quick links keep feature-scoped readable default and selected
 test('admin module click opens a searchable paper list without the intermediate chooser', () => {
   assert.match(moduleAdminRouterSource, /id="exam-module-admin-hub"/);
   assert.match(moduleAdminRouterSource, /data-exam-paper-filter=\{paper\.id\}/);
+  assert.match(moduleAdminRouterSource, /data-active=\{selected \? 'true' : 'false'\}/);
+  assert.match(moduleAdminRouterSource, /aria-current=\{selected \? 'page' : undefined\}/);
+  assert.match(moduleAdminRouterSource, /exam-paper-filter-selected-indicator/);
   assert.match(moduleAdminRouterSource, /data-exam-paper-create=\{paper\.id\}/);
   assert.match(moduleAdminRouterSource, /type="search"/);
   assert.match(moduleAdminRouterSource, /className="exam-paper-sort-row/);
@@ -136,6 +142,8 @@ test('admin paper filters and authoring actions have opaque readable states', ()
   const scopedContract = globalCssSource.lastIndexOf('/* Direct admin paper-list toolbar.');
   assert.ok(scopedContract > broadOverride, 'Scoped paper toolbar CSS must follow the legacy admin override');
   assert.match(globalCssSource, /#exam-module-admin-hub button\.exam-paper-filter-action\[aria-pressed="true"\]:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.exam-paper-filter-action\[data-active="true"\]:not\(:disabled\)/);
+  assert.match(globalCssSource, /button\.exam-module-quick-link\[data-active="true"\]:not\(:disabled\)/);
   assert.match(globalCssSource, /#exam-module-admin-hub button\.exam-paper-create-action:disabled/);
   assert.match(globalCssSource, /#exam-module-admin-hub \.exam-library-search-control:focus-within/);
   assert.match(globalCssSource, /#admin-main-panel section#exam-module-admin-hub/);

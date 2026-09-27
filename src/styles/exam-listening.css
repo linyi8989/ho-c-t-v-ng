@@ -2288,3 +2288,52 @@ input.student-underline-answer:focus-visible {
   outline: none !important;
   box-shadow: 0 2px 0 rgba(234, 88, 12, 0.16) !important;
 }
+
+/* The current exam module and paper must remain unmistakable even when the
+   admin shell's broad button theme is changed. Keep this final in the bundle. */
+#admin-dashboard-container #listening-library-admin nav button.exam-module-quick-link[data-active="true"]:not(:disabled),
+#admin-dashboard-container #listening-library-admin nav button.exam-module-quick-link[aria-current="page"]:not(:disabled) {
+  background: #1e40af !important;
+  background-image: none !important;
+  border: 2px solid #172554 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 0 0 3px #bfdbfe, 0 9px 20px rgba(30, 64, 175, .32) !important;
+}
+
+#admin-dashboard-container #listening-library-admin nav button.exam-module-quick-link[data-active="true"] > *,
+#admin-dashboard-container #listening-library-admin nav button.exam-module-quick-link[aria-current="page"] > * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#admin-dashboard-container #listening-library-admin nav button.exam-module-quick-link .exam-module-quick-link-selected-indicator {
+  background: #ffffff !important;
+  color: #1d4ed8 !important;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .45) !important;
+}
+
+#admin-dashboard-container section#exam-module-admin-hub button.exam-paper-filter-action[data-active="true"]:not(:disabled),
+#admin-dashboard-container section#exam-module-admin-hub button.exam-paper-filter-action[aria-current="page"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  background-image: none !important;
+  border: 2px solid #172554 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  filter: none !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 0 0 3px #bfdbfe, 0 7px 16px rgba(29, 78, 216, .28) !important;
+}
+
+#admin-dashboard-container section#exam-module-admin-hub button.exam-paper-filter-action[data-active="true"] > *,
+#admin-dashboard-container section#exam-module-admin-hub button.exam-paper-filter-action[aria-current="page"] > * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#admin-dashboard-container section#exam-module-admin-hub .exam-paper-filter-selected-indicator {
+  color: #ffffff !important;
+  stroke-width: 3;
+}

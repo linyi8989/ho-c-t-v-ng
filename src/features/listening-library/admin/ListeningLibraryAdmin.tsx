@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpenText, Clock3, Layers3 } from 'lucide-react';
+import { ArrowRight, BookOpenText, CheckCircle2, Clock3, Layers3 } from 'lucide-react';
 import { useState } from 'react';
 import { getVisibleListeningModules } from '../registry';
 import type { ListeningModuleId } from '../types';
@@ -26,11 +26,14 @@ export default function ListeningLibraryAdmin({ token }: ListeningLibraryAdminPr
               key={module.id}
               type="button"
               data-exam-module-quick-link={module.id}
+              data-active={selected ? 'true' : 'false'}
               aria-pressed={selected}
+              aria-current={selected ? 'page' : undefined}
               onClick={() => setSelectedModuleId(module.id)}
               title={`Mở kho đề ${module.displayName}`}
-              className="exam-module-quick-link group flex min-h-16 min-w-0 flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-sm transition focus-visible:outline-none"
+              className="exam-module-quick-link group relative flex min-h-16 min-w-0 flex-col justify-center rounded-2xl border px-3 py-2 pr-10 text-left shadow-sm transition focus-visible:outline-none"
             >
+              {selected && <span className="exam-module-quick-link-selected-indicator absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full" title="Module đang chọn"><CheckCircle2 size={17} aria-hidden="true" /><span className="sr-only">Module đang chọn</span></span>}
               <span className="exam-module-quick-link-label truncate text-sm font-black">{module.displayName}</span>
               <span className="exam-module-quick-link-level mt-0.5 truncate text-[10px] font-black uppercase tracking-wide">{module.levelLabel}</span>
             </button>;

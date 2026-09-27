@@ -1,4 +1,4 @@
-import { BookOpenText, Headphones, Plus, Search } from 'lucide-react';
+import { BookOpenText, CheckCircle2, Headphones, Plus, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getListeningClientModule } from '../clientRegistry';
 import { getListeningModule } from '../registry';
@@ -101,7 +101,9 @@ export default function ListeningModuleRouter({ moduleId, token, onBack }: Liste
                 key={paper.id}
                 type="button"
                 data-exam-paper-filter={paper.id}
+                data-active={selected ? 'true' : 'false'}
                 aria-pressed={selected}
+                aria-current={selected ? 'page' : undefined}
                 disabled={editorActive}
                 onClick={() => {
                   setPaperId(paper.id);
@@ -109,9 +111,11 @@ export default function ListeningModuleRouter({ moduleId, token, onBack }: Liste
                 }}
                 className="exam-paper-filter-action inline-flex min-h-10 items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-black focus-visible:outline-none"
               >
-                {paper.id === 'listening'
-                  ? <Headphones size={15} aria-hidden="true" />
-                  : <BookOpenText size={15} aria-hidden="true" />}
+                {selected
+                  ? <CheckCircle2 className="exam-paper-filter-selected-indicator" size={16} aria-hidden="true" />
+                  : paper.id === 'listening'
+                    ? <Headphones size={15} aria-hidden="true" />
+                    : <BookOpenText size={15} aria-hidden="true" />}
                 {paper.displayName}
               </button>
             );
