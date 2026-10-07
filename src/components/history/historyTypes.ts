@@ -1,4 +1,4 @@
-export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening' | 'reading_writing' | 'exam';
+export type LearningHistorySourceType = 'vocabulary' | 'grammar' | 'listening' | 'reading_writing' | 'exam' | 'competition' | 'speaking';
 export type LearningHistoryKind = 'all' | 'assignment' | 'practice';
 export type LearningAttemptStatus = 'in_progress' | 'completed' | 'interrupted';
 export type LearningDetailStatus =
@@ -236,6 +236,8 @@ function normalizeSourceType(value: unknown): LearningHistorySourceType {
   if (normalized === 'listening') return 'listening';
   if (normalized === 'reading_writing') return 'reading_writing';
   if (normalized === 'exam') return 'exam';
+  if (normalized === 'competition') return 'competition';
+  if (normalized === 'speaking') return 'speaking';
   return 'vocabulary';
 }
 

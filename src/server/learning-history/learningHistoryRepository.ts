@@ -1,4 +1,6 @@
+import { sessionView, type SessionRow } from '../speaking/sessions';
 import {
+  sqliteImmediateTransaction,
   sqliteQueryAll,
   sqliteQueryOne,
 } from '../../lib/sqliteStorage';
@@ -35,6 +37,7 @@ interface LearningHistoryRecord {
 
 const EFFECTIVE_ATTEMPT_STATUS_SQL = `CASE
   WHEN attempt_status = 'in_progress'
+   AND source_type <> 'speaking'
    AND datetime(activity_at) < datetime('now', '-24 hours')
   THEN 'interrupted'
   ELSE attempt_status
@@ -56,6 +59,10 @@ function mapItem(row: Record<string, any>): LearningHistoryItem {
     attemptId: String(row.attempt_id || ''),
     sourceType: row.source_type === 'grammar'
       ? 'grammar'
+      : row.source_type === 'speaking'
+        ? 'speaking'
+      : row.source_type === 'competition'
+        ? 'competition'
       : row.source_type === 'exam'
         ? 'exam'
       : row.source_type === 'reading_writing'
@@ -239,6 +246,45 @@ history_attempts AS (
     'canonical' AS normalization_status
   FROM exam_attempts
   WHERE status = 'completed'
+  UNION ALL
+  SELECT
+    id, id, 'competition', CASE WHEN guest_id IS NOT NULL THEN 'guest' ELSE 'authenticated' END, owner_key,
+    student_name, NULLIF(class_id,''), COALESCE(json_extract(data_json,'$.className'),''),
+    NULLIF(assignment_id,''), COALESCE(json_extract(data_json,'$.assignmentTitle'),''), NULLIF(json_extract(data_json,'$.assignmentDueAt'),''),
+    paper_id, json_extract(data_json,'$.paper.title'), 'competition_paper',
+    'competition:' || json_extract(data_json,'$.paper.subject'), 'IOE/Violympic',
+    score, raw_score, max_score, correct_count, incorrect_count, unanswered_count,
+    incorrect_count + unanswered_count, json_array_length(json_extract(data_json,'$.questions')),
+    started_at, completed_at, completed_at, substr(completed_at,1,10), duration_seconds,
+    'completed', 1, 'available', 'canonical'
+  FROM competition_attempts WHERE status='completed'
+  UNION ALL
+  SELECT id,id,'speaking',CASE WHEN guest_id IS NOT NULL THEN 'guest' ELSE 'authenticated' END,owner_key,
+    student_name,NULLIF(class_id,''),class_name,NULL,'',NULL,
+    lesson_id,json_extract(data_json,'$.lesson.title') || CASE WHEN status<>'completed' AND session_id IS NOT NULL THEN ' · Mục ' || COALESCE(json_extract(data_json,'$.itemNumber'),'') ELSE '' END,'speaking_lesson',
+    'speaking:' || json_extract(data_json,'$.lesson.kind'),'Speaking / Luyện đọc',
+    score,score,100,
+    (SELECT COUNT(*) FROM json_each(json_extract(data_json,'$.assessment.words')) WHERE json_extract(value,'$.error')='none'),
+    (SELECT COUNT(*) FROM json_each(json_extract(data_json,'$.assessment.words')) WHERE json_extract(value,'$.error')='mispronunciation'),
+    (SELECT COUNT(*) FROM json_each(json_extract(data_json,'$.assessment.words')) WHERE json_extract(value,'$.error')='omission'),
+    (SELECT COUNT(*) FROM json_each(json_extract(data_json,'$.assessment.words')) WHERE json_extract(value,'$.error')<>'none'),
+    (SELECT COUNT(*) FROM json_each(json_extract(data_json,'$.assessment.words')) WHERE json_extract(value,'$.referenceIndex') IS NOT NULL),
+    created_at,completed_at,COALESCE(completed_at,(SELECT updated_at FROM speaking_jobs WHERE id=speaking_attempts.id),created_at),substr(COALESCE(completed_at,created_at),1,10),duration_seconds,
+    CASE WHEN status='completed' THEN 'completed' WHEN status='failed' THEN 'interrupted' ELSE 'in_progress' END,1,'available','canonical'
+  FROM speaking_attempts WHERE (status='completed' AND session_id IS NULL) OR status IN ('queued','assessing','failed')
+  UNION ALL
+  SELECT id,id,'speaking',CASE WHEN guest_id IS NOT NULL THEN 'guest' ELSE 'authenticated' END,owner_key,
+    student_name,NULLIF(class_id,''),class_name,NULL,'',NULL,
+    lesson_id,json_extract(data_json,'$.lesson.title'),'speaking_lesson',
+    'speaking:' || json_extract(data_json,'$.lesson.kind'),'Speaking / Luyện đọc',
+    score,score,100,
+    COALESCE(json_extract(data_json,'$.correctCount'),0),COALESCE(json_extract(data_json,'$.incorrectCount'),0),
+    COALESCE(json_extract(data_json,'$.unansweredCount'),0),COALESCE(json_extract(data_json,'$.wrongCount'),0),
+    COALESCE(json_extract(data_json,'$.totalQuestions'),0),
+    created_at,completed_at,completed_at,substr(completed_at,1,10),duration_seconds,
+    'completed',1,'available','canonical'
+  FROM speaking_sessions WHERE status='completed'
+
 )`;
 
 function escapeLike(value: string) {
@@ -482,6 +528,20 @@ export async function findLearningAttempt(attemptId: string): Promise<LearningHi
 }
 
 export async function findAttemptDetail(attemptId: string) {
+  const session = await sqliteQueryOne<SessionRow>("SELECT * FROM speaking_sessions WHERE id=? AND status='completed'", [attemptId]);
+  if (session) {
+    const review = await sqliteImmediateTransaction(db => sessionView(db, session));
+    return { attempt_id: attemptId, client_run_id: null, source_type: 'speaking', answer_details_json: '[]', question_snapshots_json: '[]', option_snapshots_json: '[]',
+      extra_details_json: JSON.stringify({ speakingReview: review }), review_policy_json: JSON.stringify({ showReviewAfterSubmit: true }),
+      created_at: session.created_at, updated_at: session.completed_at, expires_at: null, schema_version: 1 };
+  }
+  const speakingRow = await sqliteQueryOne<{ data_json: string; created_at: string; completed_at: string }>("SELECT data_json,created_at,completed_at FROM speaking_attempts WHERE id=? AND status IN ('completed','queued','assessing','failed')", [attemptId]);
+  if (speakingRow) {
+    const { ownerKey: _owner, audioHash: _hash, audioExpiresAt: _expiry, ...review } = JSON.parse(speakingRow.data_json);
+    return { attempt_id: attemptId, client_run_id: null, source_type: 'speaking', answer_details_json: '[]', question_snapshots_json: '[]', option_snapshots_json: '[]',
+      extra_details_json: JSON.stringify({ speakingReview: { ...review, audioAvailable: Boolean(_expiry && _expiry > new Date().toISOString()) } }), review_policy_json: JSON.stringify({ showReviewAfterSubmit: true }),
+      created_at: speakingRow.created_at, updated_at: speakingRow.completed_at, expires_at: null, schema_version: 1 };
+  }
   const storedRow = await sqliteQueryOne<Record<string, unknown>>(
     `SELECT attempt_id, client_run_id, source_type, answer_details_json,
             question_snapshots_json, option_snapshots_json, extra_details_json,
@@ -549,6 +609,16 @@ export async function findAttemptDetail(attemptId: string) {
     }
   }
 
+  const competitionRow = await sqliteQueryOne<{ data_json: string; created_at: string; updated_at: string }>(
+    `SELECT detail.data_json,detail.created_at,detail.updated_at FROM competition_attempt_details detail
+     JOIN competition_attempts attempt ON attempt.id=detail.attempt_id WHERE attempt.id=? AND attempt.status='completed'`, [attemptId]);
+  if (competitionRow) {
+    const data = JSON.parse(competitionRow.data_json);
+    return { attempt_id: attemptId, client_run_id: null, source_type: 'competition',
+      answer_details_json: JSON.stringify(data.answerDetails), question_snapshots_json: '[]', option_snapshots_json: '[]',
+      extra_details_json: JSON.stringify(data.extraDetails), review_policy_json: JSON.stringify(data.reviewPolicy),
+      created_at: competitionRow.created_at, updated_at: competitionRow.updated_at, expires_at: null, schema_version: 1 };
+  }
   const examRow = await sqliteQueryOne<Record<string, any>>(
     `SELECT detail.attempt_id, detail.data_json, detail.created_at, detail.updated_at,
             attempt.module_id, attempt.paper_id, attempt.version_id
@@ -721,7 +791,7 @@ export async function findLegacySource(
   sourceType: string,
   sourceRecordId: string,
 ): Promise<Record<string, any> | null> {
-  if (sourceType === 'listening' || sourceType === 'reading_writing' || sourceType === 'exam') return null;
+  if (sourceType === 'listening' || sourceType === 'reading_writing' || sourceType === 'exam' || sourceType === 'competition' || sourceType === 'speaking') return null;
   const table = sourceType === 'grammar' ? 'grammar_attempts' : 'game_results';
   const row = await sqliteQueryOne<{ data_json?: string }>(
     `SELECT data_json FROM ${table} WHERE id = ?`,

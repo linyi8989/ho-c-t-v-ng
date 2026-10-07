@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, Volume2, Shuffle, Maximize2, ShieldAlert, Check, X, 
-  HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink 
+  HelpCircle, Trophy, BookOpen, Star, Sparkles, User, Award, ExternalLink,
+  Gamepad2, ChevronRight, Crown
 } from 'lucide-react';
 import { GameAction, GameCompletionDetails, VocabSet, VocabItem, GameConfig, GameSession } from '../../types';
 import { GAMES_LIST } from '../../lib/game-engine/gameList';
@@ -26,6 +27,7 @@ import {
   storePendingSubmission
 } from '../../lib/learningRuns';
 import { buildLearningLeaderboardRequest } from './learningLeaderboardRequest';
+import './VocabularyTheme.css';
 
 const FlashcardGame = React.lazy(() => import('./FlashcardGame'));
 const QuizGame = React.lazy(() => import('./QuizGame'));
@@ -740,10 +742,10 @@ export default function StudentLearningArea({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50/50 pb-16" id="student-area-root">
+    <div className="min-h-screen bg-gray-50/50 pb-16" id="student-area-root" data-vocab-theme="storybook">
       {/* Upper Navigation Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-4 shadow-xs" id="student-header">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="vocab-header-inner max-w-6xl mx-auto flex items-center justify-between">
           <button 
             onClick={onBack}
             className="flex items-center space-x-2 text-gray-600 hover:text-indigo-600 font-semibold text-sm transition-all bg-gray-50 hover:bg-indigo-50 p-2.5 px-4 rounded-xl cursor-pointer border border-gray-100"
@@ -753,13 +755,13 @@ export default function StudentLearningArea({
             <span>Thoát ra</span>
           </button>
 
-          <div className="text-center hidden md:block">
+          <div className="vocab-lesson-heading text-center hidden md:block">
             <span className="text-xs font-bold text-indigo-500 uppercase tracking-widest">HỌC TỪ VỰNG TIẾNG ANH</span>
             <h1 className="text-lg font-black text-gray-800 leading-tight">{vocabSet.title}</h1>
           </div>
 
           <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-bold">
+            <div className="vocab-student-chip flex items-center space-x-2 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1.5 rounded-xl text-xs font-bold">
               <User size={14} />
               <span>Học sinh: {studentName || 'Chưa đặt tên'}</span>
             </div>
@@ -767,10 +769,10 @@ export default function StudentLearningArea({
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="vocab-page-grid max-w-6xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* Left Side: Game Stage and Word Lists */}
-        <div className="lg:col-span-8 space-y-8">
+        <div className="vocab-main-column lg:col-span-8 space-y-8">
           
           {/* Ask for Name if not submitted */}
           {identityStatus === 'checking' ? (
@@ -830,13 +832,14 @@ export default function StudentLearningArea({
               {/* Main Active Gameplay Area Container */}
               <div 
                 id="game-stage"
+                data-vocab-category={selectedGame?.category || 'flashcard'}
                 className={`bg-white rounded-3xl p-6 md:p-8 border border-gray-100 shadow-xl transition-all duration-300 relative ${
                   isFullscreen ? 'fixed inset-0 z-50 overflow-y-auto flex flex-col justify-center max-w-none rounded-none' : ''
                 }`}
               >
                 {/* Active Game Utilities Bar */}
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
-                  <div className="flex items-center space-x-3">
+                <div className="vocab-game-toolbar flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                  <div className="vocab-game-heading flex items-center space-x-3">
                     <span className={`game-icon ${selectedGame?.category || 'flashcard'}`}>
                       <Sparkles size={18} />
                     </span>
@@ -851,7 +854,7 @@ export default function StudentLearningArea({
                   </div>
 
                   {/* Top Game Options (Sound, Shuffle, Fullscreen) */}
-                  <div className="flex items-center space-x-1">
+                  <div className="vocab-utility-buttons flex items-center space-x-1">
                     <button
                       onClick={() => setIsMuted(!isMuted)}
                       className={`p-2 rounded-xl transition-all border cursor-pointer ${
@@ -860,6 +863,8 @@ export default function StudentLearningArea({
                           : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                       }`}
                       title={isMuted ? "Bật âm thanh" : "Tắt âm thanh"}
+                      aria-label={isMuted ? 'Bật âm thanh' : 'Tắt âm thanh'}
+                      aria-pressed={!isMuted}
                       id="mute-toggle"
                     >
                       <Volume2 size={18} className={isMuted ? 'opacity-40' : ''} />
@@ -873,6 +878,8 @@ export default function StudentLearningArea({
                           : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                       }`}
                       title="Trộn từ vựng"
+                      aria-label="Trộn từ vựng"
+                      aria-pressed={isRandomized}
                       id="shuffle-toggle"
                     >
                       <Shuffle size={18} />
@@ -886,6 +893,8 @@ export default function StudentLearningArea({
                           : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                       }`}
                       title="Toàn màn hình"
+                      aria-label={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
+                      aria-pressed={isFullscreen}
                       id="fullscreen-toggle"
                     >
                       <Maximize2 size={18} />
@@ -972,9 +981,9 @@ export default function StudentLearningArea({
                 id="learning-golden-board"
                 data-leaderboard-status={leaderboardOpen ? leaderboardStatus : 'closed'}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
+                <div className="vocab-golden-heading flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shadow-sm">
+                    <div className="vocab-trophy w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shadow-sm" aria-hidden="true">
                       <Trophy size={24} />
                     </div>
                     <div>
@@ -996,6 +1005,7 @@ export default function StudentLearningArea({
                       id="learning-golden-toggle"
                       aria-expanded={leaderboardOpen}
                     >
+                      <Crown size={20} aria-hidden="true" />
                       {leaderboardOpen ? 'Ẩn bảng vàng' : 'Xem bảng vàng'}
                     </button>
                     {leaderboardOpen && (
@@ -1105,11 +1115,12 @@ export default function StudentLearningArea({
         </div>
 
         {/* Right Side: Game Modes Selector Panel */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="vocab-sidebar-column lg:col-span-4 space-y-6">
           <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-xl" id="games-catalogue-sidebar">
-            <div className="flex items-center space-x-2 mb-6 pb-4 border-b border-gray-100">
-              <Award className="text-indigo-600 animate-pulse" size={20} />
+            <div className="vocab-catalogue-heading flex items-center space-x-2 mb-6 pb-4 border-b border-gray-100">
+              <Gamepad2 className="text-indigo-600" size={26} aria-hidden="true" />
               <h3 className="font-extrabold text-gray-800 text-base md:text-lg">Các trò chơi học từ</h3>
+              <Star className="vocab-catalogue-star" size={24} aria-hidden="true" />
             </div>
 
             {/* List Game Templates grouped by category */}
@@ -1120,6 +1131,7 @@ export default function StudentLearningArea({
                 return (
                   <div key={category} className="space-y-2">
                     <h4 className={`game-category-label ${category}`}>
+                      <Star size={15} aria-hidden="true" />
                       {GAME_CATEGORY_TITLES[category]}
                     </h4>
                     
@@ -1141,6 +1153,7 @@ export default function StudentLearningArea({
                             }}
                             className={`game-card ${game.category} ${isActive ? 'active selected' : ''}`}
                             id={`sidebar-game-btn-${game.gameId}`}
+                            aria-pressed={isActive}
                           >
                             <span className={`game-icon ${game.category}`}>
                               <BookOpen size={16} />
@@ -1153,6 +1166,7 @@ export default function StudentLearningArea({
                                 {GAME_CATEGORY_BADGES[game.category] || 'Trò chơi'}
                               </span>
                             </div>
+                            <ChevronRight className="vocab-game-chevron" size={20} aria-hidden="true" />
                           </button>
                         );
                       })}

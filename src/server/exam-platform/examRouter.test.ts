@@ -26,7 +26,7 @@ function signedTicket(payload: Record<string, any>) {
   return `${encoded}.${signature}`;
 }
 
-function completeContent(moduleId: 'starter' | 'pet' | 'ket' | 'writing', paperId: 'reading-writing' | 'writing') {
+function completeContent(moduleId: 'starter' | 'pet' | 'ket' | 'fce' | 'writing', paperId: 'reading-writing' | 'reading' | 'writing') {
   const definition = getExamPaperDefinition(moduleId, paperId)!;
   const content = createDefaultExamContent(definition);
   content.title = `${definition.level} integration fixture`;
@@ -75,12 +75,23 @@ function completeContent(moduleId: 'starter' | 'pet' | 'ket' | 'writing', paperI
         }
       }
     }
-    part.questions.forEach(question => {
+    if (moduleId === 'fce' && paperId === 'reading') {
+      if (part.part === 1) part.passage = 'A complete FCE Part 1 article used by the integration test.';
+      if (part.part === 2) part.passage = part.questions.map(question => `Paragraph before [[${question.displayNumber || question.number}]] and after the gap.`).join('\n\n');
+      if (part.part === 3) {
+        part.imageAssetId = 'exam-image-1';
+        part.imageUrl = '/listening-media/exam-image.png';
+      }
+    }
+    part.questions.forEach((question, questionIndex) => {
       question.prompt = `Question ${question.number}`;
       if (question.type === 'long-writing') {
         question.rubric = 'Teacher rubric';
       } else if (question.options.length) {
-        question.correctOptionIds = [question.options[0].id];
+        const option = moduleId === 'fce' && paperId === 'reading' && part.part === 2
+          ? question.options[questionIndex]
+          : question.options[0];
+        question.correctOptionIds = option ? [option.id] : [];
       } else {
         const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
         question.acceptedAnswers = moduleId === 'ket' && (part.part === 1 || ketLetterIds.has(question.id)) ? ['A'] : ['answer'];
@@ -467,6 +478,51 @@ test('generic exam API preserves immutable publish, private grading and manual W
   const objectiveHistoryDetail = await getLearningHistoryDetail(historyActor, attempt.id);
   assert.equal(objectiveHistoryDetail.detail?.answerDetails.length, 25);
 
+  const fceReadingContent = completeContent('fce', 'reading');
+  const fceCreateResponse = await fetch(`${baseUrl}/admin/modules/fce/papers/reading/sets`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: fceReadingContent }),
+  });
+  const fceCreated = await fceCreateResponse.json() as any;
+  assert.equal(fceCreateResponse.status, 201, JSON.stringify(fceCreated));
+  assert.deepEqual(fceCreated.validationErrors, []);
+  const fceUpdateResponse = await fetch(`${baseUrl}/admin/modules/fce/papers/reading/sets/${fceCreated.id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: fceReadingContent, visibility: 'public', baseRevision: fceCreated.draftRevision }),
+  });
+  assert.equal(fceUpdateResponse.status, 200, JSON.stringify(await fceUpdateResponse.clone().json()));
+  const fcePublishResponse = await fetch(`${baseUrl}/admin/modules/fce/papers/reading/sets/${fceCreated.id}/publish`, { method: 'POST' });
+  assert.equal(fcePublishResponse.status, 200, JSON.stringify(await fcePublishResponse.clone().json()));
+  const fcePlayableResponse = await fetch(`${baseUrl}/modules/fce/papers/reading/sets/${fceCreated.id}`);
+  const fcePlayable = await fcePlayableResponse.json() as any;
+  assert.equal(fcePlayableResponse.status, 200, JSON.stringify(fcePlayable));
+  assert.deepEqual(fcePlayable.content.parts.map((part: any) => part.questions.length), [8, 7, 15]);
+  assert.equal(JSON.stringify(fcePlayable).includes('correctOptionIds'), false);
+  const fcePrepareResponse = await fetch(`${baseUrl}/modules/fce/papers/reading/sets/${fceCreated.id}/attempts/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, clientRunId: 'fce-reading-client-run', runSecret: 'fce-reading-run-secret-12345678' }),
+  });
+  const fcePrepared = await fcePrepareResponse.json() as any;
+  assert.equal(fcePrepareResponse.status, 200, JSON.stringify(fcePrepared));
+  const fceSubmitResponse = await fetch(`${baseUrl}/modules/fce/papers/reading/sets/${fceCreated.id}/attempts/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...identity, ticket: fcePrepared.ticket, runSecret: 'fce-reading-run-secret-12345678', answers: correctAnswers(fceReadingContent) }),
+  });
+  const fceAttempt = await fceSubmitResponse.json() as any;
+  assert.equal(fceSubmitResponse.status, 201, JSON.stringify(fceAttempt));
+  assert.equal(fceAttempt.score, 100);
+  assert.equal(fceAttempt.correctCount, 30);
+  const fceReviewResponse = await fetch(`${baseUrl}/modules/fce/papers/reading/sets/${fceCreated.id}/attempts/${fceAttempt.id}/review?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`, {
+    headers: { 'X-Exam-Run-Secret': 'fce-reading-run-secret-12345678' },
+  });
+  const fceReview = await fceReviewResponse.json() as any;
+  assert.equal(fceReviewResponse.status, 200, JSON.stringify(fceReview));
+  assert.equal(fceReview.questions.length, 30);
+  const historyWithFceReading = await getLearningHistory(historyActor, historyFilters);
+  const fceHistoryItem = historyWithFceReading.items.find(item => item.gameId === 'exam:fce:reading');
+  assert.equal(fceHistoryItem?.totalQuestions, 30);
+  const fceHistoryDetail = await getLearningHistoryDetail(historyActor, fceAttempt.id);
+  assert.equal(fceHistoryDetail.detail?.answerDetails.length, 30);
+
   const writingContent = completeContent('pet', 'writing');
   const writingCreatedResponse = await fetch(`${baseUrl}/admin/modules/pet/papers/writing/sets`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: writingContent }),
@@ -507,7 +563,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
   const petWritingReview = await petWritingReviewResponse.json() as any;
   assert.equal(petWritingReviewResponse.status, 200);
   assert.equal(petWritingReview.questions.filter((question: any) => question.type === 'long-writing' && question.writingScore === 8).length, 2);
-  assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 2);
+  assert.equal((await getLearningHistory(historyActor, historyFilters)).items.length, 3);
 
   const ketContent = completeContent('ket', 'reading-writing');
   const ketCreatedResponse = await fetch(`${baseUrl}/admin/modules/ket/papers/reading-writing/sets`, {

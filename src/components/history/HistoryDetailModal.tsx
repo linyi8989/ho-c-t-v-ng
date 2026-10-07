@@ -28,6 +28,8 @@ import ListeningVisualReview, {
 import MoverReadingWritingVisualReview, {
   isMoverReadingWritingVisualReviewSnapshot,
 } from '../../features/mover-reading-writing/review/MoverReadingWritingVisualReview';
+import SpeakingReview, { isSpeakingReview } from '../../features/speaking/Review';
+import CompetitionReview, { isCompetitionReview } from '../../features/ioe-violympic/Review';
 
 interface HistoryDetailModalProps {
   open: boolean;
@@ -91,7 +93,7 @@ function DetailEntry({
 }) {
   if (entry.malformed) {
     return (
-      <article className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <article className="history-detail-warning rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <p className="flex items-center gap-2 text-sm font-black text-amber-800">
           <AlertTriangle size={17} aria-hidden="true" />
           Chi tiết câu {entry.index + 1} không đầy đủ
@@ -180,7 +182,7 @@ function DetailEntry({
   const vocabularyErrors = firstValue(data, ['vocabularyErrors']);
 
   return (
-    <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="history-detail-entry min-w-0 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h3 className="text-sm font-black text-slate-900">Câu {entry.index + 1}</h3>
         {typeof correctness === 'boolean' && (
@@ -316,7 +318,7 @@ function DetailStatusMessage({ status }: { status: string }) {
   };
   const message = messages[status] || messages.missing;
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+    <div className="history-detail-warning rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
       <AlertTriangle className="mx-auto text-amber-600" size={28} aria-hidden="true" />
       <h3 className="mt-3 font-black text-amber-900">{message.title}</h3>
       <p className="mx-auto mt-1 max-w-lg text-sm font-medium text-amber-800">{message.body}</p>
@@ -388,6 +390,11 @@ export default function HistoryDetailModal({
     ? response.detail.warnings.filter(warning => typeof warning === 'string')
     : [];
   const extraDetails = response?.detail?.extraDetails;
+  const speakingCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).speakingReview : undefined;
+  const speakingReview = attempt.sourceType === 'speaking' && isSpeakingReview(speakingCandidate) ? speakingCandidate : null;
+  const competitionCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
+    ? (extraDetails as Record<string, unknown>).competitionReview : undefined;
+  const competitionReview = attempt.sourceType === 'competition' && isCompetitionReview(competitionCandidate) ? competitionCandidate : null;
   const visualReviewCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
     ? (extraDetails as Record<string, unknown>).visualReview
     : undefined;
@@ -408,7 +415,7 @@ export default function HistoryDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="history-modal-overlay fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
       onMouseDown={event => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -420,9 +427,9 @@ export default function HistoryDetailModal({
         aria-labelledby="history-detail-title"
         aria-describedby="history-detail-description"
         tabIndex={-1}
-        className="flex max-h-[96dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl bg-slate-50 shadow-2xl outline-none sm:max-h-[90vh] sm:rounded-3xl"
+        className="history-modal history-panel flex max-h-[96dvh] w-full max-w-4xl flex-col overflow-hidden outline-none sm:max-h-[90vh]"
       >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-white p-4 sm:p-6">
+        <header className="history-modal-header flex shrink-0 items-start justify-between gap-4 p-4 sm:p-6">
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-wide text-indigo-600">
               Chi tiết lượt làm
@@ -439,23 +446,23 @@ export default function HistoryDetailModal({
             type="button"
             onClick={onClose}
             id="student-history-modal-close-btn"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+            className="history-button history-button-secondary history-modal-close shrink-0"
             aria-label="Đóng chi tiết lượt làm"
           >
             <X size={20} aria-hidden="true" />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-          <dl className="mb-5 grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-4">
+        <div className="history-modal-body min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          <dl className="history-detail-summary mb-5 grid grid-cols-2 gap-3 p-4 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-xs font-bold text-slate-500">Điểm</dt>
-              <dd className="mt-1 text-lg font-black text-indigo-700">{standaloneWriting ? `${Math.round(attempt.rawScore ?? attempt.score / 10)}/10` : `${Math.round(attempt.score)}/100`}</dd>
+              <dd className="mt-1 text-lg font-black text-indigo-700">{attempt.sourceType === 'speaking' && attempt.attemptStatus !== 'completed' ? 'Chưa có điểm' : standaloneWriting ? `${Math.round(attempt.rawScore ?? attempt.score / 10)}/10` : `${Math.round(attempt.score)}/100`}</dd>
             </div>
             <div>
               <dt className="text-xs font-bold text-slate-500">Kết quả</dt>
               <dd className="mt-1 font-black text-slate-900">
-                {standaloneWriting ? '1 bài Writing' : `${attempt.correctCount} đúng · ${attempt.incorrectCount} sai`}
+                {attempt.sourceType === 'speaking' && attempt.attemptStatus !== 'completed' ? attempt.attemptStatus === 'interrupted' ? 'Chấm chưa thành công' : 'Đang chờ chấm' : standaloneWriting ? '1 bài Writing' : `${attempt.correctCount} đúng · ${attempt.incorrectCount} sai`}
               </dd>
             </div>
             <div>
@@ -479,14 +486,14 @@ export default function HistoryDetailModal({
               <p className="mt-3 text-sm font-bold text-slate-600">Đang tải nội dung từng câu...</p>
             </div>
           ) : error ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center" role="alert">
+            <div className="history-detail-error rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center" role="alert">
               <XCircle className="mx-auto text-rose-600" size={30} aria-hidden="true" />
               <h3 className="mt-3 font-black text-rose-900">Không thể tải chi tiết lượt làm.</h3>
               <p className="mt-1 text-sm font-medium text-rose-700">{error}</p>
               <button
                 type="button"
                 onClick={onRetry}
-                className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-black text-white"
+                className="history-button mt-4"
               >
                 <RotateCcw size={16} aria-hidden="true" />
                 Thử lại
@@ -494,6 +501,10 @@ export default function HistoryDetailModal({
             </div>
           ) : detailStatus !== 'available' || !response?.detail ? (
             <DetailStatusMessage status={detailStatus} />
+          ) : speakingReview ? (
+            <SpeakingReview attempt={speakingReview} />
+          ) : competitionReview ? (
+            <CompetitionReview rows={competitionReview.rows} />
           ) : visualReview ? (
             <ListeningVisualReview snapshot={visualReview} transcripts={listeningReviewTranscripts} compact />
           ) : readingWritingVisualReview ? (

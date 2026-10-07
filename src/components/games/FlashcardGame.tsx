@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Volume2, HelpCircle, CheckCircle } from 'lucide-react';
 import { GameAction, GameAnswerDetail, GameCompletionDetails, VocabItem } from '../../types';
 import { playVocabAudio } from '../../lib/game-engine/speech';
 import GameControlPanel from './GameControlPanel';
 import VocabItemImage from './VocabItemImage';
+import './FlashcardGame.css';
 
 interface FlashcardGameProps {
   items: VocabItem[];
@@ -43,6 +44,7 @@ export default function FlashcardGame({
   const [isCompleted, setIsCompleted] = useState(false);
   const [isAutoNextOn, setIsAutoNextOn] = useState(false);
   const answerDetailsRef = useRef<GameAnswerDetail[]>([]);
+  const reduceMotion = useReducedMotion();
 
   const isSoundOn = !isMuted;
   const currentItem = items[currentIndex];
@@ -170,11 +172,12 @@ export default function FlashcardGame({
     if (!currentItem) return null;
     if (config.front === 'sound_only') {
       return (
-        <div className="flex flex-col items-center justify-center h-full space-y-4">
+        <div className="flashcard-face-content flex flex-col items-center justify-center space-y-4">
           <button
             onClick={handlePlaySound}
             className="p-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all hover:scale-105 cursor-pointer shadow-sm border border-blue-700"
             id="sound-button-front"
+            aria-label="Nghe phát âm của từ"
           >
             <Volume2 size={48} className="animate-pulse" />
           </button>
@@ -187,7 +190,7 @@ export default function FlashcardGame({
     const subtitle = config.front === 'term' ? currentItem.pos : '';
 
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+      <div className="flashcard-face-content flex flex-col items-center justify-center p-6 text-center">
         {config.imagePolicy === 'prompt' && (
           <VocabItemImage item={currentItem} theme="dark" className="mb-3" />
         )}
@@ -196,11 +199,11 @@ export default function FlashcardGame({
             {subtitle}
           </span>
         )}
-        <h2 className="text-4xl md:text-5xl font-black text-gray-100 tracking-tight leading-tight word-break select-all">
+        <h2 data-flashcard-text-size={value.length <= 18 ? 'short' : 'long'} className="flashcard-text font-black text-gray-100 tracking-tight leading-tight select-all">
           {value}
         </h2>
         {config.front === 'term' && currentItem.ipa && (
-          <span className="text-lg font-mono text-indigo-400 mt-2 block select-all">
+          <span className="flashcard-ipa font-mono text-indigo-400 mt-2 block select-all">
             {currentItem.ipa}
           </span>
         )}
@@ -212,7 +215,7 @@ export default function FlashcardGame({
     if (!currentItem) return null;
     if (config.back === 'both') {
       return (
-        <div className="flex flex-col items-center justify-center h-full overflow-y-auto p-6 text-center space-y-4 bg-slate-900">
+        <div className="flashcard-face-content flex flex-col items-center justify-center p-6 text-center space-y-4 bg-slate-900">
           {config.imagePolicy === 'answer' && (
             <VocabItemImage item={currentItem} revealAnswer theme="dark" />
           )}
@@ -220,11 +223,11 @@ export default function FlashcardGame({
             <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold rounded uppercase tracking-wider">
               {currentItem.pos}
             </span>
-            <h2 className="text-3xl md:text-4xl font-black text-indigo-400 mt-1 select-all">{currentItem.term}</h2>
-            {currentItem.ipa && <p className="text-md font-mono text-indigo-300">{currentItem.ipa}</p>}
+            <h2 data-flashcard-text-size={currentItem.term.length <= 18 ? 'short' : 'long'} className="flashcard-text font-black text-indigo-400 mt-1 select-all">{currentItem.term}</h2>
+            {currentItem.ipa && <p className="flashcard-ipa font-mono text-indigo-300">{currentItem.ipa}</p>}
           </div>
           <div className="border-t border-white/5 w-full pt-4">
-            <h3 className="text-2xl md:text-3xl font-bold text-emerald-400 select-all">{currentItem.meaning}</h3>
+            <h3 className="flashcard-meaning font-bold text-emerald-400 select-all">{currentItem.meaning}</h3>
           </div>
           {(currentItem.example || currentItem.notes) && (
             <div className="bg-white/5 rounded-xl p-4 max-w-md text-left border border-white/5 w-full mt-2">
@@ -245,15 +248,15 @@ export default function FlashcardGame({
 
     const value = config.back === 'term' ? currentItem.term : currentItem.meaning;
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-slate-900">
+      <div className="flashcard-face-content flex flex-col items-center justify-center p-6 text-center bg-slate-900">
         {config.imagePolicy === 'answer' && (
           <VocabItemImage item={currentItem} revealAnswer theme="dark" className="mb-3" />
         )}
-        <h2 className="text-4xl md:text-5xl font-black text-indigo-400 leading-tight select-all">
+        <h2 data-flashcard-text-size={value.length <= 18 ? 'short' : 'long'} className="flashcard-text font-black text-indigo-400 leading-tight select-all">
           {value}
         </h2>
         {config.back === 'term' && currentItem.ipa && (
-          <span className="text-lg font-mono text-indigo-300 mt-2 block select-all">
+          <span className="flashcard-ipa font-mono text-indigo-300 mt-2 block select-all">
             {currentItem.ipa}
           </span>
         )}
@@ -266,7 +269,7 @@ export default function FlashcardGame({
   return (
     <div className="w-full relative max-w-2xl mx-auto" id="flashcard-game-root">
       {/* Game Header Progress */}
-      <div className="flex items-center justify-between mb-4 px-2">
+      <div className="flashcard-progress-label flex items-center justify-between mb-4 px-2">
         <span className="text-sm font-semibold text-gray-500">
           Từ {currentIndex + 1} / {items.length}
         </span>
@@ -275,44 +278,59 @@ export default function FlashcardGame({
         </div>
       </div>
 
-      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-6">
+      <div className="flashcard-progress-track w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-6" role="progressbar" aria-label="Tiến độ xem thẻ" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}>
         <motion.div
           className="bg-indigo-600 h-full rounded-full"
           initial={{ width: 0 }}
           animate={{ width: `${progressPercent}%` }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: reduceMotion ? 0 : 0.3 }}
         />
       </div>
 
       {/* Main Flashcard Card Container */}
-      <div className="relative h-[380px] w-full perspective mb-8">
+      <div className="flashcard-stage relative w-full perspective mb-8">
         <motion.div
           onClick={handleFlip}
-          className="relative w-full h-full cursor-pointer transition-all duration-500 transform-style-3d rounded-3xl border border-white/10 shadow-xl hover:shadow-2xl"
+          tabIndex={0}
+          role="button"
+          aria-label={isFlipped ? 'Lật về mặt trước' : 'Lật thẻ xem đáp án'}
+          aria-pressed={isFlipped}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || event.repeat) return;
+            if (event.key === ' ' || event.key === 'Enter') {
+              event.preventDefault();
+              handleFlip();
+            }
+          }}
+          className="flashcard-flipper relative w-full cursor-pointer transition-shadow duration-500 transform-style-3d rounded-3xl border border-white/10 shadow-xl hover:shadow-2xl"
           animate={{ rotateY: isFlipped ? 180 : 0 }}
-          transition={{ duration: 0.6, ease: "easeInOut" }}
+          transition={{ duration: reduceMotion ? 0 : 0.6, ease: "easeInOut" }}
           id="flashcard-card-flipper"
         >
           {/* Card Front */}
           <div 
-            className="absolute inset-0 backface-hidden w-full h-full bg-slate-900 border border-white/10 flex flex-col justify-between rounded-3xl overflow-hidden"
+            className="flashcard-face backface-hidden w-full bg-slate-900 border border-white/10 flex flex-col rounded-3xl overflow-hidden"
+            aria-hidden={isFlipped}
+            inert={isFlipped}
             style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
           >
-            <div className="flex justify-between items-center px-6 py-4 text-gray-400 border-b border-white/5 text-xs">
+            <div className="flashcard-face-header flex justify-between items-center px-6 py-4 text-gray-400 border-b border-white/5 text-xs">
               <span className="font-semibold uppercase tracking-wider text-indigo-400">MẶT TRƯỚC</span>
               <span>Bấm vào thẻ để lật xem đáp án</span>
             </div>
-            <div className="flex-1 bg-transparent">
+            <div className="flashcard-face-body flex-1 bg-transparent">
               {renderFront()}
             </div>
-            <div className="px-6 py-4 bg-white/5 text-center text-xs text-gray-400 border-t border-white/5">
+            <div className="flashcard-face-footer px-6 py-4 bg-white/5 text-center text-xs text-gray-400 border-t border-white/5">
               Nhấn phím SPACE hoặc bấm chuột để lật
             </div>
           </div>
 
           {/* Card Back */}
           <div 
-            className="absolute inset-0 backface-hidden w-full h-full bg-slate-900 border border-white/10 flex flex-col justify-between rounded-3xl overflow-hidden animate-none"
+            className="flashcard-face backface-hidden w-full bg-slate-900 border border-white/10 flex flex-col rounded-3xl overflow-hidden animate-none"
+            aria-hidden={!isFlipped}
+            inert={!isFlipped}
             style={{ 
               backfaceVisibility: 'hidden', 
               WebkitBackfaceVisibility: 'hidden',
@@ -320,14 +338,14 @@ export default function FlashcardGame({
               WebkitTransform: 'rotateY(180deg)'
             }}
           >
-            <div className="flex justify-between items-center px-6 py-4 text-gray-400 border-b border-white/5 text-xs bg-slate-900">
+            <div className="flashcard-face-header flex justify-between items-center px-6 py-4 text-gray-400 border-b border-white/5 text-xs bg-slate-900">
               <span className="font-semibold uppercase tracking-wider text-emerald-400">MẶT SAU (ĐÁP ÁN)</span>
               <span>Bấm vào thẻ để lật lại</span>
             </div>
-            <div className="flex-1 bg-slate-900">
+            <div className="flashcard-face-body flex-1 bg-slate-900">
               {renderBack()}
             </div>
-            <div className="px-6 py-4 bg-white/5 text-center text-xs text-gray-400 border-t border-white/5 bg-slate-900">
+            <div className="flashcard-face-footer px-6 py-4 bg-white/5 text-center text-xs text-gray-400 border-t border-white/5 bg-slate-900">
               Nhấn phím SPACE hoặc bấm chuột để lật
             </div>
           </div>

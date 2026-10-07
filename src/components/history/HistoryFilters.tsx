@@ -137,6 +137,7 @@ export default function HistoryFilters({
               <option value="listening">Nghe 5 Part</option>
               <option value="reading_writing">Reading &amp; Writing 6 Part</option>
               <option value="exam">Cambridge &amp; IELTS</option>
+              <option value="competition">IOE/Violympic</option><option value="speaking">Speaking / Luyện đọc</option>
             </select>
           </label>
 

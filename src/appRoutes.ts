@@ -1,6 +1,8 @@
 export type AppShellRoute =
   | { kind: 'home'; pathname: '/' }
   | { kind: 'history'; pathname: '/history' }
+  | { kind: 'competition'; pathname: string; paperId?: string }
+  | { kind: 'speaking'; pathname: string; lessonId?: string }
   | { kind: 'auth'; pathname: string; mode: 'login' | 'register' }
   | { kind: 'private-vocabulary'; pathname: string; token: string }
   | { kind: 'private-grammar'; pathname: string; token: string }
@@ -29,6 +31,12 @@ export function parseAppShellRoute(pathnameValue: string): AppShellRoute {
   const pathname = normalizePathname(pathnameValue);
   if (pathname === '/') return { kind: 'home', pathname };
   if (pathname === '/history') return { kind: 'history', pathname };
+  if (pathname === '/speaking') return { kind: 'speaking', pathname };
+  const speakingMatch = pathname.match(/^\/speaking\/lesson\/([a-f0-9-]{36})$/);
+  if (speakingMatch) return { kind: 'speaking', pathname, lessonId: speakingMatch[1] };
+  if (pathname === '/ioe-violympic') return { kind: 'competition', pathname };
+  const competitionMatch = pathname.match(/^\/ioe-violympic\/paper\/([A-Za-z0-9-]{8,160})$/);
+  if (competitionMatch) return { kind: 'competition', pathname, paperId: competitionMatch[1] };
   if (pathname === '/reg' || pathname === '/register') {
     return { kind: 'auth', pathname, mode: 'register' };
   }

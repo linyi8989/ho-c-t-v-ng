@@ -106,6 +106,7 @@ export function useHomeController({ enabled, loading, token }: UseHomeController
     })
       .then(async response => {
         const data = await response.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         if (!response.ok) throw new Error(data.error || `Leaderboard failed with HTTP ${response.status}`);
         setLeaderboard(Array.isArray(data.entries) ? data.entries : []);
         setLeaderboardStatus('ready');

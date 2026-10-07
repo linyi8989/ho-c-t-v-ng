@@ -41,6 +41,12 @@ import {
   normalizeFixedPetWritingContent,
 } from '../../features/exam-platform/petWritingMigration.js';
 import {
+  FCE_READING_DEFAULT_COUNTS,
+  FCE_READING_VARIANTS,
+  isFixedFceReadingContent,
+  normalizeFixedFceReadingContent,
+} from '../../features/exam-platform/fceReadingMigration.js';
+import {
   isExamMatchingConnection,
   starterMatchingModel,
   starterMatchingResponseKey,
@@ -753,6 +759,42 @@ function validatePetReadingPart(part: ExamPartContent, partIndex: number, errors
   }
 }
 
+function validateFceReadingPart(part: ExamPartContent, partIndex: number, errors: string[]) {
+  const partNumber = partIndex + 1;
+  const label = `FCE Reading Part ${partNumber}`;
+  const expectedCount = FCE_READING_DEFAULT_COUNTS[partIndex];
+  if (part.questions.length !== expectedCount) errors.push(`${label}: phải có đúng ${expectedCount} câu.`);
+  if (examPartUnits(part).length !== 1 || part.interaction?.variant !== FCE_READING_VARIANTS[partIndex]) {
+    errors.push(`${label}: dạng bài không đúng cấu trúc FCE Reading 3 Part.`);
+  }
+  if (!text(part.title, 240) || !text(part.instruction, 4_000)) errors.push(`${label}: thiếu tiêu đề hoặc hướng dẫn hiển thị.`);
+  const optionCount = partNumber === 2 ? 8 : 4;
+  if (part.questions.some(question => question.type !== 'single-choice' || question.options.length !== optionCount || question.correctOptionIds.length !== 1 || !text(question.prompt, 8_000))) {
+    errors.push(`${label}: mỗi câu phải có nội dung, đúng ${optionCount} lựa chọn và một đáp án chính thức.`);
+  }
+  const expectedNumbers = Array.from({ length: expectedCount }, (_, index) => (partNumber === 1 ? 1 : partNumber === 2 ? 9 : 16) + index);
+  if (part.questions.some((question, index) => (question.displayNumber || question.number) !== expectedNumbers[index])) {
+    errors.push(`${label}: số câu phải đúng dải ${expectedNumbers[0]}–${expectedNumbers.at(-1)}.`);
+  }
+  if (partNumber === 1 && !text(part.passage, 40_000)) errors.push(`${label}: thiếu toàn bộ bài đọc.`);
+  if (partNumber === 2) {
+    if (!text(part.passage, 40_000)) errors.push(`${label}: thiếu bài đọc có bảy ô trống.`);
+    const signatures = part.questions.map(question => question.options.map(option => `${text(option.label, 20).toUpperCase()}\u0000${text(option.text, 8_000)}`).join('\u0001'));
+    if (new Set(signatures).size !== 1) errors.push(`${label}: mọi câu phải dùng chung đúng một ngân hàng đoạn A–H.`);
+    const selectedIndexes = part.questions.map(question => question.options.findIndex(option => question.correctOptionIds.includes(option.id)));
+    if (selectedIndexes.some(index => index < 0) || new Set(selectedIndexes).size !== selectedIndexes.length) errors.push(`${label}: bảy ô trống phải dùng bảy đáp án A–H khác nhau.`);
+    const markers = [...(part.passage || '').matchAll(/\[\[(\d+)\]\]/g)].map(match => Number(match[1]));
+    if (markers.length !== expectedNumbers.length || new Set(markers).size !== expectedNumbers.length || markers.some(number => !expectedNumbers.includes(number))) {
+      errors.push(`${label}: bài đọc phải có đúng một marker [[9]] đến [[15]] cho từng ô trống và không có marker thừa.`);
+    }
+  }
+  if (partNumber === 3) {
+    if (!text(part.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh chứa bốn đoạn/người A–D hiển thị bên trái.`);
+    const signatures = part.questions.map(question => question.options.map(option => `${text(option.label, 20).toUpperCase()}\u0000${text(option.text, 1_000)}`).join('\u0001'));
+    if (new Set(signatures).size !== 1) errors.push(`${label}: mọi câu phải dùng chung đúng bốn nhãn A–D.`);
+  }
+}
+
 function validateStandaloneWriting(content: ExamPaperContent, errors: string[]) {
   const part = content.parts?.[0];
   const question = part?.questions?.[0];
@@ -846,7 +888,7 @@ const LEGACY_PET_WRITING_PARTS: ExamPartDefinition[] = [1, 1].map((questionCount
 }));
 
 export function validateExamPaperContent(content: ExamPaperContent) {
-  content = normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)))))));
+  content = normalizeFixedFceReadingContent(normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content))))))));
   const errors: string[] = [];
   if (!content || typeof content !== 'object') return ['Nội dung đề không hợp lệ.'];
   if (!(EXAM_SUPPORTED_CONTENT_SCHEMA_VERSIONS as readonly number[]).includes(content.schemaVersion)) errors.push('Schema đề thi không được hỗ trợ.');
@@ -882,6 +924,9 @@ export function validateExamPaperContent(content: ExamPaperContent) {
   }
   if (isFixedPetListeningContent(content) && (content.parts.length !== 4 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length < 1))) {
     errors.push('PET Listening mới phải có đúng 4 Part theo thứ tự và mỗi Part có ít nhất một câu chấm điểm.');
+  }
+  if (isFixedFceReadingContent(content) && (content.parts.length !== 3 || content.parts.some((part, index) => part.part !== index + 1 || part.questions.length !== FCE_READING_DEFAULT_COUNTS[index]))) {
+    errors.push('FCE Reading phải có đúng 3 Part theo thứ tự với số câu 8–7–15.');
   }
   const legacyPetReading = content.moduleId === 'pet' && content.paperId === 'reading' && !isFixedPetReadingContent(content);
   const legacyPetWriting = content.moduleId === 'pet' && content.paperId === 'writing' && !isFixedPetWritingContent(content);
@@ -931,6 +976,9 @@ export function validateExamPaperContent(content: ExamPaperContent) {
     }
     if (isFixedPetListeningContent(content)) {
       validatePetListeningPart(part, partIndex, errors);
+    }
+    if (isFixedFceReadingContent(content)) {
+      validateFceReadingPart(part, partIndex, errors);
     }
     if (content.moduleId === 'flyer' && content.paperId === 'listening') {
       const units = examPartUnits(part);

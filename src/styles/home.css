@@ -217,6 +217,12 @@
 }
 
 /* Home lesson-list structure */
+#student-golden-board .home-leaderboard-name {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.4;
+}
+
 .home-lesson-list {
   overflow: hidden;
 }

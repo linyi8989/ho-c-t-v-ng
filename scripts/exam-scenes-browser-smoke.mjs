@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { build } from 'esbuild';
+
+// Real route component + real admin dialog; only API responses are isolated fixtures.
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'exam-scenes-qa-'));
+const modules=['starter','mover','flyer','ket','pet','fce','ielts'];
+const papers=id=>['pet','fce'].includes(id)?['listening','reading','writing']:id==='ielts'?['listening','academic-reading','academic-writing']:['listening','reading-writing'];
+const title=id=>({starter:'Starters',mover:'Movers',flyer:'Flyers',ket:'KET',pet:'PET',fce:'FCE',ielts:'IELTS'})[id];
+const label=id=>({listening:'Listening','reading-writing':'Reading & Writing',reading:'Reading',writing:'Writing','academic-reading':'Academic Reading','academic-writing':'Academic Writing'})[id];
+await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
+import ListeningModulePage from './src/features/listening-library/student/ListeningModulePage';
+import StarterSceneAdmin from './src/features/starter-scene/StarterSceneAdmin';
+function Fixture(){const [id,setId]=useState(location.pathname.split('/')[2]||'starter'),[admin,setAdmin]=useState(false);window.qaModule=v=>{history.pushState({},'', '/exams/'+v);setId(v);};window.qaAdmin=setAdmin;window.qaNavigation=[];
+const navigate=href=>{window.qaNavigation.push(href);if(/^\\/exams\\/[^/]+$/.test(href)){history.pushState({},'',href);setId(href.split('/')[2]);}};
+return <><ListeningModulePage moduleId={id} onBack={()=>{}} onNavigate={navigate}/>{admin&&<StarterSceneAdmin moduleId={id} token="fixture" onClose={()=>setAdmin(false)}/>}</>;}
+createRoot(document.getElementById('fixture')).render(<Fixture/>);
+`},outfile:path.join(root,'fixture.js'),bundle:true,format:'esm',platform:'browser',jsx:'automatic',external:['/assets/*'],define:{'process.env.NODE_ENV':'"production"','import.meta.env.DEV':'false'},plugins:[{name:'fixture-auth',setup(b){b.onResolve({filter:/context\/AuthContext/},()=>({path:'auth',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export function useAuth(){return {token:null,loading:false};}',loader:'js'}));}}],logLevel:'silent'});
+const css=fs.readFileSync('dist/client/index.html','utf8').match(/href="(\/assets\/[^" ]+\.css)"/)?.[1];assert(css);
+const layouts=new Map();let fail=false,slow=false;const requests=[];
+const links=(m,p)=>Array.from({length:31},(_,i)=>({id:`${m}-${p}-${i+1}`,setId:`exam-${m}-${p}-${i+1}`,title:`${label(p)} · Test ${String(i+1).padStart(2,'0')}`,href:`/exams/${m}/${p}/exam-${m}-${p}-${i+1}`}));
+const current=(m,p)=>layouts.get(m+':'+p)||{revision:0,links:links(m,p)};
+const server=http.createServer(async(req,res)=>{
+ const url=new URL(req.url,'http://fixture'),pathname=url.pathname,json=(body,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
+ if(pathname.startsWith('/api/')){
+  requests.push({pathname,method:req.method});if(slow)await new Promise(r=>setTimeout(r,500));if(fail)return json({error:'Không tải được sân thử nghiệm.'},503);
+  const admin=pathname.match(/\/admin\/(?:scenes\/([^/]+)|starter-scene)\/([^/]+)$/);
+  if(admin){const m=admin[1]||'starter',p=admin[2];let data=current(m,p);if(req.method==='PUT'){let body='';for await(const b of req)body+=b;const input=JSON.parse(body);assert.equal(input.baseRevision,data.revision);const choices=links(m,p);data={revision:data.revision+1,links:input.entries.map(e=>choices.find(c=>c.setId===e.setId))};layouts.set(m+':'+p,data);}
+    return json({revision:data.revision,configured:layouts.has(m+':'+p),entries:data.links.map(l=>({...l,manageable:true,available:true})),choices:links(m,p).map(l=>({...l,manageable:true}))});}
+  const m=pathname.endsWith('/starter-scene')?'starter':pathname.split('/').at(-1);if(!modules.includes(m))return json({error:'unknown API'},404);
+  return json({papers:Object.fromEntries(papers(m).map(p=>[p,{revision:current(m,p).revision,configured:layouts.has(m+':'+p),links:current(m,p).links.map(({id,title,href})=>({id,title,href}))}]))});
+ }
+ if(pathname==='/fixture.js'||pathname==='/fixture.css'){res.setHeader('Content-Type',pathname.endsWith('css')?'text/css':'text/javascript');return res.end(fs.readFileSync(path.join(root,pathname)));}
+ if(pathname===css){res.setHeader('Content-Type','text/css');return res.end(fs.readFileSync(path.join('dist/client',css),'utf8').replace(/@import\s*(?:url\([^)]*\)|"[^"]*"|'[^']*')\s*;/g,''));}
+ if(pathname.startsWith('/assets/')&&!pathname.includes('..')){const file=path.join('public',pathname);if(fs.existsSync(file)){res.setHeader('Content-Type',file.endsWith('.webp')?'image/webp':'font/ttf');return res.end(fs.readFileSync(file));}}
+ if(!pathname.startsWith('/exams/')){res.writeHead(404);return res.end();}
+ res.setHeader('Content-Type','text/html');res.end(`<html lang="vi"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${css}"><link rel="stylesheet" href="/fixture.css"></head><body><div id="app-root"><div id="fixture"></div></div><script type="module" src="/fixture.js"></script></body></html>`);
+});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${server.address().port}`,port=10000+Math.floor(Math.random()*20000);
+const chrome=spawn(process.env.CHROME_PATH||'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',['--headless=new','--disable-gpu','--no-sandbox','--no-first-run',`--remote-debugging-port=${port}`,`--user-data-dir=${path.join(root,'profile')}`,'about:blank'],{windowsHide:true,stdio:'ignore'});
+const delay=ms=>new Promise(r=>setTimeout(r,ms));let socket;const errors=[],shots={},reports={};
+try{
+ let tab;for(let n=0;n<200;n++){try{tab=(await(await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t=>t.type==='page');if(tab)break;}catch{}await delay(100);}assert(tab);
+ socket=new WebSocket(tab.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject;});let id=0;const pending=new Map();
+ socket.onmessage=event=>{const data=JSON.parse(event.data);if(!data.id){if(data.method==='Runtime.exceptionThrown')errors.push(data.params.exceptionDetails);return;}const call=pending.get(data.id);if(!call)return;pending.delete(data.id);clearTimeout(call.timer);data.error?call.reject(Error(data.error.message)):call.resolve(data.result);};
+ const send=(method,params={})=>new Promise((resolve,reject)=>{const callId=++id,timer=setTimeout(()=>{pending.delete(callId);reject(Error('CDP timeout '+method));},15000);pending.set(callId,{resolve,reject,timer});socket.send(JSON.stringify({id:callId,method,params}));});
+ const evaluate=async expression=>{const result=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true,userGesture:true});if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);return result.result.value;};
+ const wait=async expression=>{for(let n=0;n<150;n++){if(await evaluate(`Boolean(${expression})`))return;await delay(80);}throw Error('UI timeout '+expression+' '+JSON.stringify(errors));};
+ const click=async selector=>{await wait(`document.querySelector(${JSON.stringify(selector)})`);assert(await evaluate(`!document.querySelector(${JSON.stringify(selector)}).disabled`),'Disabled '+selector);await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);};
+ const viewport=async width=>{await send('Emulation.setDeviceMetricsOverride',{width,height:1100,deviceScaleFactor:1,mobile:width<600});await evaluate('scrollTo(0,0)');await delay(150);};
+ const shot=async name=>{const result=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});const file=path.join(root,name+'.png');fs.writeFileSync(file,Buffer.from(result.data,'base64'));shots[name]=file;};
+ const open=async m=>{await evaluate(`window.qaModule(${JSON.stringify(m)})`);await wait(`document.querySelector('[data-listening-module=${m}] [data-starter-link]')`);await evaluate('document.fonts.ready.then(()=>true)');await delay(200);};
+ await send('Page.enable');await send('Runtime.enable');await send('Page.navigate',{url:origin+'/exams/starter?preview=links'});await wait("document.querySelector('[data-starter-link]')");
+ for(const m of modules){await open(m);reports[m]={};assert.equal(await evaluate("document.querySelector('h1').getAttribute('aria-label')"),title(m));
+  const nav=await evaluate("[...document.querySelectorAll('[data-starter-nav]')].map(e=>({id:e.dataset.starterNav,href:e.getAttribute('href'),label:e.getAttribute('aria-label')}))");
+  const index=modules.indexOf(m);assert(nav.some(l=>l.id==='home'&&l.href==='/'));assert(nav.some(l=>l.id==='history'&&l.href==='/history'));assert.equal(nav.find(l=>l.id==='previous')?.href,index>0?'/exams/'+modules[index-1]:undefined);assert.equal(nav.find(l=>l.id==='next')?.href,index<6?'/exams/'+modules[index+1]:undefined);reports[m].nav=nav;
+  for(const width of [1920,1440,1024,390,320]){await viewport(width);const layout=await evaluate(`(()=>{const root=document.querySelector('#starter-scene-page'),scene=root.querySelector('.starter-scene-canvas').getBoundingClientRect(),nav=[...root.querySelectorAll('[data-starter-nav]')];return {overflow:document.documentElement.scrollWidth>innerWidth+1,navFits:nav.every(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e),label=e.querySelector('.starter-sign-label').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.height>=44&&label.width<=r.width&&s.textDecorationLine==='none';}),levelFits:(()=>{const r=root.querySelector('.starter-title-board p').getBoundingClientRect(),b=root.querySelector('.starter-title-board').getBoundingClientRect();return r.left>b.left&&r.right<b.right&&r.top>b.top&&r.bottom<b.bottom;})(),yards:[...root.querySelectorAll('[data-starter-list]')].map(list=>{const box=list.getBoundingClientRect(),rows=[...list.querySelectorAll('li')];return{paper:list.dataset.starterList,total:rows.length,visible:rows.filter(li=>{const r=li.getBoundingClientRect();return r.top>=box.top-1&&r.bottom<=box.bottom+1;}).length,row:rows[0]?.clientHeight,bottom:(box.bottom-scene.top)/scene.height,scrollable:list.scrollHeight>list.clientHeight};}),houseLabelsFit:[...root.querySelectorAll('.starter-house-sign')].every(e=>e.querySelector('h2').scrollWidth<=e.querySelector('.starter-house-plaque').clientWidth+1)};})()`);
+   assert(!layout.overflow&&layout.navFits&&layout.levelFits&&layout.houseLabelsFit,JSON.stringify({m,width,layout}));assert.equal(layout.yards.length,papers(m).length);assert(layout.yards.every(l=>l.total===31&&l.visible===5&&l.scrollable&&l.row>=44&&l.bottom<=.87),JSON.stringify({m,width,layout}));reports[m][width]=layout;
+   if(width<768)for(const p of papers(m)){await click(`[data-starter-yard-switch="${p}"]`);await delay(150);assert(await evaluate(`(()=>{const r=document.querySelector('[data-starter-list="${p}"]').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1;})()`),`Mobile yard ${m}/${p}`);}
+   if([1440,390].includes(width))await shot(m+'-'+width);
+  }
+  await viewport(1920);for(const p of papers(m)){const selector=`[data-starter-list="${p}"]`;await evaluate(`document.querySelector('${selector}').scrollTop=0`);const point=await evaluate(`(()=>{const r=document.querySelector('${selector}').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2};})()`);await send('Input.dispatchMouseEvent',{type:'mouseWheel',deltaX:0,deltaY:180,...point});await delay(200);assert(await evaluate(`document.querySelector('${selector}').scrollTop>0`));await evaluate(`document.querySelector('${selector}').scrollTop=document.querySelector('${selector}').scrollHeight`);assert(await evaluate(`(()=>{const l=document.querySelector('${selector}'),b=l.getBoundingClientRect(),r=l.querySelector('li:last-child').getBoundingClientRect();return r.top>=b.top&&r.bottom<=b.bottom+1;})()`));
+   assert(await evaluate(`[...document.querySelectorAll('[data-starter-link="${p}"]')].every(e=>e.getAttribute('href').startsWith('/exams/${m}/${p}/'))`));}
+ }
+ await viewport(1440);await open('pet');await click('[data-starter-nav=next]');await wait("document.querySelector('[data-listening-module=fce] [data-starter-link]')");await click('[data-starter-nav=previous]');await wait("document.querySelector('[data-listening-module=pet] [data-starter-link]')");reports.levelNavigation=true;
+ await click('[data-starter-link=listening]');assert((await evaluate('window.qaNavigation')).at(-1).startsWith('/exams/pet/listening/'));
+ await evaluate("document.querySelector('[data-starter-nav=home]').focus()");assert.equal(await evaluate("getComputedStyle(document.activeElement).outlineWidth"),'3px');reports.focus=true;
+ await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});assert.equal(await evaluate("getComputedStyle(document.querySelector('[data-starter-link]')).transitionDuration"),'0s');reports.reducedMotion=true;
+ await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+ for(const m of ['mover','pet','fce','ielts']){await open(m);await evaluate('window.qaAdmin(true)');await wait("document.querySelector('#starter-scene-admin[open] .starter-admin-list li')");assert.equal(await evaluate("document.querySelectorAll('#starter-scene-admin nav button').length"),papers(m).length);
+  for(const p of papers(m)){await evaluate(`document.querySelectorAll('#starter-scene-admin nav button')[${papers(m).indexOf(p)}].click()`);await wait("document.querySelectorAll('#starter-scene-admin .starter-admin-list li').length===31");await click('#starter-scene-admin [aria-label="Xóa link 31"]');await click('#starter-scene-admin .starter-admin-save');await wait("document.querySelector('#starter-scene-admin [role=status]')");assert.equal(current(m,p).links.length,30);assert(await evaluate("!document.querySelector('#starter-scene-admin header button').disabled"));
+   await evaluate("[...document.querySelectorAll('#starter-scene-admin button')].find(e=>e.textContent.includes('+ Thêm link')).click()");await wait("document.querySelectorAll('#starter-scene-admin .starter-admin-list li').length===31");
+   await evaluate(`(()=>{const s=document.querySelector('#starter-scene-admin li:last-child select');s.value=${JSON.stringify(links(m,p).at(-1).setId)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await click('#starter-scene-admin [aria-label="Đưa link 31 lên"]');await click('#starter-scene-admin .starter-admin-save');await wait("document.querySelector('#starter-scene-admin [role=status]')");assert.equal(current(m,p).links.length,31);assert.equal(current(m,p).links.at(-2).setId,links(m,p).at(-1).setId);
+  }
+  if(m==='ielts'){await viewport(320);assert(await evaluate("(()=>{const d=document.querySelector('#starter-scene-admin'),body=d.querySelector('.starter-admin-content'),footer=d.querySelector('footer');return d.scrollWidth<=d.clientWidth+1&&body.scrollHeight>body.clientHeight&&footer.getBoundingClientRect().bottom<=innerHeight;})()"),'Three-paper admin stays usable on mobile');await shot('ielts-admin-320');await viewport(1440);}
+  await click('#starter-scene-admin header button');await wait("!document.querySelector('#starter-scene-admin')");reports[m].admin=true;
+ }
+ await open('pet');slow=true;await evaluate("window.qaModule('ket')");await wait("document.querySelector('#starter-scene-page [role=status]')");reports.loading=true;await wait("document.querySelector('[data-listening-module=ket] [data-starter-link]')");slow=false;
+ fail=true;await evaluate("window.qaModule('flyer')");await wait("document.querySelector('#starter-scene-page [role=alert]')");fail=false;await click('.starter-notice button');await wait("document.querySelector('[data-listening-module=flyer] [data-starter-link]')");reports.errorRetry=true;
+ for(const p of papers('pet'))layouts.set('pet:'+p,{revision:1,links:[]});await open('starter');await evaluate("window.qaModule('pet')");await wait("document.querySelector('[data-listening-module=pet] [aria-busy=false]')");assert(await evaluate("!document.querySelector('[data-starter-link]')&&!document.body.textContent.includes('Chưa có bài công khai')&&!document.body.textContent.includes('Bài học sẽ xuất hiện')"));reports.empty=true;
+ assert(await evaluate("!document.querySelector('[data-starter-preview]')"));assert.equal(errors.length,0,JSON.stringify(errors));
+ fs.mkdirSync('.data/exam-scenes-verification',{recursive:true});fs.writeFileSync('.data/exam-scenes-verification/browser-report.json',JSON.stringify({passed:true,root,reports,shots,errors,requests},null,2));console.log(JSON.stringify({passed:true,modules:7,widths:5,shots,errors:0,root}));
+}finally{socket?.close();chrome.kill();server.closeAllConnections();await new Promise(r=>server.close(r));}

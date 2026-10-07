@@ -424,6 +424,8 @@ export interface ExamPaperDefinition {
   timeLimitMinutes: number;
   totalQuestionCount: number;
   flexiblePartDistribution?: boolean;
+  /** Kept addressable for immutable legacy sets, but omitted from new-set directories. */
+  directoryHidden?: boolean;
   parts: readonly ExamPartDefinition[];
 }
 

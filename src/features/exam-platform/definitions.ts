@@ -14,6 +14,7 @@ import { KET_LISTENING_TEMPLATE_VERSION, normalizeFixedKetListeningContent } fro
 import { createDefaultPetReadingExample, PET_READING_PART_HEADERS, PET_READING_TEMPLATE_VERSION, normalizeFixedPetReadingContent } from './petReadingMigration';
 import { PET_LISTENING_TEMPLATE_VERSION, normalizeFixedPetListeningContent } from './petListeningMigration';
 import { PET_WRITING_TEMPLATE_VERSION, normalizeFixedPetWritingContent } from './petWritingMigration';
+import { FCE_READING_PART_HEADERS, FCE_READING_TEMPLATE_VERSION, normalizeFixedFceReadingContent } from './fceReadingMigration';
 import {
   DEFAULT_WRITING_GRADING_INSTRUCTIONS,
   DEFAULT_WRITING_RUBRIC,
@@ -63,7 +64,7 @@ function paper(
   level: string,
   timeLimitMinutes: number,
   parts: Omit<ExamPartDefinition, 'id' | 'displayName'>[],
-  options: Pick<ExamPaperDefinition, 'description' | 'flexiblePartDistribution'>,
+  options: Pick<ExamPaperDefinition, 'description' | 'flexiblePartDistribution' | 'directoryHidden'>,
 ): ExamPaperDefinition {
   const definedParts = indexed(parts);
   return {
@@ -76,6 +77,7 @@ function paper(
     parts: definedParts,
     totalQuestionCount: definedParts.reduce((sum, item) => sum + item.questionCount, 0),
     flexiblePartDistribution: options.flexiblePartDistribution,
+    directoryHidden: options.directoryHidden,
   };
 }
 
@@ -152,6 +154,11 @@ export const EXAM_PAPER_DEFINITIONS = [
     part(6, 'Yes or no statements', 'single-choice', listeningTypes, { requiresAudio: true, questionCountFlexible: true }),
   ], { description: 'B1 Preliminary Listening · 4 Part · 25 câu' }),
 
+  paper('fce', 'reading', 'Reading', 'B2 First', 60, [
+    part(8, 'Part 1', 'single-choice', ['single-choice'], { instruction: FCE_READING_PART_HEADERS[0].instruction }),
+    part(7, 'Part 2', 'single-choice', ['single-choice'], { instruction: FCE_READING_PART_HEADERS[1].instruction }),
+    part(15, 'Part 3', 'single-choice', ['single-choice'], { instruction: FCE_READING_PART_HEADERS[2].instruction }),
+  ], { description: 'B2 First Reading · 3 Part · 30 câu' }),
   paper('fce', 'reading-use-of-english', 'Reading & Use of English', 'B2 First', 75, [
     part(8, 'Multiple-choice cloze', 'single-choice', readingTypes),
     part(8, 'Open cloze', 'short-answer', readingTypes),
@@ -160,7 +167,7 @@ export const EXAM_PAPER_DEFINITIONS = [
     part(6, 'Reading multiple choice', 'single-choice', readingTypes, { pointsPerQuestion: 2 }),
     part(6, 'Gapped text', 'matching', readingTypes, { pointsPerQuestion: 2 }),
     part(10, 'Multiple matching', 'matching', readingTypes),
-  ], { description: 'B2 First Reading & Use of English · 7 Part · 52 câu' }),
+  ], { description: 'B2 First Reading & Use of English · 7 Part · 52 câu', directoryHidden: true }),
   paper('fce', 'writing', 'Writing', 'B2 First', 80, [
     part(1, 'Compulsory essay', 'long-writing', ['long-writing'], { longWriting: true, minWords: 140, pointsPerQuestion: 20 }),
     part(1, 'Choice of text type', 'long-writing', ['long-writing'], { longWriting: true, minWords: 140, pointsPerQuestion: 20 }),
@@ -196,7 +203,7 @@ export function getExamPaperDefinition(moduleId: ExamModuleId, paperId: ExamPape
 }
 
 export function getModuleExamPaperDefinitions(moduleId: ExamModuleId) {
-  return EXAM_PAPER_DEFINITIONS.filter(item => item.moduleId === moduleId);
+  return EXAM_PAPER_DEFINITIONS.filter(item => item.moduleId === moduleId && !item.directoryHidden);
 }
 
 function identifier(prefix: string) {
@@ -565,5 +572,8 @@ export function createDefaultExamContent(definition: ExamPaperDefinition): ExamP
   if (definition.moduleId === 'pet' && definition.paperId === 'listening') {
     content.templateVersion = PET_LISTENING_TEMPLATE_VERSION;
   }
-  return normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(content))))));
+  if (definition.moduleId === 'fce' && definition.paperId === 'reading') {
+    content.templateVersion = FCE_READING_TEMPLATE_VERSION;
+  }
+  return normalizeFixedFceReadingContent(normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(content)))))));
 }

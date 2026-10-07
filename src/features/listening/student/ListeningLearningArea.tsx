@@ -1,3 +1,4 @@
+import '../../exam-platform/student/journey-state.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -373,14 +374,14 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
     return <div className="flex min-h-screen items-center justify-center bg-sky-100"><LoaderCircle className="animate-spin text-blue-600" size={42} /></div>;
   }
   if (!playable) {
-    return <div id="listening-error-screen" className="flex min-h-screen flex-col items-center justify-center gap-4 bg-sky-100 p-6 text-center"><Headphones size={50} className="text-rose-500" /><h1 className="text-2xl font-black text-slate-900">Không thể mở bộ đề nghe</h1><p className="text-sm font-bold text-rose-600">{error}</p><button id="listening-error-home-btn" onClick={onBack} className="listening-primary-action rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">Về trang chủ</button></div>;
+    return <div data-student-journey="storybook" id="listening-error-screen" className="flex min-h-screen flex-col items-center justify-center gap-4 bg-sky-100 p-6 text-center"><Headphones size={50} className="text-rose-500" /><h1 className="text-2xl font-black text-slate-900">Không thể mở bộ đề nghe</h1><p className="text-sm font-bold text-rose-600">{error}</p><button id="listening-error-home-btn" onClick={onBack} className="listening-primary-action rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">Về trang chủ</button></div>;
   }
   if (!authSessionKnown || (firebaseUser && authLoading && !identityReady)) {
     return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-sky-100"><LoaderCircle className="animate-spin text-blue-600" size={36} /><p className="text-sm font-bold text-slate-500">Đang kiểm tra hồ sơ học sinh...</p></div>;
   }
   if (!identityReady) {
     return (
-      <div id="listening-name-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div data-student-journey="storybook" id="listening-name-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-md rounded-3xl border-4 border-white bg-white/95 p-7 text-center shadow-2xl">
           <Headphones className="mx-auto text-blue-600" size={44} />
           <h1 className="mt-3 text-2xl font-black text-slate-900">{playable.title}</h1>
@@ -394,7 +395,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }
   if (!run && !result) {
     return (
-      <div id="listening-start-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div data-student-journey="storybook" id="listening-start-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-2xl overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl">
           {playable.content.coverUrl && <img src={playable.content.coverUrl} alt="" className="h-64 w-full object-cover" />}
           <div className="p-7 text-center">
@@ -418,7 +419,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }
   if (result && showReview && review) {
     return (
-      <div id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
+      <div data-student-journey="storybook" id="listening-review-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-3 sm:p-5">
         <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-2xl sm:max-h-[calc(100vh-2.5rem)]">
           <header className="shrink-0 border-b border-slate-200 px-5 py-4 text-left sm:px-7">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -461,7 +462,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   }
   if (result) {
     return (
-      <div id="listening-result-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
+      <div data-student-journey="storybook" id="listening-result-screen" className="flex min-h-screen items-center justify-center bg-gradient-to-b from-sky-300 to-emerald-100 p-4">
         <div className="w-full max-w-xl rounded-[2rem] border-4 border-white bg-white p-8 text-center shadow-2xl">
           <Trophy size={64} className="mx-auto text-amber-500" />
           <p className="mt-3 text-xs font-black uppercase tracking-[.2em] text-blue-600">Đã nộp bài thành công</p>

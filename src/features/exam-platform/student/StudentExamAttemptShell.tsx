@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { CheckCircle2, ChevronLeft, ChevronRight, Clock3, LoaderCircle, Send } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Clock3, LoaderCircle, Send, Star } from 'lucide-react';
 
 interface StudentExamShellPart {
   key: string | number;
@@ -28,6 +28,7 @@ interface StudentExamAttemptShellProps {
   errorBanner?: ReactNode;
   showBottomNavigation?: boolean;
   rootClassName?: string;
+  theme?: 'starter';
   style?: CSSProperties;
   children: ReactNode;
 }
@@ -56,21 +57,22 @@ export default function StudentExamAttemptShell({
   errorBanner,
   showBottomNavigation = true,
   rootClassName = '',
+  theme,
   style,
   children,
 }: StudentExamAttemptShellProps) {
   const lastPartIndex = Math.max(0, parts.length - 1);
 
   return (
-    <main id={rootId} className={`student-exam-shell min-h-screen bg-slate-100 ${rootClassName}`.trim()} style={style}>
+    <main id={rootId} data-exam-theme={theme} className={`student-exam-shell min-h-screen bg-slate-100 ${rootClassName}`.trim()} style={style}>
       <header className="student-exam-shell-header sticky top-0 z-40 border-b border-slate-200 bg-white/95 py-3 shadow-sm backdrop-blur">
         <div className="student-exam-shell-container mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-3 sm:px-6">
-          <div className="min-w-0">
+          <div className="student-exam-shell-heading min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{eyebrow}</p>
             <h1 className="truncate text-base font-black text-slate-900">{title}</h1>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 text-xs font-black text-slate-600 sm:gap-3">
-            <span className="student-exam-shell-progress" aria-label={`Đã trả lời ${answered} trên ${totalQuestions} câu`}>{answered}/{totalQuestions}</span>
+          <div className="student-exam-shell-status flex flex-wrap items-center justify-end gap-2 text-xs font-black text-slate-600 sm:gap-3">
+            <span className="student-exam-shell-progress" aria-label={`Đã trả lời ${answered} trên ${totalQuestions} câu`}>{theme === 'starter' && <Star aria-hidden="true" size={26} />}{answered}/{totalQuestions}</span>
             {remainingSeconds !== null && (
               <span className={`student-exam-shell-timer inline-flex items-center gap-1 rounded-xl px-3 py-2 ${remainingSeconds <= 60 ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
                 <Clock3 size={14} />{formatTime(remainingSeconds)}

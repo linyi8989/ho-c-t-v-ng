@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, CheckCircle2, Clock, FileText, XCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronLeft, ChevronRight, Clock, FileText, Send, UserRound, XCircle } from 'lucide-react';
 import { GrammarAttempt, GrammarSet } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { STUDENT_NAME_MAX_LENGTH, validateStudentDisplayName } from '../../lib/studentIdentity';
@@ -11,6 +11,7 @@ import {
   storeGuestAccessCredential
 } from '../../lib/guestIdentity';
 import { ClientLearningRun, createClientLearningRun } from '../../lib/learningRuns';
+import './GrammarLearningTheme.css';
 
 interface GrammarLearningAreaProps {
   grammarSet: GrammarSet;
@@ -515,39 +516,39 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <header className="sticky top-0 z-20 bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <button onClick={onBack} className="px-4 py-2 rounded-xl !border !border-blue-700 !bg-blue-600 hover:!bg-blue-700 !text-white text-sm font-bold flex items-center gap-2 shadow-sm">
-            <ArrowLeft size={16} />
+    <div id="grammar-learning-root" className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="grammar-header sticky top-0 z-20 bg-white border-b border-gray-200">
+        <div className="grammar-header-inner max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <button id="grammar-back-btn" onClick={onBack} className="grammar-button grammar-button-secondary">
+            <ArrowLeft size={20} aria-hidden="true" />
             Thoát ra
           </button>
-          <div className="text-center min-w-0">
-            <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest">Luyện ngữ pháp</p>
+          <div className="grammar-lesson-heading text-center min-w-0">
+            <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest">{grammarSet.questionType === 'rewrite' ? 'Luyện tự luận' : 'Luyện ngữ pháp'}</p>
             <h1 className="font-black text-gray-900 truncate">{grammarSet.title}</h1>
           </div>
-          <div className="text-xs font-bold text-gray-500">{user?.name || studentName || 'Học sinh'}</div>
+          <div className="grammar-student-chip text-xs font-bold text-gray-500"><UserRound size={24} aria-hidden="true" /><span>{user?.name || studentName || 'Học sinh'}</span></div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4 py-8 space-y-6">
+      <main className="grammar-main max-w-5xl mx-auto p-4 py-8 space-y-6">
         {error && (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{error}</div>
+          <div className="grammar-error rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700" role="alert">{error}</div>
         )}
 
         {identityStatus === 'checking' && !attempt && !review && (
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center">
+          <div className="grammar-panel bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center" role="status">
             <p className="text-sm font-bold text-gray-600">Đang kiểm tra hồ sơ học sinh...</p>
           </div>
         )}
 
         {identityStatus === 'needs_name' && !attempt && !review && (
-          <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center space-y-6" id="grammar-name-prompt-container">
+          <div className="grammar-panel bg-white rounded-3xl p-8 border border-gray-100 shadow-xl text-center space-y-6" id="grammar-name-prompt-container">
             <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
               <BookOpen size={32} />
             </div>
             <div className="space-y-2">
-              <h2 className="text-2xl font-black text-gray-800">Bắt đầu luyện ngữ pháp!</h2>
+              <h2 className="text-2xl font-black text-gray-800">{grammarSet.questionType === 'rewrite' ? 'Bắt đầu luyện tự luận!' : 'Bắt đầu luyện ngữ pháp!'}</h2>
               <p className="text-gray-500 text-sm max-w-sm mx-auto">
                 Hãy nhập tên của em để lưu điểm, xem lại bài làm và theo dõi kết quả học tập.
               </p>
@@ -566,11 +567,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 }}
                 className="flex-1 p-4 border-2 border-gray-200 rounded-2xl font-semibold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 text-center text-lg"
                 id="grammar-student-name-input"
+                aria-label="Họ và tên học sinh"
               />
               <button
                 onClick={() => persistStudentName(studentName)}
                 disabled={!studentName.trim() || nameSaving}
-                className="py-4 px-8 !bg-blue-600 hover:!bg-blue-700 disabled:!bg-gray-200 disabled:!text-gray-500 !text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer text-lg whitespace-nowrap"
+                className="grammar-button grammar-button-primary whitespace-nowrap"
                 id="grammar-submit-name-btn"
               >
                 {nameSaving ? 'Đang lưu...' : 'Bắt đầu học'}
@@ -580,7 +582,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         )}
 
         {nameSubmitted && !attempt && !review && (
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <div className="grammar-panel grammar-intro bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-gray-900">{grammarSet.title}</h2>
@@ -590,7 +592,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 {grammarSet.questions?.length || 0} câu
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grammar-metadata grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold">Lớp: {formatGradeLabel(grammarSet.gradeLevel)}</div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold">Chủ đề: {grammarSet.topic || grammarSet.subject}</div>
               <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm font-bold flex items-center gap-2">
@@ -600,7 +602,8 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
             <button
               onClick={startAttempt}
               disabled={loading}
-              className="w-full py-4 rounded-2xl !bg-blue-600 hover:!bg-blue-700 disabled:!bg-blue-300 !text-white !border !border-blue-700 disabled:!border-blue-300 font-black shadow-md transition-all"
+              id="grammar-start-btn"
+              className="grammar-button grammar-button-primary w-full"
             >
               {loading ? 'Đang tạo lượt làm...' : 'Bắt đầu làm bài'}
             </button>
@@ -608,19 +611,21 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         )}
 
         {attempt && currentQuestion && (
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-black text-gray-700">Câu {currentIndex + 1}/{attempt.questions.length}</span>
-              <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-3 py-1">
+          <div className="grammar-panel grammar-attempt bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
+            <div className="grammar-progress flex items-center justify-between gap-3" aria-live="polite">
+              <span className="grammar-question-counter text-sm font-black text-gray-700">Câu {currentIndex + 1}/{attempt.questions.length}</span>
+              <span className="grammar-answered-counter text-xs font-bold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-3 py-1">
                 Đã trả lời {answeredCount}/{attempt.questions.length}
               </span>
             </div>
-            <div className="rounded-3xl border border-gray-200 bg-gray-50 p-6 text-center">
+            <div className="grammar-question rounded-3xl border border-gray-200 bg-gray-50 p-6 text-center">
               <p className="text-xl font-black text-gray-900">{currentQuestion.questionSnapshot}</p>
             </div>
             {currentQuestionIsRewrite ? (
-              <div className="space-y-3">
+              <div className="grammar-rewrite space-y-3">
+                <label htmlFor="grammar-answer-input" className="grammar-answer-label">Câu trả lời của em</label>
                 <textarea
+                  id="grammar-answer-input"
                   value={textAnswers[currentQuestion.id] || ''}
                   onChange={event => setTextAnswers(prev => ({ ...prev, [currentQuestion.id]: event.target.value }))}
                   disabled={currentQuestionIsSaving || Boolean(currentQuestionFeedback)}
@@ -634,7 +639,8 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 <button
                   onClick={() => answerRewriteQuestion(currentQuestion.id)}
                   disabled={currentQuestionIsSaving || Boolean(currentQuestionFeedback) || !(textAnswers[currentQuestion.id] || '').trim()}
-                  className="w-full rounded-2xl !border !border-blue-700 !bg-blue-600 px-5 py-3 font-black !text-white shadow-sm hover:!bg-blue-700 disabled:!border-gray-300 disabled:!bg-gray-200 disabled:!text-gray-500"
+                  id="grammar-answer-btn"
+                  className="grammar-button grammar-button-primary w-full"
                 >
                   {currentQuestionIsSaving
                     ? 'Đang lưu câu trả lời...'
@@ -642,7 +648,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grammar-options grid grid-cols-1 gap-3">
                 {currentQuestion.optionsSnapshot.map((option, index) => {
                   const selected = selectedOptions[currentQuestion.id] === option.id;
                   const isCorrectOption = currentQuestionFeedback?.correctOptionId === option.id;
@@ -653,30 +659,20 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                     onClick={() => answerQuestion(currentQuestion.id, option.id)}
                     disabled={currentQuestionIsSaving}
                     data-feedback-locked={currentQuestionFeedback ? 'true' : undefined}
-                    className={`w-full rounded-2xl border p-4 text-left font-bold transition-all ${
+                    data-answer-state={isCorrectOption ? 'correct' : isWrongSelection ? 'incorrect' : selected ? 'selected' : 'idle'}
+                    aria-pressed={selected}
+                    className={`grammar-option w-full text-left ${
                       isCorrectOption
-                        ? '!bg-emerald-50 !border-emerald-500 !text-emerald-900 shadow-sm cursor-default'
+                        ? 'cursor-default'
                         : isWrongSelection
-                          ? '!bg-rose-50 !border-rose-500 !text-rose-900 shadow-sm cursor-default'
-                          : selected
-                            ? '!bg-blue-600 !border-blue-700 !text-white shadow-sm'
-                            : currentQuestionFeedback
-                              ? '!bg-white !border-gray-200 !text-gray-700 cursor-default'
-                              : '!bg-white !border-blue-300 hover:!bg-blue-50 hover:!border-blue-500 !text-gray-900'
+                          ? 'cursor-default'
+                          : currentQuestionFeedback ? 'cursor-default' : ''
                     }`}
                   >
-                    <span className={`mr-3 inline-flex w-8 h-8 items-center justify-center rounded-xl border font-black ${
-                      isCorrectOption
-                        ? '!bg-emerald-100 !border-emerald-300 !text-emerald-800'
-                        : isWrongSelection
-                          ? '!bg-rose-100 !border-rose-300 !text-rose-800'
-                          : selected
-                            ? '!bg-white !border-white !text-blue-700'
-                            : '!bg-blue-50 !border-blue-200 !text-blue-700'
-                    }`}>
+                    <span className="grammar-option-letter inline-flex items-center justify-center font-black">
                       {String.fromCharCode(65 + index)}
                     </span>
-                    {option.text}
+                    <span className="grammar-option-text">{option.text}</span>
                     {isCorrectOption && <CheckCircle2 size={18} className="ml-3 inline-block align-middle" />}
                     {isWrongSelection && <XCircle size={18} className="ml-3 inline-block align-middle" />}
                   </button>
@@ -685,12 +681,12 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
               </div>
             )}
             {currentQuestionIsSaving && (
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800">
+              <div className="grammar-saving rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold text-blue-800" role="status">
                 Đang lưu đáp án...
               </div>
             )}
             {currentQuestionFeedback && (
-              <div className={`rounded-2xl border p-4 ${
+              <div role="status" data-feedback-state={currentQuestionFeedback.isCorrect ? 'correct' : 'incorrect'} className={`grammar-feedback rounded-2xl border p-4 ${
                 currentQuestionFeedback.isCorrect
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
                   : 'border-rose-300 bg-rose-50 text-rose-900'
@@ -711,25 +707,27 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 )}
               </div>
             )}
-            <div className="flex flex-col sm:flex-row justify-between gap-3">
+            <div className="grammar-navigation flex flex-col sm:flex-row justify-between gap-3">
               <button
                 onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                 disabled={currentIndex === 0 || currentQuestionIsSaving}
-                className="px-5 py-3 rounded-2xl !border !border-gray-300 !bg-white !text-gray-800 disabled:!bg-gray-100 disabled:!text-gray-500 disabled:opacity-100 font-bold"
+                id="grammar-prev-btn"
+                className="grammar-button grammar-button-secondary"
               >
-                Câu trước
+                <ChevronLeft size={24} aria-hidden="true" /> Câu trước
               </button>
               {currentIndex < attempt.questions.length - 1 ? (
                 <button
                   onClick={() => setCurrentIndex(currentIndex + 1)}
                   disabled={currentQuestionIsSaving || !currentQuestionHasSavedAnswer}
-                  className="px-5 py-3 rounded-2xl !bg-blue-600 hover:!bg-blue-700 disabled:!bg-blue-300 disabled:!border-blue-300 !text-white !border !border-blue-700 font-black shadow-sm"
+                  id="grammar-next-btn"
+                  className="grammar-button grammar-button-primary"
                 >
-                  Câu tiếp theo
+                  Câu tiếp theo <ChevronRight size={24} aria-hidden="true" />
                 </button>
               ) : (
-                <button onClick={submitAttempt} disabled={loading || currentQuestionIsSaving || !currentQuestionHasSavedAnswer} className="px-5 py-3 rounded-2xl !bg-emerald-600 hover:!bg-emerald-700 disabled:!bg-emerald-300 !text-white !border !border-emerald-700 font-black shadow-sm">
-                  Nộp bài
+                <button id="grammar-submit-btn" onClick={submitAttempt} disabled={loading || currentQuestionIsSaving || !currentQuestionHasSavedAnswer} className="grammar-button grammar-button-submit">
+                  <Send size={22} aria-hidden="true" /> Nộp bài
                 </button>
               )}
             </div>
@@ -737,7 +735,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
         )}
 
         {review && (
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <div className="grammar-panel grammar-review bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
               <div>
                 <h2 className="text-xl font-black text-gray-900">Xem lại bài làm</h2>
@@ -754,7 +752,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 const isRewrite = question.questionType === 'rewrite' || grammarSet.questionType === 'rewrite';
                 const canShowCorrectAnswers = Boolean(question.correctOptionId);
                 return (
-                  <div key={question.id} className="rounded-2xl border border-gray-200 overflow-hidden">
+                  <div key={question.id} className="grammar-review-question rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="bg-gray-50 p-4 border-b border-gray-200">
                       <p className="text-sm font-black text-gray-900">Câu {index + 1}: {question.questionSnapshot}</p>
                     </div>
@@ -805,21 +803,21 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 );
               })}
             </div>
-            <button onClick={() => setReview(null)} className="w-full py-3 rounded-2xl !bg-gray-900 !text-white font-black">
+            <button id="grammar-review-back-btn" onClick={() => setReview(null)} className="grammar-button grammar-button-secondary w-full">
               Quay lại danh sách
             </button>
           </div>
         )}
 
         {!attempt && !review && attempts.length > 0 && (
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
+          <div className="grammar-panel grammar-history bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-4">
             <h3 className="font-black text-gray-900 flex items-center gap-2"><FileText size={18} /> Lịch sử làm bài</h3>
             <div className="space-y-2">
               {attempts.map((item, index) => (
                 <button
                   key={item.id}
                   onClick={() => item.status === 'completed' && openReview(item.id)}
-                  className="w-full rounded-2xl !border !border-blue-200 !bg-blue-50 hover:!bg-blue-100 hover:!border-blue-400 p-4 text-left flex items-center justify-between gap-3"
+                  className="grammar-history-item w-full p-4 text-left flex items-center justify-between gap-3"
                 >
                   <span className="font-bold text-gray-900">Lần {attempts.length - index} - {item.score}/{item.maxScore} điểm - {formatVietnamDateTime(item.completedAt || item.createdAt)}</span>
                   <span className="text-xs font-black text-blue-700">{item.status === 'completed' ? 'Xem lại' : 'Đang làm'}</span>

@@ -30,7 +30,9 @@ import { normalizeFixedKetListeningContent } from '../../features/exam-platform/
 import { normalizeFixedPetReadingContent } from '../../features/exam-platform/petReadingMigration.js';
 import { normalizeFixedPetListeningContent } from '../../features/exam-platform/petListeningMigration.js';
 import { normalizeFixedPetWritingContent } from '../../features/exam-platform/petWritingMigration.js';
+import { normalizeFixedFceReadingContent } from '../../features/exam-platform/fceReadingMigration.js';
 import { countWritingWords } from '../../features/writing-library/writingWordPolicy.js';
+import { createStarterSceneRouter } from './starterSceneRouter.js';
 
 type Middleware = express.RequestHandler;
 
@@ -71,9 +73,9 @@ const EXAM_TICKET_CLOCK_SKEW_MS = 5 * 60_000;
 const WRITING_GRADING_RETRY_COOLDOWN_MS = 5 * 60_000;
 const WRITING_GRADING_LEASE_MS = 3 * 60_000;
 
-const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(
+const normalizeFixedExamContent = (content: ExamPaperContent) => normalizeFixedFceReadingContent(normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(
   normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent(normalizeFixedFlyerReadingWritingContent(normalizeFixedFlyerListeningContent(content)))),
-)));
+))));
 
 function apiError(status: number, message: string, details?: unknown) {
   const error: any = new Error(message);
@@ -351,6 +353,7 @@ function attemptSummary(attempt: any): ExamCompletedAttempt {
 export function createExamRouter(dependencies: ExamRouterDependencies) {
   const { db, authenticateUser, authenticateOptionalUser, requireStaff, ticketSecret, resolveGuestProfile, logAudit, writingGrading } = dependencies;
   const router = express.Router();
+  router.use(createStarterSceneRouter({ db, authenticateUser, requireStaff }));
   const draftLocks = new Map<string, Promise<void>>();
   const writingGradeLocks = new Map<string, Promise<void>>();
   const activeWritingGrades = new Set<string>();

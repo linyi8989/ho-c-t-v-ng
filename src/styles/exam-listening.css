@@ -1090,23 +1090,15 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background: #ffffff !important;
   border: 2px solid #cbd5e1 !important;
   color: #0f172a !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+
 }
 
 #generic-exam-player button.pet-writing-task-option[data-selected="true"]:not(:disabled) {
   background: #e0e7ff !important;
   border: 3px solid #3730a3 !important;
   color: #1e1b4b !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 10px 24px rgba(55, 48, 163, 0.2) !important;
+
 }
 
 #generic-exam-player button.pet-writing-task-option * {
@@ -1119,35 +1111,23 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background: #ffffff !important;
   border: 2px solid #2563eb !important;
   color: #1d4ed8 !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 6px 14px rgba(37, 99, 235, 0.16) !important;
+
 }
 
 #pet-writing-result button.exam-platform-result-retry:not(:disabled) {
   background: #047857 !important;
   border: 2px solid #065f46 !important;
   color: #ffffff !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 8px 18px rgba(4, 120, 87, 0.22) !important;
+
 }
 
 #pet-writing-result button.exam-platform-grade-retry:not(:disabled) {
   background: #b45309 !important;
   border: 2px solid #92400e !important;
   color: #ffffff !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+
 }
 
 #pet-writing-result button.exam-platform-grade-retry:disabled,
@@ -1155,11 +1135,7 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background: #fef3c7 !important;
   border: 2px solid #b45309 !important;
   color: #78350f !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+
 }
 
 #pet-writing-result button.exam-platform-result-review *,
@@ -1168,6 +1144,22 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
 #pet-writing-result button.exam-platform-grade-retry * {
   color: currentColor !important;
   opacity: 1 !important;
+}
+
+/* Identical paint resets share the original selectors. */
+#generic-exam-player button.pet-writing-task-option[data-selected="false"]:not(:disabled),
+#generic-exam-player button.pet-writing-task-option[data-selected="true"]:not(:disabled),
+#pet-writing-result button.exam-platform-result-review:not(:disabled),
+#pet-writing-result button.exam-platform-result-home:not(:disabled),
+#pet-writing-result button.exam-platform-result-retry:not(:disabled),
+#pet-writing-result button.exam-platform-grade-retry:not(:disabled),
+#pet-writing-result button.exam-platform-grade-retry:disabled,
+#pet-writing-result button.exam-platform-result-review:disabled {
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* PET Reading result/review lives outside #generic-exam-player. Give every
@@ -1223,6 +1215,63 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
 
 #pet-reading-result-screen button:focus-visible,
 #pet-reading-review-screen button:focus-visible {
+  outline: 3px solid #f59e0b !important;
+  outline-offset: 2px !important;
+}
+
+/* FCE Reading uses a dedicated result shell, so its actions need the same
+   opaque contrast boundary as PET instead of inheriting the legacy glass rule. */
+#fce-reading-result-screen button.fce-reading-result-home:not(:disabled) {
+  background: #1e40af !important;
+  border: 2px solid #1e3a8a !important;
+  color: #ffffff !important;
+}
+
+#fce-reading-result-screen button.fce-reading-result-retry:not(:disabled) {
+  background: #047857 !important;
+  border: 2px solid #065f46 !important;
+  color: #ffffff !important;
+}
+
+#fce-reading-result-screen button.fce-reading-result-review:not(:disabled),
+#fce-reading-review-screen button.fce-reading-review-back:not(:disabled),
+#fce-reading-review-screen button.fce-reading-review-part-tab[data-active="false"]:not(:disabled) {
+  background: #ffffff !important;
+  border: 2px solid #2563eb !important;
+  color: #1d4ed8 !important;
+}
+
+#fce-reading-review-screen button.fce-reading-review-part-tab[data-active="true"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  border: 2px solid #1e3a8a !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, 0.24) !important;
+}
+
+#fce-reading-result-screen button.fce-reading-result-review:disabled {
+  background: #dbeafe !important;
+  border: 2px solid #60a5fa !important;
+  color: #1e3a8a !important;
+  opacity: 1 !important;
+}
+
+#fce-reading-result-screen button,
+#fce-reading-review-screen button {
+  opacity: 1 !important;
+  filter: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#fce-reading-result-screen button *,
+#fce-reading-review-screen button * {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+#fce-reading-result-screen button:focus-visible,
+#fce-reading-review-screen button:focus-visible {
   outline: 3px solid #f59e0b !important;
   outline-offset: 2px !important;
 }
@@ -1730,11 +1779,7 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
 #ket-reading-writing-player textarea {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+
 }
 
 #ket-reading-writing-player [data-ket-writing-page] textarea {
@@ -1746,11 +1791,7 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
 #ket-reading-writing-result-screen button:not(:disabled),
 #ket-reading-writing-review-screen button:not(:disabled),
 #ket-reading-writing-authoring button:not(:disabled) {
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+
 }
 
 #ket-reading-writing-player button.ket-part-three-tab[data-active="false"]:not(:disabled),
@@ -1760,12 +1801,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #60a5fa !important;
   color: #1e40af !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+
 }
 
 #ket-reading-writing-player button.ket-part-three-tab[data-active="true"]:not(:disabled),
@@ -1775,12 +1812,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #1e40af !important;
   color: #ffffff !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 5px 12px rgba(29, 78, 216, .26) !important;
+
 }
 
 #ket-reading-writing-player button.ket-part-three-page-nav[data-direction="previous"]:not(:disabled),
@@ -1790,12 +1823,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #60a5fa !important;
   color: #1e40af !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+
 }
 
 #ket-reading-writing-player button.ket-part-three-page-nav[data-direction="next"]:not(:disabled),
@@ -1805,12 +1834,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #1e40af !important;
   color: #ffffff !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 6px 14px rgba(29, 78, 216, .22) !important;
+
 }
 
 #ket-reading-writing-player button.ket-part-three-page-nav:disabled,
@@ -1820,12 +1845,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #94a3b8 !important;
   color: #475569 !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+
 }
 
 #ket-reading-writing-result-screen button.ket-reading-result-home:not(:disabled) {
@@ -1834,12 +1855,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #1e40af !important;
   color: #ffffff !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 8px 18px rgba(29, 78, 216, .24) !important;
+
 }
 
 #ket-reading-writing-result-screen button.ket-reading-result-review:not(:disabled) {
@@ -1848,12 +1865,8 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #1d4ed8 !important;
   color: #1e40af !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: 0 6px 14px rgba(29, 78, 216, .12) !important;
+
 }
 
 #ket-reading-writing-result-screen button.ket-reading-result-review:disabled {
@@ -1862,13 +1875,9 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #64748b !important;
   color: #334155 !important;
-  opacity: 1 !important;
-  filter: none !important;
-  text-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
   cursor: wait;
+
 }
 
 #ket-reading-writing-result-screen button.ket-reading-result-retry:not(:disabled) {
@@ -1877,12 +1886,38 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   background-image: none !important;
   border: 2px solid #065f46 !important;
   color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(4, 120, 87, .22) !important;
+
+}
+
+/* Identical paint resets share the original selectors. */
+#ket-reading-writing-authoring input:not([type="radio"]):not([type="checkbox"]),
+#ket-reading-writing-authoring textarea,
+#ket-reading-writing-authoring select,
+#ket-reading-writing-player input:not([type="radio"]):not([type="checkbox"]),
+#ket-reading-writing-player textarea,
+#ket-reading-writing-result-screen button:not(:disabled),
+#ket-reading-writing-review-screen button:not(:disabled),
+#ket-reading-writing-authoring button:not(:disabled),
+#ket-reading-writing-player button.ket-part-three-tab[data-active="false"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-tab[data-active="false"]:not(:disabled),
+#ket-reading-writing-player button.ket-part-three-tab[data-active="true"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-tab[data-active="true"]:not(:disabled),
+#ket-reading-writing-player button.ket-part-three-page-nav[data-direction="previous"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-page-nav[data-direction="previous"]:not(:disabled),
+#ket-reading-writing-player button.ket-part-three-page-nav[data-direction="next"]:not(:disabled),
+#ket-reading-writing-review-screen button.ket-part-three-page-nav[data-direction="next"]:not(:disabled),
+#ket-reading-writing-player button.ket-part-three-page-nav:disabled,
+#ket-reading-writing-review-screen button.ket-part-three-page-nav:disabled,
+#ket-reading-writing-result-screen button.ket-reading-result-home:not(:disabled),
+#ket-reading-writing-result-screen button.ket-reading-result-review:not(:disabled),
+#ket-reading-writing-result-screen button.ket-reading-result-review:disabled,
+#ket-reading-writing-result-screen button.ket-reading-result-retry:not(:disabled) {
   opacity: 1 !important;
   filter: none !important;
   text-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  box-shadow: 0 8px 18px rgba(4, 120, 87, .22) !important;
 }
 
 #ket-reading-writing-result-screen button.ket-reading-result-home:not(:disabled):hover {

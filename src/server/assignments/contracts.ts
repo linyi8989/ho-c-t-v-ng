@@ -5,7 +5,7 @@ export interface AssignmentActor {
   role: 'super_admin' | 'teacher' | 'student';
 }
 
-export type AssignmentResourceType = 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam';
+export type AssignmentResourceType = 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam' | 'competition';
 
 export function assignmentHttpError(status: number, message: string) {
   const error: any = new Error(message);

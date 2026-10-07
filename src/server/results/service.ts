@@ -36,10 +36,10 @@ function httpError(status: number, message: string, code?: string) {
   return Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 }
 
-function publicLeaderboardEntry(entry: any, index: number) {
+function publicLeaderboardEntry(entry: any, index: number, displayName?: string) {
   return {
     rank: index + 1,
-    studentName: `Học viên #${index + 1}`,
+    studentName: displayName || `Học viên #${index + 1}`,
     completedLessons: Number(entry?.completedLessons || 0),
     averageAccuracy: Number(entry?.averageAccuracy || 0),
     studyDays: Number(entry?.studyDays || 0),
@@ -168,6 +168,7 @@ export function createResultsService(options: ResultsServiceOptions) {
     limit: number,
     timing?: TimingLike,
     scope: { classId?: string; vocabSetId?: string } = {},
+    showNames = false,
   ) => {
     const events = await loadSummaryEvents(period, timing);
     const publicEvents = events.map(options.sanitizePublicStudentRecord);
@@ -178,8 +179,21 @@ export function createResultsService(options: ResultsServiceOptions) {
       ...(scope.vocabSetId ? { vocabSetId: scope.vocabSetId } : {}),
     });
     timing?.mark('aggregate');
+    let entries = leaderboard.gold.slice(0, limit);
+    if (showNames) {
+      // Resolve only the ranked students, retaining private identity on the server.
+      const originals = new Map(publicEvents.map((event: any, index: number) => [
+        [event.publicStudentKey || event.studentKey, event.classId || 'no-class'].join('|'), events[index],
+      ]));
+      entries = await options.enrichStudentNames(entries.map((entry: any) => ({
+        ...originals.get(entry.studentKey), ...entry,
+      })));
+      timing?.mark('names');
+    }
     return {
-      entries: leaderboard.gold.slice(0, limit).map(publicLeaderboardEntry),
+      entries: entries.map((entry: any, index: number) => publicLeaderboardEntry(
+        entry, index, showNames ? options.safeText(entry.studentName, 120).trim() : undefined,
+      )),
       period,
     };
   };
@@ -200,7 +214,7 @@ export function createResultsService(options: ResultsServiceOptions) {
     const period = request.query.period === 'month' ? 'month' : 'week';
     const requestedLimit = Number(request.query.limit || 8);
     const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 8;
-    const cacheKey = `public:${period}:${limit}`;
+    const cacheKey = `public:names-v1:${period}:${limit}`;
     const cached = options.getCachedLeaderboardSummary(cacheKey);
     const headers = { 'Cache-Control': 'public, max-age=30' };
     if (cached && cached.expiresAt > nowMs()) {
@@ -208,7 +222,7 @@ export function createResultsService(options: ResultsServiceOptions) {
       return { body: cached.value, headers };
     }
     const value = await withSummarySingleFlight(cacheKey, async () => {
-      const result = await buildPublicSummary(period, limit, timing);
+      const result = await buildPublicSummary(period, limit, timing, {}, true);
       options.cacheLeaderboardSummary(cacheKey, result);
       return result;
     });

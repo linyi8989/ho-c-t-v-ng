@@ -7,13 +7,15 @@ import {
   Layers3,
   LoaderCircle,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { listExamModuleEntries, type ExamModuleListItem } from '../moduleExamList';
 import { getListeningModule } from '../registry';
 import { examPaperExamPath, writingExamPath } from '../routes';
 import ComingSoonModule from '../shared/ComingSoonModule';
 import type { ListeningModuleId, ListeningPaperId } from '../types';
+import StarterScenePage from '../../starter-scene/StarterScenePage';
+import type { SceneModule } from '../../starter-scene/types';
 
 interface ListeningModulePageProps {
   moduleId: ListeningModuleId;
@@ -23,7 +25,11 @@ interface ListeningModulePageProps {
 
 type PaperFilter = 'all' | ListeningPaperId;
 
-export default function ListeningModulePage({ moduleId, onBack, onNavigate }: ListeningModulePageProps) {
+export default function ListeningModulePage(props: ListeningModulePageProps) {
+  return props.moduleId !== 'writing' ? <Fragment key={props.moduleId}><StarterScenePage moduleId={props.moduleId as SceneModule} onBack={props.onBack} onNavigate={props.onNavigate} /></Fragment> : <StandardModulePage {...props} />;
+}
+
+function StandardModulePage({ moduleId, onBack, onNavigate }: ListeningModulePageProps) {
   const { token, loading: authLoading } = useAuth();
   const manifest = getListeningModule(moduleId);
   const [exams, setExams] = useState<ExamModuleListItem[]>([]);

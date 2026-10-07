@@ -40,6 +40,8 @@ import GrammarEditorPanel from './grammar/GrammarEditorPanel';
 
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 const WritingLibraryAdmin = React.lazy(() => import('../../features/writing-library/admin/WritingLibraryAdmin'));
+const SpeakingAdmin = React.lazy(() => import('../../features/speaking/Admin'));
+const CompetitionAdmin = React.lazy(() => import('../../features/ioe-violympic/Admin'));
 
 interface AdminDashboardProps {
   onViewAsStudent: (set: VocabSet, gameId?: string, assignmentId?: string) => void;
@@ -104,6 +106,9 @@ const getAssignmentLink = (set: VocabSet) => {
 const getAssignmentRecordLink = (assignment: Assignment) => {
   const token = assignment.shareToken || assignment.assignmentSlug;
   if (!token) return '';
+  if (assignment.resourceType === 'competition') {
+    return assignment.resourceId ? `${window.location.origin}/ioe-violympic/paper/${encodeURIComponent(assignment.resourceId)}?access=${encodeURIComponent(token)}` : '';
+  }
   if (assignment.resourceType === 'listening') {
     const setId = assignment.resourceId || assignment.listeningSetId;
     return setId
@@ -2869,6 +2874,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         {/* ==================================================================== */}
         {/* TAB 2B: GRAMMAR SETS DIRECTORY */}
         {/* ==================================================================== */}
+        {activeTab === 'speaking' && token && <React.Suspense fallback={<p role="status">Đang tải Speaking…</p>}><SpeakingAdmin token={token} /></React.Suspense>}
+        {token && <React.Suspense fallback={activeTab === 'ioe-violympic' ? <p role="status">Đang tải IOE/Violympic...</p> : null}>
+          <CompetitionAdmin token={token} active={activeTab === 'ioe-violympic'} />
+        </React.Suspense>}
+
         {activeTab === 'listening-library' && token && (
           <React.Suspense fallback={(
             <div className="rounded-3xl border border-sky-100 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">

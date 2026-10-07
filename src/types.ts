@@ -107,7 +107,7 @@ export interface Assignment {
   id: string;
   shareToken?: string;
   assignmentSlug?: string;
-  resourceType?: 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam';
+  resourceType?: 'vocabulary' | 'listening' | 'mover_reading_writing' | 'exam' | 'competition';
   resourceId?: string;
   resourceTitle?: string;
   classId: string;

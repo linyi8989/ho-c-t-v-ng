@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, BookOpenText, Clock3, Layers3 } from 'lucide-rea
 import { getVisibleListeningModules } from '../registry';
 import { examModulePath } from '../routes';
 import type { ExamModuleId } from '../types';
+import ExamIslandMap from './ExamIslandMap';
 
 const moduleCardDescriptions = {
   starter: 'Listening và Reading & Writing dành cho trình độ Pre A1.',
@@ -9,7 +10,7 @@ const moduleCardDescriptions = {
   flyer: 'Listening và Reading & Writing dành cho trình độ A2.',
   ket: 'Reading & Writing và Listening cho kỳ thi A2 Key.',
   pet: 'Reading, Writing và Listening cho kỳ thi B1 Preliminary.',
-  fce: 'Reading & Use of English, Writing và Listening cho B2 First.',
+  fce: 'Reading, Writing và Listening cho B2 First; Use of English sẽ là paper riêng.',
   ielts: 'Listening, Academic Reading và Academic Writing.',
 } satisfies Partial<Record<ExamModuleId, string>>;
 
@@ -24,6 +25,7 @@ export default function ListeningLibraryHome({
   onBack,
   onNavigate,
 }: ListeningLibraryHomeProps) {
+  if (!embedded) return <ExamIslandMap onBack={onBack} onNavigate={onNavigate} />;
   const modules = getVisibleListeningModules();
   const content = (
     <div className="space-y-5" id={embedded ? 'home-listening-directory' : 'listening-library-home'}>

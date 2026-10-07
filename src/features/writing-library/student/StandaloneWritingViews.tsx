@@ -1,3 +1,4 @@
+import '../../exam-platform/student/journey-state.css';
 import { AlertTriangle, CheckCircle2, Eye, FileClock, LoaderCircle, RotateCcw, Sparkles } from 'lucide-react';
 import { useEffect, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react';
 import type {
@@ -126,7 +127,7 @@ export function StandaloneWritingResult({ result, review, playable, answers, rev
   const retryCountdown = `${Math.floor(retrySeconds / 60).toString().padStart(2, '0')}:${(retrySeconds % 60).toString().padStart(2, '0')}`;
 
   return (
-    <main id="standalone-writing-result" className="min-h-screen bg-gradient-to-b from-violet-100 via-white to-sky-50 p-4 sm:p-8" data-writing-score-scale="10">
+    <main data-student-journey="storybook" id="standalone-writing-result" className="min-h-screen bg-gradient-to-b from-violet-100 via-white to-sky-50 p-4 sm:p-8" data-writing-score-scale="10">
       <div className="mx-auto max-w-4xl space-y-5">
         <section className="rounded-3xl border border-white bg-white p-6 text-center shadow-xl sm:p-8">
           {completed ? <CheckCircle2 className="mx-auto text-emerald-600" size={56} /> : grading ? <LoaderCircle className="mx-auto animate-spin text-violet-600" size={56} /> : <FileClock className="mx-auto text-violet-600" size={56} />}

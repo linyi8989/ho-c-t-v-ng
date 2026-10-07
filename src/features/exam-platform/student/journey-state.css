@@ -1,0 +1,52 @@
+@import '../../starter-scene/fonts.css';
+@import '../../../styles/storybook-background.css';
+
+/* Explicit opt-in for transition/result screens only. Question scenes keep their geometry. */
+:is(#root,#app-root) [data-student-journey][id] {
+  font-family: 'Nunito', sans-serif;
+  color: #131b55;
+  min-height: 100dvh;
+}
+:is(#root,#app-root) [data-student-journey][id] > :is(div,section):first-child {
+  border: 7px solid #fffdf8 !important;
+  border-radius: 36px !important;
+  background: #fffdf3 !important;
+  box-shadow: inset 0 0 0 4px #c5ecff, inset 0 0 0 6px white, 0 5px 0 #98c8df, 0 12px 25px #405f7830 !important;
+}
+:is(#root,#app-root) [data-student-journey][id] > div > section { border-color: #c5e6f7 !important; border-radius: 28px; }
+:is(#root,#app-root) [data-student-journey][id] > div > header { background: linear-gradient(#fff,#e6f4ff) !important; border-color: #c2e5ff !important; }
+:is(#root,#app-root) [data-student-journey][id] > div > footer { background: #fffdf3 !important; border-color: #c2e5ff !important; }
+:is(#root,#app-root) [data-student-journey][id] > div > div.overflow-y-auto { background: #fffdf8 !important; }
+:is(#root,#app-root) [data-student-journey][id] :is(h1,h2) { color: #131b55 !important; }
+:is(#root,#app-root) [data-student-journey][id] :is(input,textarea) { border: 2px solid #b7dcff; border-radius: 18px; min-height: 46px; }
+:is(#root,#app-root) [data-student-journey][id] :is(button[class*="-action"],button[class*="-result-"],button[class*="-review-back"],button[role="tab"],button[aria-label="Part trước"],button[aria-label="Part sau"]) {
+  min-height: 46px; border: 2px solid #a6d2ff !important; border-radius: 24px !important;
+  color: #164bbb !important; background: linear-gradient(#fff,#e3f0ff) !important;
+  box-shadow: inset 0 3px white,0 3px 0 #9fc6e6,0 5px 10px #42658024 !important;
+  font-family: 'Nunito',sans-serif; font-weight: 800; transition: filter .15s ease,box-shadow .15s ease;
+}
+:is(#root,#app-root) [data-student-journey][id] :is(button[class*="primary-action"],button[class*="start-action"],button[class*="result-home"],button[role="tab"][aria-selected="true"]) {
+  color: white !important; border-color: #77c0ff !important;
+  background: linear-gradient(#2066d8,#1857c3) !important;
+  box-shadow: inset 0 3px #9cd9ff,0 4px #1245a1,0 7px 12px #184fad30 !important;
+}
+:is(#root,#app-root) [data-student-journey][id] :is(button[class*="retry-action"],button[class*="result-retry"]) {
+  color: white !important; border-color: #6dd1a0 !important; background: linear-gradient(#078152,#07683f) !important;
+  box-shadow: inset 0 3px #86e3b3,0 4px #075d3e,0 7px 12px #184f3830 !important;
+}
+:is(#root,#app-root) [data-student-journey][id] button:hover:not(:disabled) { filter: brightness(1.045); }
+:is(#root,#app-root) [data-student-journey][id] :is(button,input,textarea,summary):focus-visible { outline: 3px solid #173fa0; outline-offset: 4px; }
+:is(#root,#app-root) [data-student-journey][id] button:disabled { color: #607087 !important; border-color: #c9d9e6 !important; background: #edf3f8 !important; box-shadow: inset 0 2px white,0 2px #c6d3dd !important; cursor: not-allowed; filter: none; opacity: 1; }
+@media(max-width: 600px) {
+  :is(#root,#app-root) [data-student-journey][id] { padding: 12px !important; }
+  :is(#root,#app-root) [data-student-journey][id] > :is(div,section):first-child { border-width: 5px !important; border-radius: 26px !important; }
+  :is(#root,#app-root) [data-student-journey][id] h1.text-3xl { font-size: 24px; overflow-wrap: anywhere; }
+  :is(#root,#app-root) [data-student-journey][id] button { max-width: 100%; }
+}
+@media(prefers-reduced-motion: reduce) { :is(#root,#app-root) [data-student-journey][id] button { transition: none; } }
+
+/* The legacy player has two-ID action rules; keep the opt-in theme equally specific. */
+:is(#root,#app-root) #listening-result-screen[data-student-journey] #listening-result-home-btn:not(:disabled) { border-color: #77c0ff !important; background: linear-gradient(#2066d8,#1857c3) !important; box-shadow: inset 0 3px #9cd9ff,0 4px #1245a1,0 7px 12px #184fad30 !important; }
+:is(#root,#app-root) #listening-result-screen[data-student-journey] #listening-result-review-btn:not(:disabled) { background: linear-gradient(#fff,#e3f0ff) !important; box-shadow: inset 0 3px white,0 3px #9fc6e6,0 5px 10px #42658024 !important; }
+:is(#root,#app-root) #listening-result-screen[data-student-journey] #listening-result-retry-btn:not(:disabled) { background: linear-gradient(#078152,#07683f) !important; box-shadow: inset 0 3px #86e3b3,0 4px #075d3e,0 7px 12px #184f3830 !important; }
+

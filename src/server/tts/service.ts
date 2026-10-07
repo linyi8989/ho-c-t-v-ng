@@ -1,8 +1,10 @@
 interface TtsServiceOptions {
   normalizeSettings: (value: any) => any;
+  normalizeReadingSettings?: (value: any) => any;
   sanitizeInput: (value: any) => { text: string; warnings: string[] };
   createAudioHash: (text: string, settings: any) => string;
   generateCachedAudio: (text: string, settings: any, force?: boolean) => Promise<any>;
+  generateReadingAudio?: (text: string, settings: any, force?: boolean) => Promise<any>;
   runWithConcurrency: (items: any[], limit: number, worker: (item: any) => Promise<any>) => Promise<any[]>;
   concurrency: number;
   voiceProvider: { listVoices(query: any): Promise<{ status: number; data: any }> };
@@ -105,6 +107,13 @@ export function createTtsService(options: TtsServiceOptions) {
   };
 
   return {
+    async previewReading(payload: any) {
+      const text = String(payload?.text || '').trim();
+      if (!text || text.length > 6000) throw ttsHttpError(400, 'Reading preview requires 1–6000 characters.');
+      if (!options.generateReadingAudio) throw ttsHttpError(503, 'Reading TTS is not configured.');
+      const settings = (options.normalizeReadingSettings || options.normalizeSettings)(payload?.settings || {});
+      return options.generateReadingAudio(text, settings, false);
+    },
     batchPreview,
     listVoices: (query: any) => options.voiceProvider.listVoices(query),
     preview,

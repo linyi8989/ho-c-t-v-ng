@@ -1,0 +1,164 @@
+@import '../../starter-scene/fonts.css';
+@import '../../../styles/storybook-background.css';
+
+/* Only live Starters attempts opt in; shared exam chrome and hitboxes stay intact. */
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] {
+  --starter-exam-ink: #142d5a;
+  --text-primary: #142d5a;
+  --text-secondary: #31456b;
+  font-family: 'Nunito', sans-serif;
+  color: var(--starter-exam-ink);
+  min-height: 100dvh;
+  padding-bottom: 10px;
+}
+[data-exam-theme="starter"] .student-exam-shell-header {
+  background: transparent !important;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 16px 0;
+}
+[data-exam-theme="starter"] .student-exam-shell-header .student-exam-shell-container { max-width: 1400px; }
+[data-exam-theme="starter"] .student-exam-shell-heading { padding-left: clamp(0px, 6vw, 82px); flex: 1; }
+[data-exam-theme="starter"] .student-exam-shell-heading > p { color: #1554c6 !important; font-size: 12px; letter-spacing: .15em; }
+[data-exam-theme="starter"] .student-exam-shell-heading h1 { color: #102853 !important; font-size: 20px; font-weight: 900; margin-top: 2px; white-space: normal; }
+[data-exam-theme="starter"] .student-exam-shell-status { flex-shrink: 0; }
+[data-exam-theme="starter"] :is(.student-exam-shell-progress, .student-exam-shell-timer) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 49px;
+  padding: 8px 15px;
+  border: 2px solid #ffffff;
+  border-radius: 23px;
+  background: linear-gradient(#ffffff, #edf6ff) !important;
+  color: #203d6a !important;
+  font-size: 18px;
+  font-weight: 900;
+  box-shadow: inset 0 2px 0 #ffffff, 0 3px 0 #b0d1ed, 0 5px 10px #23587f20;
+  white-space: nowrap;
+}
+[data-exam-theme="starter"] .student-exam-shell-progress svg { color: #b16800 !important; fill: #ffcd4b; stroke-width: 1.7; }
+[data-exam-theme="starter"] .student-exam-shell-timer { background: linear-gradient(#fff5cf, #ffe4a4) !important; color: #934009 !important; border-color: #fff9de; box-shadow: inset 0 2px 0 #ffffff, 0 3px 0 #eab862, 0 5px 10px #a96d2920; }
+[data-exam-theme="starter"] .student-exam-shell-timer svg { width: 25px; height: 25px; }
+[data-exam-theme="starter"] .student-exam-shell-timer.bg-rose-50 { background: linear-gradient(#fff0e7, #ffd4c8) !important; color: #992c1a !important; }
+
+/* Double rings and a lower rim give controls the soft toy-like finish in the reference. */
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button:is(.student-exam-part-tab, .student-exam-part-nav, .student-exam-submit-action, .starter-audio-play) {
+  position: relative;
+  min-height: 48px;
+  border: 3px solid #81b6fb !important;
+  border-radius: 23px;
+  font: 900 18px / 1.2 'Nunito', sans-serif;
+  filter: none !important;
+  opacity: 1 !important;
+  transition: transform .16s ease-out, box-shadow .16s ease-out;
+}
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button:is(.student-exam-part-tab[data-active="true"], .student-exam-part-nav[data-direction="next"], .starter-audio-play):not(:disabled) {
+  background: linear-gradient(180deg, #2866ed, #124dd6 75%, #0840b8) !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 2px 0 #b1d4ff, inset 0 -3px 0 #07319b, 0 3px 0 #6b97d9, 0 6px 12px #234e9b2b !important;
+}
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button:is(.student-exam-part-tab[data-active="false"], .student-exam-part-nav[data-direction="previous"]):not(:disabled) {
+  background: linear-gradient(#ffffff, #edf7ff 75%, #dceeff) !important;
+  color: #164db2 !important;
+  border-color: #a4d4ff !important;
+  box-shadow: inset 0 2px 0 #ffffff, inset 0 -3px 0 #c4dffa, 0 3px 0 #85b6e2, 0 6px 12px #234e9b24 !important;
+}
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.student-exam-submit-action:not(:disabled) {
+  min-height: 56px;
+  padding: 11px 20px;
+  background: linear-gradient(#0c873c, #047039 78%, #045c31) !important;
+  color: #ffffff !important;
+  border-color: #95ce4e !important;
+  box-shadow: inset 0 2px 0 #96df9a, inset 0 -3px 0 #03492a, 0 3px 0 #5c9b35, 0 6px 12px #2863292b !important;
+}
+[data-exam-theme="starter"] button.student-exam-submit-action svg { width: 23px; height: 23px; }
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button:is(.student-exam-part-tab, .student-exam-part-nav, .student-exam-submit-action, .starter-audio-play):disabled {
+  background: linear-gradient(#f2f8ff, #dce8f4) !important;
+  color: #4d607a !important;
+  border-color: #b2c7dc !important;
+  box-shadow: inset 0 2px 0 #ffffff, 0 3px 0 #abbcd0 !important;
+  cursor: not-allowed;
+}
+[data-exam-theme="starter"] .student-exam-part-tabs { padding: 0 4px 9px; gap: 10px; scrollbar-width: thin; }
+[data-exam-theme="starter"] .student-exam-part-tab { min-width: 109px; padding: 12px 20px; }
+[data-exam-theme="starter"] .student-exam-part-navigation { padding-top: 18px; padding-bottom: 25px; }
+[data-exam-theme="starter"] button.student-exam-part-nav { min-height: 54px; padding: 12px 20px; outline: 4px solid #dba56b; outline-offset: 1px; }
+[data-exam-theme="starter"] .student-exam-part-nav svg { width: 24px; height: 24px; }
+
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] [data-starter-exam-panel] {
+  position: relative;
+  border: 12px solid #fffaf1 !important;
+  border-radius: 40px;
+  padding: 16px;
+  background: linear-gradient(140deg, #ffffff, #fffefd) !important;
+  box-shadow: 0 0 0 2px #eadbc5, inset 0 0 0 2px #f4eadb, 0 9px 20px #81714720;
+}
+[data-exam-theme="starter"] [data-starter-audio-header] {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid #d2e7fc !important;
+  border-radius: 28px;
+  padding: 17px 22px 20px;
+  gap: 12px;
+  background: radial-gradient(ellipse at 50% 5%, #ffffff 0, #f0f9ff 42%, #dfefff 100%) !important;
+  box-shadow: inset 0 3px 0 #ffffff, inset 0 -3px 0 #cfe2fc;
+}
+[data-exam-theme="starter"] [data-starter-audio-header] > p { position: relative; z-index: 1; color: #102458 !important; font-weight: 900; font-size: 18px; line-height: 1.4; }
+[data-exam-theme="starter"] [data-starter-audio-header]::before,
+[data-exam-theme="starter"] [data-starter-audio-header]::after { content: ''; position: absolute; bottom: -10px; width: 83px; height: 33px; border-radius: 50%; background: #ffffff; box-shadow: 14px -12px 0 -3px #ffffff, -14px -7px 0 -5px #ffffff; opacity: .65; pointer-events: none; }
+[data-exam-theme="starter"] [data-starter-audio-header]::before { left: -10px; }
+[data-exam-theme="starter"] [data-starter-audio-header]::after { right: -10px; }
+[data-exam-theme="starter"] [data-starter-exam-panel="reading-writing"] > div:first-child { border-radius: 24px; background: linear-gradient(110deg, #f3faff, #eaf5ff); border: 2px solid #d6e7fb; padding: 18px; }
+[data-exam-theme="starter"] .exam-platform-image-viewer { border-color: #ecddc4 !important; background: #fff9ed !important; box-shadow: 0 3px 0 #e6d5b7, 0 7px 18px #79663726; }
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.exam-platform-image-expand:not(:disabled) { color: #ffffff !important; background: linear-gradient(#294267, #12294b) !important; border: 2px solid #cbb47b !important; border-radius: 16px; box-shadow: inset 0 1px 0 #91a7c7, 0 3px 6px #152e452a !important; }
+
+[data-exam-theme="starter"] .starter-exam-audio { position: relative; z-index: 1; width: min(100%, 950px); }
+[data-exam-theme="starter"] .starter-exam-audio > audio { display: none; }
+[data-exam-theme="starter"] .starter-exam-audio-controls { display: flex; align-items: center; gap: 14px; padding: 6px 12px 6px 7px; border: 2px solid #d1e3ff; border-radius: 36px; background: linear-gradient(#ffffff, #e3efff); box-shadow: inset 0 2px 0 #ffffff, 0 4px 0 #d0e0f7, 0 6px 14px #6485b42b; }
+[data-exam-theme="starter"] button.starter-audio-play { display: grid; flex-shrink: 0; place-items: center; width: 48px; padding: 0; border-radius: 50%; }
+[data-exam-theme="starter"] .starter-audio-play svg { fill: currentColor; }
+[data-exam-theme="starter"] .starter-audio-time { color: #24436c !important; font-size: 14px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-exam-theme="starter"] input:is(.starter-audio-seek, .starter-audio-volume) { appearance: none; min-width: 0; height: 8px; padding: 0; border: 0; border-radius: 8px; background: #c6d1e1; cursor: pointer; accent-color: #225bd5; }
+[data-exam-theme="starter"] input.starter-audio-seek { flex: 1; background: linear-gradient(to right, #225bd5 var(--starter-audio-progress), #c6d1e1 var(--starter-audio-progress)); }
+[data-exam-theme="starter"] input.starter-audio-volume { width: 58px; }
+[data-exam-theme="starter"] input:is(.starter-audio-seek, .starter-audio-volume)::-webkit-slider-thumb { appearance: none; width: 15px; height: 15px; background: #2357c0; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 1px 3px #21354f66; }
+[data-exam-theme="starter"] input:is(.starter-audio-seek, .starter-audio-volume)::-moz-range-thumb { width: 13px; height: 13px; background: #2357c0; border: 2px solid #ffffff; border-radius: 50%; }
+[data-exam-theme="starter"] input.starter-audio-seek:disabled { cursor: not-allowed; background: #d6dfea; }
+:is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.starter-audio-mute { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0 !important; background: transparent !important; color: #24436c !important; box-shadow: none !important; filter: none !important; }
+[data-exam-theme="starter"] .starter-audio-error { margin: 10px 0 0; padding: 8px 14px; border: 1px solid #fecaca; border-radius: 12px; color: #9f182b !important; background: #fff1f2; font-size: 13px; font-weight: 800; }
+[data-exam-theme="starter"] :is(button, input, a):focus-visible { outline: 3px solid #153d9b !important; outline-offset: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  [data-exam-theme="starter"] button:is(.student-exam-part-tab, .student-exam-part-nav, .student-exam-submit-action, .starter-audio-play):not(:disabled):hover { transform: translateY(-2px); }
+}
+@media (max-width: 767px) {
+  [data-exam-theme="starter"] .student-exam-shell-header { padding: 10px 0; }
+  [data-exam-theme="starter"] .student-exam-shell-heading { flex-basis: 100%; padding-left: 0; }
+  [data-exam-theme="starter"] .student-exam-shell-heading > p { font-size: 10px; }
+  [data-exam-theme="starter"] .student-exam-shell-heading h1 { font-size: 17px; }
+  [data-exam-theme="starter"] .student-exam-shell-status { justify-content: flex-start; gap: 8px; }
+  [data-exam-theme="starter"] :is(.student-exam-shell-progress, .student-exam-shell-timer) { min-height: 44px; padding: 6px 10px; font-size: 15px; gap: 5px; border-radius: 18px; }
+  [data-exam-theme="starter"] .student-exam-shell-progress svg { width: 21px; }
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.student-exam-submit-action:not(:disabled) { min-height: 46px; padding: 9px 12px; font-size: 15px; border-radius: 18px; }
+  [data-exam-theme="starter"] button.student-exam-submit-action svg { width: 18px; height: 18px; }
+  [data-exam-theme="starter"] .student-exam-part-tab { min-width: 92px; padding: 9px 13px; }
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.student-exam-part-tab { font-size: 15px; min-height: 44px; border-radius: 19px; }
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] [data-starter-exam-panel] { border-width: 7px !important; border-radius: 27px; padding: 9px; }
+  [data-exam-theme="starter"] [data-starter-audio-header] { padding: 13px 8px 17px; border-radius: 21px; }
+  [data-exam-theme="starter"] [data-starter-audio-header] > p { font-size: 14px; }
+  [data-exam-theme="starter"] .starter-exam-audio-controls { gap: 7px; padding: 5px; flex-wrap: wrap; border-radius: 24px; }
+  [data-exam-theme="starter"] .starter-audio-time { font-size: 12px; }
+  [data-exam-theme="starter"] input.starter-audio-seek { order: 5; flex-basis: calc(100% - 20px); margin: 8px 10px; }
+  [data-exam-theme="starter"] button.starter-audio-mute { margin-left: auto; }
+  [data-exam-theme="starter"] input.starter-audio-volume { width: 38px; }
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"] button.student-exam-part-nav { min-height: 48px; padding: 9px 12px; font-size: 15px; border-radius: 19px; }
+  [data-exam-theme="starter"] .student-exam-part-nav svg { width: 19px; height: 19px; }
+  [data-exam-theme="starter"] .student-exam-part-navigation { padding: 18px 17px 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-exam-theme="starter"] button:is(.student-exam-part-tab, .student-exam-part-nav, .student-exam-submit-action, .starter-audio-play) { transition: none; }
+  [data-exam-theme="starter"] button:is(.student-exam-part-tab, .student-exam-part-nav, .student-exam-submit-action, .starter-audio-play):hover { transform: none; }
+}

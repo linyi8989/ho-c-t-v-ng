@@ -11,8 +11,8 @@ interface HistoryListProps {
 export default function HistoryList({ items, onViewDetail }: HistoryListProps) {
   if (items.length === 0) {
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white px-5 py-12 text-center shadow-sm">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+      <div className="history-panel history-state px-5 py-12 text-center">
+        <span className="history-state-icon mx-auto flex h-14 w-14 items-center justify-center">
           <BookOpenCheck size={28} aria-hidden="true" />
         </span>
         <h2 className="mt-4 text-lg font-black text-slate-900">Bạn chưa có lượt làm bài nào.</h2>
@@ -24,8 +24,8 @@ export default function HistoryList({ items, onViewDetail }: HistoryListProps) {
   }
 
   return (
-    <section aria-label="Danh sách lượt làm">
-      <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:block">
+    <section className="history-list" aria-label="Danh sách lượt làm">
+      <div className="history-panel history-table-frame hidden overflow-hidden lg:block">
         <table className="w-full table-fixed border-collapse text-left text-sm">
           <caption className="sr-only">Lịch sử các lượt học và làm bài</caption>
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-600">
@@ -51,7 +51,7 @@ export default function HistoryList({ items, onViewDetail }: HistoryListProps) {
         </table>
       </div>
 
-      <div className="space-y-3 lg:hidden">
+      <div className="history-card-list space-y-3 lg:hidden">
         {items.map(item => (
           <React.Fragment key={item.attemptId}>
             <HistoryRow

@@ -30,13 +30,13 @@ export default function HistorySummary({ summary }: HistorySummaryProps) {
 
   return (
     <dl
-      className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
+      className="history-summary grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
       aria-label="Tổng quan lịch sử học tập"
     >
       {cards.map(({ label, value, icon: Icon }) => (
         <div
           key={label}
-          className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+          className="history-stat min-w-0 p-4"
         >
           <dt className="flex items-center gap-2 text-xs font-bold text-slate-500">
             <Icon size={16} aria-hidden="true" />

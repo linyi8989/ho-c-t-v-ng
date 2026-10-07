@@ -32,6 +32,7 @@ import {
   LearningHistoryItem,
   LearningHistoryResponse
 } from './historyTypes';
+import './HistoryTheme.css';
 
 interface StudentHistoryPageProps {
   authToken?: string | null;
@@ -49,9 +50,9 @@ function GuestRecoveryState({
 }) {
   const isMissingIdentity = issue === 'missing_identity';
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
-      <div className="mx-auto max-w-xl rounded-3xl border border-amber-200 bg-white p-6 text-center shadow-sm sm:p-8">
-        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+    <div id="student-history-page" data-history-theme="storybook" className="history-recovery min-h-screen px-4 py-8">
+      <div className="history-panel history-recovery-panel mx-auto max-w-xl p-6 text-center sm:p-8">
+        <span className="history-state-icon mx-auto flex h-16 w-16 items-center justify-center">
           {isMissingIdentity
             ? <KeyRound size={30} aria-hidden="true" />
             : <ShieldAlert size={30} aria-hidden="true" />}
@@ -74,7 +75,7 @@ function GuestRecoveryState({
             type="button"
             onClick={onBack}
             id="student-history-recovery-back-btn"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-700"
+            className="history-button history-button-secondary"
           >
             <ArrowLeft size={17} aria-hidden="true" />
             Về trang học
@@ -82,7 +83,7 @@ function GuestRecoveryState({
           <button
             type="button"
             onClick={() => { window.location.href = '/login'; }}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white"
+            className="history-button"
           >
             <LogIn size={17} aria-hidden="true" />
             Đăng nhập
@@ -95,7 +96,7 @@ function GuestRecoveryState({
 
 function LoadingState() {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white px-5 py-14 text-center shadow-sm" role="status">
+    <div className="history-panel history-state px-5 py-14 text-center" role="status">
       <LoaderCircle className="mx-auto animate-spin text-indigo-600" size={34} aria-hidden="true" />
       <p className="mt-3 text-sm font-black text-slate-700">Đang tải lịch sử học tập...</p>
     </div>
@@ -104,7 +105,7 @@ function LoadingState() {
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="rounded-3xl border border-rose-200 bg-white px-5 py-12 text-center shadow-sm" role="alert">
+    <div className="history-panel history-state px-5 py-12 text-center" role="alert">
       <ShieldAlert className="mx-auto text-rose-600" size={34} aria-hidden="true" />
       <h2 className="mt-4 text-lg font-black text-slate-900">Không thể tải lịch sử học tập.</h2>
       <p className="mx-auto mt-2 max-w-lg text-sm font-medium text-slate-600">
@@ -113,7 +114,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
       <button
         type="button"
         onClick={onRetry}
-        className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 text-sm font-black text-white"
+        className="history-button mt-5"
       >
         <RotateCcw size={16} aria-hidden="true" />
         Thử lại
@@ -137,7 +138,7 @@ function Pagination({
 }) {
   if (totalPages <= 1) {
     return totalItems > 0 ? (
-      <p className="text-center text-xs font-semibold text-slate-500">
+      <p className="history-page-count text-center text-xs font-semibold text-slate-500">
         Hiển thị toàn bộ {totalItems} lượt làm.
       </p>
     ) : null;
@@ -145,7 +146,7 @@ function Pagination({
 
   return (
     <nav
-      className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row"
+      className="history-pagination flex flex-col items-center justify-between gap-3 p-3 sm:flex-row"
       aria-label="Phân trang lịch sử học tập"
     >
       <p className="text-xs font-semibold text-slate-500">
@@ -156,7 +157,7 @@ function Pagination({
           type="button"
           disabled={disabled || page <= 1}
           onClick={() => onPageChange(page - 1)}
-          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-700 disabled:opacity-40 sm:flex-none"
+          className="history-button history-button-secondary flex-1 sm:flex-none"
         >
           <ChevronLeft size={17} aria-hidden="true" />
           Trang trước
@@ -165,7 +166,7 @@ function Pagination({
           type="button"
           disabled={disabled || page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          className="inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-xl border border-indigo-600 bg-indigo-600 px-4 text-sm font-black text-white disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 sm:flex-none"
+          className="history-button flex-1 sm:flex-none"
         >
           Trang sau
           <ChevronRight size={17} aria-hidden="true" />
@@ -311,20 +312,20 @@ export default function StudentHistoryPage({
   };
 
   return (
-    <div id="student-history-page" className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+    <div id="student-history-page" data-history-theme="storybook" className="min-h-screen">
+      <header className="history-header">
+        <div className="history-header-inner mx-auto flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={onBack}
             id="student-history-back-btn"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-black text-slate-700"
+            className="history-button history-button-secondary"
           >
             <ArrowLeft size={18} aria-hidden="true" />
             <span className="hidden sm:inline">Về trang học</span>
             <span className="sm:hidden">Quay lại</span>
           </button>
-          <div className="min-w-0 text-right">
+          <div className="history-brand min-w-0 text-right">
             <p className="flex items-center justify-end gap-1 text-xs font-black uppercase tracking-wide text-indigo-600">
               <History size={14} aria-hidden="true" />
               Hồ sơ học tập
@@ -334,8 +335,8 @@ export default function StudentHistoryPage({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl space-y-5 px-4 py-6 sm:py-8">
-        <section className="rounded-3xl bg-gradient-to-br from-indigo-700 to-slate-950 p-5 text-white shadow-lg sm:p-7">
+      <main className="history-main mx-auto w-full space-y-5 px-4 py-6 sm:py-8">
+        <section className="history-panel history-intro p-5 sm:p-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-200">
@@ -346,8 +347,8 @@ export default function StudentHistoryPage({
                 Xem lại các lượt học từ vựng, ngữ pháp và kết quả từng bài trên thiết bị hoặc tài khoản của bạn.
               </p>
             </div>
-            <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-indigo-100">
-              <BookOpenCheck size={32} aria-hidden="true" />
+            <span className="history-intro-book" aria-hidden="true">
+              <BookOpenCheck size={32} />
             </span>
           </div>
         </section>
@@ -361,7 +362,7 @@ export default function StudentHistoryPage({
         ) : (
           <>
             {loading && (
-              <p className="flex items-center justify-center gap-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700" role="status">
+              <p className="history-updating flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold" role="status">
                 <LoaderCircle className="animate-spin" size={15} aria-hidden="true" />
                 Đang cập nhật kết quả...
               </p>

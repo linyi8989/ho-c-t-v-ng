@@ -1,6 +1,7 @@
 import type { ExamPaperContent } from './types';
 import { withChatGptJsonCopyBlock } from './chatGptJsonOutput';
 import { createDefaultPetReadingExample, PET_READING_PART_HEADERS } from './petReadingMigration';
+import { FCE_READING_PART_HEADERS } from './fceReadingMigration';
 
 const starterListeningPartNames: Record<number, string> = {
   1: 'matching / image-image / draw-line — giữ mô hình nối hình Starters hiện tại',
@@ -516,6 +517,39 @@ ${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { mo
   Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng title/instruction cố định, đúng variant, đúng số câu và số lựa chọn` : 'đủ 5 Part và đúng title/instruction cố định; Part 1 và Part 5 mỗi Part có đúng một example không chấm điểm; mỗi câu Part 1 có context và 3 lựa chọn; Part 2 dùng chung 8 lựa chọn A–H; Part 3 là Yes/No; Part 4 và 5 có 4 lựa chọn; Part 5 đủ marker'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
 
+function fceReadingPrompt(content: ExamPaperContent, focusedPart?: number) {
+  const selected = focusedPart ? [focusedPart] : [1, 2, 3];
+  const choice = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({ label: String.fromCharCode(65 + index), text: `${prefix} ${String.fromCharCode(65 + index)}` }));
+  const templates: Record<number, unknown> = {
+    1: { partNumber: 1, ...FCE_READING_PART_HEADERS[0], blocks: [{ blockNumber: 1, title: 'Article and four-choice questions', interaction: { family: 'choice', subtype: 'single', variant: 'passage-four-choice', schemaVersion: 1 }, content: { passage: 'TRANSCRIBE THE COMPLETE ARTICLE.', questions: Array.from({ length: 8 }, (_, index) => ({ questionNumber: index + 1, prompt: `Question ${index + 1}`, type: 'single-choice', options: choice(4, 'Option'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } })) } }] },
+    2: { partNumber: 2, ...FCE_READING_PART_HEADERS[1], blocks: [{ blockNumber: 1, title: 'Gapped article and sentence bank', interaction: { family: 'text-entry', subtype: 'letter', variant: 'gapped-text-letter-entry', schemaVersion: 1 }, content: { passage: 'Text before [[9]] and after the gap. Continue with exactly one marker for [[10]], [[11]], [[12]], [[13]], [[14]] and [[15]].', questions: Array.from({ length: 7 }, (_, index) => ({ questionNumber: index + 9, prompt: `Gap ${index + 9}`, type: 'single-choice', options: choice(8, 'Complete sentence'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: [String.fromCharCode(65 + index)] } })) } }] },
+    3: { partNumber: 3, ...FCE_READING_PART_HEADERS[2], blocks: [{ blockNumber: 1, title: 'Four people and multiple matching', interaction: { family: 'text-entry', subtype: 'letter', variant: 'multiple-matching-letter-entry', schemaVersion: 1 }, content: { questions: Array.from({ length: 15 }, (_, index) => ({ questionNumber: index + 16, prompt: `Statement ${index + 16}`, type: 'single-choice', options: choice(4, 'Person'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['A'] } })) } }] },
+  };
+  return `Bạn là chuyên gia số hóa Cambridge B2 First (FCE) Reading từ ảnh/PDF đề bài và official answer key.
+
+MỤC TIÊU CỐ ĐỊNH
+- ${focusedPart ? `CHỈ trả Part ${focusedPart}; papers[0].parts chỉ có đúng Part ${focusedPart}.` : 'Trả đúng 3 Part theo thứ tự 1–3.'}
+- Số câu phải đúng 8–7–15, giữ đúng questionNumber 1–30 như đề nguồn.
+- title và instruction phải chép đầy đủ từ đề nguồn. Không rút gọn hoặc đổi thành tiêu đề chủ đề.
+- Chỉ lấy đáp án từ official answer key. Nếu key không rõ, dùng answerSource "unverified" và để answerKey rỗng; không đoán.
+- Không trả ID kỹ thuật, URL, base64 hoặc media. Ảnh bốn đoạn A–D của Part 3 do giáo viên tải riêng trong editor.
+
+QUY TẮC TỪNG PART
+- Part 1: content.passage là toàn bộ bài đọc, giữ tiêu đề/phụ đề/xuống dòng. Trả đúng 8 question; mỗi câu đúng bốn options A/B/C/D và một official correctOptionLabels.
+- Part 2: content.passage là toàn bộ bài đọc. Thay chính xác bảy câu bị khuyết bằng marker [[9]] đến [[15]], mỗi marker xuất hiện đúng một lần ngay trong văn cảnh. Trả đúng 7 question; MỌI question phải lặp cùng tám đoạn hoàn chỉnh A–H, cùng thứ tự và nguyên văn. Giao diện chỉ hiển thị ngân hàng A–H để đọc, học sinh nhập chữ cái trực tiếp tại marker; không tạo radio/option chọn bên dưới.
+- Part 3: ảnh nguồn chứa bốn đoạn/người A–D sẽ được giáo viên gắn. JSON trả đúng 15 prompt của câu 16–30. MỌI question lặp cùng bốn options A–D theo cùng thứ tự; option text là tên/nhãn ngắn của người hoặc đoạn tương ứng. Giao diện đặt ảnh bên trái, câu hỏi và ô nhập A/B/C/D bên phải.
+
+QUY TẮC AN TOÀN
+- Kết quả là đúng một JSON object exam-bundle-import-v2, không giải thích ngoài JSON.
+- Không trả id, questionId, questionIds, optionId, imageAssetId, imageUrl, correctOptionIds, acceptedAnswers, URL, base64 hoặc đường dẫn file.
+- exam.moduleId phải là "fce" và paperId phải là "reading".
+
+JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa bằng dữ liệu thật):
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'fce', title: content.title, description: content.description, level: 'B2 First' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 60, parts: selected.map(part => templates[part]) }] }, null, 2)}
+
+Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng số câu và đúng variant đã khóa` : 'đủ 3 Part với 8–7–15 câu'}, Part 2 có đủ marker 9–15 và cùng ngân hàng A–H, Part 3 có đủ câu 16–30 và cùng A–D, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
+}
+
 function petWritingPrompt(content: ExamPaperContent, focusedPart?: number) {
   const selected = focusedPart ? [focusedPart] : [1, 2, 3];
   const templates: Record<number, unknown> = {
@@ -633,6 +667,7 @@ function buildUniversalExamPrompt(content: ExamPaperContent, focusedPart?: numbe
   if (content.moduleId === 'pet' && content.paperId === 'reading' && content.templateVersion === 'pet-reading-5-v1') return petReadingPrompt(content, focusedPart);
   if (content.moduleId === 'pet' && content.paperId === 'listening' && content.templateVersion === 'pet-listening-4-v1') return petListeningPrompt(content, focusedPart);
   if (content.moduleId === 'pet' && content.paperId === 'writing' && content.templateVersion === 'pet-writing-3-v1') return petWritingPrompt(content, focusedPart);
+  if (content.moduleId === 'fce' && content.paperId === 'reading' && content.templateVersion === 'fce-reading-3-v1') return fceReadingPrompt(content, focusedPart);
   const context = JSON.stringify({
     moduleId: content.moduleId,
     paperId: content.paperId,

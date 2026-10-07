@@ -20,6 +20,7 @@ import { isFixedKetListeningContent, normalizeFixedKetListeningContent } from '.
 import { isFixedPetReadingContent, normalizeFixedPetReadingContent } from './petReadingMigration';
 import { isFixedPetListeningContent, normalizeFixedPetListeningContent } from './petListeningMigration';
 import { isFixedPetWritingContent, normalizeFixedPetWritingContent } from './petWritingMigration';
+import { FCE_READING_DEFAULT_COUNTS, isFixedFceReadingContent, normalizeFixedFceReadingContent } from './fceReadingMigration';
 
 const MAX_PARTS = 20;
 const MAX_BLOCKS_PER_PART = 20;
@@ -686,6 +687,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   const fixedPetReading = isFixedPetReadingContent(current);
   const fixedPetListening = isFixedPetListeningContent(current);
   const fixedPetWriting = isFixedPetWritingContent(current);
+  const fixedFceReading = isFixedFceReadingContent(current);
   if (fixedFlyerListening && rawParts.length !== 5) throw new Error('Flyers Listening phải có đúng 5 Part.');
   if (fixedFlyerReadingWriting && rawParts.length !== 7) throw new Error('Flyers Reading & Writing phải có đúng 7 Part.');
   if (fixedStarterReadingWriting && rawParts.length !== 5) throw new Error('Starters Reading & Writing phải có đúng 5 Part.');
@@ -694,10 +696,12 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   if (fixedPetReading && rawParts.length !== 5) throw new Error('PET Reading phải có đúng 5 Part.');
   if (fixedPetListening && rawParts.length !== 4) throw new Error('PET Listening phải có đúng 4 Part.');
   if (fixedPetWriting && rawParts.length !== 3) throw new Error('PET Writing phải có đúng 3 Part.');
+  if (fixedFceReading && rawParts.length !== 3) throw new Error('FCE Reading phải có đúng 3 Part.');
   const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedPetWriting && built.some((item, index) => item.part.questions.length !== [5, 1, 1][index])) throw new Error('PET Writing yêu cầu số câu theo Part là 5–1–1.');
+  if (fixedFceReading && built.some((item, index) => item.part.questions.length !== FCE_READING_DEFAULT_COUNTS[index])) throw new Error('FCE Reading yêu cầu số câu theo Part là 8–7–15.');
   const builtParts = fixedFlyerListening
     ? built.map((item, index) => normalizeFlyerListeningPart(item.part, current.parts[index]))
     : built.map(item => item.part);
@@ -713,13 +717,15 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
             ? normalizeFixedPetListeningContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
             : fixedPetWriting
               ? normalizeFixedPetWritingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
+              : fixedFceReading
+                ? normalizeFixedFceReadingContent({ ...current, schemaVersion: EXAM_CONTENT_SCHEMA_VERSION, structureMode: 'definition', parts: builtParts })
           : undefined;
   const parts = fixedContent?.parts || builtParts;
   return {
     content: {
       ...current,
       schemaVersion: EXAM_CONTENT_SCHEMA_VERSION,
-      ...(fixedStarterReadingWriting || fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting || fixedPetReading || fixedPetListening || fixedPetWriting ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
+      ...(fixedStarterReadingWriting || fixedFlyerListening || fixedFlyerReadingWriting || fixedKetListening || fixedKetReadingWriting || fixedPetReading || fixedPetListening || fixedPetWriting || fixedFceReading ? { structureMode: 'definition' as const } : { structureMode: 'dynamic' as const }),
       title: cleanText(paper.title || exam.title, 240) || current.title,
       description: cleanText(paper.description || exam.description, 4_000) || current.description,
       level: cleanText(paper.level || exam.level, 240) || current.level,
@@ -785,6 +791,13 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
     if (built.part.questions.length !== expected) throw new Error(`PET Writing Part ${partIndex + 1} phải có đúng ${expected} câu/task.`);
     const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
     const normalizedContent = normalizeFixedPetWritingContent({ ...currentContent, parts });
+    return { ...built, part: normalizedContent.parts[partIndex] };
+  }
+  if (isFixedFceReadingContent(currentContent)) {
+    const expected = FCE_READING_DEFAULT_COUNTS[partIndex];
+    if (built.part.questions.length !== expected) throw new Error(`FCE Reading Part ${partIndex + 1} phải có đúng ${expected} câu.`);
+    const parts = currentContent.parts.map((part, index) => index === partIndex ? built.part : part);
+    const normalizedContent = normalizeFixedFceReadingContent({ ...currentContent, parts });
     return { ...built, part: normalizedContent.parts[partIndex] };
   }
   return built;

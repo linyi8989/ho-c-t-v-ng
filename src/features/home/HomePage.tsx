@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Award,
-  BookOpen,
   FileText,
   GraduationCap,
   History,
@@ -14,8 +13,11 @@ import type { GrammarSet, VocabSet } from '../../types';
 import type { LeaderboardPeriod } from '../../lib/leaderboard';
 import { formatGradeLabel } from './homeSearch';
 import { getWeeklyLearningQuote } from './homeContent';
+import './home-theme.css';
 
 const ListeningLibraryHome = React.lazy(() => import('../listening-library/student/ListeningLibraryHome'));
+const SpeakingEntry = React.lazy(() => import('../speaking/Student').then(module => ({ default: module.SpeakingEntry })));
+const CompetitionEntry = React.lazy(() => import('../ioe-violympic/Student').then(module => ({ default: module.CompetitionEntry })));
 
 interface HomeUser {
   name?: string;
@@ -153,9 +155,7 @@ export default function HomePage({
   const weeklyLearningQuote = React.useMemo(() => getWeeklyLearningQuote(), []);
 
   return (
-    <div className="min-h-screen bg-transparent text-slate-100 flex flex-col animate-fade-in" id="app-root">
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl -z-10" />
-      <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-3xl -z-10" />
+    <div className="min-h-screen bg-transparent text-slate-100 flex flex-col animate-fade-in" id="app-root" data-home-theme="storybook">
 
       {isStaff && adminMode && (
         <div className="bg-indigo-600 text-white px-4 py-2 flex justify-between items-center text-xs font-bold shadow-sm" id="student-preview-admin-bar">
@@ -173,11 +173,20 @@ export default function HomePage({
       <nav className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 shadow-xs" id="navbar">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center space-x-3">
-            <span className="shrink-0 p-2.5 bg-indigo-600 text-white rounded-2xl shadow-md">
-              <BookOpen size={20} />
+            <span className="home-brand-mark shrink-0 rounded-2xl">
+              <img id="home-brand-logo" src="/logo.png" width="32" height="32" alt="" />
             </span>
             <div className="min-w-0">
-              <span className="block truncate text-base font-black leading-none tracking-tight text-gray-900 sm:text-lg">Tiếng Anh Cô Diệu</span>
+              <span className="home-brand-wordmark">
+                <img
+                  id="home-brand-wordmark"
+                  src="/assets/branding/home-wordmark-v1.webp"
+                  width="2152"
+                  height="731"
+                  alt="Tiếng Anh Cô Diệu"
+                  decoding="async"
+                />
+              </span>
             </div>
           </div>
 
@@ -201,7 +210,7 @@ export default function HomePage({
                       {user.role === 'super_admin' ? 'Super Admin' : user.role === 'teacher' ? 'Giáo viên' : 'Học sinh'}
                     </span>
                   </div>
-                  <div className="w-9 h-9 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-black text-sm">
+                  <div className="home-user-badge w-9 h-9 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-black text-sm">
                     {(user.name || 'S').charAt(0).toUpperCase()}
                   </div>
                 </div>
@@ -209,6 +218,7 @@ export default function HomePage({
                   onClick={onLogout}
                   className="flex items-center justify-center p-2 bg-gray-50 hover:bg-rose-50 hover:text-rose-600 text-gray-400 rounded-xl transition-all cursor-pointer border border-gray-100"
                   title="Đăng xuất tài khoản"
+                  aria-label="Đăng xuất tài khoản"
                   id="user-logout-btn"
                 >
                   <LogOut size={16} />
@@ -263,57 +273,65 @@ export default function HomePage({
         </figure>
       </header>
 
-      <main className="max-w-6xl w-full mx-auto px-4 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 mt-4 pb-20">
+      <main className="home-content max-w-6xl w-full mx-auto px-4 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 mt-4 pb-20">
         <section className="lg:col-span-8 space-y-6" id="home-sets-directory">
           <ListeningLibraryHome embedded onNavigate={onNavigate} />
+          <CompetitionEntry onNavigate={onNavigate} />
+          <SpeakingEntry onNavigate={onNavigate} />
 
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 pt-8 pb-4 border-t border-b border-gray-200">
-            <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
-              <GraduationCap className="text-indigo-600" size={24} />
-              <span>Luyện từ vựng</span>
-            </h2>
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <div className="relative w-full sm:w-72">
-                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Tìm bài học, ví dụ: số đếm, number..."
-                  className="w-full p-2.5 pl-10 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 placeholder-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-                />
+          <section className="home-library-panel" aria-labelledby="home-vocab-heading">
+            <div className="home-library-toolbar flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <h2 id="home-vocab-heading" className="text-xl font-black text-gray-900 flex items-center gap-2">
+                <GraduationCap className="text-indigo-600" size={24} />
+                <span>Luyện từ vựng</span>
+              </h2>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-72">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    id="home-vocab-search"
+                    type="text"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Tìm bài học, ví dụ: số đếm, number..."
+                    aria-label="Tìm bài học từ vựng"
+                    className="w-full p-2.5 pl-10 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 placeholder-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                  />
+                </div>
+                <select
+                  id="home-vocab-grade-filter"
+                  value={grade}
+                  onChange={(event) => setGrade(event.target.value)}
+                  aria-label="Lọc bài từ vựng theo khối lớp"
+                  className="p-2.5 px-4 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+                >
+                  <option value="">Tất cả khối lớp</option>
+                  {gradeOptions.map(option => <option key={option} value={option}>{formatGradeLabel(option)}</option>)}
+                </select>
               </div>
-              <select
-                value={grade}
-                onChange={(event) => setGrade(event.target.value)}
-                className="p-2.5 px-4 bg-white border border-gray-200 rounded-xl outline-none text-xs font-bold text-gray-600 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
-              >
-                <option value="">Tất cả khối lớp</option>
-                {gradeOptions.map(option => <option key={option} value={option}>{formatGradeLabel(option)}</option>)}
-              </select>
             </div>
-          </div>
 
-          {filteredVocabSets.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">
-              Chưa có bộ từ vựng công khai nào phù hợp.
-            </div>
-          ) : (
-            <HomeLessonList
-              ariaLabel="Danh sách bài học từ vựng"
-              getGrade={set => set.gradeLevel}
-              getTitle={set => set.title}
-              getTopic={set => set.subject}
-              id="home-sets-grid"
-              items={filteredVocabSets}
-              onOpen={onOpenVocab}
-              rowIdPrefix="home-set"
-              tone="vocab"
-            />
-          )}
+            {filteredVocabSets.length === 0 ? (
+              <div className="home-empty-state p-12 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">
+                Chưa có bộ từ vựng công khai nào phù hợp.
+              </div>
+            ) : (
+              <HomeLessonList
+                ariaLabel="Danh sách bài học từ vựng"
+                getGrade={set => set.gradeLevel}
+                getTitle={set => set.title}
+                getTopic={set => set.subject}
+                id="home-sets-grid"
+                items={filteredVocabSets}
+                onOpen={onOpenVocab}
+                rowIdPrefix="home-set"
+                tone="vocab"
+              />
+            )}
+          </section>
 
-          <div className="pt-8 space-y-4 border-t border-gray-200" id="home-grammar-directory">
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <div className="home-library-panel space-y-4" id="home-grammar-directory">
+            <div className="home-library-toolbar flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
                 <FileText className="text-emerald-600" size={22} />
                 <span className="whitespace-nowrap">Luyện ngữ pháp</span>
@@ -344,7 +362,7 @@ export default function HomePage({
               </div>
             </div>
             {filteredGrammarSets.length === 0 ? (
-              <div className="p-8 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">Chưa có bài ngữ pháp công khai phù hợp.</div>
+              <div className="home-empty-state p-8 text-center bg-white rounded-3xl border border-gray-100 shadow-sm text-gray-400 text-sm">Chưa có bài ngữ pháp công khai phù hợp.</div>
             ) : (
               <HomeLessonList
                 ariaLabel="Danh sách bài học ngữ pháp"
@@ -363,12 +381,12 @@ export default function HomePage({
 
         <aside className="lg:col-span-4 space-y-6" id="home-sidebar">
           <div className="bg-gradient-to-br from-slate-950 to-indigo-950 text-white rounded-3xl p-6 border border-white/10 shadow-md space-y-4" id="student-golden-board">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div className="home-golden-heading flex items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
-                <Award className="text-amber-300 animate-pulse" size={20} />
+                <Award size={20} aria-hidden="true" />
                 <h3 className="font-extrabold text-base">Bảng Vàng</h3>
               </div>
-              <select value={leaderboardPeriod} onChange={(event) => setLeaderboardPeriod(event.target.value as LeaderboardPeriod)} className="bg-white/10 border border-white/10 rounded-xl px-2.5 py-1.5 text-[10px] font-black text-white outline-none" style={{ colorScheme: 'dark' }}>
+              <select aria-label="Thời gian Bảng vàng" value={leaderboardPeriod} onChange={(event) => setLeaderboardPeriod(event.target.value as LeaderboardPeriod)} className="bg-white/10 border border-white/10 rounded-xl px-2.5 py-1.5 text-[10px] font-black text-white outline-none">
                 <option value="week">Tuần này</option>
                 <option value="month">Tháng này</option>
               </select>
@@ -380,26 +398,26 @@ export default function HomePage({
               <div className="text-center py-6 text-white/50 text-xs italic">Chưa có kết quả học tập nào để vinh danh.</div>
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="home-leaderboard-podium grid grid-cols-3 gap-2">
                   {leaderboard.slice(0, 3).map((entry, index) => (
-                    <div key={entry.studentKey || entry.studentName} className="rounded-2xl bg-white/10 border border-white/10 p-3 text-center">
-                      <div className="text-2xl">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
-                      <p className="mt-1 truncate text-xs font-black">{entry.studentName}</p>
+                    <div key={`${entry.studentKey || entry.studentName}-${index}`} className="home-podium-place min-w-0 rounded-2xl bg-white/10 border border-white/10 p-3 text-center" data-rank={index + 1}>
+                      <div className="text-2xl" aria-label={`Hạng ${index + 1}`}>{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
+                      <p className="home-leaderboard-name mt-1 text-xs font-black" title={entry.studentName}>{entry.studentName}</p>
                       <p className="text-[10px] text-amber-200 font-bold">{entry.honorScore} điểm</p>
                     </div>
                   ))}
                 </div>
                 <div className="space-y-2" id="home-leaderboard-list">
                   {leaderboard.map((entry, index) => (
-                    <div key={`${entry.studentKey || entry.studentName}-${index}`} className="flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-3 py-2.5">
+                    <div key={`${entry.studentKey || entry.studentName}-${index}`} className="home-leaderboard-row flex items-center justify-between rounded-2xl bg-white/5 border border-white/10 px-3 py-2.5">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-6 h-6 rounded-full bg-indigo-500/30 text-indigo-100 flex items-center justify-center text-[10px] font-black shrink-0">{index + 1}</span>
+                        <span className="home-rank-badge w-6 h-6 rounded-full bg-indigo-500/30 text-indigo-100 flex items-center justify-center text-[10px] font-black shrink-0">{index + 1}</span>
                         <div className="min-w-0">
-                          <p className="truncate text-xs font-extrabold">{entry.studentName}</p>
+                          <p className="home-leaderboard-name text-xs font-extrabold" title={entry.studentName}>{entry.studentName}</p>
                           <p className="text-[10px] text-white/50">{entry.completedLessons} bài • {entry.averageAccuracy}% đúng • {entry.studyDays} ngày</p>
                         </div>
                       </div>
-                      <span className="text-xs font-black text-amber-200">{entry.honorScore}</span>
+                      <span className="shrink-0 ml-2 text-xs font-black text-amber-200">{entry.honorScore}</span>
                     </div>
                   ))}
                 </div>
@@ -419,7 +437,7 @@ export default function HomePage({
       </main>
 
       <footer className="bg-white border-t border-gray-100 py-6 text-center text-xs text-gray-400" id="footer">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-3">
+        <div className="home-footer-inner max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-3">
           <blockquote className="max-w-3xl text-left text-gray-600 font-semibold leading-relaxed">
             “{weeklyLearningQuote.text}”
             <span className="ml-1 text-indigo-600 font-black">— {weeklyLearningQuote.author}</span>

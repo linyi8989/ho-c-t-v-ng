@@ -1,0 +1,13 @@
+{
+  "cases": [],
+  "exampleCase": {
+    "id": "grade3-word-001",
+    "kind": "word",
+    "referenceText": "apple",
+    "locale": "en-US",
+    "grade": 3,
+    "file": "recordings/apple.wav",
+    "teacherScore": 85
+  },
+  "instructions": "Thêm bản thu được phép sử dụng vào cases. file tính từ thư mục manifest; dùng cùng WAV cho hai provider. Không có dữ liệu demo tự động gửi đi."
+}

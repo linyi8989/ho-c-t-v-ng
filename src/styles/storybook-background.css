@@ -1,0 +1,30 @@
+/* Decorative scenery follows the viewport, not the length of the lesson/list.
+   A fixed layer also works on mobile without background-attachment: fixed.
+   Map scenes with image-aligned hotspots intentionally do not opt in. */
+:is(
+  #student-history-page[data-history-theme="storybook"],
+  #student-area-root[data-vocab-theme="storybook"],
+  #grammar-learning-root,
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"],
+  :is(#root, #app-root) :is(#ioe-violympic-student, #speaking-student)[data-student-module-theme="storybook"],
+  :is(#root, #app-root) [data-student-journey][id]
+) {
+  isolation: isolate;
+  background: #e5f7ff !important;
+}
+
+:is(
+  #student-history-page[data-history-theme="storybook"],
+  #student-area-root[data-vocab-theme="storybook"],
+  #grammar-learning-root,
+  :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"],
+  :is(#root, #app-root) :is(#ioe-violympic-student, #speaking-student)[data-student-module-theme="storybook"],
+  :is(#root, #app-root) [data-student-journey][id]
+)::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: #e5f7ff url('/assets/backgrounds/bg-starter-exam-v1.webp') center / cover no-repeat;
+}

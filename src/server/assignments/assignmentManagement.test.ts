@@ -153,3 +153,19 @@ test('resource ownership and archive authorization remain enforced', async () =>
     (error: any) => error.status === 403,
   );
 });
+
+test('competition fixed papers remain assignable while shared bank scopes cannot become broken assignment links', async () => {
+  const { repository, service } = createService();
+  const admin = { ...teacher, role: 'super_admin' as const };
+  const fixed = { id: 'fixed-competition', title: 'Toán', status: 'published', visibility: 'public', ownerId: teacher.id };
+  repository.resources.set('competition_papers:' + fixed.id, fixed);
+  const result = await service.createAssignment(teacher, { classId: 'class-owned', resourceType: 'competition', resourceId: fixed.id });
+  assert.equal(result.resourceId, fixed.id);
+  repository.resources.set('competition_papers:bank-math-3-school', { ...fixed, id: 'bank-math-3-school', source: 'bank' } as typeof fixed);
+  await assert.rejects(service.createAssignment(admin, { classId: 'class-owned', resourceType: 'competition', resourceId: 'bank-math-3-school' }),
+    (error: unknown) => error instanceof Error && 'status' in error && error.status === 400);
+  repository.resources.set('competition_papers:mistakes-math-3-school', { ...fixed, id: 'mistakes-math-3-school', source: 'mistakes' } as typeof fixed);
+  await assert.rejects(service.createAssignment(admin, { classId: 'class-owned', resourceType: 'competition', resourceId: 'mistakes-math-3-school' }),
+    (error: unknown) => error instanceof Error && 'status' in error && error.status === 400);
+  assert.equal(repository.saved.length, 1);
+});

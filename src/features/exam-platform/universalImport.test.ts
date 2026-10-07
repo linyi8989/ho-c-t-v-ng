@@ -19,7 +19,7 @@ const interaction = (family: string, subtype: string, variant: string) => ({ fam
 
 test('every Kho đề luyện thi prompt requests one copyable ChatGPT JSON code block', () => {
   const definitions = EXAM_PAPER_DEFINITIONS.filter(definition => definition.moduleId !== 'writing');
-  assert.equal(definitions.length, 15);
+  assert.equal(definitions.length, 16);
   for (const definition of definitions) {
     const content = createDefaultExamContent(definition);
     const prompts = [
@@ -33,6 +33,66 @@ test('every Kho đề luyện thi prompt requests one copyable ChatGPT JSON code
       assert.doesNotMatch(prompt, /không Markdown|code fence|Không bọc Markdown|không dùng dấu ```/i);
     }
   }
+});
+
+test('FCE Reading imports the fixed 8–7–15 workflow, keeps the Part 3 image and grades typed letters', () => {
+  const current = createDefaultExamContent(getExamPaperDefinition('fce', 'reading')!);
+  current.parts[2].imageAssetId = 'fce-four-people-image';
+  current.parts[2].imageUrl = '/media/fce-four-people-image.png';
+  assert.equal(current.templateVersion, 'fce-reading-3-v1');
+  assert.deepEqual(current.parts.map(part => part.questions.length), [8, 7, 15]);
+
+  const options = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
+    label: String.fromCharCode(65 + index),
+    text: `${prefix} ${String.fromCharCode(65 + index)}`,
+  }));
+  const parts = [
+    {
+      partNumber: 1,
+      title: 'Part 1',
+      instruction: 'Read the article and choose A, B, C or D.',
+      blocks: [{ blockNumber: 1, title: 'Article', interaction: interaction('choice', 'single', 'passage-four-choice'), content: {
+        passage: 'A complete two-column newspaper article.',
+        questions: Array.from({ length: 8 }, (_, index) => ({ questionNumber: index + 1, prompt: `Reading question ${index + 1}`, type: 'single-choice', options: options(4, 'Choice'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: ['B'] } })),
+      } }],
+    },
+    {
+      partNumber: 2,
+      title: 'Part 2',
+      instruction: 'Choose the sentence A–H for each gap.',
+      blocks: [{ blockNumber: 1, title: 'Gapped article', interaction: interaction('text-entry', 'letter', 'gapped-text-letter-entry'), content: {
+        passage: 'Opening [[9]] second [[10]] third [[11]] fourth [[12]] fifth [[13]] sixth [[14]] ending [[15]].',
+        questions: Array.from({ length: 7 }, (_, index) => ({ questionNumber: index + 9, prompt: `Gap ${index + 9}`, type: 'single-choice', options: options(8, 'Complete sentence'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: [String.fromCharCode(65 + index)] } })),
+      } }],
+    },
+    {
+      partNumber: 3,
+      title: 'Part 3',
+      instruction: 'Choose from people A–D. People may be chosen more than once.',
+      blocks: [{ blockNumber: 1, title: 'Multiple matching', interaction: interaction('text-entry', 'letter', 'multiple-matching-letter-entry'), content: {
+        questions: Array.from({ length: 15 }, (_, index) => ({ questionNumber: index + 16, prompt: `Who says statement ${index + 16}?`, type: 'single-choice', options: options(4, 'Person'), answerSource: 'official-answer-key', answerKey: { correctOptionLabels: [String.fromCharCode(65 + (index % 4))] } })),
+      } }],
+    },
+  ];
+  const source = JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'fce', title: 'FCE Reading Test', level: 'B2 First' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: 60, parts }] });
+  const imported = importUniversalExamBundle(current, source).content;
+  assert.deepEqual(imported.parts.map(part => part.questions.length), [8, 7, 15]);
+  assert.deepEqual(imported.parts.map(part => part.interaction?.variant), ['passage-four-choice', 'gapped-text-letter-entry', 'multiple-matching-letter-entry']);
+  assert.equal(imported.parts[2].imageAssetId, 'fce-four-people-image');
+  assert.equal(imported.parts[1].questions[0].options.length, 8);
+  assert.equal(new Set(imported.parts[1].questions.map(question => question.options.map(option => option.text).join('|'))).size, 1);
+  assert.deepEqual(validateExamPaperContent(imported), []);
+  const safe = sanitizeExamContentForStudent(imported);
+  assert.equal((safe.parts[0].questions[0] as any).correctOptionIds, undefined);
+  const answers: ExamAnswers = Object.fromEntries(imported.parts.flatMap(part => part.questions.map(question => [question.id, question.correctOptionIds[0]])));
+  const grade = gradeExamAttempt(imported, sanitizeExamAnswers(answers, imported));
+  assert.equal(grade.totalCount, 30);
+  assert.equal(grade.correctCount, 30);
+
+  const prompt = buildUniversalExamImportPrompt(current);
+  assert.match(prompt, /8–7–15/);
+  assert.match(prompt, /marker \[\[9\]\] đến \[\[15\]\]/);
+  assert.match(prompt, /học sinh nhập chữ cái trực tiếp/);
 });
 
 test('PET Reading five-Part JSON preserves teacher media, validates flexible rows and grades on the backend', () => {

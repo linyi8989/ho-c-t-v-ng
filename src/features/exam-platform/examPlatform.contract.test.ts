@@ -69,6 +69,10 @@ const petListeningAuthoringSource = readFileSync(new URL('./admin/PetListeningAu
 const petListeningPlayerSource = readFileSync(new URL('./student/PetListeningViews.tsx', import.meta.url), 'utf8');
 const petListeningMigrationSource = readFileSync(new URL('./petListeningMigration.ts', import.meta.url), 'utf8');
 const petListeningCropSource = readFileSync(new URL('./petListeningCrops.ts', import.meta.url), 'utf8');
+const fceReadingMigrationSource = readFileSync(new URL('./fceReadingMigration.ts', import.meta.url), 'utf8');
+const fceReadingAuthoringSource = readFileSync(new URL('./admin/FceReadingAuthoring.tsx', import.meta.url), 'utf8');
+const fceReadingPlayerSource = readFileSync(new URL('./student/FceReadingViews.tsx', import.meta.url), 'utf8');
+const fceReadingResultSource = readFileSync(new URL('./student/FceReadingResult.tsx', import.meta.url), 'utf8');
 const studentUnderlineInputSource = readFileSync(new URL('./student/StudentUnderlineInput.tsx', import.meta.url), 'utf8');
 const petNoticeFrameSource = readFileSync(new URL('./PetNoticeFrame.tsx', import.meta.url), 'utf8');
 const ketListeningCropSource = readFileSync(new URL('./ketListeningCrops.ts', import.meta.url), 'utf8');
@@ -886,6 +890,48 @@ test('PET Reading keeps the versioned five-Part authoring and student layouts', 
   assert.equal((petNoticeFrameSource.match(/border-0 bg-transparent p-2/g) || []).length, 5);
   assert.match(validationSource, /validatePetReadingPart/);
   assert.match(validationSource, /example không chấm điểm/);
+});
+
+test('FCE Reading keeps the fixed three-Part authoring, typed-letter players and visual review', () => {
+  for (const contract of [
+    "FCE_READING_TEMPLATE_VERSION = 'fce-reading-3-v1'",
+    'FCE_READING_DEFAULT_COUNTS = [8, 7, 15]',
+    "'passage-four-choice'",
+    "'gapped-text-letter-entry'",
+    "'multiple-matching-letter-entry'",
+    'legacy combined paper stays untouched',
+  ]) assert.ok(fceReadingMigrationSource.includes(contract), `FCE Reading migration is missing: ${contract}`);
+  for (const contract of [
+    'id="fce-reading-authoring"',
+    'data-fce-reading-part1-authoring',
+    'data-fce-reading-part2-authoring',
+    'data-fce-reading-part3-authoring',
+    'Các đoạn A–H',
+    'Ảnh chứa bốn đoạn A–D',
+  ]) assert.ok(fceReadingAuthoringSource.includes(contract), `FCE Reading authoring is missing: ${contract}`);
+  for (const contract of [
+    'id="fce-reading-player"',
+    'data-fce-reading-part1-player',
+    'data-fce-reading-part2-player',
+    'data-fce-reading-part3-player',
+    'studentTypedAnswerGuards',
+    'maxLetter="H"',
+    'maxLetter="D"',
+    'Sentences A–H',
+    'lg:grid-cols-[minmax(0,48%)_minmax(0,52%)]',
+  ]) assert.ok(fceReadingPlayerSource.includes(contract), `FCE Reading player is missing: ${contract}`);
+  assert.match(fceReadingResultSource, /id="fce-reading-review-screen"/);
+  assert.match(fceReadingResultSource, /FceReadingPartView/);
+  for (const hook of ['fce-reading-result-home', 'fce-reading-result-review', 'fce-reading-result-retry', 'fce-reading-review-part-tab', 'fce-reading-review-back']) {
+    assert.ok(fceReadingResultSource.includes(hook), `FCE Reading result action is missing: ${hook}`);
+    assert.ok(globalCssSource.includes(hook), `FCE Reading result action contrast CSS is missing: ${hook}`);
+  }
+  assert.match(genericAdminSource, /FceReadingAuthoring/);
+  assert.match(genericAdminSource, /normalizeFixedFceReadingContent/);
+  assert.match(genericPlayerSource, /FceReadingPartView/);
+  assert.match(genericPlayerSource, /FceReadingResult/);
+  assert.match(universalPromptSource, /FCE Reading yêu cầu số câu theo Part là 8–7–15|Số câu phải đúng 8–7–15/);
+  assert.match(validationSource, /validateFceReadingPart/);
 });
 
 test('PET Writing keeps the versioned three-Part authoring, two-task player and readable actions', () => {

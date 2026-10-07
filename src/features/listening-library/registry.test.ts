@@ -52,7 +52,8 @@ test('registry exposes seven exam-directory modules plus the hidden standalone W
     'listening', 'academic-reading', 'academic-writing',
   ]);
   assert.equal(getListeningPaper('starter', 'reading-writing')?.totalQuestionCount, 25);
-  assert.equal(getListeningPaper('fce', 'reading-use-of-english')?.totalQuestionCount, 52);
+  assert.equal(getListeningPaper('fce', 'reading')?.totalQuestionCount, 30);
+  assert.equal(getListeningPaper('fce', 'reading-use-of-english'), undefined);
   assert.equal(getListeningPaper('ielts', 'academic-reading')?.totalQuestionCount, 40);
 });
 

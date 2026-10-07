@@ -54,6 +54,8 @@ function stripReviewSecrets(value: unknown): unknown {
     'solution',
     'visualreview',
     'visualreviewsnapshot',
+    'competitionreview',
+    'speakingreview',
     'listeningreviewtranscripts',
   ]);
   const safe: Record<string, unknown> = {};
@@ -119,12 +121,22 @@ export function normalizeStoredDetail(
     warnings,
   };
   if (canReview) return payload;
+  const pendingReading = payload.extraDetails?.speakingReview as Record<string, unknown> | undefined;
+  const speakingStatus = attempt.sourceType === 'speaking' && pendingReading?.id === attempt.attemptId
+    && ['queued', 'assessing', 'failed'].includes(String(pendingReading.status)) && pendingReading.assessment === null;
+  // Pending pronunciation has no answer key. Expose only its own status/audio,
+  // while keeping the normal pre-submission answer redaction for every source.
+  const readingStatusDetails = speakingStatus ? Object.fromEntries([
+    'id', 'lesson', 'sessionId', 'itemId', 'itemNumber', 'status', 'queueState',
+    'createdAt', 'completedAt', 'durationSeconds', 'error', 'audioAvailable',
+    'assessment', 'feedback', 'feedbackState',
+  ].filter(key => key in pendingReading!).map(key => [key, stripReviewSecrets(pendingReading![key])])) : null;
   return {
     ...payload,
     answerDetails: stripReviewSecrets(payload.answerDetails) as unknown[],
     questionSnapshots: stripReviewSecrets(payload.questionSnapshots) as unknown[],
     optionSnapshots: stripReviewSecrets(payload.optionSnapshots) as unknown[],
-    extraDetails: stripReviewSecrets(payload.extraDetails) as Record<string, unknown>,
+    extraDetails: { ...stripReviewSecrets(payload.extraDetails) as Record<string, unknown>, ...(readingStatusDetails ? { speakingReview: readingStatusDetails } : {}) },
   };
 }
 

@@ -1,9 +1,11 @@
 import { BookOpenText, CheckCircle2, Headphones, Plus, Search } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { getListeningClientModule } from '../clientRegistry';
 import { getListeningModule } from '../registry';
 import ComingSoonModule from '../shared/ComingSoonModule';
 import type { ListeningModuleId, ListeningPaperId } from '../types';
+import StarterSceneAdmin from '../../starter-scene/StarterSceneAdmin';
+import type { SceneModule } from '../../starter-scene/types';
 
 interface ListeningModuleRouterProps {
   moduleId: ListeningModuleId;
@@ -23,6 +25,7 @@ export default function ListeningModuleRouter({ moduleId, token, onBack }: Liste
   const [searchQuery, setSearchQuery] = useState('');
   const [createRequest, setCreateRequest] = useState<{ paperId: ListeningPaperId; key: number } | null>(null);
   const [editorActive, setEditorActive] = useState(false);
+  const [sceneListOpen, setSceneListOpen] = useState(false);
   const createSequence = useRef(0);
 
   useEffect(() => {
@@ -30,6 +33,7 @@ export default function ListeningModuleRouter({ moduleId, token, onBack }: Liste
     setSearchQuery('');
     setCreateRequest(null);
     setEditorActive(false);
+    setSceneListOpen(false);
   }, [moduleId, preferredPaperId]);
 
   if (!manifest) return null;
@@ -90,6 +94,9 @@ export default function ListeningModuleRouter({ moduleId, token, onBack }: Liste
           ))}
         </div>
       </header>
+
+      {moduleId !== 'writing' && <button type="button" className="exam-paper-create-action rounded-xl border px-4 py-2.5 text-sm font-black" disabled={editorActive} onClick={() => setSceneListOpen(true)}>Danh sách link học sinh</button>}
+      {moduleId !== 'writing' && sceneListOpen && <Fragment key={moduleId}><StarterSceneAdmin moduleId={moduleId as SceneModule} token={token} onClose={() => setSceneListOpen(false)} /></Fragment>}
 
       <div className="exam-paper-sort-row flex flex-wrap items-center gap-2" aria-label="Sắp xếp danh sách theo loại bài thi">
         <span className="exam-paper-sort-label text-xs font-black uppercase tracking-wide text-slate-500">Loại đề</span>

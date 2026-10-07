@@ -600,7 +600,10 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
       const usage = await db.collection('listening_asset_usages').where('assetId', '==', asset.id).get();
       const readingUsage = await db.collection('mover_reading_asset_usages').where('assetId', '==', asset.id).get();
       const examUsage = await db.collection('exam_asset_usages').where('assetId', '==', asset.id).get();
-      if (!usage.empty || !readingUsage.empty || !examUsage.empty) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
+      const competitionUsage = process.env.STORAGE_MODE === 'sqlite'
+        ? await db.collection('competition_asset_usages').where('assetId', '==', asset.id).get()
+        : null;
+      if (!usage.empty || !readingUsage.empty || !examUsage.empty || (competitionUsage && !competitionUsage.empty)) throw apiError(409, 'Media đang được một phiên bản đã xuất bản sử dụng.');
       await document.ref.update({ status: 'archived', updatedAt: nowIso() });
       res.json({ success: true });
     } catch (error) {

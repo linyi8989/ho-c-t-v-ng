@@ -28,17 +28,17 @@ const DETAIL_STATUS_LABELS: Record<string, string> = {
 
 function StatusBadges({ item }: { item: LearningHistoryItem }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
-      <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${
+    <div className="history-badges flex flex-wrap gap-1.5">
+      <span data-history-status={item.attemptStatus} className={`rounded-full border px-2 py-1 text-[10px] font-black ${
         item.attemptStatus === 'completed'
           ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
           : item.attemptStatus === 'in_progress'
             ? 'border-blue-200 bg-blue-50 text-blue-700'
             : 'border-amber-200 bg-amber-50 text-amber-700'
       }`}>
-        {STATUS_LABELS[item.attemptStatus] || item.attemptStatus}
+        {item.sourceType === 'speaking' && item.attemptStatus !== 'completed' ? item.attemptStatus === 'interrupted' ? 'Chấm chưa thành công' : 'Đang chờ chấm' : STATUS_LABELS[item.attemptStatus] || item.attemptStatus}
       </span>
-      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+      <span className="history-detail-status rounded-full border px-2 py-1 text-[10px] font-bold">
         {DETAIL_STATUS_LABELS[item.detailStatus] || item.detailStatus}
       </span>
     </div>
@@ -47,7 +47,7 @@ function StatusBadges({ item }: { item: LearningHistoryItem }) {
 
 function LessonInfo({ item }: { item: LearningHistoryItem }) {
   const standaloneWriting = item.gameId === 'exam:writing:writing';
-  const Icon = item.sourceType === 'grammar'
+  const Icon = item.sourceType === 'speaking' ? BookOpenText : item.sourceType === 'grammar'
     ? FileText
     : item.sourceType === 'exam'
       ? BookOpenText
@@ -56,7 +56,7 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
       : item.sourceType === 'reading_writing'
         ? BookOpenText
         : Gamepad2;
-  const sourceLabel = item.sourceType === 'grammar'
+  const sourceLabel = item.sourceType === 'speaking' ? 'Speaking / Luyện đọc' : item.sourceType === 'grammar'
     ? 'Ngữ pháp'
     : item.sourceType === 'exam'
       ? standaloneWriting ? 'Writing' : 'Cambridge & IELTS'
@@ -66,7 +66,7 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
         ? 'Reading & Writing 6 Part'
       : 'Từ vựng';
   return (
-    <div className="min-w-0">
+    <div className="history-lesson-info min-w-0">
       <div className="flex min-w-0 items-start gap-2">
         <Icon size={17} className="mt-0.5 shrink-0 text-indigo-600" aria-hidden="true" />
         <div className="min-w-0">
@@ -87,8 +87,9 @@ function LessonInfo({ item }: { item: LearningHistoryItem }) {
 
 function ResultInfo({ item }: { item: LearningHistoryItem }) {
   const standaloneWriting = item.gameId === 'exam:writing:writing';
+  if (item.sourceType === 'speaking' && item.attemptStatus !== 'completed') return <div className="history-result-info"><p className="font-black text-indigo-700">Chưa có điểm</p><p className="mt-1 text-xs font-semibold text-slate-500">{item.attemptStatus === 'interrupted' ? 'Xem chi tiết để biết lỗi chấm.' : 'Bản thu đã lưu, đang đợi xử lý.'}</p></div>;
   return (
-    <div>
+    <div className="history-result-info">
       <p className="text-xl font-black text-indigo-700">{standaloneWriting ? `${Math.round(item.rawScore ?? item.score / 10)}/10` : `${Math.round(item.score)}/100`}</p>
       {standaloneWriting ? <p className="mt-1 text-[11px] font-semibold text-slate-500">1 bài viết · AI/giáo viên chấm</p> : <p className="mt-1 text-[11px] font-semibold text-slate-500">
         Đúng {item.correctCount} · Sai {item.incorrectCount} · Chưa trả lời {item.unansweredCount}
@@ -113,7 +114,7 @@ function DetailButton({
       type="button"
       disabled={unavailable}
       onClick={event => onViewDetail(item, event.currentTarget)}
-      className="history-detail-button inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-indigo-600 bg-indigo-600 px-3 text-xs font-black text-white disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+      className="history-button history-detail-button"
       aria-label={`Xem chi tiết ${item.lessonTitle}`}
     >
       <Eye size={15} aria-hidden="true" />
@@ -125,7 +126,7 @@ function DetailButton({
 export default function HistoryRow({ item, variant, onViewDetail }: HistoryRowProps) {
   if (variant === 'table') {
     return (
-      <tr className="border-b border-slate-100 align-top last:border-0">
+      <tr className="history-table-row border-b border-slate-100 align-top last:border-0">
         <td className="w-[31%] p-4"><LessonInfo item={item} /></td>
         <td className="w-[19%] p-4"><ResultInfo item={item} /></td>
         <td className="w-[19%] p-4 text-xs font-semibold text-slate-600">
@@ -139,7 +140,7 @@ export default function HistoryRow({ item, variant, onViewDetail }: HistoryRowPr
   }
 
   return (
-    <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="history-panel history-card min-w-0 p-4">
       <LessonInfo item={item} />
       <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
         <ResultInfo item={item} />

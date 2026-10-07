@@ -221,6 +221,8 @@ export default function AssignmentManagementPanel({
                                   ? 'Reading & Writing 6 Part'
                                 : assign.resourceType === 'exam'
                                   ? `${assign.examModuleId || 'Exam'} · ${assign.examPaperId || ''}`
+                                : assign.resourceType === 'competition'
+                                  ? 'IOE/Violympic'
                                 : GAMES_LIST.find(g => g.gameId === assign.gameId)?.title || assign.gameId}
                             </span>
                           </div>
@@ -251,7 +253,7 @@ export default function AssignmentManagementPanel({
                         <div className="flex space-x-1 shrink-0">
                           <button
                             onClick={() => {
-                              if (assign.resourceType === 'listening' || assign.resourceType === 'mover_reading_writing' || assign.resourceType === 'exam') {
+                              if (assign.resourceType === 'listening' || assign.resourceType === 'mover_reading_writing' || assign.resourceType === 'exam' || assign.resourceType === 'competition') {
                                 if (assignmentLink) window.open(assignmentLink, '_blank', 'noopener,noreferrer');
                                 return;
                               }

@@ -1,3 +1,4 @@
+import '../../exam-platform/student/journey-state.css';
 import {
   ArrowLeft,
   BookOpenText,
@@ -311,18 +312,18 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   ] : [], [answers, playable]);
 
   if (loading || (!playable && (!authSessionKnown || authLoading))) return <div className="flex min-h-screen items-center justify-center bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={38} /></div>;
-  if (!playable) return <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center" id="mover-reading-writing-player"><p className="font-black text-rose-700">{error || 'Không tìm thấy bộ đề.'}</p><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black">Quay lại</button></div>;
+  if (!playable) return <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center" data-student-journey="storybook" id="mover-reading-writing-player"><p className="font-black text-rose-700">{error || 'Không tìm thấy bộ đề.'}</p><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black">Quay lại</button></div>;
 
   if (!authSessionKnown || (firebaseUser && authLoading && !identityReady)) return <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50"><LoaderCircle className="animate-spin text-indigo-600" size={34} /><p className="text-sm font-bold text-slate-500">Đang kiểm tra hồ sơ học sinh...</p></div>;
 
   if (!identityReady) return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 to-sky-50 p-5" id="mover-reading-writing-player">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 to-sky-50 p-5" data-student-journey="storybook" id="mover-reading-writing-player">
       <div className="w-full max-w-md rounded-3xl border border-white bg-white p-7 shadow-xl"><BookOpenText className="text-indigo-600" size={34} /><h1 className="mt-4 text-2xl font-black text-slate-900">Nhập tên để bắt đầu</h1><p className="mt-2 text-sm font-semibold text-slate-500">Tên được dùng để lưu kết quả học tập.</p><input disabled={nameSaving} value={studentName} onChange={event => setStudentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !nameSaving) void persistName(); }} className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 font-bold disabled:opacity-60" placeholder="Tên học sinh" />{error && <p className="mt-3 text-sm font-bold text-rose-700">{error}</p>}<button type="button" disabled={nameSaving} onClick={() => void persistName()} className="mover-reading-primary-action mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60">{nameSaving ? 'Đang lưu tên...' : 'Tiếp tục'}</button></div>
     </main>
   );
 
   if (result) return (
-    <main className="min-h-screen bg-gradient-to-b from-indigo-100 via-white to-sky-50 p-4 sm:p-8" id="mover-reading-writing-player">
+    <main className="min-h-screen bg-gradient-to-b from-indigo-100 via-white to-sky-50 p-4 sm:p-8" data-student-journey="storybook" id="mover-reading-writing-player">
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-3xl border border-white bg-white p-7 text-center shadow-xl"><Trophy className="mx-auto text-amber-500" size={54} /><p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">Hoàn thành</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mt-5 text-6xl font-black text-indigo-700">{result.score}</p><p className="mt-2 text-sm font-bold text-slate-500">Đúng {result.correctCount} · Sai {result.incorrectCount} · Bỏ trống {result.unansweredCount}</p><div className="mt-6 flex flex-wrap justify-center gap-3">{playable.content.showReviewAfterSubmit && <button type="button" disabled={reviewLoading} onClick={() => void loadReview()} className="mover-reading-secondary-action inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 font-black text-indigo-700"><Eye size={17} /> {reviewLoading ? 'Đang tải…' : 'Xem đáp án'}</button>}<button type="button" onClick={() => void start(true)} className="mover-reading-primary-action inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-black text-white"><RotateCcw size={17} /> Làm lại</button><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Quay lại</button></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}</section>
         {review && (
@@ -338,7 +339,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   );
 
   if (!run) return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5" id="mover-reading-writing-player">
+    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-100 via-white to-sky-50 p-5" data-student-journey="storybook" id="mover-reading-writing-player">
       <section className="w-full max-w-3xl rounded-3xl border border-white bg-white p-8 text-center shadow-xl">{playable.coverUrl ? <img src={playable.coverUrl} alt="" data-exam-image-profile="cover" className="mx-auto mb-6 h-auto w-auto max-w-full rounded-2xl object-contain" style={{ maxWidth: coverImageProfile.maxWidth, maxHeight: coverImageProfile.maxHeight }} /> : <BookOpenText className="mx-auto text-indigo-600" size={52} />}<p className="mt-4 text-xs font-black uppercase tracking-[.2em] text-indigo-600">Movers · Reading & Writing</p><h1 className="mt-2 text-3xl font-black text-slate-900">{playable.title}</h1><p className="mx-auto mt-3 max-w-xl text-sm font-semibold leading-6 text-slate-500">{playable.description}</p><div className="mt-5 flex flex-wrap justify-center gap-2 text-xs font-black text-slate-700"><span className="rounded-full bg-indigo-50 px-3 py-2">6 Part</span><span className="rounded-full bg-indigo-50 px-3 py-2">40 câu</span><span className="rounded-full bg-indigo-50 px-3 py-2">{playable.timeLimitMinutes ? `${playable.timeLimitMinutes} phút` : 'Không giới hạn'}</span></div>{error && <p className="mt-4 font-bold text-rose-700">{error}</p>}<div className="mt-7 flex justify-center gap-3"><button type="button" onClick={onBack} className="mover-reading-secondary-action rounded-xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700"><ArrowLeft size={17} className="mr-2 inline" />Quay lại</button><button type="button" onClick={() => void start()} className="mover-reading-primary-action rounded-xl bg-indigo-600 px-7 py-3 font-black text-white">Bắt đầu</button></div></section>
     </main>
   );

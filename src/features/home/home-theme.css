@@ -1,0 +1,335 @@
+@import '../starter-scene/fonts.css';
+
+/* Home-only storybook skin. Existing controllers and module routes own behavior. */
+#app-root[data-home-theme="storybook"] {
+  --home-ink: #142d5a;
+  --home-muted: #395475;
+  --home-rim: #c5ecff;
+  --home-frame: inset 0 0 0 5px #fff, inset 0 0 0 7px #e4f6ff, 0 5px 0 #c6e4ef, 0 12px 24px #42658010;
+  position: relative;
+  isolation: isolate;
+  background: #edf9fc !important;
+  color: var(--home-ink) !important;
+  font-family: 'Nunito', ui-sans-serif, sans-serif !important;
+  min-height: 100dvh;
+}
+#app-root[data-home-theme="storybook"]::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 6% 4%, #fff 0 8%, transparent 22%), radial-gradient(ellipse at 95% 18%, #fff 0 5%, transparent 19%), linear-gradient(#d5f3ff, #f6fcf6 65%, #edf8ee);
+}
+#app-root[data-home-theme="storybook"] :is(button, input, select) { font-family: inherit; }
+#app-root[data-home-theme="storybook"] button {
+  min-height: 44px;
+  min-width: 44px;
+  border: 2px solid #efd2a4 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #fffdf7, #fff5e7) !important;
+  color: #65340f !important;
+  font-weight: 800 !important;
+  box-shadow: inset 0 2px 0 #fffefa, inset 0 -1px #f5e4c9, 0 3px 0 #e2c6a1, 0 5px 10px #78512b12 !important;
+  transition: transform .16s ease, box-shadow .16s ease;
+  cursor: pointer;
+  text-decoration: none !important;
+}
+#app-root[data-home-theme="storybook"] button :is(svg, span) { color: inherit !important; }
+#app-root[data-home-theme="storybook"] :is(button, #navbar) svg * { color: inherit !important; }
+#app-root[data-home-theme="storybook"] :is(button, input, select):focus-visible {
+  outline: 3px solid #154baf !important;
+  outline-offset: 4px;
+}
+#app-root[data-home-theme="storybook"] button:disabled {
+  background: #e6edf4 !important;
+  color: #4a5870 !important;
+  border-color: #b7c9d8 !important;
+  box-shadow: inset 0 2px #fff, 0 2px #cbd6df !important;
+  opacity: 1 !important;
+  cursor: not-allowed;
+}
+#app-root[data-home-theme="storybook"] :is(.exam-directory-module-action, .home-lesson-list-action, #home-ioe-violympic-entry button, #home-speaking-entry button, #public-register-btn):not(:disabled) {
+  color: #65340f !important;
+  background: linear-gradient(135deg, #fff0d2, #ffe3bf 55%, #f5d3ae) !important;
+  border-color: #eed0a7 !important;
+  box-shadow: inset 0 2px 0 #fff9e9, inset 0 -2px 0 #efc89c, 0 3px 0 #dcb58c, 0 6px 12px #78512b14 !important;
+}
+#app-root[data-home-theme="storybook"] #home-grammar-list button.home-lesson-list-action:not(:disabled) {
+  color: #65340f !important;
+  background: linear-gradient(135deg, #fff0d2, #ffe3bf 55%, #f5d3ae) !important;
+  border-color: #eed0a7 !important;
+  box-shadow: inset 0 2px #fff9e9, inset 0 -2px #efc89c, 0 3px #dcb58c, 0 6px 12px #78512b14 !important;
+}
+#app-root[data-home-theme="storybook"] :is(#home-sets-grid, #home-grammar-list) button.home-lesson-list-action:not(:disabled) :is(span, svg) { color: #65340f !important; }
+#app-root[data-home-theme="storybook"] #navbar {
+  padding: 14px 20px;
+  background: #eaf8ffeF !important;
+  border: 0 !important;
+  box-shadow: 0 2px 0 #fff9, 0 5px 16px #42819e10 !important;
+  backdrop-filter: none;
+}
+#app-root[data-home-theme="storybook"] #navbar > div > div:first-child > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 5px !important;
+  background: linear-gradient(#fff7e7, #ffdeaa) !important;
+  border: 2px solid #efc891;
+  border-radius: 17px;
+  box-shadow: inset 0 2px #fffdfa, 0 3px #d7b386 !important;
+}
+#app-root[data-home-theme="storybook"] #home-brand-logo { display: block; width: 32px; height: 32px; object-fit: contain; opacity: 1; filter: none; }
+#app-root[data-home-theme="storybook"] .home-brand-wordmark {
+  position: relative;
+  display: block;
+  width: 280px;
+  max-width: 100%;
+  aspect-ratio: 4.3;
+  overflow: hidden;
+}
+#app-root[data-home-theme="storybook"] #home-brand-wordmark {
+  position: absolute;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+#app-root[data-home-theme="storybook"] #navbar :is(span, div) { color: var(--home-ink); }
+#app-root[data-home-theme="storybook"] #navbar #student-history-nav-btn :is(svg, span) { color: #65340f !important; }
+#app-root[data-home-theme="storybook"] #navbar button svg { color: inherit !important; opacity: 1 !important; stroke-width: 2.4px; }
+#app-root[data-home-theme="storybook"] #user-logout-btn { padding: 10px; }
+#app-root[data-home-theme="storybook"] #navbar .home-user-badge { border: 2px solid #e9c598 !important; border-radius: 50%; background: #fff1d9 !important; color: #65340f !important; font-weight: 900; opacity: 1; box-shadow: inset 0 2px #fffdf7, 0 2px #e4c5a0 !important; }
+#app-root[data-home-theme="storybook"] #home-hero {
+  width: calc(100% - 32px);
+  border: 3px solid var(--home-rim) !important;
+  border-radius: 34px !important;
+  background: linear-gradient(115deg, #fffdf3, #f5fbff) !important;
+  box-shadow: var(--home-frame) !important;
+  padding: 32px !important;
+}
+#app-root[data-home-theme="storybook"] #home-hero-title { letter-spacing: -.025em; line-height: 1.13; }
+#app-root[data-home-theme="storybook"] #home-hero-title .home-hero-title-joy { color: #b55213 !important; }
+#app-root[data-home-theme="storybook"] #home-hero-title .home-hero-title-brand { color: #1554b5 !important; background-image: linear-gradient(120deg, #fff0b9, #ffe399); }
+#app-root[data-home-theme="storybook"] #home-hero p { color: var(--home-muted) !important; }
+#app-root[data-home-theme="storybook"] .home-content { margin-top: 28px; gap: 24px; padding-bottom: 32px; }
+#app-root[data-home-theme="storybook"] :is(#home-sets-directory, #home-sidebar) { min-width: 0; }
+#app-root[data-home-theme="storybook"] #home-sets-directory { display: flex; flex-direction: column; gap: 24px; }
+#app-root[data-home-theme="storybook"] #home-sets-directory > * { margin-block: 0 !important; }
+#app-root[data-home-theme="storybook"] :is(#home-listening-directory, .home-library-panel, #home-ioe-violympic-entry, #home-speaking-entry, #system-info-card) {
+  position: relative;
+  min-width: 0;
+  padding: 24px;
+  border: 3px solid var(--home-rim) !important;
+  border-radius: 32px !important;
+  background: #fffdf4 !important;
+  box-shadow: var(--home-frame) !important;
+  color: var(--home-ink) !important;
+}
+#app-root[data-home-theme="storybook"] :is(#home-listening-directory, .home-library-panel) h2 { color: var(--home-ink) !important; font-size: 21px; }
+#app-root[data-home-theme="storybook"] :is(#home-listening-directory, .home-library-panel) h2 svg { color: #1860cb !important; }
+#app-root[data-home-theme="storybook"] #home-listening-directory > div:first-child { padding-right: 34px; }
+#app-root[data-home-theme="storybook"] #home-listening-directory > div:first-child p { color: var(--home-muted) !important; }
+#app-root[data-home-theme="storybook"] #home-listening-directory > div:first-child p:first-child { color: #1554b5 !important; }
+#app-root[data-home-theme="storybook"] :is(#home-listening-directory, #home-ioe-violympic-entry, #home-speaking-entry, #system-info-card)::after {
+  content: '';
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  right: 22px;
+  top: 23px;
+  background: url('/assets/vocabulary/vocab-decoration-atlas-v1.webp') 100% 0 / 200% 200%;
+  pointer-events: none;
+}
+#app-root[data-home-theme="storybook"] #home-listening-directory > div:last-child { gap: 14px; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-card {
+  --home-card-rim: #b7dfff;
+  --home-card-bg: #edf7ff;
+  border: 2px solid var(--home-card-rim) !important;
+  border-radius: 24px !important;
+  background: linear-gradient(#fff, var(--home-card-bg)) !important;
+  padding: 16px 12px 18px;
+  height: auto;
+  min-height: 220px;
+  box-shadow: inset 0 2px #fff, 0 3px var(--home-card-rim), 0 7px 14px #3b608b0c !important;
+}
+#app-root[data-home-theme="storybook"] [data-exam-module-card="starter"] { --home-card-rim: #ffc9d6; --home-card-bg: #fff0f4; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="mover"] { --home-card-rim: #ffe0a2; --home-card-bg: #fff8e7; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="flyer"] { --home-card-rim: #b7e9cf; --home-card-bg: #edfbf1; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="fce"] { --home-card-rim: #d7c5ff; --home-card-bg: #f5f0ff; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="ielts"] { --home-card-rim: #c6d1ff; --home-card-bg: #f0f3ff; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-title { color: var(--home-ink) !important; font-size: 20px; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-level { color: #335181 !important; letter-spacing: .04em; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-icon {
+  width: 40px;
+  height: 40px;
+  border: 2px solid #e7c291 !important;
+  border-radius: 50%;
+  background: #ffdfab url('/assets/lesson-cards/starter-wood-cards-v2.webp') -73px var(--home-mascot-y, -4px) / 307.2px 204.8px no-repeat !important;
+  box-shadow: inset 0 1px #fff8dc, 0 2px #d4ad78 !important;
+}
+#app-root[data-home-theme="storybook"] .exam-directory-module-icon svg { display: none; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="starter"] { --home-mascot-y: -4px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="mover"] { --home-mascot-y: -42px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="flyer"] { --home-mascot-y: -84px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="ket"] { --home-mascot-y: -122px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="pet"] { --home-mascot-y: -162px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="fce"] { --home-mascot-y: -42px; }
+#app-root[data-home-theme="storybook"] [data-exam-module-card="ielts"] { --home-mascot-y: -84px; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-description { font-size: 13px; color: var(--home-muted) !important; line-height: 1.5; margin-bottom: 16px; }
+#app-root[data-home-theme="storybook"] .exam-directory-module-action { margin-top: auto; font-size: 12px !important; padding: 8px !important; }
+#app-root[data-home-theme="storybook"] :is(#home-ioe-violympic-entry, #home-speaking-entry) { margin-block: 0; padding-right: 62px; }
+#app-root[data-home-theme="storybook"] :is(#home-ioe-violympic-entry, #home-speaking-entry) h2 { font-size: 22px !important; margin: 0 0 10px; }
+#app-root[data-home-theme="storybook"] :is(#home-ioe-violympic-entry, #home-speaking-entry) p { font-size: 14px; color: var(--home-muted) !important; margin-bottom: 16px; line-height: 1.65; }
+#app-root[data-home-theme="storybook"] :is(#home-ioe-violympic-entry, #home-speaking-entry) button {
+  width: 184px;
+  max-width: 100%;
+  font-family: 'Nunito', ui-sans-serif, sans-serif !important;
+  font-weight: 500 !important;
+  font-size: 16px;
+  line-height: 1.5;
+}
+#app-root[data-home-theme="storybook"] #home-speaking-entry { background: linear-gradient(110deg, #fffdf4, #eef8ff) !important; }
+#app-root[data-home-theme="storybook"] .home-library-toolbar { flex-wrap: wrap; gap: 14px; padding-bottom: 18px; }
+#app-root[data-home-theme="storybook"] .home-library-toolbar > div { flex: 1 1 100%; }
+#app-root[data-home-theme="storybook"] .home-library-toolbar > div > div { width: auto; flex: 1 1 55%; min-width: 0; }
+#app-root[data-home-theme="storybook"] .home-library-toolbar > div > select { flex: 1 1 35%; min-width: 0; }
+#app-root[data-home-theme="storybook"] :is(input, select) {
+  min-height: 44px;
+  max-width: 100%;
+  border: 2px solid #c4e3ff !important;
+  border-radius: 18px !important;
+  background: linear-gradient(#fff, #f1f8ff) !important;
+  color: #30486b !important;
+  box-shadow: inset 0 2px #fff, 0 2px #d7e8f1;
+  font-size: 12px;
+  color-scheme: light;
+}
+#app-root[data-home-theme="storybook"] input::placeholder { color: #4f6381; opacity: 1; }
+#app-root[data-home-theme="storybook"] .home-lesson-list {
+  border: 2px solid #c5e4ff !important;
+  border-radius: 22px !important;
+  background: #fff !important;
+  box-shadow: inset 0 2px #fff, 0 3px #e1edf5 !important;
+}
+#app-root[data-home-theme="storybook"] .home-lesson-list-header { background: #edf6ff !important; color: #365579 !important; letter-spacing: .035em; }
+#app-root[data-home-theme="storybook"] .home-lesson-list-row { border-color: #dcecff !important; min-height: 76px; gap: 10px; }
+#app-root[data-home-theme="storybook"] .home-lesson-list-title { color: var(--home-ink) !important; font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+#app-root[data-home-theme="storybook"] :is(.home-lesson-list-grade, .home-lesson-list-topic) { color: var(--home-muted) !important; }
+#app-root[data-home-theme="storybook"] .home-lesson-list-index { font-weight: 800; color: #2056af !important; }
+#app-root[data-home-theme="storybook"] .home-lesson-list-action { padding: 8px 12px !important; }
+#app-root[data-home-theme="storybook"] #home-grammar-list { border-color: #bfe5cd !important; }
+#app-root[data-home-theme="storybook"] #home-grammar-list .home-lesson-list-header { background: #eef9ef !important; }
+#app-root[data-home-theme="storybook"] .home-empty-state { padding: 28px 16px; background: #f4faff !important; border: 1px dashed #accde4 !important; border-radius: 22px !important; color: var(--home-muted) !important; box-shadow: none !important; }
+#app-root[data-home-theme="storybook"] #student-golden-board {
+  position: relative;
+  padding: 24px;
+  border: 3px solid #ffe3a0 !important;
+  border-radius: 32px !important;
+  background: linear-gradient(#fff8df, #fffdf4) !important;
+  box-shadow: inset 0 0 0 5px #fffdf0, inset 0 0 0 7px #ffedbc, 0 5px #e8cf92, 0 12px 24px #8b6b2612 !important;
+}
+#app-root[data-home-theme="storybook"] #student-golden-board :is(h3, p, span) { color: var(--home-ink) !important; }
+#app-root[data-home-theme="storybook"] #student-golden-board > p { color: #645033 !important; font-size: 12px; line-height: 1.7; }
+#app-root[data-home-theme="storybook"] .home-golden-heading { border-bottom: 1px solid #efd8a3; padding-bottom: 16px; flex-wrap: wrap; }
+#app-root[data-home-theme="storybook"] .home-golden-heading > div { gap: 9px; }
+#app-root[data-home-theme="storybook"] .home-golden-heading svg { display: none; }
+#app-root[data-home-theme="storybook"] .home-golden-heading > div::before {
+  content: '';
+  width: 42px;
+  height: 42px;
+  background: url('/assets/vocabulary/vocab-decoration-atlas-v1.webp') 0 100% / 200% 200%;
+  flex: none;
+}
+#app-root[data-home-theme="storybook"] .home-golden-heading h3 { font-size: 20px; font-weight: 900; }
+#app-root[data-home-theme="storybook"] #student-golden-board select { background: #fffef7 !important; border-color: #eed39b !important; color: #644418 !important; font-size: 11px; min-height: 44px; }
+#app-root[data-home-theme="storybook"] .home-leaderboard-podium { gap: 8px; align-items: end; }
+#app-root[data-home-theme="storybook"] .home-podium-place { padding: 12px 8px; border: 2px solid #dce6f0 !important; border-radius: 20px; background: #f4faff !important; box-shadow: inset 0 2px #fff, 0 3px #dce6f0 !important; }
+#app-root[data-home-theme="storybook"] .home-podium-place[data-rank="1"] { border-color: #f2d393 !important; background: linear-gradient(#fffef7, #fff0bb) !important; padding-top: 22px; box-shadow: inset 0 2px #fff, 0 3px #ecd093 !important; }
+#app-root[data-home-theme="storybook"] .home-podium-place[data-rank="3"] { border-color: #efd3bc !important; background: #fff5eb !important; }
+#app-root[data-home-theme="storybook"] .home-leaderboard-row { border: 1px solid #efdfb9 !important; background: #fff !important; padding: 12px 10px; box-shadow: 0 2px #f5e8ce !important; gap: 6px; }
+#app-root[data-home-theme="storybook"] #home-leaderboard-list .home-rank-badge { background: #fff0b9; color: #724f14 !important; width: 28px; height: 28px; border: 1px solid #f0d08b; }
+#app-root[data-home-theme="storybook"] .home-leaderboard-row p:last-child { color: #4e5e73 !important; }
+#app-root[data-home-theme="storybook"] #system-info-card { padding-right: 46px; background: linear-gradient(#f5fbff, #fffdf4) !important; }
+#app-root[data-home-theme="storybook"] #system-info-card :is(h4, p, span, svg, div) { color: var(--home-ink) !important; }
+#app-root[data-home-theme="storybook"] #system-info-card > div { color: #1554b5 !important; }
+#app-root[data-home-theme="storybook"] #system-info-card p { color: var(--home-muted) !important; font-size: 12px; }
+#app-root[data-home-theme="storybook"] #system-info-card h4 { font-size: 17px; }
+#app-root[data-home-theme="storybook"] #footer {
+  position: relative;
+  isolation: isolate;
+  padding: 54px 16px 36px;
+  border: 0 !important;
+  background: transparent !important;
+}
+#app-root[data-home-theme="storybook"] #footer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(#edf8ee, #edf8ee00 40%), url('/assets/backgrounds/bg-starter-exam-v1.webp') center bottom / cover;
+  pointer-events: none;
+}
+#app-root[data-home-theme="storybook"] .home-footer-inner {
+  position: relative;
+  padding: 26px 30px 26px 94px;
+  border: 3px solid #c5ecff;
+  border-radius: 32px;
+  background: #fffdf5f5;
+  box-shadow: var(--home-frame);
+}
+#app-root[data-home-theme="storybook"] .home-footer-inner::before {
+  content: '';
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  background: url('/assets/vocabulary/vocab-decoration-atlas-v1.webp') 0 0 / 200% 200%;
+  pointer-events: none;
+}
+#app-root[data-home-theme="storybook"] #footer :is(blockquote, span) { color: var(--home-ink) !important; font-size: 12px; }
+#app-root[data-home-theme="storybook"] #footer blockquote span { color: #1752af !important; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  #app-root[data-home-theme="storybook"] button:not(:disabled):hover { transform: translateY(-2px); filter: brightness(1.02); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-root[data-home-theme="storybook"], #app-root[data-home-theme="storybook"] * { animation: none !important; transition: none !important; }
+  #app-root[data-home-theme="storybook"] button:hover { transform: none; }
+}
+@media (min-width: 1024px) {
+  #app-root[data-home-theme="storybook"] .home-lesson-list-header,
+  #app-root[data-home-theme="storybook"] .home-lesson-list-row { grid-template-columns: 24px minmax(0, 1.25fr) 70px minmax(0, 1fr) 92px; padding-inline: 14px; }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  #app-root[data-home-theme="storybook"] #home-sidebar { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 24px; }
+  #app-root[data-home-theme="storybook"] #system-info-card { margin-top: 0; }
+}
+@media (max-width: 767px) {
+  #app-root[data-home-theme="storybook"] #home-hero { width: auto; padding: 24px 20px !important; }
+  #app-root[data-home-theme="storybook"] #navbar { padding: 12px; }
+  #app-root[data-home-theme="storybook"] #navbar > div > div:first-child { gap: 8px; }
+  #app-root[data-home-theme="storybook"] #navbar > div > div:first-child > span:first-child { padding: 9px; }
+  #app-root[data-home-theme="storybook"] #navbar > div > div:first-child > div > span { font-size: 14px; white-space: normal; line-height: 1.2; }
+  #app-root[data-home-theme="storybook"] :is(#home-listening-directory, .home-library-panel, #home-ioe-violympic-entry, #home-speaking-entry, #student-golden-board, #system-info-card) { padding: 22px 18px; border-radius: 28px !important; }
+  #app-root[data-home-theme="storybook"] :is(#home-ioe-violympic-entry, #home-speaking-entry) h2 { padding-right: 28px; font-size: 20px !important; }
+  #app-root[data-home-theme="storybook"] #system-info-card { padding-right: 44px; }
+  #app-root[data-home-theme="storybook"] #footer { padding: 40px 16px 30px; }
+  #app-root[data-home-theme="storybook"] .home-footer-inner { align-items: flex-start; padding: 24px 22px 24px 82px; gap: 14px; text-align: left; }
+  #app-root[data-home-theme="storybook"] .home-footer-inner::before { left: 18px; width: 46px; height: 46px; top: 28px; transform: none; }
+}
+@media (max-width: 639px) {
+  #app-root[data-home-theme="storybook"] .home-lesson-list-row { grid-template-areas: 'index title' 'index grade' 'index topic' '. action'; grid-template-columns: 20px minmax(0, 1fr); gap: 4px 10px; padding: 16px 14px; }
+  #app-root[data-home-theme="storybook"] .home-lesson-list-action-cell { justify-self: start; margin-top: 6px; }
+  #app-root[data-home-theme="storybook"] :is(.home-lesson-list-grade, .home-lesson-list-topic) { white-space: normal; overflow-wrap: anywhere; }
+  #app-root[data-home-theme="storybook"] .home-golden-heading { gap: 10px; }
+}
+@media (max-width: 479px) {
+  #app-root[data-home-theme="storybook"] #navbar > div { flex-wrap: wrap; }
+  #app-root[data-home-theme="storybook"] #navbar > div > div:first-child { flex-basis: 100%; justify-content: center; }
+  #app-root[data-home-theme="storybook"] #navbar > div > div:last-child { margin-left: auto; }
+}

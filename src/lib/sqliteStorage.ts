@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { migrateCompetitionSchema } from '../server/ioe-violympic/schema';
+import { migrateSpeakingSchema } from '../server/speaking/schema';
 import { resolveSQLiteStorageConfig, redactSQLitePath } from './storage/sqliteConfig';
 import {
   getSQLiteProcessMetrics,
@@ -119,6 +121,8 @@ const collectionTableMap: Record<string, string> = {
   exam_attempts: 'exam_attempts',
   examattempts: 'exam_attempts',
   exam_attempt_details: 'exam_attempt_details',
+  competition_papers: 'competition_papers',
+  competition_asset_usages: 'competition_asset_usages',
   examattemptdetails: 'exam_attempt_details',
   audit_logs: 'audit_logs',
   auditlogs: 'audit_logs',
@@ -126,6 +130,8 @@ const collectionTableMap: Record<string, string> = {
 };
 
 const sqlQueryFieldMap: Record<string, Record<string, string>> = {
+  competition_papers: { id: 'id', ownerId: 'owner_id', status: 'status', visibility: 'visibility', createdAt: 'created_at' },
+  competition_asset_usages: { id: 'id', assetId: 'asset_id', resourceId: 'resource_id' },
   users: {
     id: 'id',
     email: 'email',
@@ -3443,6 +3449,8 @@ export async function initializeSQLiteStorage() {
         migrateVocabImageBatchJobSchema();
         migrateMoverReadingWritingSchema();
         migrateExamPlatformSchema();
+        migrateCompetitionSchema({ run, all, one });
+        migrateSpeakingSchema({ run, all, one });
         migrateActivityReadIndexes();
         migrateStudentEntryHotPath();
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();

@@ -61,7 +61,7 @@ export default function AssignmentHistoryGroup({
   }
 
   return (
-    <section className="space-y-4" aria-label="Lịch sử nhóm theo bài tập">
+    <section className="history-groups space-y-4" aria-label="Lịch sử nhóm theo bài tập">
       {renderedGroups.map(group => {
         const serverSummary = summaryByAssignment.get(group.id);
         const groupClassName = serverSummary?.className || group.className || '';
@@ -82,9 +82,9 @@ export default function AssignmentHistoryGroup({
         return (
           <article
             key={group.id}
-            className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+            className="history-panel history-group overflow-hidden"
           >
-            <header className="border-b border-slate-200 bg-slate-50 p-4 md:p-5">
+            <header className="history-group-header p-4 md:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0">
                   <h2 className="flex min-w-0 items-center gap-2 text-base font-black text-slate-900">

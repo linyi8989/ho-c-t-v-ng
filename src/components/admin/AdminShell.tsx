@@ -19,6 +19,8 @@ export type AdminTab =
   | 'grammar-editor'
   | 'listening-library'
   | 'writing-library'
+  | 'ioe-violympic'
+  | 'speaking'
   | 'classes'
   | 'assignments'
   | 'results'
@@ -169,6 +171,17 @@ export default function AdminShell({
           >
             <Users size={18} />
             <span>Quản lý Lớp học</span>
+          </button>
+
+          <button type="button" id="tab-speaking" onClick={() => onSelectTab('speaking')}
+            aria-current={activeTab === 'speaking' ? 'page' : undefined}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all ${activeTab === 'speaking' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <BookOpen size={18} /><span>Speaking / Luyện đọc</span>
+          </button>
+          <button type="button" id="tab-ioe-violympic" onClick={() => onSelectTab('ioe-violympic')}
+            aria-current={activeTab === 'ioe-violympic' ? 'page' : undefined}
+            className={`w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold transition-all ${activeTab === 'ioe-violympic' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}>
+            <Award size={18} /><span>IOE/Violympic</span>
           </button>
 
           <button

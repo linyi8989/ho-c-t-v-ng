@@ -42,9 +42,15 @@ const RESOURCE_CONFIG: Record<Exclude<AssignmentResourceType, 'vocabulary'>, {
     missingMessage: 'Exam set not found.',
     forbiddenMessage: 'Bạn không có quyền giao bộ đề thi này.',
   },
+  competition: {
+    collection: 'competition_papers',
+    missingMessage: 'Không tìm thấy đề IOE/Violympic.',
+    forbiddenMessage: 'Bạn không có quyền giao đề IOE/Violympic này.',
+  },
 };
 
 function normalizeResourceType(value: unknown): AssignmentResourceType {
+  if (value === 'competition') return 'competition';
   return value === 'listening'
     ? 'listening'
     : value === 'mover_reading_writing'
@@ -116,6 +122,9 @@ export function createAssignmentManagementService(options: AssignmentManagementS
     const config = RESOURCE_CONFIG[resourceType];
     const resource = await options.repository.getResource(config.collection, resourceId);
     if (!resource) throw assignmentHttpError(404, config.missingMessage);
+    if (resourceType === 'competition' && (resource.source === 'bank' || resource.source === 'mistakes')) {
+      throw assignmentHttpError(400, 'Kho IOE/Violympic lấy câu mới theo từng lượt; hãy mở trực tiếp trang IOE/Violympic.');
+    }
     const canManage = actor.role === 'super_admin'
       || (actor.role === 'teacher' && resource.ownerId === actor.id);
     if (!canManage || resource.status !== 'published' || resource.visibility === 'draft') {
@@ -157,6 +166,8 @@ export function createAssignmentManagementService(options: AssignmentManagementS
               moverReadingWritingSetTitle: resource.title || payload.resourceTitle || '',
               gameId: 'mover-reading-writing',
             }
+          : resourceType === 'competition'
+            ? { competitionPaperId: resource.id, gameId: `competition:${resource.subject}` }
           : {
               examSetId: resource.id,
               examModuleId: resource.moduleId,

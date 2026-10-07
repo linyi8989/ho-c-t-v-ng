@@ -114,6 +114,31 @@ function loadReferences(db) {
   for (const row of db.prepare('SELECT data_json FROM vocab_sets').all()) {
     addTtsReferencesFromJson(tts, row.data_json);
   }
+  // Competition snapshots reuse B's TTS cache. Archived questions and completed
+  // attempts still need these assets for historical review.
+  if (tableExists(db, 'competition_asset_usages')) {
+    for (const row of db.prepare('SELECT url FROM competition_asset_usages').iterate()) {
+      const ttsName = fileNameFromPublicUrl(row.url, '/audio');
+      if (TTS_FILE_NAME.test(ttsName)) tts.add(ttsName);
+      const listeningName = fileNameFromPublicUrl(row.url, '/listening-media');
+      if (MEDIA_FILE_NAME.test(listeningName)) listening.add(listeningName);
+    }
+  }
+  // Speaking reference audio remains live in drafts, frozen versions and old attempts.
+  for (const [table, jsonPath] of [['speaking_lessons', '$.sampleAudioUrl'], ['speaking_versions', '$.sampleAudioUrl'], ['speaking_attempts', '$.lesson.sampleAudioUrl'], ['speaking_sessions', '$.lesson.sampleAudioUrl']]) {
+    if (!tableExists(db, table)) continue;
+    for (const row of db.prepare(`SELECT json_extract(data_json, '${jsonPath}') AS sample_url FROM ${table}`).iterate()) {
+      const name = fileNameFromPublicUrl(row.sample_url, '/audio');
+      if (TTS_FILE_NAME.test(name)) tts.add(name);
+    }
+  }
+  for (const [table, itemsPath] of [['speaking_lessons', '$.items'], ['speaking_versions', '$.items'], ['speaking_sessions', '$.lesson.items']]) {
+    if (!tableExists(db, table)) continue;
+    for (const row of db.prepare(`SELECT json_extract(item.value,'$.sampleAudioUrl') AS sample_url FROM ${table},json_each(json_extract(data_json,'${itemsPath}')) item`).iterate()) {
+      const name = fileNameFromPublicUrl(row.sample_url, '/audio');
+      if (TTS_FILE_NAME.test(name)) tts.add(name);
+    }
+  }
   return { listening, tts };
 }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EXAM_PAPER_DEFINITIONS, createDefaultExamContent, getModuleExamPaperDefinitions } from '../../features/exam-platform/definitions';
+import { EXAM_PAPER_DEFINITIONS, createDefaultExamContent, getExamPaperDefinition, getModuleExamPaperDefinitions } from '../../features/exam-platform/definitions';
 import { promoteExamPartToBlocks } from '../../features/exam-platform/examStructure';
 import { FLYER_NAME_REGION_HEIGHT, FLYER_NAME_REGION_WIDTH } from '../../features/exam-platform/flyerListeningMigration';
 import { normalizeFixedKetReadingWritingContent } from '../../features/exam-platform/ketReadingWritingMigration';
@@ -84,6 +84,9 @@ function completeDraft(content: ExamPaperContent) {
       if (part.part === 1) part.examples = [{ prompt: 'Where is the girl’s hat?', answer: 'B', imageAssetId: 'image-pet-listening-example' }];
       if (part.part === 3) part.passage = 'Printed notes and worked example for PET Listening Part 3.';
     }
+    if (content.moduleId === 'fce' && content.paperId === 'reading' && content.templateVersion === 'fce-reading-3-v1' && part.part === 3) {
+      part.imageAssetId = 'image-fce-reading-p3';
+    }
     if (part.interactionLayout?.kind === 'starter-image-matching-v1') {
       part.imageAssetId = `image-${part.part}`;
       part.interactionLayout.leftItems.forEach(item => { item.geometryConfirmedByTeacher = true; });
@@ -129,7 +132,7 @@ function completeDraft(content: ExamPaperContent) {
         const nodeMatching = part.interactionLayout?.kind === 'starter-image-matching-v2' ? part.interactionLayout : undefined;
         const allowedMatching = legacyMatching?.rightItems.filter(item => item.id !== legacyMatching.exampleMapping?.rightItemId)
           || nodeMatching?.targetNodes.filter(node => node.id !== nodeMatching.exampleConnection?.targetNodeId);
-        question.correctOptionIds = [allowedMatching?.[questionIndex]?.id || (part.interactionLayout?.kind === 'flyer-name-placement-v1' ? question.options[questionIndex]?.id : undefined) || (content.moduleId === 'pet' && content.paperId === 'reading' && part.part === 2 ? question.options[questionIndex]?.id : undefined) || question.options[0].id];
+        question.correctOptionIds = [allowedMatching?.[questionIndex]?.id || (part.interactionLayout?.kind === 'flyer-name-placement-v1' ? question.options[questionIndex]?.id : undefined) || (content.moduleId === 'pet' && content.paperId === 'reading' && part.part === 2 ? question.options[questionIndex]?.id : undefined) || (content.moduleId === 'fce' && content.paperId === 'reading' && part.part === 2 ? question.options[questionIndex]?.id : undefined) || question.options[0].id];
       } else {
         const ketLetterIds = new Set(part.part === 3 ? part.blocks?.[1]?.questionIds || [] : []);
         question.acceptedAnswers = (content.moduleId === 'flyer' && part.part === 3) || (content.moduleId === 'ket' && ((content.paperId === 'listening' && part.part === 2) || (content.paperId === 'reading-writing' && (part.part === 1 || ketLetterIds.has(question.id))))) ? ['A'] : ['answer'];
@@ -146,11 +149,13 @@ function completeDraft(content: ExamPaperContent) {
 }
 
 test('paper definitions activate the six requested modules and IELTS Academic only', () => {
-  assert.equal(EXAM_PAPER_DEFINITIONS.length, 16);
+  assert.equal(EXAM_PAPER_DEFINITIONS.length, 17);
   assert.deepEqual(getModuleExamPaperDefinitions('writing').map(item => item.paperId), ['writing']);
   assert.deepEqual(getModuleExamPaperDefinitions('starter').map(item => item.paperId), ['listening', 'reading-writing']);
   assert.deepEqual(getModuleExamPaperDefinitions('pet').map(item => item.paperId), ['reading', 'writing', 'listening']);
-  assert.deepEqual(getModuleExamPaperDefinitions('fce').map(item => item.paperId), ['reading-use-of-english', 'writing', 'listening']);
+  assert.deepEqual(getModuleExamPaperDefinitions('fce').map(item => item.paperId), ['reading', 'writing', 'listening']);
+  assert.equal(getExamPaperDefinition('fce', 'reading-use-of-english')?.directoryHidden, true);
+  assert.deepEqual(getExamPaperDefinition('fce', 'reading')?.parts.map(part => part.questionCount), [8, 7, 15]);
   assert.deepEqual(getModuleExamPaperDefinitions('ielts').map(item => item.paperId), ['listening', 'academic-reading', 'academic-writing']);
   assert.equal(EXAM_PAPER_DEFINITIONS.some(item => String(item.paperId).includes('general')), false);
   assert.equal(EXAM_PAPER_DEFINITIONS.find(item => item.moduleId === 'ielts' && item.paperId === 'academic-reading')?.totalQuestionCount, 40);

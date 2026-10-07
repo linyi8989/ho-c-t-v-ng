@@ -18,6 +18,8 @@ const ListeningExamPage = React.lazy(() => import('./features/listening-library/
 const StudentHistoryPage = React.lazy(() => import('./components/history/StudentHistoryPage'));
 const TeacherLibraryPreview = React.lazy(() => import('./components/admin/TeacherLibraryPreview'));
 const HomePage = React.lazy(() => import('./features/home/HomePage'));
+const SpeakingStudent = React.lazy(() => import('./features/speaking/Student'));
+const CompetitionStudent = React.lazy(() => import('./features/ioe-violympic/Student'));
 
 export default function App() {
   const { user, token, logout, loading } = useAuth();
@@ -318,6 +320,14 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (appShellRoute.kind === 'speaking') {
+    return <SpeakingStudent key={appShellRoute.pathname} lessonId={appShellRoute.lessonId} onNavigate={navigateInternal} />;
+  }
+
+  if (appShellRoute.kind === 'competition') {
+    return <CompetitionStudent key={`${appShellRoute.pathname}:${window.location.search}`} paperId={appShellRoute.paperId} access={new URLSearchParams(window.location.search).get('access') || ''} onNavigate={navigateInternal} />;
   }
 
   if (selectedSet) {

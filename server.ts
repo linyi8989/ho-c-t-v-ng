@@ -69,6 +69,7 @@ import {
   assertSafeYupVoxAudioUrl,
   generateYupVoxAudioUrl
 } from "./src/server/tts/yupvoxProvider.js";
+import { azureReadingSettings, generateAzureReadingAudio, readingTtsCapability } from "./src/server/tts/azureReadingProvider.js";
 import {
   listeningAttemptToActivity,
   resolveListeningActivityDetailForStaff
@@ -136,6 +137,7 @@ import { createVocabularyService } from "./src/server/vocabulary/service.js";
 import { createVocabularyRouter } from "./src/server/vocabulary/router.js";
 import { createTtsVoiceProvider } from "./src/server/tts/provider.js";
 import { createTtsService } from "./src/server/tts/service.js";
+import { normalizeReadingTtsInput } from "./src/server/tts/readingInput.js";
 import { createTtsRouter } from "./src/server/tts/router.js";
 import { createGrammarLibraryRepository } from "./src/server/grammar/repository.js";
 import { createGrammarLibraryService } from "./src/server/grammar/service.js";
@@ -152,6 +154,10 @@ import { createResultsRouter } from "./src/server/results/router.js";
 import { createAccountRepository } from "./src/server/accounts/repository.js";
 import { createAccountService } from "./src/server/accounts/service.js";
 import { createAccountRouter } from "./src/server/accounts/router.js";
+import { createCompetitionRouter } from "./src/server/ioe-violympic/router.js";
+import { createSpeakingRouter } from "./src/server/speaking/router.js";
+import { createSpeakingFeedbackConfiguration } from "./src/server/speaking/feedback.js";
+import { getLesson as getSpeakingLesson } from "./src/server/speaking/repository.js";
 
 // Load environment variables
 dotenv.config();
@@ -230,6 +236,8 @@ if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
 }
 
 app.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
+// Only the new authoring/answer routes accept larger text JSON; old API limits stay intact.
+app.use('/api/ioe-violympic', express.json({ limit: '2mb' }));
 // Keep Express' established 100 KB JSON boundary explicit. Binary media uses
 // separate raw-body routes with their own MIME and size checks.
 app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
@@ -1047,6 +1055,7 @@ function canViewClass(user: any, classData: any) {
 function canManageAssignment(user: any, assignment: any, classData?: any) {
   if (isSuperAdmin(user)) return true;
   if (!isTeacher(user)) return false;
+
   if (assignment?.createdBy === user.id) return true;
   return Boolean(classData) && canManageClass(user, classData);
 }
@@ -1159,6 +1168,8 @@ async function canStaffViewLearningAttempt(
   if (isSuperAdmin(user)) return true;
   if (!isTeacher(user)) return false;
 
+  if (attempt.sourceType === 'speaking') return (await getSpeakingLesson(attempt.lessonId))?.ownerId === user.id;
+
   if (attempt.assignmentId) {
     const assignmentDoc = await adminDb.collection("assignments").doc(attempt.assignmentId).get();
     if (assignmentDoc.exists) {
@@ -1181,6 +1192,8 @@ async function canStaffViewLearningAttempt(
       ? "mover_reading_sets"
       : attempt.sourceType === "exam"
         ? "exam_sets"
+        : attempt.sourceType === "competition"
+          ? "competition_papers"
         : "";
   if (examCollection) {
     const setDoc = await adminDb.collection(examCollection).doc(attempt.lessonId).get();
@@ -1961,8 +1974,8 @@ async function downloadAudioToCache(
   writeFileAtomic(targetPath, buffer);
 }
 
-async function generateCachedTtsAudio(inputText: string, settings: Required<TtsSettings>, force = false) {
-  const sanitized = sanitizeTtsInput(inputText);
+async function generateCachedTtsAudio(inputText: string, settings: Required<TtsSettings>, force = false, profile: 'vocabulary' | 'reading' = 'vocabulary') {
+  const sanitized = profile === 'reading' ? normalizeReadingTtsInput(inputText) : sanitizeTtsInput(inputText);
   if (!sanitized.text) throw new Error("Missing TTS text after cleanup.");
 
   const audioHash = createAudioHash(sanitized.text, settings);
@@ -1991,16 +2004,24 @@ async function generateCachedTtsAudio(inputText: string, settings: Required<TtsS
       }
     }
 
-    const providerResult = await requestTtsProviderAudioUrl(
-      sanitized.text,
-      settings,
-      audioFileName(audioHash)
-    );
-    await downloadAudioToCache(
-      providerResult.audioUrl,
-      targetPath,
-      providerResult.validateAudioUrl
-    );
+    if (settings.provider === 'azure') {
+      if (profile !== 'reading') throw new Error('Azure TTS is only enabled for reading samples.');
+      const azureSettings = azureReadingSettings(process.env, settings.lang);
+      if (settings.voice !== azureSettings.voice || settings.speed !== 1) throw new Error('Invalid Azure reading settings.');
+      const buffer = await generateAzureReadingAudio(sanitized.text, azureSettings, process.env, { timeoutMs: TTS_FETCH_TIMEOUT_MS, maxBytes: TTS_MAX_AUDIO_BYTES });
+      writeFileAtomic(targetPath, buffer);
+    } else {
+      const providerResult = await requestTtsProviderAudioUrl(
+        sanitized.text,
+        settings,
+        audioFileName(audioHash)
+      );
+      await downloadAudioToCache(
+        providerResult.audioUrl,
+        targetPath,
+        providerResult.validateAudioUrl
+      );
+    }
     return {
       audioHash,
       audioUrl: `${targetUrl}?v=${Date.now()}`,
@@ -2662,6 +2683,12 @@ const publicLeaderboardRateLimit = createFixedWindowRateLimiter({
   message: "Too many leaderboard requests. Please wait and try again."
 });
 
+const competitionRateLimit = createFixedWindowRateLimiter({
+  namespace: 'ioe-violympic', windowMs: 60 * 1000, maxCost: 180,
+  key: req => req.user?.id ? `user:${req.user.id}` : `ip:${getRequestIp(req)}:guest:${String(req.headers['x-guest-id'] || '').slice(0, 120)}`,
+  message: 'Có quá nhiều yêu cầu IOE/Violympic. Vui lòng thử lại sau ít phút.',
+});
+
 const aiRateLimit = createFixedWindowRateLimiter({
   namespace: "ai-tools",
   windowMs: 10 * 60 * 1000,
@@ -2706,11 +2733,17 @@ const ttsVoiceProvider = createTtsVoiceProvider({
   getApiKey: getAi33ApiKey,
   fetchWithTimeout,
 });
+const speakingSampleTts = readingTtsCapability(process.env, Boolean(getAi33ApiKey()));
 const ttsService = createTtsService({
   normalizeSettings: normalizeTtsSettings,
+  normalizeReadingSettings: settings => {
+    if (!speakingSampleTts.configured) throw createHttpError(503, speakingSampleTts.reason);
+    return speakingSampleTts.provider === 'azure' ? azureReadingSettings(process.env, settings.lang || 'en-US') : normalizeTtsSettings(settings);
+  },
   sanitizeInput: sanitizeTtsInput,
   createAudioHash,
   generateCachedAudio: generateCachedTtsAudio,
+  generateReadingAudio: (text, settings, force) => generateCachedTtsAudio(text, settings, force, 'reading'),
   runWithConcurrency: (items, limit, worker) => runWithConcurrency(items, limit, worker),
   concurrency: TTS_CONCURRENCY,
   voiceProvider: ttsVoiceProvider,
@@ -3032,6 +3065,33 @@ app.use(
   "/api/listening-library",
   createListeningLibraryRouter()
 );
+
+app.use('/api/ioe-violympic', createCompetitionRouter({
+  enabled: process.env.STORAGE_MODE === 'sqlite' && process.env.IOE_VIOLYMPIC_ENABLED !== 'false',
+  db: adminDb, authenticateUser, authenticateOptionalUser,
+  requireStaff: requireRole(['teacher', 'super_admin']), rateLimit: competitionRateLimit,
+  ticketSecret: `${LISTENING_TICKET_SECRET}:ioe-violympic-v1`,
+}));
+
+const speakingFeedback = createSpeakingFeedbackConfiguration({
+  env: process.env, getGeminiClient,
+  devQuotaApiKey: DEVQUOTA_API_KEY, devQuotaBaseUrl: DEVQUOTA_BASE_URL,
+  staliApiKey: STALI_API_KEY, staliBaseUrl: STALI_BASE_URL,
+});
+app.use('/api/speaking', createSpeakingRouter({
+  enabled: process.env.STORAGE_MODE === 'sqlite' && process.env.SPEAKING_ENABLED !== 'false',
+  ticketSecret: `${LISTENING_TICKET_SECRET}:speaking-v1`,
+  audioDir: path.join(path.dirname(path.resolve(process.env.SQLITE_DB_PATH || '.data/app.sqlite')), 'speaking-recordings'),
+  db: adminDb, authenticateUser, authenticateOptionalUser, requireStaff: requireRole(['teacher', 'super_admin']),
+  rateLimit: createFixedWindowRateLimiter({ namespace: 'speaking', windowMs: 60000, maxCost: 180,
+    key: req => req.user?.id ? `user:${req.user.id}` : `ip:${getRequestIp(req)}:guest:${String(req.headers['x-guest-id'] || '').slice(0, 120)}`, message: 'Có quá nhiều yêu cầu luyện đọc. Hãy thử lại sau.' }),
+  feedbackMode: speakingFeedback.capability.mode,
+  sampleTts: speakingSampleTts,
+  sampleRateLimit: ttsRateLimit,
+  feedbackCapability: speakingFeedback.capability,
+  feedback: speakingFeedback.feedback,
+  preview: payload => ttsService.previewReading(payload),
+}));
 
 app.use(
   "/api/image-library",

@@ -168,7 +168,7 @@ export const LISTENING_MODULES = [
     id: 'fce',
     displayName: 'FCE',
     levelLabel: 'B2 First',
-    description: 'Kho đề B2 First (FCE) gồm Reading & Use of English, Writing và Listening.',
+    description: 'Kho đề B2 First (FCE) gồm Reading, Writing và Listening; Use of English được tách thành paper riêng khi triển khai.',
     status: 'active',
     schemaVersion: 1,
     partCount: null,

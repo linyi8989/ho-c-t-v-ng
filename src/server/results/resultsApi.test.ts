@@ -14,6 +14,7 @@ const serviceDefaults = {
   maxResultLimit: 100,
   safeText: (value: any, maxLength: number) => String(value || '').slice(0, maxLength),
   sanitizePublicStudentRecord: (event: any) => event,
+  enrichStudentNames: async (events: any[]) => events,
   getCachedLeaderboardSummary: () => undefined,
   cacheLeaderboardSummary: () => undefined,
 };
@@ -91,7 +92,7 @@ test('explicit development compatibility may use the read-only legacy fallback',
   assert.equal(response.body.entries.length, 1);
 });
 
-test('public leaderboard DTO is anonymous, allow-listed and bounded', async () => {
+test('Home public leaderboard displays names but remains allow-listed and bounded', async () => {
   const rawEntry = {
     studentName: 'Private Student Name',
     studentKey: 'private-key',
@@ -121,7 +122,7 @@ test('public leaderboard DTO is anonymous, allow-listed and bounded', async () =
 
   const response = await service.getPublicLeaderboardSummary({ query: { limit: '999' } });
   assert.equal(response.body.entries.length, 1);
-  assert.equal(response.body.entries[0].studentName, 'Học viên #1');
+  assert.equal(response.body.entries[0].studentName, 'Private Student Name');
   assert.deepEqual(Object.keys(response.body.entries[0]).sort(), [
     'averageAccuracy', 'badges', 'completedLessons', 'honorScore', 'rank',
     'studentName', 'studyDays',
@@ -129,6 +130,52 @@ test('public leaderboard DTO is anonymous, allow-listed and bounded', async () =
   assert.equal('classes' in response.body, false);
   assert.ok(Buffer.byteLength(JSON.stringify(response.body), 'utf8') < 32 * 1024);
   assert.equal(response.headers['Cache-Control'], 'public, max-age=30');
+});
+
+test('public Home summary resolves canonical names only for the bounded winners', async () => {
+  const now = Date.parse('2026-09-24T12:00:00.000Z');
+  const events = Array.from({ length: 25 }, (_, index) => ({
+    userId: `private-user-${index}`, publicStudentKey: `public-${index}`, studentName: 'Stored name',
+    vocabSetId: 'set', gameId: 'quiz', completedAt: '2026-09-24T00:00:00.000Z',
+    totalQuestions: 10, correctAnswers: 10, incorrectAnswers: 0, score: 100,
+    email: 'private@example.test', ownerKey: `user:private-user-${index}`,
+  }));
+  const keys: string[] = [];
+  const enriched: any[][] = [];
+  const service = createResultsService({
+    ...serviceDefaults, nowMs: () => now, buildLeaderboard,
+    repository: { loadReadyLeaderboardEvents: async () => events },
+    sanitizePublicStudentRecord: ({ userId, ownerKey, email, ...safe }: any) => safe,
+    enrichStudentNames: async (winners: any[]) => {
+      enriched.push(winners);
+      return winners.map(row => ({ ...row, studentName: 'Canonical ' + row.userId }));
+    },
+    getCachedLeaderboardSummary: (key: string) => { keys.push(key); },
+    cacheLeaderboardSummary: () => {},
+    resolveLearningLeaderboardScope: async () => ({ vocabSetId: 'set' }),
+  } as any);
+  const home = await service.getPublicLeaderboardSummary({ query: { limit: '5' } });
+  assert.equal(home.body.entries.length, 5);
+  assert.equal(enriched.length, 1);
+  assert.equal(enriched[0].length, 5);
+  assert.ok(enriched[0].every(row => row.userId));
+  assert.ok(home.body.entries.every((row: any) => row.studentName.startsWith('Canonical ')));
+  assert.ok(home.body.entries.every((row: any) => !('userId' in row) && !('ownerKey' in row) && !('email' in row) && !('studentKey' in row)));
+  assert.ok(keys[0].startsWith('public:names-v1:'));
+  const learning = await service.getLearningLeaderboardSummary({ query: { limit: '5' } });
+  assert.equal(enriched.length, 1, 'Lesson-scoped summary keeps its existing anonymous contract');
+  assert.ok(learning.body.entries.every((row: any, index: number) => row.studentName === `Học viên #${index + 1}`));
+});
+
+test('public display names are limited and missing names have a readable fallback', async () => {
+  const service = createResultsService({
+    ...serviceDefaults,
+    repository: { loadReadyLeaderboardEvents: async () => [] },
+    buildLeaderboard: () => ({ gold: [{ studentName: 'A'.repeat(400) }, { studentName: '  ' }], diligent: [], accurate: [], improved: [] }),
+  } as any);
+  const response = await service.getPublicLeaderboardSummary({ query: {} });
+  assert.equal(response.body.entries[0].studentName.length, 120);
+  assert.equal(response.body.entries[1].studentName, 'Học viên #2');
 });
 
 test('server summary preserves legacy leaderboard order and score semantics', async () => {

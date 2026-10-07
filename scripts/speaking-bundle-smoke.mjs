@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import { spawn, spawnSync } from 'node:child_process';
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'speaking-bundle-')), dbPath = path.join(root, 'app.sqlite');
+const fixture = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/speaking-qa-fixture.ts'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, NODE_ENV: 'test', SPEAKING_QA_FIXTURE: 'true', SQLITE_DB_PATH: dbPath, STORAGE_MODE: 'sqlite', SQLITE_DRIVER: 'better-sqlite3', SQLITE_ALLOW_CREATE: 'true', SQLITE_ALLOW_JSON_IMPORT: 'false' } });
+assert.equal(fixture.status, 0, fixture.stderr);
+const data = JSON.parse(fs.readFileSync(path.join(root, 'fixture.json'), 'utf8'));
+const socket = net.createServer(); await new Promise(r => socket.listen(0, '127.0.0.1', r)); const port = socket.address().port; await new Promise(r => socket.close(r));
+const origin = `http://127.0.0.1:${port}`;
+const child = spawn(process.execPath, ['dist/server.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_ENV: 'production', LOCAL_AUTH_BYPASS_ENABLED: 'false', STORAGE_MODE: 'sqlite', SQLITE_DRIVER: 'better-sqlite3', SQLITE_DB_PATH: dbPath, SQLITE_ALLOW_CREATE: 'false', SQLITE_ALLOW_JSON_IMPORT: 'false', SEED_DATA_ENABLED: 'false', LEARNING_HISTORY_ENABLED: 'true', LISTENING_TICKET_SECRET: 'qa-only-bundle-ticket', GUEST_PUBLIC_ID_SECRET: 'qa-only-public-id', DIAGNOSTIC_SECRET: 'qa-only-diagnostic', AI33_API_KEY: '', TTS_API_KEY: '', YUPVOX_API_KEY: '', SPEAKING_FEEDBACK_PROVIDER: 'none', DEVQUOTA_API_KEY: '', DEVQUOTA_API_KEYk: '', STALI_API_KEY: '', SPEAKING_ENABLED: 'true', AZURE_SPEECH_KEY: '', AZURE_SPEECH_REGION: '', SPEECHSUPER_APP_KEY: '', SPEECHSUPER_SECRET_KEY: '', SPEAKING_FEEDBACK_MODEL: '', GEMINI_API_KEY: '', TTS_AUDIO_DIR: path.join(root, 'audio'), LISTENING_MEDIA_DIR: path.join(root, 'listening-media'), VOCAB_IMAGE_DIR: path.join(root, 'vocab-images'), PORT: String(port) } });
+let logs = ''; child.stdout.on('data', b => { logs += b; }); child.stderr.on('data', b => { logs += b; });
+const delay = ms => new Promise(r => setTimeout(r, ms));
+try {
+  let caps; for (let i = 0; i < 100; i++) { try { const response = await fetch(origin + '/api/speaking/capabilities'); if (response.ok) { caps = await response.json(); break; } } catch {} await delay(150); }
+  assert.ok(caps?.enabled, logs.slice(-1500)); assert.ok(caps.providers.every(p => !p.configured)); assert.equal(caps.feedback.provider, 'none'); assert.equal(caps.feedback.configured, false);
+  assert.equal((await fetch(origin + '/api/speaking/admin/lessons', { headers: { Authorization: 'Bearer local-test-auth-bypass' } })).status, 401);
+  const lessonId = data.lessons[0].id;
+  const html = await (await fetch(`${origin}/speaking/lesson/${lessonId}`)).text(); assert.match(html, /assets\/index-[^"']+\.js/);
+  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"']+)"/g)].map(m => m[1]); for (const asset of assets) assert.equal((await fetch(origin + asset)).status, 200);
+  assert.equal((await fetch(origin + '/speaking-recorder-worklet.js')).status, 200);
+  const lessons = await (await fetch(origin + '/api/speaking/lessons')).json(); assert.equal(lessons.length, data.lessons.length + data.sets.length); assert.ok(!('ownerId' in lessons[0]));
+  const guestId = 'speaking-qa-guest-' + crypto.randomUUID(); const profileResponse = await fetch(origin + '/api/guest-profiles/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guestId, displayName: 'Speaking QA Guest' }) }); assert.equal(profileResponse.status, 200); const profile = await profileResponse.json();
+  const headers = { 'Content-Type': 'application/json', 'X-Guest-Id': profile.guestId, 'X-Guest-Access-Token': profile.guestAccessToken };
+  assert.equal(caps.sampleTts.configured, false);
+  const setLessonId = data.sets[1].id;
+  const sessionResponse = await fetch(origin + '/api/speaking/sessions/prepare', { method: 'POST', headers, body: JSON.stringify({ lessonId: setLessonId, clientRunId: crypto.randomUUID(), studentName: 'forged', score: 100 }) }); assert.equal(sessionResponse.status, 201); const session = await sessionResponse.json(); assert.equal(session.totalItems, 3); assert.equal(session.score, null);
+  const childResponse = await fetch(origin + '/api/speaking/attempts/prepare', { method: 'POST', headers, body: JSON.stringify({ lessonId: setLessonId, sessionId: session.id, itemId: '2', clientRunId: crypto.randomUUID(), referenceText: 'forged', score: 100 }) }); assert.equal(childResponse.status, 201); const setChild = await childResponse.json(); assert.equal(setChild.lesson.referenceText, 'car'); assert.ok(setChild.ticket); assert.equal(setChild.assessment, null);
+  const resume = await (await fetch(origin + '/api/speaking/sessions/latest?lessonId=' + setLessonId, { headers })).json(); assert.equal(resume.id, session.id); assert.equal(resume.items[1].attempt.id, setChild.id);
+  assert.equal((await fetch(origin + '/api/speaking/sessions/' + data.sets[0].sessionId, { headers })).status, 404);
+  const preparedResponse = await fetch(origin + '/api/speaking/attempts/prepare', { method: 'POST', headers, body: JSON.stringify({ lessonId, clientRunId: crypto.randomUUID(), studentName: 'forged', score: 100 }) }); assert.equal(preparedResponse.status, 201); const prepared = await preparedResponse.json(); assert.ok(prepared.ticket); assert.equal(prepared.status, 'prepared');
+  const upload = await fetch(`${origin}/api/speaking/attempts/${prepared.id}/audio`, { method: 'POST', headers: { ...headers, 'Content-Type': 'audio/wav', 'X-Attempt-Ticket': prepared.ticket }, body: fs.readFileSync(path.join(root, 'audio/speaking-fixture.wav')) }); assert.equal(upload.status, 503); assert.equal((await upload.json()).code, 'PROVIDER_NOT_CONFIGURED');
+  assert.equal((await fetch(`${origin}/api/speaking/attempts/${data.attemptId}/recording`, { headers })).status, 404);
+  assert.equal((await fetch(`${origin}/speaking-recordings/${data.attemptId}.wav`)).status, 404);
+  assert.equal((await fetch(`${origin}/api/my-learning-history?sourceType=speaking`, { headers })).status, 200);
+  assert.equal((await fetch(`${origin}/api/ioe-violympic/capabilities`)).status, 200);
+  const report = { passed: true, node: process.version, productionBypassRejected: true, providersUnconfigured: true, assets: assets.length, worklet: true, publicLessons: lessons.length, guestSetPrepare: true, guestPrepare: true, unconfiguredUpload503: true, privateRecording404: true, history: true, legacyCompetition: true };
+  fs.mkdirSync('.data/speaking-verification', { recursive: true }); fs.writeFileSync('.data/speaking-verification/bundle-report.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
+} finally { child.kill(); }
