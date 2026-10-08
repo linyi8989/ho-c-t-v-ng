@@ -69,14 +69,24 @@
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] [data-bank-directory] > .competition-toolbar { margin: 24px 0 12px; padding: 22px; background: #edf7ff; border: 2px solid #c6e5ff; border-radius: 24px; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] [data-bank-directory] label { flex: 1; min-width: 130px; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-header { top: 10px; border: 3px solid #c6e5ff; border-radius: 26px; background: #f3faff; padding: 18px; box-shadow: inset 0 3px white,0 4px 12px #42658020; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-topline { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 16px; margin-bottom: 12px; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-topline h2 { min-width: 0; margin: 0; line-height: 1.4; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-submit { justify-self: end; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question-nav { gap: 8px; max-height: 130px; padding: 6px; scrollbar-color: #7eafd5 #e9f4ff; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question-nav button { min-width: 44px; min-height: 44px; padding: 6px; border-radius: 16px; font-size: 14px; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question-nav button[data-answered="true"]:not(:disabled) { color: #763e17 !important; background: #ffe8c6 linear-gradient(#fff4df,#ffe1b8) !important; border-color: #e8bc83 !important; box-shadow: inset 0 2px #fffaf0,0 3px #dbb580,0 5px 8px #795c2220 !important; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question-nav button[data-answered="true"]:not(:disabled):hover { background: #ffddb0 !important; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question-nav button[data-answered="true"][aria-pressed="true"]:not(:disabled) { box-shadow: inset 0 0 0 2px #1d4ed8,0 3px #dbb580,0 5px 8px #795c2220 !important; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-timer { padding: 6px 14px; border: 2px solid #f2d197; border-radius: 18px; background: #fff1cc; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-header .competition-primary:not(:disabled) { background: #07683f linear-gradient(#078152,#07683f) !important; border-color: #6dd1a0 !important; box-shadow: inset 0 3px #86e3b3,0 4px #075d3e,0 7px 12px #184f3830 !important; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-question { padding: 26px; margin: 24px 0 16px; background: #fff; border: 2px solid #c6e5ff; border-radius: 28px; box-shadow: 0 4px 12px #42658014; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-prompt { padding: 18px; background: linear-gradient(#f8fcff,#edf7ff); border-radius: 20px; font-size: clamp(18px,2vw,23px); font-weight: 800; line-height: 1.5; margin: 14px 0; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-option { border-radius: 20px; padding: 16px 18px; font-size: 17px; }
-:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation { padding-top: 8px; gap: 12px; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: center; padding-top: 8px; gap: 12px; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation button { max-width: 100%; min-width: 0; white-space: normal; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation button:nth-child(1) { justify-self: start; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation button:nth-child(2) { justify-self: center; }
+:is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation button:nth-child(3) { justify-self: end; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-review { background: transparent !important; font-family: 'Nunito',sans-serif; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-review-row { border: 2px solid #c6e5ff; border-left: 5px solid #15803d; border-radius: 26px; box-shadow: 0 4px 12px #42658014; }
 :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-review-row.is-incorrect { border-left-color: #be123c; }
@@ -128,7 +138,11 @@
   :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-portal-stats strong { min-width: 32px; }
   :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] :is(.competition-card,.competition-question,.competition-activity,.competition-portal-hero,[data-bank-directory] > .competition-toolbar) { padding: 18px; }
   :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-header { position: static; padding: 12px; }
-  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-topline { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-topline h2 { grid-column: 1/-1; }
+  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-player-topline .competition-timer { justify-self: start; }
+  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation { gap: 6px; }
+  :is(#root,#app-root) #ioe-violympic-student[data-student-module-theme] .competition-answer-navigation button { font-size: 14px; padding-inline: 8px; }
   :is(#root,#app-root) #speaking-student[data-student-module-theme] :is(.speaking-card,.speaking-turn,.speaking-deck-heading) { padding: 18px; }
   :is(#root,#app-root) #speaking-student[data-student-module-theme] .speaking-catalog-filters { padding: 6px 14px; }
 }

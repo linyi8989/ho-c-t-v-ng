@@ -6,6 +6,46 @@ Bộ lọc Ngân hàng độc lập với scope của **Soạn JSON**. Có bản
 
 Module nghiệp vụ riêng, học từ A tại `E:\VS CODE\ioe`. B tiếp tục sở hữu tài khoản/Firebase, hồ sơ khách, lớp/giao bài, Learning History, SQLite, media, AI tạo ảnh, TTS, secret và dashboard. Không nhập demo hoặc dựng provider/storage adapter thứ hai.
 
+## Prompt nhập đề theo từng môn và hướng dẫn tư duy — 2026-10-08
+
+`buildImportPrompt(scope)` trong `src/shared/competition/import.ts` là nguồn chung cho **Sao chép hướng dẫn**, **Xem hướng dẫn** ở Soạn JSON và `POST /api/ioe-violympic/admin/prompt`. Prompt giữ cấu trúc options/answer hiện có và bổ sung teacherNote tùy chọn dành riêng cho giáo viên; không thêm trường dạng câu hỏi. `options` có phương án biểu thị trắc nghiệm một đáp án; `options:[]` biểu thị trả lời ngắn/điền số. Phân số, thập phân và số có đơn vị tiếp tục dùng `answerSpec` khi cần.
+
+Có bốn mẫu prompt riêng theo `scope.subject`: **Toán**, **Toán Tiếng Anh**, **Tiếng Việt**, **IOE Tiếng Anh**. Dòng đầu xác định đúng môn, lớp và tên cấp đã chọn; đổi môn ở Soạn JSON tự đổi cả nội dung xem và sao chép. Mỗi mẫu chỉ ghép yêu cầu của môn đó với các quy tắc chung về chép nguồn, ảnh, JSON và lời giải. Prompt Toán tập trung phép tính/suy luận và đơn vị; Toán Tiếng Anh giữ đề, đáp án và lời giải bằng tiếng Anh đơn giản. Prompt Tiếng Việt tập trung câu chữ, dấu và bằng chứng đọc hiểu/nghĩa từ/quy tắc; IOE tập trung từ vựng/ngữ pháp/đọc/nghe, giữ đề tiếng Anh và giải thích tiếng Việt. Chỉ hai môn Toán có hướng dẫn `answerSpec` phân số/thập phân/số có đơn vị; chỉ IOE có `domain`/`difficulty`. Các mẫu còn lại không nhắc yêu cầu của môn khác hoặc cơ chế chọn ngân hàng. Parser, validation, dữ liệu cũ và cơ chế chọn câu không đổi.
+
+Ngoài nội dung câu hỏi, phương án và đáp án, prompt yêu cầu `title` (tiêu đề/yêu cầu nguồn), `sourceNumber` (đối chiếu số câu gốc) và `explanation`. `passage` chỉ dùng nếu tài liệu có đoạn văn bằng chữ dùng chung cho nhiều câu, chép nguyên văn; nếu không có thì bỏ hoặc để trống. Chỉ IOE Tiếng Anh yêu cầu thêm `domain` và `difficulty` vì bộ chọn IOE dùng ma trận hai tiêu chí này. Toán, Toán Tiếng Anh, Tiếng Việt không yêu cầu phân loại/đánh giá và ẩn hai ô khỏi Soạn JSON. Dữ liệu cũ vẫn giữ metadata; normalizer tiếp tục chấp nhận JSON không có hai trường này. Các môn đó chọn ngẫu nhiên 30 câu khác nhau theo môn/lớp/cấp, không ép tỷ lệ 50% trắc nghiệm–50% trả lời ngắn.
+
+ChatGPT chỉ chép chữ thực sự có trong đề vào `title`, `prompt` và `options`. Không diễn giải hình/biểu đồ thành dữ kiện chung, không chuyển hình thành text hay emoji/icon. Với phương án chỉ có hình, giữ chỗ bằng `{"text":""}` theo đúng thứ tự, vẫn giữ nhãn đáp án nguồn; giáo viên tải ảnh vào từng ô trước khi lưu. Một phương án trống cả chữ lẫn media sẽ bị validation chặn. Đáp án rỗng không tự chọn A khi phương án hình có text rỗng. Với hình ở câu hỏi, giáo viên gắn qua công cụ media hiện có. Việc đọc/đếm hình phục vụ lời giải chỉ nằm trong `explanation`, không được đưa vào nội dung đề. Không tạo ID, URL, media hoặc dữ liệu cá nhân.
+
+Trước đây, `explanation` chỉ chép theo nguồn và để trống nếu thiếu. Nay prompt yêu cầu hướng dẫn như giáo viên trong cả ba trường hợp: nguồn có lời giải đầy đủ, chỉ có đáp án, hoặc chưa có lời giải. Mỗi câu thường có 2–5 bước ngắn (câu đơn giản có thể 1–2), giải thích lý do chọn cách làm, thực hiện và kiểm tra kết quả; ưu tiên cách nhanh, đúng và phù hợp lớp đã chọn. Hướng dẫn Toán chú ý số lượng/chú giải của biểu đồ và ý nghĩa phép tính; Tiếng Việt dùng bằng chứng đọc hiểu/nghĩa từ/quy tắc; IOE dùng dấu hiệu từ vựng/ngữ pháp/đọc/nghe. Toán Tiếng Anh giữ đề, đáp án và hướng dẫn bằng tiếng Anh đơn giản; các môn còn lại hướng dẫn bằng tiếng Việt.
+
+`explanation` vẫn là một chuỗi, dùng `\n` trong JSON để tách bước, được nhập/sửa trong ô **Giải thích** và hiển thị sau khi nộp trong Review/History. Kết luận trắc nghiệm phải kèm nội dung đáp án, không chỉ nhãn A/B/C/D vì thứ tự phương án có thể được trộn. Ví dụ câu chuyển sách từ tủ B (497) sang A (345):
+
+```json
+{"explanation":"1. Tủ B nhiều hơn tủ A: 497 − 345 = 152 quyển.\n2. Chuyển 1 quyển thì B giảm 1, A tăng 1; chênh lệch giảm 2 quyển. Vậy cần chuyển 152 : 2 = 76 quyển.\n3. Kiểm tra: 497 − 76 = 421 và 345 + 76 = 421. Hai tủ bằng nhau."}
+```
+
+Prompt yêu cầu kiểm tra lời giải với đáp án nguồn. Nếu thiếu khóa đáp án thì vẫn để `answer:""` cho giáo viên hoàn thiện. Nếu hình/dữ kiện không đọc được hoặc khóa đáp án mâu thuẫn với cách giải, ghi rõ **Cần giáo viên kiểm tra: ...** và phần cần xác nhận trong `teacherNote`; không bịa dữ kiện, đổi đề hoặc ép lời giải khớp khóa sai. Giáo viên xem lại JSON và lời giải trước khi lưu. Những câu đã lưu hoặc snapshot của lượt cũ không tự được viết lại; muốn bổ sung hướng dẫn cần sửa câu hoặc nhập lại JSON.
+
+Kiểm tra phạm vi: `npm run test:competition` bao phủ prompt của bốn môn/lớp, API prompt có phân quyền, nhập các chuỗi hướng dẫn nhiều dòng, giữ đáp án chấm được và không lộ lời giải trước nộp; integration SQLite kiểm tra giữ nguyên hướng dẫn qua snapshot, Review và History. Các ví dụ kiểm thử do người phát triển viết, không phải bằng chứng chất lượng đầu ra của một lượt ChatGPT thực tế. Không thêm schema, dependency hoặc biến môi trường.
+
+## Ghi chú riêng cho giáo viên và lỗi đáp án — 2026-10-08
+
+Soạn JSON có ô **Ghi chú cho giáo viên (không hiển thị cho học sinh)**, nhận `teacherNote` là chuỗi tùy chọn, tối đa 5.000 ký tự. Cả bốn prompt yêu cầu đặt thông tin thiếu, khóa đáp án cần xác nhận hoặc mâu thuẫn nguồn vào trường này; `explanation` chỉ chứa hướng dẫn giải dành cho học sinh. Không có ghi chú thì bỏ trường hoặc để chuỗi rỗng. Ghi chú được lưu trong JSON câu hỏi và các phiên bản riêng của giáo viên; không thêm cột/schema hay biến môi trường.
+
+Khi ghép JSON hoặc mở câu cũ để sửa/sao chép, dòng đánh dấu **Cần giáo viên kiểm tra…** (kể cả dòng có số bước, hoặc ở cuối một dòng) và đoạn ghi chú đi kèm được chuyển khỏi Giải thích sang ô ghi chú. Các bước lời giải khác được giữ; ghi chú có sẵn được ghép lại, không lặp một đoạn giống hệt. Normalizer thực hiện cùng quy tắc ở backend trước khi lưu. Ghi chú rỗng khi sửa sẽ xóa ghi chú của phiên bản mới, không thay đổi phiên bản đề hoặc lượt làm đã đóng băng.
+
+`playable` dùng danh sách trường cho phép và loại `teacherNote` khỏi contract học sinh. `feedback.ts` lọc ghi chú ở Review, answerDetails và competitionReview trong History, kể cả cảnh báo từng nằm lẫn trong snapshot/lịch sử cũ. Student API không trả trường hoặc nội dung ghi chú; UI Review có cùng lớp lọc để xử lý dữ liệu đã tải/cached trước bản cập nhật. Các read path không ghi lại dữ liệu lịch sử. Ghi chú vẫn xem/sửa được trong ngân hàng thuộc quyền quản lý, không hiển thị ở xem trước học sinh.
+
+Thông báo **Nội dung trống hoặc vượt quá 2000 ký tự** trước đây gộp hai lỗi của đáp án trả lời ngắn. Nay validation báo riêng **Đáp án trả lời ngắn đang trống** hoặc **Đáp án trả lời ngắn vượt quá 2000 ký tự**. Mỗi đáp án được chấp nhận vẫn có giới hạn 2.000; Giải thích vẫn tối đa 20.000. Nếu nguồn thiếu đáp án, prompt giữ `answer:""` và cảnh báo trong `teacherNote`; giáo viên phải điền đáp án trước khi lưu vào ngân hàng, không tự dùng kết quả suy luận làm khóa chấm.
+
+## Bố cục trang đang thi và tự lưu — 2026-10-07
+
+Trang thi ẩn thông báo lưu thành công, nút **Lưu ngay** và tổng số câu đã trả lời. Nút cũ chỉ đẩy đáp án hiện tại lên server; tự lưu mỗi 3 giây, lưu trước khi **Trả Lời**/Enter chuyển câu, lưu khi nộp, bản sao trên thiết bị và cơ chế phục hồi giữ nguyên. Lỗi lưu/mất mạng vẫn hiện; không che lỗi bằng cách ẩn toàn bộ trạng thái.
+
+Desktop có tiêu đề bên trái, đồng hồ giữa khung và **Nộp bài** bên phải trên cùng một hàng. Mobile để tiêu đề trên hàng riêng cho dễ đọc, đồng hồ và Nộp bài ở hàng dưới. **Câu trước — Trả Lời — Câu tiếp** cùng một hàng ở trái/giữa/phải trên mọi kích thước. Số câu đã có đáp án mang dấu tích và nền cam nhạt; câu hiện tại được đánh dấu riêng, kể cả khi đã trả lời. Thứ tự tab, Enter, điều hướng câu cuối, autosave/retry/submit và chấm điểm giữ nguyên.
+
+Xác minh: 16 competition tests, typecheck/build và native startup đạt trên Node 22.16.0. Browser compiled cô lập kiểm tra bốn môn trong bảng soạn, ảnh phương án tải thủ công, tự lưu thật trên API/tải lại bài, lỗi lưu/retry, Enter/Trả Lời, chấm điểm Toán/Toán Tiếng Anh, IOE 200 câu, Review và History. Bố cục player đạt tại 1440/1024/768/640/390/320px; không overflow/exception, tương phản control tối thiểu 4.91:1; ảnh desktop/mobile đã xem. Bằng chứng `.data/competition-guidance-browser-report.json` và `.data/competition-guidance-{tests,lint,build,startup,browser}.log`. Không gọi mô hình bên ngoài hoặc ghi vào dữ liệu thật của giáo viên/học sinh.
+
 ## Phạm vi bản đầu
 
 Giáo viên mở **IOE/Violympic** trong dashboard: chọn môn/lớp/cấp → sao chép hướng dẫn → gửi PDF/ảnh cho ChatGPT → dán JSON → ghép vào bảng → sửa → lưu trực tiếp vào bank. Mọi dòng được kiểm tra lại ở server; thiếu đáp án hoặc nội dung không hợp lệ được báo để giáo viên sửa. Giữ tiêu đề, số nguồn, đoạn văn, nội dung, đủ phương án, đáp án và giải thích. Các dòng đã lưu thành công được bỏ khỏi bảng ngay; retry phần còn lại không tạo bản sao ngoài ý muốn.
@@ -146,6 +186,7 @@ src/server/ioe-violympic/router.ts
 src/server/ioe-violympic/schema.ts
 src/server/ioe-violympic/selection.ts
 src/shared/competition/answer.ts
+src/shared/competition/feedback.ts
 src/shared/competition/import.ts
 src/shared/competition/types.ts
 ```

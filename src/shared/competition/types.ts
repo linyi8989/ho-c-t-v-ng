@@ -10,10 +10,10 @@ export type QuestionFilters = Partial<Scope>;
 export interface Question extends Scope {
   id: string; ownerId: string; revision: number; title: string; prompt: string; passage: string;
   sourceNumber: string; interaction: Interaction; options: Option[]; media: Media[];
-  answerSpec: AnswerSpec; explanation: string; domain: string; difficulty: number;
+  answerSpec: AnswerSpec; explanation: string; teacherNote?: string; domain: string; difficulty: number;
   pairs?: { left: Option[]; right: Option[] }; archived?: boolean;
 }
-export type PlayableQuestion = Omit<Question, 'ownerId' | 'revision' | 'sourceNumber' | 'answerSpec' | 'explanation' | 'domain' | 'difficulty' | 'archived'>;
+export type PlayableQuestion = Omit<Question, 'ownerId' | 'revision' | 'sourceNumber' | 'answerSpec' | 'explanation' | 'teacherNote' | 'domain' | 'difficulty' | 'archived'>;
 export interface Blueprint extends Scope { total: number; durationMinutes: number; domains: Record<string, number>; difficulties: Record<string, number> }
 export interface Paper extends Scope {
   id: string; ownerId: string; title: string; versionId: string; visibility: 'public' | 'assignment';
@@ -49,7 +49,7 @@ export interface ResultSummary extends Scope {
 export interface ResultsPage { items: ResultSummary[]; total: number; page: number; pageSize: number }
 export function defaultCount(subject: Subject, grade: number) { return subject === 'english' ? (grade <= 2 ? 100 : 200) : 30; }
 export function displayTitle(title: string, number: number) { return title.replace(/^\s*(?:Câu(?:\s+hỏi)?|Question)\s*\d+\s*[:.)-]?\s*/iu, '').trim() || `Câu ${number}`; }
-export function playable(question: Question): PlayableQuestion {
+export function playable(question: Question | PlayableQuestion): PlayableQuestion {
   return { id: question.id, subject: question.subject, grade: question.grade, level: question.level, title: question.title,
     prompt: question.prompt, passage: question.passage, interaction: question.interaction, options: question.options,
     media: question.media, ...(question.pairs ? { pairs: question.pairs } : {}) };

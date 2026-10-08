@@ -4653,6 +4653,82 @@ var import_express = __toESM(require("express"), 1);
 // src/server/learning-history/learningHistoryAuth.ts
 var import_node_crypto4 = __toESM(require("node:crypto"), 1);
 
+// src/shared/competition/types.ts
+var SUBJECT_LABELS = { english: "IOE Ti\u1EBFng Anh", math: "To\xE1n", "math-english": "To\xE1n Ti\u1EBFng Anh", vietnamese: "Ti\u1EBFng Vi\u1EC7t" };
+var SUBJECTS = Object.keys(SUBJECT_LABELS);
+var isSubject = (value) => typeof value === "string" && SUBJECTS.some((subject) => subject === value);
+var isMath = (subject) => subject === "math" || subject === "math-english";
+var usesEnglishContent = (subject) => subject === "english" || subject === "math-english";
+var LEVEL_LABELS = { practice: "Luy\u1EC7n t\u1EADp", school: "Tr\u01B0\u1EDDng/L\u1EDBp", district: "X\xE3/Ph\u01B0\u1EDDng", province: "T\u1EC9nh/Th\xE0nh ph\u1ED1", national: "Qu\u1ED1c gia" };
+var INVENTORY_LEVELS = ["school", "district", "province", "national"];
+var levelsFor = (subject) => subject === "english" ? ["practice", ...INVENTORY_LEVELS] : [...INVENTORY_LEVELS];
+function defaultCount(subject, grade) {
+  return subject === "english" ? grade <= 2 ? 100 : 200 : 30;
+}
+function playable(question) {
+  return {
+    id: question.id,
+    subject: question.subject,
+    grade: question.grade,
+    level: question.level,
+    title: question.title,
+    prompt: question.prompt,
+    passage: question.passage,
+    interaction: question.interaction,
+    options: question.options,
+    media: question.media,
+    ...question.pairs ? { pairs: question.pairs } : {}
+  };
+}
+
+// src/shared/competition/feedback.ts
+function splitTeacherFeedback(explanation, teacherNote = "") {
+  const studentLines = [], noteLines = [];
+  let inNote = false;
+  for (const line of explanation.replace(/\r\n?/g, "\n").split("\n")) {
+    const marker = /(?:^\s*(?:\d+[.)]\s*)?|\s+)Cần giáo viên kiểm tra(?=\s|[:：.…]|$)/iu.exec(line);
+    if (marker) {
+      const prefix = line.slice(0, marker.index).trimEnd();
+      if (prefix.trim()) studentLines.push(prefix);
+      noteLines.push(line.slice(marker.index).trim().replace(/^\d+[.)]\s*/, ""));
+      inNote = true;
+    } else if (inNote && !/^\s*\d+[.)]\s+\S/u.test(line)) {
+      noteLines.push(line);
+    } else {
+      studentLines.push(line);
+      inNote = false;
+    }
+  }
+  const notes = [teacherNote.trim(), noteLines.join("\n").trim()].filter(Boolean);
+  return { explanation: studentLines.join("\n").trim(), teacherNote: [...new Set(notes)].join("\n") };
+}
+function studentReviewRows(rows) {
+  return rows.map((row) => ({
+    question: playable(row.question),
+    studentAnswer: row.studentAnswer,
+    correctAnswer: row.correctAnswer,
+    ...row.submittedAnswer ? { submittedAnswer: row.submittedAnswer } : {},
+    ...row.correctOptionId ? { correctOptionId: row.correctOptionId } : {},
+    isCorrect: row.isCorrect,
+    unanswered: row.unanswered,
+    pointsAwarded: row.pointsAwarded,
+    explanation: splitTeacherFeedback(row.explanation || "").explanation
+  }));
+}
+function competitionReviewDetail(input) {
+  const rows = studentReviewRows(input);
+  const answerDetails = rows.map((row, i) => ({
+    questionId: row.question.id,
+    questionText: `C\xE2u ${i + 1}. ${row.question.prompt}`,
+    options: row.question.options,
+    studentAnswer: row.studentAnswer,
+    correctAnswer: row.correctAnswer,
+    isCorrect: row.isCorrect,
+    explanation: row.explanation
+  }));
+  return { rows, answerDetails, extraDetails: { competitionReview: { version: 1, rows } } };
+}
+
 // src/server/speaking/sessions.ts
 var import_node_crypto3 = __toESM(require("node:crypto"), 1);
 
@@ -8194,7 +8270,8 @@ async function findAttemptDetail(attemptId) {
     [attemptId]
   );
   if (competitionRow) {
-    const data2 = JSON.parse(competitionRow.data_json);
+    const stored = JSON.parse(competitionRow.data_json);
+    const data2 = { ...competitionReviewDetail(stored.rows), reviewPolicy: stored.reviewPolicy };
     return {
       attempt_id: attemptId,
       client_run_id: null,
@@ -23468,34 +23545,6 @@ var DEFAULT_VIETNAMESE_TEXT_NORMALIZATION = {
   normalizeApostrophes: true
 };
 
-// src/shared/competition/types.ts
-var SUBJECT_LABELS = { english: "IOE Ti\u1EBFng Anh", math: "To\xE1n", "math-english": "To\xE1n Ti\u1EBFng Anh", vietnamese: "Ti\u1EBFng Vi\u1EC7t" };
-var SUBJECTS = Object.keys(SUBJECT_LABELS);
-var isSubject = (value) => typeof value === "string" && SUBJECTS.some((subject) => subject === value);
-var isMath = (subject) => subject === "math" || subject === "math-english";
-var usesEnglishContent = (subject) => subject === "english" || subject === "math-english";
-var LEVEL_LABELS = { practice: "Luy\u1EC7n t\u1EADp", school: "Tr\u01B0\u1EDDng/L\u1EDBp", district: "X\xE3/Ph\u01B0\u1EDDng", province: "T\u1EC9nh/Th\xE0nh ph\u1ED1", national: "Qu\u1ED1c gia" };
-var INVENTORY_LEVELS = ["school", "district", "province", "national"];
-var levelsFor = (subject) => subject === "english" ? ["practice", ...INVENTORY_LEVELS] : [...INVENTORY_LEVELS];
-function defaultCount(subject, grade) {
-  return subject === "english" ? grade <= 2 ? 100 : 200 : 30;
-}
-function playable(question) {
-  return {
-    id: question.id,
-    subject: question.subject,
-    grade: question.grade,
-    level: question.level,
-    title: question.title,
-    prompt: question.prompt,
-    passage: question.passage,
-    interaction: question.interaction,
-    options: question.options,
-    media: question.media,
-    ...question.pairs ? { pairs: question.pairs } : {}
-  };
-}
-
 // src/shared/competition/import.ts
 var CompetitionError = class extends Error {
   constructor(status, code, message) {
@@ -23511,11 +23560,13 @@ function record2(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return fail2("C\u1EA7n m\u1ED9t \u0111\u1ED1i t\u01B0\u1EE3ng JSON.");
   return value;
 }
-function text7(value, max = 2e4, required2 = false) {
+function text7(value, max = 2e4, required2 = false, field = "N\u1ED9i dung") {
   if (value === void 0 || value === null) value = "";
-  if (typeof value !== "string" && typeof value !== "number") return fail2("N\u1ED9i dung ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.");
+  if (typeof value !== "string" && typeof value !== "number") return fail2(`${field} ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.`);
   const result = String(value).normalize("NFC").trim();
-  if (result.length > max || /\u0000/.test(result) || required2 && !result) return fail2(`N\u1ED9i dung tr\u1ED1ng ho\u1EB7c v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  if (required2 && !result) return fail2(`${field} \u0111ang tr\u1ED1ng.`);
+  if (result.length > max) return fail2(`${field} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  if (/\u0000/.test(result)) return fail2(`${field} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
   return result;
 }
 function parseScope(value) {
@@ -23596,7 +23647,7 @@ function normalizeQuestion5(value, scope) {
   } else if (kind === "text") {
     const values = spec?.acceptedAnswers ?? row.acceptedAnswers ?? [row.answer ?? row.correctAnswer];
     if (!Array.isArray(values) || !values.length || values.length > 20) return fail2("C\u1EA7n \u0111\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn.");
-    answerSpec = { kind, acceptedAnswers: values.map((v) => text7(v, 2e3, true)), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
+    answerSpec = { kind, acceptedAnswers: values.map((v) => text7(v, 2e3, true, "\u0110\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn")), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
   } else if (kind === "integer") {
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), allowLeadingPlus: true };
   } else if (kind === "decimal") {
@@ -23632,6 +23683,8 @@ function normalizeQuestion5(value, scope) {
   if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail2("\u0110\u1ED9 kh\xF3 ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 5.");
   const domain = text7(row.domain ?? "vocabulary", 80, true);
   if (scope.subject === "english" && !["vocabulary", "grammar", "reading", "listening"].includes(domain)) return fail2("Nh\xF3m IOE kh\xF4ng h\u1EE3p l\u1EC7.");
+  const feedback = splitTeacherFeedback(text7(row.explanation ?? (row.feedback ? record2(row.feedback).explanation : ""), 2e4, false, "Gi\u1EA3i th\xEDch"), text7(row.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn"));
+  const teacherNote = text7(feedback.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn");
   return {
     ...scope,
     id: "",
@@ -23644,15 +23697,58 @@ function normalizeQuestion5(value, scope) {
     options: opts,
     media: normalizeMedia(content.media),
     answerSpec,
-    explanation: text7(row.explanation ?? (row.feedback ? record2(row.feedback).explanation : "")),
+    explanation: feedback.explanation,
+    ...teacherNote ? { teacherNote } : {},
     interaction,
     domain,
     difficulty,
     ...pairs ? { pairs } : {}
   };
 }
+var MATH_ANSWER_GUIDANCE = 'V\u1EDBi tr\u1EA3 l\u1EDDi ng\u1EAFn d\u1EA1ng ph\xE2n s\u1ED1/th\u1EADp ph\xE2n/s\u1ED1 c\xF3 \u0111\u01A1n v\u1ECB, c\xF3 th\u1EC3 d\xF9ng answerSpec thay answer: {"kind":"fraction","numerator":"1","denominator":"2","acceptEquivalent":true}, {"kind":"decimal","value":"1.5"}, {"kind":"numeric-with-unit","value":"2","acceptedUnits":["cm"]}. Ch\u1EC9 d\xF9ng d\u1EA1ng ph\xF9 h\u1EE3p \u0111\xE1p \xE1n ngu\u1ED3n v\xE0 gi\u1EEF \u0111\xFAng \u0111\u01A1n v\u1ECB.';
+var MATH_TEACHING_GUIDANCE = "Gi\xFAp tr\u1EBB nh\u1EADn ra d\u1EEF ki\u1EC7n v\xE0 \u0111i\u1EC1u c\u1EA7n t\xECm, n\xF3i r\xF5 v\xEC sao ch\u1ECDn ph\xE9p t\xEDnh/c\xE1ch suy lu\u1EADn, r\u1ED3i t\xEDnh v\xE0 ki\u1EC3m tra k\u1EBFt qu\u1EA3/\u0111\u01A1n v\u1ECB. V\u1EDBi bi\u1EC3u \u0111\u1ED3, \u0111\u1ECDc ch\xFA gi\u1EA3i v\xE0 gi\xE1 tr\u1ECB m\u1ED7i bi\u1EC3u t\u01B0\u1EE3ng trong l\u1EDDi gi\u1EA3i. Khi chuy\u1EC3n \u0111\u1EC3 hai nh\xF3m b\u1EB1ng nhau, gi\u1EA3i th\xEDch nh\xF3m n\xE0y gi\u1EA3m v\xE0 nh\xF3m kia t\u0103ng tr\u01B0\u1EDBc khi d\xF9ng n\u1EEDa hi\u1EC7u. D\xF9ng t\xEDnh nh\u1EA9m, s\u01A1 \u0111\u1ED3 ho\u1EB7c lo\u1EA1i tr\u1EEB khi gi\xFAp gi\u1EA3i nhanh v\xE0 v\u1EEBa s\u1EE9c; kh\xF4ng \xE9p m\u1ECDi c\xE2u theo m\u1ED9t c\xF4ng th\u1EE9c.";
+var IMPORT_SUBJECT_PROMPTS = {
+  math: {
+    language: "Gi\u1EEF nguy\xEAn ch\u1EEF, k\xFD hi\u1EC7u v\xE0 \u0111\u01A1n v\u1ECB c\u1EE7a \u0111\u1EC1 To\xE1n. Vi\u1EBFt explanation b\u1EB1ng ti\u1EBFng Vi\u1EC7t r\xF5 r\xE0ng.",
+    answers: MATH_ANSWER_GUIDANCE,
+    teaching: MATH_TEACHING_GUIDANCE
+  },
+  "math-english": {
+    language: "Gi\u1EEF n\u1ED9i dung To\xE1n b\u1EB1ng ti\u1EBFng Anh: ti\xEAu \u0111\u1EC1, c\xE2u h\u1ECFi, d\u1EEF ki\u1EC7n, ph\u01B0\u01A1ng \xE1n v\xE0 \u0111\xE1p \xE1n; kh\xF4ng d\u1ECBch sang ti\u1EBFng Vi\u1EC7t. H\u01B0\u1EDBng d\u1EABn explanation c\u0169ng vi\u1EBFt b\u1EB1ng ti\u1EBFng Anh \u0111\u01A1n gi\u1EA3n, ph\xF9 h\u1EE3p v\u1EDBi l\u1EDBp h\u1ECDc.",
+    answers: MATH_ANSWER_GUIDANCE,
+    teaching: MATH_TEACHING_GUIDANCE
+  },
+  vietnamese: {
+    language: "Gi\u1EEF nguy\xEAn c\xE2u ch\u1EEF v\xE0 d\u1EA5u ti\u1EBFng Vi\u1EC7t trong \u0111\u1EC1, \u0111o\u1EA1n v\u0103n, ph\u01B0\u01A1ng \xE1n v\xE0 \u0111\xE1p \xE1n. Vi\u1EBFt explanation b\u1EB1ng ti\u1EBFng Vi\u1EC7t r\xF5 r\xE0ng.",
+    teaching: "H\u01B0\u1EDBng d\u1EABn tr\u1EBB \u0111\u1ECDc y\xEAu c\u1EA7u, t\xECm t\u1EEB ng\u1EEF ho\u1EB7c chi ti\u1EBFt l\xE0m b\u1EB1ng ch\u1EE9ng trong c\xE2u/\u0111o\u1EA1n v\u0103n, r\u1ED3i \xE1p d\u1EE5ng ngh\u0129a t\u1EEB ho\u1EB7c quy t\u1EAFc ph\xF9 h\u1EE3p. Tr\xEDch ng\u1EAFn b\u1EB1ng ch\u1EE9ng c\xF3 th\u1EADt v\xE0 gi\u1EA3i th\xEDch v\xEC sao ch\u1ECDn/vi\u1EBFt \u0111\xE1p \xE1n \u0111\xF3. N\xEAu \u0111i\u1EC3m d\u1EC5 nh\u1EA7m khi h\u1EEFu \xEDch; kh\xF4ng b\u1ECBa chi ti\u1EBFt v\u0103n b\u1EA3n."
+  },
+  english: {
+    language: "Gi\u1EEF nguy\xEAn n\u1ED9i dung ti\u1EBFng Anh c\u1EE7a c\xE2u h\u1ECFi, \u0111o\u1EA1n v\u0103n, ph\u01B0\u01A1ng \xE1n v\xE0 \u0111\xE1p \xE1n. Vi\u1EBFt explanation b\u1EB1ng ti\u1EBFng Vi\u1EC7t d\u1EC5 hi\u1EC3u; ch\u1EC9 ch\xFA gi\u1EA3i ngh\u0129a t\u1EEB/c\u1EA5u tr\xFAc khi c\u1EA7n.",
+    metadata: "Th\xEAm domain (vocabulary/grammar/reading/listening) v\xE0 difficulty (1\u20135 theo l\u1EDBp) v\xEC b\u1ED9 ch\u1ECDn c\xE2u c\u1EE7a m\xF4n n\xE0y d\xF9ng hai ti\xEAu ch\xED \u0111\xF3.",
+    teaching: "Gi\u1EA3i th\xEDch ngh\u0129a t\u1EEB, d\u1EA5u hi\u1EC7u ng\u1EEF ph\xE1p ho\u1EB7c chi ti\u1EBFt l\xE0m b\u1EB1ng ch\u1EE9ng \u0111\u1ECDc/nghe gi\xFAp ch\u1ECDn hay vi\u1EBFt \u0111\xE1p \xE1n. Kh\xF4ng b\u1ECBa n\u1ED9i dung b\xE0i nghe ho\u1EB7c \u0111o\u1EA1n v\u0103n ch\u01B0a c\xF3 trong ngu\u1ED3n; n\u1EBFu thi\u1EBFu th\xEC ghi r\xF5 ph\u1EA7n c\u1EA7n gi\xE1o vi\xEAn cung c\u1EA5p trong teacherNote."
+  }
+};
 function buildImportPrompt(scope) {
-  return `\u0110\u1ECDc to\xE0n b\u1ED9 PDF/\u1EA3nh \u0111\xEDnh k\xE8m. Ch\xE9p \u0111\xFAng c\xE2u h\u1ECFi m\xF4n ${SUBJECT_LABELS[scope.subject]}, l\u1EDBp ${scope.grade}, c\u1EA5p ${scope.level}; kh\xF4ng t\u1EA1o c\xE2u m\u1EDBi, kh\xF4ng \u0111o\xE1n \u0111\xE1p \xE1n. ${scope.subject === "math-english" ? "Gi\u1EEF n\u1ED9i dung To\xE1n b\u1EB1ng ti\u1EBFng Anh: ti\xEAu \u0111\u1EC1, c\xE2u h\u1ECFi, d\u1EEF ki\u1EC7n, ph\u01B0\u01A1ng \xE1n, \u0111\xE1p \xE1n v\xE0 gi\u1EA3i th\xEDch theo ngu\u1ED3n; kh\xF4ng d\u1ECBch sang ti\u1EBFng Vi\u1EC7t. D\xF9ng c\xF9ng c\u1EA5u tr\xFAc \u0111\xE1p \xE1n s\u1ED1/ph\xE2n s\u1ED1/\u0111\u01A1n v\u1ECB c\u1EE7a To\xE1n, kh\xF4ng \xE1p d\u1EE5ng ma tr\u1EADn ki\u1EBFn th\u1EE9c IOE. " : ""}Ch\u1EC9 tr\u1EA3 m\u1ED9t JSON {"questions":[...]}. M\u1ED7i c\xE2u: title (gi\u1EEF ti\xEAu \u0111\u1EC1 ngu\u1ED3n), sourceNumber, prompt, passage (n\u1EBFu c\xF3), options (m\u1EA3ng ch\u1EEF, gi\u1EEF \u0111\u1EE7 m\u1ECDi ph\u01B0\u01A1ng \xE1n, kh\xF4ng \xE9p 4), answer (nh\xE3n A/B/... ho\u1EB7c tr\u1EA3 l\u1EDDi ng\u1EAFn), explanation (theo ngu\u1ED3n, thi\u1EBFu \u0111\u1EC3 ""), domain (vocabulary/grammar/reading/listening ch\u1EC9 v\u1EDBi IOE Ti\u1EBFng Anh; m\xF4n kh\xE1c gi\u1EEF nh\xF3m ki\u1EBFn th\u1EE9c theo ngu\u1ED3n), difficulty (1\u20135). Tr\u1EA3 l\u1EDDi ng\u1EAFn d\xF9ng options:[]; gi\u1EEF d\u1EA5u ti\u1EBFng Vi\u1EC7t v\xE0 \u0111\u01A1n v\u1ECB. To\xE1n ph\xE2n s\u1ED1/th\u1EADp ph\xE2n/\u0111\u01A1n v\u1ECB c\xF3 th\u1EC3 d\xF9ng answerSpec thay answer: {kind:"fraction",numerator:"1",denominator:"2",acceptEquivalent:true}, {kind:"decimal",value:"1.5"}, {kind:"numeric-with-unit",value:"2",acceptedUnits:["cm"]}. Kh\xF4ng c\xF3 \u0111\xE1p \xE1n th\xEC answer:"" \u0111\u1EC3 gi\xE1o vi\xEAn ho\xE0n thi\u1EC7n. Kh\xF4ng t\u1EA1o ID, URL, media ho\u1EB7c d\u1EEF li\u1EC7u c\xE1 nh\xE2n. Kh\xF4ng Markdown, kh\xF4ng gi\u1EA3i th\xEDch ngo\xE0i JSON.`;
+  const subjectPrompt = IMPORT_SUBJECT_PROMPTS[scope.subject];
+  return [
+    `B\u1EA1n \u0111ang so\u1EA1n d\u1EEF li\u1EC7u c\xE2u h\u1ECFi m\xF4n ${SUBJECT_LABELS[scope.subject]} cho h\u1ECDc sinh l\u1EDBp ${scope.grade}, c\u1EA5p ${LEVEL_LABELS[scope.level]}.`,
+    "\u0110\u1ECDc to\xE0n b\u1ED9 PDF/\u1EA3nh \u0111\xEDnh k\xE8m, gh\xE9p \u0111\xFAng c\xE2u h\u1ECFi, ph\u01B0\u01A1ng \xE1n, \u0111\xE1p \xE1n v\xE0 h\u01B0\u1EDBng d\u1EABn d\xF9 kh\xE1c trang; kh\xF4ng t\u1EA1o c\xE2u m\u1EDBi, kh\xF4ng \u0111o\xE1n \u0111\xE1p \xE1n. Ch\u1EC9 ch\xE9p ch\u1EEF g\u1ED1c v\xE0o title, prompt v\xE0 options; b\u1ECF qu\u1EA3ng c\xE1o, s\u1ED1 trang, ch\xE2n trang. T\xE1ch \u0111\xE1p \xE1n/l\u1EDDi gi\u1EA3i kh\u1ECFi n\u1ED9i dung \u0111\u1EC1.",
+    subjectPrompt.language,
+    'Ch\u1EC9 tr\u1EA3 m\u1ED9t JSON {"questions":[...]}. M\u1ED7i c\xE2u g\u1ED3m title (y\xEAu c\u1EA7u/ti\xEAu \u0111\u1EC1 ngu\u1ED3n), sourceNumber (s\u1ED1 c\xE2u ngu\u1ED3n), prompt (nguy\xEAn v\u0103n c\xE2u h\u1ECFi), options, answer, explanation (h\u01B0\u1EDBng d\u1EABn gi\u1EA3i cho h\u1ECDc sinh), teacherNote (ghi ch\xFA ri\xEAng cho gi\xE1o vi\xEAn; kh\xF4ng c\xF3 th\xEC ""). passage ch\u1EC9 th\xEAm khi ngu\u1ED3n c\xF3 \u0111o\u1EA1n v\u0103n b\u1EB1ng ch\u1EEF d\xF9ng chung cho nhi\u1EC1u c\xE2u, ch\xE9p nguy\xEAn v\u0103n; n\u1EBFu kh\xF4ng c\xF3 th\xEC b\u1ECF ho\u1EB7c \u0111\u1EC3 "". Ch\u1EC9 d\xF9ng c\xE1c tr\u01B0\u1EDDng \u0111\u01B0\u1EE3c y\xEAu c\u1EA7u trong prompt n\xE0y.',
+    "Tr\u1EAFc nghi\u1EC7m m\u1ED9t \u0111\xE1p \xE1n: options l\xE0 m\u1EA3ng chu\u1ED7i, gi\u1EEF \u0111\u1EE7 ph\u01B0\u01A1ng \xE1n ch\u1EEF theo th\u1EE9 t\u1EF1 ngu\u1ED3n, kh\xF4ng \xE9p 4; answer l\xE0 nh\xE3n A/B/... \u0111\xFAng. Tr\u1EA3 l\u1EDDi ng\u1EAFn: options:[], answer l\xE0 \u0111\xE1p \xE1n ngu\u1ED3n. Kh\xF4ng th\xEAm questionType.",
+    ...subjectPrompt.answers ? [subjectPrompt.answers] : [],
+    ...subjectPrompt.metadata ? [subjectPrompt.metadata] : [],
+    'H\xCCNH \u1EA2NH: gi\xE1o vi\xEAn t\u1EF1 t\u1EA3i \u1EA3nh v\xE0o c\xE2u h\u1ECFi/ph\u01B0\u01A1ng \xE1n. Kh\xF4ng di\u1EC5n gi\u1EA3i h\xECnh ho\u1EB7c bi\u1EC3u \u0111\u1ED3 th\xE0nh d\u1EEF ki\u1EC7n trong prompt/passage; kh\xF4ng d\u1ECBch h\xECnh th\xE0nh text ho\u1EB7c emoji/icon. Ph\u01B0\u01A1ng \xE1n ch\u1EC9 c\xF3 h\xECnh gi\u1EEF ch\u1ED7 b\u1EB1ng {"text":""}; c\xF3 ch\u1EEF v\xE0 h\xECnh th\xEC ch\u1EC9 ch\xE9p ch\u1EEF g\u1ED1c. V\xED d\u1EE5 options:[{"text":""},{"text":""},{"text":""},{"text":""}], answer gi\u1EEF nh\xE3n ngu\u1ED3n. Kh\xF4ng b\u1ECF ph\u01B0\u01A1ng \xE1n h\xECnh hay \u0111\u1ED5i d\u1EA1ng c\xE2u; gi\xE1o vi\xEAn g\u1EAFn \u1EA3nh tr\u01B0\u1EDBc khi l\u01B0u. Ch\u1EC9 \u0111\u1ECDc h\xECnh \u0111\u1EC3 vi\u1EBFt explanation; nh\u1EADn x\xE9t t\u1EEB h\xECnh ch\u1EC9 n\u1EB1m trong l\u1EDDi gi\u1EA3i.',
+    "explanation ph\u1EA3i d\u1EA1y tr\u1EBB t\u01B0 duy v\xE0 c\xE1ch l\xE0m, kh\xF4ng ch\u1EC9 ch\xE9p \u0111\xE1p \xE1n:",
+    "1. Ngu\u1ED3n c\xF3 h\u01B0\u1EDBng d\u1EABn \u0111\u1EA7y \u0111\u1EE7: ki\u1EC3m tra, gi\u1EEF c\xE1ch l\xE0m \u0111\xFAng v\xE0 vi\u1EBFt r\xF5 t\u1EEBng b\u01B0\u1EDBc; b\u1ED5 sung l\xFD do ho\u1EB7c b\u01B0\u1EDBc c\xF2n thi\u1EBFu.",
+    "2. Ngu\u1ED3n ch\u1EC9 c\xF3 \u0111\xE1p \xE1n \u0111\xFAng: t\u1EF1 x\xE2y d\u1EF1ng h\u01B0\u1EDBng d\u1EABn t\u1EEB d\u1EEF ki\u1EC7n c\xE2u h\u1ECFi, gi\u1EA3i \u0111\u1ED9c l\u1EADp r\u1ED3i \u0111\u1ED1i chi\u1EBFu v\u1EDBi \u0111\xE1p \xE1n ngu\u1ED3n.",
+    '3. Ngu\u1ED3n kh\xF4ng c\xF3 h\u01B0\u1EDBng d\u1EABn: v\u1EABn x\xE2y d\u1EF1ng c\xE1ch gi\u1EA3i khi \u0111\u1EE7 d\u1EEF ki\u1EC7n; kh\xF4ng \u0111\u1EC3 explanation tr\u1ED1ng ch\u1EC9 v\xEC ngu\u1ED3n thi\u1EBFu l\u1EDDi gi\u1EA3i. N\u1EBFu thi\u1EBFu c\u1EA3 \u0111\xE1p \xE1n, \u0111\u1EC3 answer:"" \u0111\u1EC3 gi\xE1o vi\xEAn ho\xE0n thi\u1EC7n, ch\u1EC9 h\u01B0\u1EDBng d\u1EABn ph\u1EA7n ch\u1EAFc ch\u1EAFn trong explanation, ghi ch\u1ED7 c\u1EA7n x\xE1c nh\u1EADn v\xE0o teacherNote.',
+    `H\u01B0\u1EDBng d\u1EABn h\u1ECDc sinh l\u1EDBp ${scope.grade}: th\u01B0\u1EDDng 2\u20135 b\u01B0\u1EDBc ng\u1EAFn, \u0111\xE1nh s\u1ED1, t\xE1ch d\xF2ng; c\xE2u \u0111\u01A1n gi\u1EA3n c\xF3 th\u1EC3 1\u20132 b\u01B0\u1EDBc. N\xF3i r\xF5 l\xFD do ch\u1ECDn c\xE1ch l\xE0m, k\u1EBFt lu\u1EADn v\xE0 ki\u1EC3m tra; \u01B0u ti\xEAn c\xE1ch nhanh, th\xF4ng minh, v\u1EEBa s\u1EE9c. Kh\xF4ng d\xF9ng ki\u1EBFn th\u1EE9c v\u01B0\u1EE3t l\u1EDBp ho\u1EB7c b\xE0i gi\u1EA3ng d\xE0i.`,
+    subjectPrompt.teaching,
+    "K\u1EBFt lu\u1EADn tr\u1EAFc nghi\u1EC7m k\xE8m n\u1ED9i dung \u0111\xE1p \xE1n \u0111\xFAng, kh\xF4ng ch\u1EC9 ghi nh\xE3n A/B/... v\xEC ph\u01B0\u01A1ng \xE1n c\xF3 th\u1EC3 \u0111\u01B0\u1EE3c tr\u1ED9n. \u0110\xE1p \xE1n, l\u1EDDi gi\u1EA3i v\xE0 d\u1EEF ki\u1EC7n ph\u1EA3i th\u1ED1ng nh\u1EA5t.",
+    'N\u1EBFu h\xECnh/ch\u1EEF kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c, \u0111\u1EC1 thi\u1EBFu th\xF4ng tin ho\u1EB7c \u0111\xE1p \xE1n ngu\u1ED3n m\xE2u thu\u1EABn v\u1EDBi c\xE1ch gi\u1EA3i \u0111\xE3 ki\u1EC3m ch\u1EE9ng: kh\xF4ng b\u1ECBa hay s\u1EEDa \u0111\u1EC1/kh\xF3a \u0111\xE1p \xE1n \u0111\u1EC3 kh\u1EDBp; ghi "C\u1EA7n gi\xE1o vi\xEAn ki\u1EC3m tra: ..." trong teacherNote, n\xEAu c\u1EE5 th\u1EC3 ch\u1ED7 thi\u1EBFu/m\xE2u thu\u1EABn. Kh\xF4ng \u0111\u01B0a c\u1EA3nh b\xE1o hay ghi ch\xFA gi\xE1o vi\xEAn v\xE0o explanation, prompt ho\u1EB7c passage. Thi\u1EBFu \u0111\xE1p \xE1n ngu\u1ED3n th\xEC \u0111\u1EC3 answer:"".',
+    "explanation v\xE0 teacherNote \u0111\u1EC1u l\xE0 chu\u1ED7i v\u0103n b\u1EA3n; teacherNote ch\u1EC9 d\xE0nh cho gi\xE1o vi\xEAn, t\u1ED1i \u0111a 5000 k\xFD t\u1EF1. M\xE3 h\xF3a xu\u1ED1ng d\xF2ng b\u1EB1ng \\n h\u1EE3p l\u1EC7 trong JSON. Kh\xF4ng t\u1EA1o ID, URL, media ho\u1EB7c d\u1EEF li\u1EC7u c\xE1 nh\xE2n. Kh\xF4ng Markdown, kh\xF4ng gi\u1EA3i th\xEDch ngo\xE0i JSON."
+  ].join("\n");
 }
 
 // src/server/ioe-violympic/repository.ts
@@ -24435,7 +24531,7 @@ function createCompetitionEngine(secret, clock = Date.now) {
         isCorrect: grade.isCorrect,
         unanswered: grade.errorCode === "UNANSWERED",
         pointsAwarded: grade.scoreRatio * 10,
-        explanation: q.explanation
+        explanation: splitTeacherFeedback(q.explanation).explanation
       };
     });
     const rawScore = rows.reduce((n, q) => n + q.pointsAwarded, 0), maxScore = rows.length * 10;
@@ -24453,16 +24549,7 @@ function createCompetitionEngine(secret, clock = Date.now) {
     };
     a = { ...a, status: "completed", revision: a.revision + 1, result };
     persist(db, a);
-    const answerDetails = rows.map((row, i) => ({
-      questionId: row.question.id,
-      questionText: `C\xE2u ${i + 1}. ${row.question.prompt}`,
-      options: row.question.options,
-      studentAnswer: row.studentAnswer,
-      correctAnswer: row.correctAnswer,
-      isCorrect: row.isCorrect,
-      explanation: row.explanation
-    }));
-    const detail = { rows, answerDetails, extraDetails: { competitionReview: { version: 1, rows } }, reviewPolicy: { showReviewAfterSubmit: true, policyVersion: 1 } };
+    const detail = { ...competitionReviewDetail(rows), reviewPolicy: { showReviewAfterSubmit: true, policyVersion: 1 } };
     db.run("INSERT INTO competition_attempt_details(attempt_id,created_at,updated_at,data_json) VALUES (?,?,?,?) ON CONFLICT(attempt_id) DO NOTHING", [a.id, completedAt, completedAt, JSON.stringify(detail)]);
     return a;
   };
@@ -24539,7 +24626,8 @@ function createCompetitionEngine(secret, clock = Date.now) {
     if (a.status !== "completed") throw new CompetitionError(409, "REVIEW_NOT_READY", "Ch\u1EC9 xem l\u1EDDi gi\u1EA3i sau khi n\u1ED9p b\xE0i.");
     const row = db.one("SELECT data_json FROM competition_attempt_details WHERE attempt_id=?", [id2]);
     if (!row) throw new CompetitionError(404, "DETAIL_NOT_FOUND", "Kh\xF4ng t\xECm th\u1EA5y l\u1EDDi gi\u1EA3i.");
-    return { result: a.result, ...decode2(row) };
+    const detail = decode2(row);
+    return { result: a.result, ...competitionReviewDetail(detail.rows), ...detail.reviewPolicy ? { reviewPolicy: detail.reviewPolicy } : {} };
   });
   const finalizeExpired = async () => {
     const rows = await queryAll2("SELECT id FROM competition_attempts WHERE status='active' AND deadline<=? ORDER BY deadline LIMIT 100", [nowIso5()]);

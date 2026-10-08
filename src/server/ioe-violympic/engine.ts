@@ -1,3 +1,4 @@
+import { competitionReviewDetail, splitTeacherFeedback } from '../../shared/competition/feedback';
 import crypto from 'node:crypto';
 import { mistakeScope, snapshotMistakes } from './practice';
 import type { SQLiteSynchronousGateway } from '../../lib/storage/storageTypes';
@@ -96,7 +97,7 @@ export function createCompetitionEngine(secret: string, clock: () => number = Da
       const answer = a.answers[q.id] || {}, grade = graderRegistry.grade(q.answerSpec, answer);
       return { question: playable(q), studentAnswer: userLabel(q, answer), correctAnswer: answerLabel(q, q.answerSpec), submittedAnswer: answer,
         ...(q.answerSpec.kind === 'single-choice' ? { correctOptionId: q.answerSpec.correctOptionId } : {}),
-        isCorrect: grade.isCorrect, unanswered: grade.errorCode === 'UNANSWERED', pointsAwarded: grade.scoreRatio * 10, explanation: q.explanation };
+        isCorrect: grade.isCorrect, unanswered: grade.errorCode === 'UNANSWERED', pointsAwarded: grade.scoreRatio * 10, explanation: splitTeacherFeedback(q.explanation).explanation };
     });
     const rawScore = rows.reduce((n, q) => n + q.pointsAwarded, 0), maxScore = rows.length * 10;
     const result: Result = { id: a.id, title: a.paper.title, score: Math.round(rawScore / maxScore * 10000) / 100, rawScore, maxScore,
@@ -104,9 +105,7 @@ export function createCompetitionEngine(secret: string, clock: () => number = Da
       incorrectCount: rows.filter(q => !q.isCorrect && !q.unanswered).length, durationSeconds: Math.max(0, Math.round((Date.parse(completedAt) - Date.parse(a.startedAt)) / 1000)), completedAt };
     a = { ...a, status: 'completed', revision: a.revision + 1, result };
     persist(db, a);
-    const answerDetails = rows.map((row, i) => ({ questionId: row.question.id, questionText: `Câu ${i + 1}. ${row.question.prompt}`, options: row.question.options,
-      studentAnswer: row.studentAnswer, correctAnswer: row.correctAnswer, isCorrect: row.isCorrect, explanation: row.explanation }));
-    const detail = { rows, answerDetails, extraDetails: { competitionReview: { version: 1, rows } }, reviewPolicy: { showReviewAfterSubmit: true, policyVersion: 1 } };
+    const detail = { ...competitionReviewDetail(rows), reviewPolicy: { showReviewAfterSubmit: true, policyVersion: 1 } };
     db.run('INSERT INTO competition_attempt_details(attempt_id,created_at,updated_at,data_json) VALUES (?,?,?,?) ON CONFLICT(attempt_id) DO NOTHING', [a.id, completedAt, completedAt, JSON.stringify(detail)]);
     return a;
   };
@@ -166,7 +165,8 @@ export function createCompetitionEngine(secret: string, clock: () => number = Da
     if (a.status !== 'completed') throw new CompetitionError(409, 'REVIEW_NOT_READY', 'Chỉ xem lời giải sau khi nộp bài.');
     const row = db.one<{ data_json: string }>('SELECT data_json FROM competition_attempt_details WHERE attempt_id=?', [id]);
     if (!row) throw new CompetitionError(404, 'DETAIL_NOT_FOUND', 'Không tìm thấy lời giải.');
-    return { result: a.result, ...decode<{ rows: ReviewRow[] }>(row) };
+    const detail = decode<{ rows: ReviewRow[]; reviewPolicy?: unknown }>(row);
+    return { result: a.result, ...competitionReviewDetail(detail.rows), ...(detail.reviewPolicy ? { reviewPolicy: detail.reviewPolicy } : {}) };
   });
   const finalizeExpired = async () => {
     const rows = await queryAll<{ id: string }>("SELECT id FROM competition_attempts WHERE status='active' AND deadline<=? ORDER BY deadline LIMIT 100", [nowIso()]);

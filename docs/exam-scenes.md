@@ -1,10 +1,10 @@
 # Cambridge & IELTS — cảnh làng dùng chung
 
-Bảy trang `/exams/starter`, `/exams/mover`, `/exams/flyer`, `/exams/ket`, `/exams/pet`, `/exams/fce`, `/exams/ielts` dùng cùng giao diện Starters đã duyệt: bảng tên gỗ, chữ vàng, biển hiệu trên nhà, thẻ bài linh vật và năm hàng có thể cuộn trong mỗi sân. Mỗi trang giữ tên/cấp riêng theo manifest hiện có. Không có bài thì sân trống; đang tải và lỗi vẫn có trạng thái/thử lại.
+Bảy trang `/exams/starter`, `/exams/mover`, `/exams/flyer`, `/exams/ket`, `/exams/pet`, `/exams/fce`, `/exams/ielts` dùng cùng giao diện làng đã duyệt: bảng tên gỗ, chữ vàng, biển hiệu trên nhà và link bài với linh vật đứng đầu khung gỗ kéo dài. Tên bài hiển thị đầy đủ bằng Nunito 700, tự xuống dòng và tăng chiều cao khung; không rút gọn, không ellipsis hoặc giới hạn hai dòng. Số hàng nhìn thấy phụ thuộc kích thước màn hình và tên đề (năm hàng khi đủ chỗ); mỗi sân cuộn độc lập, có nút lên/xuống và chỉ báo vị trí/tổng bài. Mỗi trang giữ tên/cấp riêng theo manifest hiện có. Không có bài thì sân trống; đang tải và lỗi vẫn có trạng thái/thử lại. Chi tiết bố cục: `docs/scene-link-layout.md`.
 
 Starters/Movers/Flyers/KET dùng hai nhà Listening và Reading & Writing. PET/FCE dùng ba nhà Listening, Reading, Writing. IELTS cũng dùng ba nhà vì hệ thống có Listening, Academic Reading, Academic Writing. Không thêm kỹ năng hoặc thay đổi cấu trúc/đáp án/chấm điểm của đề.
 
-Biển gỗ **Home** về `/`, **History** mở `/history`. **Previous/Next** đi theo chuỗi Starters → Movers → Flyers → KET → PET → FCE → IELTS; hai đầu chỉ hiện hướng tồn tại. Bốn biển desktop xếp 2×2 để không che nhà. Trên điện thoại biển luôn nằm phía trên cảnh, các nút kỹ năng chuyển vùng nhìn tới đúng sân. Link bài giữ modifier click/mở tab mới, nhãn accessible, tooltip toàn bộ tên, focus và giảm chuyển động.
+Biển gỗ **Home** về `/`, **History** mở `/history`. **Previous/Next** đi theo chuỗi Starters → Movers → Flyers → KET → PET → FCE → IELTS; hai đầu chỉ hiện hướng tồn tại. Bốn biển desktop xếp 2×2 theo thứ tự Home/History rồi Previous/Next; thứ tự bàn phím giống thứ tự nhìn. Trên điện thoại biển luôn nằm phía trên cảnh, các nút kỹ năng chuyển vùng nhìn tới đúng sân. Link bài giữ modifier click/mở tab mới, nhãn accessible, tooltip toàn bộ tên, focus và giảm chuyển động.
 
 ## Danh sách quản trị
 
@@ -31,7 +31,7 @@ Các cấp generic đọc `exam_sets` theo module/paper. Movers đọc `listenin
 - Hai nhà dùng `public/assets/backgrounds/bg-starters-scene.webp` đã duyệt.
 - Ba nhà: `public/assets/backgrounds/bg-exams-three-yards-v1.webp`, 1672×941, 354.856 byte; SHA256 `fc649d7ed039919834f72b3e346eb4be7df9c5cc72b424a787fdf7e6617bd5db`.
 - Tạo bằng built-in **imagegen**, chỉnh từ nền Starters; bản PNG và prompt tại `output/imagegen/bg-exams-three-yards-v1.png` và `.prompt.md`. Chỉ chuyển sang WebP bằng Pillow, không sửa/cắt nền bằng code. Không có chữ/UI trong background; bảng/nhãn/link là HTML/SVG và asset riêng.
-- Các asset bảng gỗ, sprite thẻ bài và font Baloo 2/Nunito cũ được dùng chung.
+- Bảng link là SVG gỗ co giãn độc lập với linh vật. Sprite alpha `public/assets/lesson-cards/scene-mascots-v1.webp` (724×2172, 225.056 byte) được tách bằng built-in imagegen từ sprite cũ; CSS dùng từng vùng đo riêng vì các hàng nguồn không cao bằng nhau. PNG/prompt lưu tại `output/imagegen/scene-mascots-v1.{png,prompt.md}`. Font Baloo 2/Nunito cũ được dùng chung; sprite cũ giữ nguyên cho icon trang chủ.
 
 Mở `http://localhost:3000/exams/pet?preview=links` (hoặc bất kỳ cấp nào) ở dev loopback để xem 25 bài mẫu mỗi sân. Không gọi API catalog, không ghi settings hoặc tạo attempt; click bài mẫu không mở đề. Production loại helper và luôn đọc bài thật dù query được thêm.
 

@@ -18,3 +18,14 @@ Phạm vi: cảnh catalog, danh sách link quản trị, adapter đọc catalog 
 Bằng chứng: `.data/exam-scenes-tests.log` (68 pass), `.data/exam-scenes-listening.log` (142 pass), `.data/exam-scenes-api-final.log` (7 API tests pass), `.data/exam-scenes-verification/browser-report.json` (7 cấp × 5 width, 0 exception), `.data/starter-scene-verification/browser-report.json` (toàn app/admin/hai player), `.data/exam-scenes-{copy,db,live,artifact}-report.json`. Native live giữ 58 tables/1.339 rows, quick_check=ok, không API write. Chỉ fixture hoặc bản sao nhận PUT.
 
 Kiểm tra Starter cũ ban đầu chờ selector màn Movers cũ; cập nhật assertion sang cảnh Movers hai sân theo yêu cầu mới, giữ route và toàn bộ các assertion khác. Suite sau cập nhật pass. Live harness từng trả DOM trực tiếp qua CDP; đổi kiểm tra thành Boolean, không sửa app. Các ảnh screenshot desktop/mobile đã được xem trực tiếp.
+
+## Điều chỉnh khung link đầy đủ — 2026-10-07
+
+- [x] Giữ nguyên tên đề, bỏ clamp/ellipsis; tên dài tăng chiều cao khung.
+- [x] Mở rộng khung, đưa linh vật ra đầu; SVG gỗ và atlas alpha riêng.
+- [x] Hai sân cùng baseline; ba sân giữ đúng nhà/kỹ năng; nav Home/History rồi Previous/Next.
+- [x] Mobile >=15px, nút cuộn 44px, chỉ báo vị trí; số hàng linh hoạt thay yêu cầu cứng năm hàng.
+- [x] Browser bảy cấp × năm width có tên dài/unbroken token, cuối danh sách, empty/loading/error/retry, admin và điều hướng.
+- [x] Browser Starters toàn app/API fixture/hai player/submit/review, typecheck/build; xem ảnh thực.
+
+Chi tiết hiện hành: `docs/scene-link-layout.md`; báo cáo trong các đường dẫn nêu ở tài liệu đó. Các số liệu 68/142 tests và snapshot phía trên là bằng chứng của lần mở rộng ngày 2026-10-06.

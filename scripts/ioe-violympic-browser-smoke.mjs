@@ -129,6 +129,17 @@ async function main() {
  const enter=async(extra={})=>{await cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r',unmodifiedText:'\r',...extra});await cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await delay(100);await wait("!document.querySelector('.competition-question-nav button:disabled')");};
  const currentNumber=()=>evaluate("[...document.querySelectorAll('.competition-question-nav button')].findIndex(b=>b.getAttribute('aria-pressed')==='true')+1");
  const goToQuestion=async(number)=>{await evaluate(`document.querySelectorAll('.competition-question-nav button')[${number-1}].click()`);await wait(`document.querySelector('.competition-question')?.getAttribute('aria-label')==='Câu ${number}'`);};
+ const waitForAutosave=async()=>{
+   // Even re-selecting the same answer dirties the local generation. Let the
+   // real 3-second autosave acknowledge it before testing a reload.
+   await delay(3200);
+   const until=Date.now()+15000;
+   while(Date.now()<until){
+     const saved=await evaluate(`(async()=>{const paper=decodeURIComponent(location.pathname.split('/').pop());const entry=Object.entries(sessionStorage).find(([key])=>key.startsWith('ioe-violympic:'+paper+':')&&!key.endsWith(':answers-backup'));if(!entry)return false;const local=JSON.parse(entry[1]);const response=await fetch('/api/ioe-violympic/attempts/'+local.id,{headers:{Authorization:'Bearer local-test-auth-bypass','X-Attempt-Ticket':local.ticket}});if(!response.ok)return false;const server=await response.json();return local.revision===server.revision&&Object.keys(server.answers).length===Object.keys(local.answers).length&&Object.entries(local.answers).every(([key,value])=>JSON.stringify(server.answers[key])===JSON.stringify(value));})()`);
+     if(saved)return;await delay(200);
+   }
+   throw Error('Automatic saving did not persist the current answers to the fixture server');
+ };
  const viewport=async(width,height=900)=>{await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});await delay(150);};
  const shot=async(name,root)=>{const clip=root?await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(root)}).getBoundingClientRect();return {x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1};})()`):undefined;const r=await cdp.send('Page.captureScreenshot',{format:'png',fromSurface:true,...(clip?{clip,captureBeyondViewport:true}:{})});const file=path.join(screenshotDir,name+'.png');writeFileSync(file,Buffer.from(r.data,'base64'));return file;};
  const metrics=async(root)=>evaluate(controlMetricsExpression(root));
@@ -198,10 +209,28 @@ async function main() {
    const report={passed:true,readOnly:true,origin,reports,screenshots,browserErrors};writeFileSync('.data/ioe-preview-local-report.json',JSON.stringify(report,null,2));console.log(JSON.stringify({passed:true,readOnly:true,screenshots}));cdp.close();return;
  }
  await click('Soạn JSON');
+ for(const subject of ['english','vietnamese','math-english','math']){
+   await field('Môn',subject);await click('Thêm câu thủ công');
+   const visible=await evaluate("[...document.querySelectorAll('[data-competition-draft-row] label')].filter(l=>/^(Nhóm kiến thức|Độ khó)/.test(l.textContent)).length");
+   assert(visible===(subject==='english'?2:0),'Authoring metadata follows the actual selection blueprint for '+subject);await click('Bỏ dòng');
+ }
  await field('Môn','math');await field('Lớp','3');await field('Cấp','school');
  await field('JSON từ ChatGPT',JSON.stringify({questions:[null]}));await click('Ghép vào bảng');assert(await evaluate("document.querySelector('#ioe-violympic-admin [role=alert]').textContent.includes('đối tượng JSON')"),'Malformed row must report an error without crashing React');await field('JSON từ ChatGPT',JSON.stringify({questions:[{prompt:'Câu thiếu đáp án',options:['Một','Hai'],answer:''}]}));await click('Ghép vào bảng');
  assert(await evaluate("document.querySelector('[data-competition-draft-row] .competition-error')!==null"),'Invalid row must show validation');
  await click('Lưu 1 câu vào bank');assert(await evaluate("document.querySelector('#ioe-violympic-admin [role=alert]').textContent.includes('Dòng 1')"),'Save must reject invalid row');await click('Bỏ dòng');
+ await field('JSON từ ChatGPT',JSON.stringify({questions:[{title:'Chọn đáp án đúng',prompt:'QA Chọn hình tam giác',options:[{text:''},{text:''}],answer:'',explanation:'Quan sát số cạnh của từng hình.'}]}));await click('Ghép vào bảng');
+ assert(await evaluate("document.querySelectorAll('.competition-editor-option').length===2&&[...document.querySelectorAll('.competition-editor-option textarea')].every(t=>t.value==='')"),'Image options preserve empty upload slots, never invented descriptions');
+ assert(await evaluate("[...document.querySelectorAll('[data-competition-draft-row] label')].find(l=>l.textContent.startsWith('Đáp án đúng')).querySelector('select').value===''"),'Empty image options never infer answer A from blank text');
+ assert(await evaluate("[...document.querySelectorAll('[data-competition-draft-row] label')].find(l=>l.textContent.startsWith('Đoạn văn')).querySelector('textarea').value===''"),'Image question has no generated passage');
+ assert(await evaluate("![...document.querySelectorAll('[data-competition-draft-row] label')].some(l=>/^(Nhóm kiến thức|Độ khó)/.test(l.textContent))"),'Math studio hides unused rotation metadata');
+ await click('Lưu 1 câu vào bank');assert(await evaluate("!!document.querySelector('[data-competition-draft-row] .competition-error')"),'An image option without uploaded media cannot be saved');
+ await field('Đáp án đúng','option-2','[data-competition-draft-row]');
+ for(let option=0;option<2;option++){
+   await evaluate(`(()=>{const dt=new DataTransfer();dt.items.add(new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jA1sAAAAASUVORK5CYII='),c=>c.charCodeAt(0))],'qa-image-option.png',{type:'image/png'}));const el=document.querySelectorAll('.competition-editor-option')[${option}].querySelector('input[type=file][accept^="image/"]');el.files=dt.files;el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+   await wait(`document.querySelectorAll('.competition-editor-option')[${option}].querySelector('img')`);
+ }
+ await wait("!document.querySelector('[data-competition-draft-row] .competition-error')");await exercisePreview('uploadedImageChoices','[data-competition-draft-row]');
+ assert(await evaluate("[...document.querySelectorAll('.competition-editor-option textarea')].every(t=>t.value==='')&&document.querySelectorAll('.competition-editor-option img').length===2"),'Teacher-uploaded option images work without generated text');await click('Bỏ dòng');
  const runName='QA '+Date.now();
  const questions=Array.from({length:30},(_,i)=>({title:`Câu ${700+i}. Dữ kiện`,sourceNumber:String(700+i),prompt:`${runName} tính ${i}+1`,passage:i===0?'Đọc dữ kiện trước khi làm bài.':'',options:i===29?[]:['Sai 1','Sai 2','Sai 3','Sai 4',String(i+1)],answer:i===29?'30':'E',explanation:`Lời giải: ${i}+1=${i+1}.`}));
  await click('Ngân hàng');assert(await evaluate("[...document.querySelectorAll('.competition-bank-prompt p')].every(p=>p.textContent.startsWith('QA '))"),'Existing bank contains non-QA data; refusing fixture cleanup');await wait("!document.querySelector('#ioe-violympic-admin button:disabled')||document.querySelector('#ioe-violympic-admin tbody')");await evaluate("(()=>{const el=document.querySelector('input[aria-label=\"Chọn cả trang\"]');if(el&&!el.checked)el.click();})()");if(await evaluate("document.querySelector('input[aria-label=\"Chọn cả trang\"]')?.checked")){const text=await evaluate("[...document.querySelectorAll('#ioe-violympic-admin button')].find(b=>b.textContent.startsWith('Xóa ')&&b.textContent.includes('câu đã chọn')).textContent.trim()");await click(text);await wait("document.querySelectorAll('#ioe-violympic-admin tbody tr').length===0");}await click('Soạn JSON');await field('JSON từ ChatGPT',JSON.stringify({questions}));await click('Ghép vào bảng');await wait("document.querySelectorAll('[data-competition-draft-row]').length===30");
@@ -278,10 +307,23 @@ async function main() {
  await goToQuestion(30);await answerCurrent();await enter();assert(await currentNumber()===30&&await evaluate("!!document.querySelector('.competition-player-header')&&!document.querySelector('.competition-score')"),'Enter at the last question never submits');
  reports.enterChoice={nativeSelection:true,changeSelection:true,next:true,focus:true,repeatGuard:true,imeGuard:true,modifierGuard:true,mediaUnaffected:true,nextButton:true,lastDoesNotSubmit:true};
  await goToQuestion(1);
+ for(const width of [1440,1024,768,640,390,320]){
+   await viewport(width);await evaluate('document.activeElement?.blur()');
+   const layout=await evaluate(`(()=>{const nav=document.querySelector('.competition-answer-navigation'),top=document.querySelector('.competition-player-topline'),rect=e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,cx:(r.left+r.right)/2,cy:(r.top+r.bottom)/2,height:r.height};},buttons=[...nav.querySelectorAll('button')].map(rect),timer=rect(top.querySelector('.competition-timer')),submit=rect(top.querySelector('.competition-submit')),title=rect(top.querySelector('h2')),answered=document.querySelector('.competition-question-nav [data-answered=true]'),blank=document.querySelector('.competition-question-nav button:not([data-answered])'),styles=e=>{const s=getComputedStyle(e);return {color:s.color,background:s.backgroundColor,image:s.backgroundImage,shadow:s.boxShadow}};return {nav:rect(nav),top:rect(top),buttons,timer,submit,title,answered:styles(answered),blank:styles(blank),removed:!document.body.innerText.includes('Đã lưu trên server')&&!document.body.innerText.includes('câu đã trả lời')&&![...document.querySelectorAll('#ioe-violympic-student button')].some(b=>b.textContent==='Lưu ngay'),overflow:document.documentElement.scrollWidth>innerWidth+1};})()`);
+   assert(layout.removed&&!layout.overflow,'Clean player without manual save/progress text at '+width);
+   assert(layout.buttons.length===3&&Math.abs(layout.buttons[1].cx-layout.nav.cx)<2&&Math.abs(layout.buttons[0].left-layout.nav.left)<2&&Math.abs(layout.buttons[2].right-layout.nav.right)<2,'Previous, Answer and Next align left/center/right at '+width);
+   assert(Math.max(...layout.buttons.map(b=>b.cy))-Math.min(...layout.buttons.map(b=>b.cy))<2&&layout.buttons.every(b=>b.height>=44),'All three actions share one row with touch targets at '+width);
+   assert(Math.abs(layout.submit.right-layout.top.right)<2,'Submit aligns to upper-right edge at '+width);
+   if(width>700)assert(Math.abs(layout.timer.cx-layout.top.cx)<2&&Math.max(layout.title.cy,layout.timer.cy,layout.submit.cy)-Math.min(layout.title.cy,layout.timer.cy,layout.submit.cy)<2,'Title, centered clock and submit share the header row at '+width);
+   else assert(layout.title.bottom<=layout.timer.top&&Math.abs(layout.timer.cy-layout.submit.cy)<2,'Compact header keeps title above aligned clock/submit at '+width);
+   assert(layout.answered.color!==layout.blank.color&&layout.answered.image.includes('255, 225, 184'),'Answered numbered buttons use light orange at '+width);
+   reports['playerLayout'+width]={...await metrics('#ioe-violympic-student'),layout};screenshots['playerLayout'+width]=await shot('player-layout-'+width);
+ }
+ await viewport(390);
  await answerCurrent();await cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});reports.keyboardFocus=await evaluate("(()=>{const el=document.activeElement,s=getComputedStyle(el);return {visible:el.matches(':focus-visible'),outline:s.outlineStyle,width:s.outlineWidth};})()");assert(reports.keyboardFocus.visible&&reports.keyboardFocus.outline==='solid','Keyboard focus must be visible');await viewport(1440);reports.playerDesktop=await metrics('#ioe-violympic-student');screenshots.playerDesktop=await shot('player-desktop');await viewport(390);reports.playerMobile=await metrics('#ioe-violympic-student');screenshots.playerMobile=await shot('player-mobile');
- await click('Lưu ngay','#ioe-violympic-student');await wait("document.querySelector('.competition-player-header').textContent.includes('Đã lưu trên server')");await cdp.send('Page.reload');await wait("document.querySelector('.competition-option[aria-pressed=true]')||document.querySelector('.competition-question input')?.value");
+ await waitForAutosave();await cdp.send('Page.reload');await wait("document.querySelector('.competition-option[aria-pressed=true]')||document.querySelector('.competition-question input')?.value");
  for(let i=1;i<30;i++){await click('Câu tiếp','#ioe-violympic-student');await answerCurrent();}
- await click('Lưu ngay','#ioe-violympic-student');await wait("document.querySelector('.competition-player-header').textContent.includes('Đã lưu trên server')");
+ await waitForAutosave();
  await click('Nộp bài','#ioe-violympic-student');await wait("document.querySelectorAll('.competition-review-row').length===30");assert(await evaluate("document.querySelector('.competition-score').textContent.includes('300/300')"),'All correct answers must score 300/300');assert(await evaluate("document.querySelectorAll('.competition-review-row.is-incorrect').length===0"),'Review grading');assert(await evaluate("Boolean(document.querySelector('.competition-review img')&&document.querySelector('.competition-review audio'))"),'Review retains B media');
  await viewport(1440);reports.reviewDesktop=await metrics('.competition-review');screenshots.reviewDesktop=await shot('review-desktop');await viewport(390);reports.reviewMobile=await metrics('.competition-review');screenshots.reviewMobile=await shot('review-mobile');
  await click('Lịch sử học tập','#ioe-violympic-student');await wait("document.querySelector('.history-detail-button')");await evaluate("document.querySelector('.history-detail-button').click()");await wait("document.querySelectorAll('.competition-review-row').length===30");screenshots.history=await shot('history-mobile');
@@ -302,7 +344,7 @@ async function main() {
  await enter({autoRepeat:true});assert(await currentNumber()===1,'Held text Enter does not advance');await enter();assert(await currentNumber()===2,'Filled text Enter advances exactly once');
  assert(await evaluate("document.activeElement.matches('.competition-answer input')"),'Next text input is focused');await enter({autoRepeat:true});assert(await currentNumber()===2,'Held Enter cannot skip a new blank input');
  await answerCurrent();await enter();assert(await currentNumber()===3,'Consecutive text answers advance');
- await click('Lưu ngay','#ioe-violympic-student');await wait("document.querySelector('.competition-player-header').textContent.includes('Đã lưu trên server')");await cdp.send('Page.reload');await wait("document.querySelector('.competition-answer input')?.value");
+ await waitForAutosave();await cdp.send('Page.reload');await wait("document.querySelector('.competition-answer input')?.value");
  assert(await evaluate("document.querySelector('.competition-answer input').value===document.querySelector('.competition-prompt').textContent.match(/(\\d+)\\+1/)[1]*1+1+''"),'Text entered before Enter survives save/reload');
  for(let i=0;i<30;i++){await answerCurrent();await enter();assert(await currentNumber()===Math.min(i+2,30),'Text Enter navigation remains bounded through the final question');}
  assert(await evaluate("!!document.querySelector('.competition-player-header')&&!document.querySelector('.competition-score')"),'Last text Enter keeps the active attempt');
@@ -350,7 +392,7 @@ async function main() {
  for(const interaction of ['ordering','matching']){const number=ioeSession.questions.findIndex(q=>q.interaction===interaction)+1;await evaluate(`document.querySelectorAll('.competition-question-nav button')[${number-1}].click()`);await delay(150);
  if(interaction==='ordering'){for(const text of ['red','green','blue'])await click(text,'.competition-question');}
  else {await evaluate("(()=>{for(const label of document.querySelectorAll('.competition-matches label')){const text=label.querySelector('span').textContent.trim(),select=label.querySelector('select');const expected=text==='one'?'1':'2',option=[...select.options].find(o=>o.textContent.endsWith('. '+expected));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,option.value);select.dispatchEvent(new Event('change',{bubbles:true}));}})()");await delay(150);}}
- await click('Lưu ngay','#ioe-violympic-student');await wait("document.querySelector('.competition-player-header').textContent.includes('Đã lưu trên server')");screenshots.ioe200Mobile=await shot('ioe-200-mobile');
+ await waitForAutosave();screenshots.ioe200Mobile=await shot('ioe-200-mobile');
  await click('Nộp bài','#ioe-violympic-student');await wait("document.querySelectorAll('.competition-review-row').length===200");assert(await evaluate("[...document.querySelectorAll('.competition-review-row.is-correct')].filter(r=>r.textContent.includes('QA Ordering')||r.textContent.includes('QA Matching')).length===2"),'Both games are graded correctly');
  // Complete the actual student portal -> bank -> wrong queue -> practice ->
  // mastery -> History path. Nothing is written to the user's live database.

@@ -1,3 +1,4 @@
+import { competitionReviewDetail } from '../../shared/competition/feedback';
 import { sessionView, type SessionRow } from '../speaking/sessions';
 import {
   sqliteImmediateTransaction,
@@ -613,7 +614,8 @@ export async function findAttemptDetail(attemptId: string) {
     `SELECT detail.data_json,detail.created_at,detail.updated_at FROM competition_attempt_details detail
      JOIN competition_attempts attempt ON attempt.id=detail.attempt_id WHERE attempt.id=? AND attempt.status='completed'`, [attemptId]);
   if (competitionRow) {
-    const data = JSON.parse(competitionRow.data_json);
+    const stored = JSON.parse(competitionRow.data_json);
+    const data = { ...competitionReviewDetail(stored.rows), reviewPolicy: stored.reviewPolicy };
     return { attempt_id: attemptId, client_run_id: null, source_type: 'competition',
       answer_details_json: JSON.stringify(data.answerDetails), question_snapshots_json: '[]', option_snapshots_json: '[]',
       extra_details_json: JSON.stringify(data.extraDetails), review_policy_json: JSON.stringify(data.reviewPolicy),

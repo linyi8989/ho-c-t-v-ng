@@ -1,3 +1,4 @@
+import { studentReviewRows } from '../../shared/competition/feedback';
 import React from 'react';
 import type { ReviewRow, Result } from '../../shared/competition/types';
 import QuestionView from './QuestionView';
@@ -11,7 +12,7 @@ export default function CompetitionReview({ rows, result }: { rows: ReviewRow[];
   return <section className="competition-root competition-review" aria-label="Kết quả IOE/Violympic">
     {result && <header className="competition-card"><h2>{result.title}</h2><p className="competition-score">{result.rawScore}/{result.maxScore} điểm · {result.score}%</p>
       <p>Đúng {result.correctCount} · Sai {result.incorrectCount} · Chưa trả lời {result.unansweredCount}</p></header>}
-    {rows.map((r, i) => <div key={r.question.id} className={`competition-review-row ${r.unanswered ? 'is-unanswered' : r.isCorrect ? 'is-correct' : 'is-incorrect'}`}>
+    {studentReviewRows(rows).map((r, i) => <div key={r.question.id} className={`competition-review-row ${r.unanswered ? 'is-unanswered' : r.isCorrect ? 'is-correct' : 'is-incorrect'}`}>
       <QuestionView question={r.question} number={i + 1} disabled correctOptionId={r.correctOptionId} answer={r.submittedAnswer || { selectedOptionId: r.question.options.find(o => `${o.label}. ${o.text || '(hình ảnh)'}` === r.studentAnswer)?.id, ...(r.question.interaction === 'text-entry' ? { textAnswer: r.studentAnswer } : {}) }} />
       <div className="competition-feedback"><strong>{r.unanswered ? 'Chưa trả lời' : r.isCorrect ? 'Đúng' : 'Sai'} · {r.pointsAwarded}/10 điểm</strong>
         <p>Em trả lời: <strong>{r.studentAnswer || 'Chưa trả lời'}</strong></p><p>Đáp án đúng: <strong>{r.correctAnswer}</strong></p>

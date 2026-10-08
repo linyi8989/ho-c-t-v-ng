@@ -1,3 +1,4 @@
+import { splitTeacherFeedback } from './feedback';
 import { DEFAULT_ENGLISH_TEXT_NORMALIZATION, DEFAULT_VIETNAMESE_TEXT_NORMALIZATION, type AnswerSpec } from './answer';
 import { isMath, isSubject, usesEnglishContent, SUBJECT_LABELS, LEVEL_LABELS, levelsFor, type Scope, type QuestionFilters, type Question, type Option, type Media } from './types';
 
@@ -9,11 +10,13 @@ export function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail('Cần một đối tượng JSON.');
   return value as Record<string, unknown>;
 }
-export function text(value: unknown, max = 20000, required = false): string {
+export function text(value: unknown, max = 20000, required = false, field = 'Nội dung'): string {
   if (value === undefined || value === null) value = '';
-  if (typeof value !== 'string' && typeof value !== 'number') return fail('Nội dung phải là chữ hoặc số.');
+  if (typeof value !== 'string' && typeof value !== 'number') return fail(`${field} phải là chữ hoặc số.`);
   const result = String(value).normalize('NFC').trim();
-  if (result.length > max || /\u0000/.test(result) || (required && !result)) return fail(`Nội dung trống hoặc vượt quá ${max} ký tự.`);
+  if (required && !result) return fail(`${field} đang trống.`);
+  if (result.length > max) return fail(`${field} vượt quá ${max} ký tự.`);
+  if (/\u0000/.test(result)) return fail(`${field} chứa ký tự không hợp lệ.`);
   return result;
 }
 export function parseScope(value: unknown): Scope {
@@ -93,7 +96,7 @@ export function normalizeQuestion(value: unknown, scope: Scope): Question {
   } else if (kind === 'text') {
     const values = spec?.acceptedAnswers ?? row.acceptedAnswers ?? [row.answer ?? row.correctAnswer];
     if (!Array.isArray(values) || !values.length || values.length > 20) return fail('Cần đáp án trả lời ngắn.');
-    answerSpec = { kind, acceptedAnswers: values.map(v => text(v, 2000, true)), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
+    answerSpec = { kind, acceptedAnswers: values.map(v => text(v, 2000, true, 'Đáp án trả lời ngắn')), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
   } else if (kind === 'integer') {
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), allowLeadingPlus: true };
   } else if (kind === 'decimal') {
@@ -126,9 +129,11 @@ export function normalizeQuestion(value: unknown, scope: Scope): Question {
   if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail('Độ khó phải từ 1 đến 5.');
   const domain = text(row.domain ?? 'vocabulary', 80, true);
   if (scope.subject === 'english' && !['vocabulary', 'grammar', 'reading', 'listening'].includes(domain)) return fail('Nhóm IOE không hợp lệ.');
+  const feedback = splitTeacherFeedback(text(row.explanation ?? (row.feedback ? record(row.feedback).explanation : ''), 20000, false, 'Giải thích'), text(row.teacherNote, 5000, false, 'Ghi chú cho giáo viên'));
+  const teacherNote = text(feedback.teacherNote, 5000, false, 'Ghi chú cho giáo viên');
   return { ...scope, id: '', ownerId: '', revision: 0, title: text(content.title, 500), prompt, passage: text(content.passage),
     sourceNumber: text(row.sourceNumber, 100), options: opts, media: normalizeMedia(content.media), answerSpec,
-    explanation: text(row.explanation ?? (row.feedback ? record(row.feedback).explanation : '')), interaction, domain, difficulty, ...(pairs ? { pairs } : {}) };
+    explanation: feedback.explanation, ...(teacherNote ? { teacherNote } : {}), interaction, domain, difficulty, ...(pairs ? { pairs } : {}) };
 }
 export function importQuestions(input: string | unknown, scope: Scope): { questions: Question[]; errors: { row: number; message: string }[] } {
   let parsed: unknown = input;
@@ -143,6 +148,51 @@ export function importQuestions(input: string | unknown, scope: Scope): { questi
   rows.forEach((row, i) => { try { questions.push(normalizeQuestion(row, scope)); } catch (error) { errors.push({ row: i + 1, message: error instanceof Error ? error.message : 'Câu không hợp lệ.' }); } });
   return { questions, errors };
 }
+const MATH_ANSWER_GUIDANCE = 'Với trả lời ngắn dạng phân số/thập phân/số có đơn vị, có thể dùng answerSpec thay answer: {"kind":"fraction","numerator":"1","denominator":"2","acceptEquivalent":true}, {"kind":"decimal","value":"1.5"}, {"kind":"numeric-with-unit","value":"2","acceptedUnits":["cm"]}. Chỉ dùng dạng phù hợp đáp án nguồn và giữ đúng đơn vị.';
+const MATH_TEACHING_GUIDANCE = 'Giúp trẻ nhận ra dữ kiện và điều cần tìm, nói rõ vì sao chọn phép tính/cách suy luận, rồi tính và kiểm tra kết quả/đơn vị. Với biểu đồ, đọc chú giải và giá trị mỗi biểu tượng trong lời giải. Khi chuyển để hai nhóm bằng nhau, giải thích nhóm này giảm và nhóm kia tăng trước khi dùng nửa hiệu. Dùng tính nhẩm, sơ đồ hoặc loại trừ khi giúp giải nhanh và vừa sức; không ép mọi câu theo một công thức.';
+
+// Only the selected subject's instructions are emitted; the shared rules cover source fidelity and JSON.
+const IMPORT_SUBJECT_PROMPTS: Record<Scope['subject'], { language: string; answers?: string; metadata?: string; teaching: string }> = {
+  math: {
+    language: 'Giữ nguyên chữ, ký hiệu và đơn vị của đề Toán. Viết explanation bằng tiếng Việt rõ ràng.',
+    answers: MATH_ANSWER_GUIDANCE,
+    teaching: MATH_TEACHING_GUIDANCE,
+  },
+  'math-english': {
+    language: 'Giữ nội dung Toán bằng tiếng Anh: tiêu đề, câu hỏi, dữ kiện, phương án và đáp án; không dịch sang tiếng Việt. Hướng dẫn explanation cũng viết bằng tiếng Anh đơn giản, phù hợp với lớp học.',
+    answers: MATH_ANSWER_GUIDANCE,
+    teaching: MATH_TEACHING_GUIDANCE,
+  },
+  vietnamese: {
+    language: 'Giữ nguyên câu chữ và dấu tiếng Việt trong đề, đoạn văn, phương án và đáp án. Viết explanation bằng tiếng Việt rõ ràng.',
+    teaching: 'Hướng dẫn trẻ đọc yêu cầu, tìm từ ngữ hoặc chi tiết làm bằng chứng trong câu/đoạn văn, rồi áp dụng nghĩa từ hoặc quy tắc phù hợp. Trích ngắn bằng chứng có thật và giải thích vì sao chọn/viết đáp án đó. Nêu điểm dễ nhầm khi hữu ích; không bịa chi tiết văn bản.',
+  },
+  english: {
+    language: 'Giữ nguyên nội dung tiếng Anh của câu hỏi, đoạn văn, phương án và đáp án. Viết explanation bằng tiếng Việt dễ hiểu; chỉ chú giải nghĩa từ/cấu trúc khi cần.',
+    metadata: 'Thêm domain (vocabulary/grammar/reading/listening) và difficulty (1–5 theo lớp) vì bộ chọn câu của môn này dùng hai tiêu chí đó.',
+    teaching: 'Giải thích nghĩa từ, dấu hiệu ngữ pháp hoặc chi tiết làm bằng chứng đọc/nghe giúp chọn hay viết đáp án. Không bịa nội dung bài nghe hoặc đoạn văn chưa có trong nguồn; nếu thiếu thì ghi rõ phần cần giáo viên cung cấp trong teacherNote.',
+  },
+};
+
 export function buildImportPrompt(scope: Scope): string {
-  return `Đọc toàn bộ PDF/ảnh đính kèm. Chép đúng câu hỏi môn ${SUBJECT_LABELS[scope.subject]}, lớp ${scope.grade}, cấp ${scope.level}; không tạo câu mới, không đoán đáp án. ${scope.subject === 'math-english' ? 'Giữ nội dung Toán bằng tiếng Anh: tiêu đề, câu hỏi, dữ kiện, phương án, đáp án và giải thích theo nguồn; không dịch sang tiếng Việt. Dùng cùng cấu trúc đáp án số/phân số/đơn vị của Toán, không áp dụng ma trận kiến thức IOE. ' : ''}Chỉ trả một JSON {"questions":[...]}. Mỗi câu: title (giữ tiêu đề nguồn), sourceNumber, prompt, passage (nếu có), options (mảng chữ, giữ đủ mọi phương án, không ép 4), answer (nhãn A/B/... hoặc trả lời ngắn), explanation (theo nguồn, thiếu để ""), domain (vocabulary/grammar/reading/listening chỉ với IOE Tiếng Anh; môn khác giữ nhóm kiến thức theo nguồn), difficulty (1–5). Trả lời ngắn dùng options:[]; giữ dấu tiếng Việt và đơn vị. Toán phân số/thập phân/đơn vị có thể dùng answerSpec thay answer: {kind:"fraction",numerator:"1",denominator:"2",acceptEquivalent:true}, {kind:"decimal",value:"1.5"}, {kind:"numeric-with-unit",value:"2",acceptedUnits:["cm"]}. Không có đáp án thì answer:"" để giáo viên hoàn thiện. Không tạo ID, URL, media hoặc dữ liệu cá nhân. Không Markdown, không giải thích ngoài JSON.`;
+  const subjectPrompt = IMPORT_SUBJECT_PROMPTS[scope.subject];
+  return [
+    `Bạn đang soạn dữ liệu câu hỏi môn ${SUBJECT_LABELS[scope.subject]} cho học sinh lớp ${scope.grade}, cấp ${LEVEL_LABELS[scope.level]}.`,
+    'Đọc toàn bộ PDF/ảnh đính kèm, ghép đúng câu hỏi, phương án, đáp án và hướng dẫn dù khác trang; không tạo câu mới, không đoán đáp án. Chỉ chép chữ gốc vào title, prompt và options; bỏ quảng cáo, số trang, chân trang. Tách đáp án/lời giải khỏi nội dung đề.',
+    subjectPrompt.language,
+    'Chỉ trả một JSON {"questions":[...]}. Mỗi câu gồm title (yêu cầu/tiêu đề nguồn), sourceNumber (số câu nguồn), prompt (nguyên văn câu hỏi), options, answer, explanation (hướng dẫn giải cho học sinh), teacherNote (ghi chú riêng cho giáo viên; không có thì ""). passage chỉ thêm khi nguồn có đoạn văn bằng chữ dùng chung cho nhiều câu, chép nguyên văn; nếu không có thì bỏ hoặc để "". Chỉ dùng các trường được yêu cầu trong prompt này.',
+    'Trắc nghiệm một đáp án: options là mảng chuỗi, giữ đủ phương án chữ theo thứ tự nguồn, không ép 4; answer là nhãn A/B/... đúng. Trả lời ngắn: options:[], answer là đáp án nguồn. Không thêm questionType.',
+    ...(subjectPrompt.answers ? [subjectPrompt.answers] : []),
+    ...(subjectPrompt.metadata ? [subjectPrompt.metadata] : []),
+    'HÌNH ẢNH: giáo viên tự tải ảnh vào câu hỏi/phương án. Không diễn giải hình hoặc biểu đồ thành dữ kiện trong prompt/passage; không dịch hình thành text hoặc emoji/icon. Phương án chỉ có hình giữ chỗ bằng {"text":""}; có chữ và hình thì chỉ chép chữ gốc. Ví dụ options:[{"text":""},{"text":""},{"text":""},{"text":""}], answer giữ nhãn nguồn. Không bỏ phương án hình hay đổi dạng câu; giáo viên gắn ảnh trước khi lưu. Chỉ đọc hình để viết explanation; nhận xét từ hình chỉ nằm trong lời giải.',
+    'explanation phải dạy trẻ tư duy và cách làm, không chỉ chép đáp án:',
+    '1. Nguồn có hướng dẫn đầy đủ: kiểm tra, giữ cách làm đúng và viết rõ từng bước; bổ sung lý do hoặc bước còn thiếu.',
+    '2. Nguồn chỉ có đáp án đúng: tự xây dựng hướng dẫn từ dữ kiện câu hỏi, giải độc lập rồi đối chiếu với đáp án nguồn.',
+    '3. Nguồn không có hướng dẫn: vẫn xây dựng cách giải khi đủ dữ kiện; không để explanation trống chỉ vì nguồn thiếu lời giải. Nếu thiếu cả đáp án, để answer:"" để giáo viên hoàn thiện, chỉ hướng dẫn phần chắc chắn trong explanation, ghi chỗ cần xác nhận vào teacherNote.',
+    `Hướng dẫn học sinh lớp ${scope.grade}: thường 2–5 bước ngắn, đánh số, tách dòng; câu đơn giản có thể 1–2 bước. Nói rõ lý do chọn cách làm, kết luận và kiểm tra; ưu tiên cách nhanh, thông minh, vừa sức. Không dùng kiến thức vượt lớp hoặc bài giảng dài.`,
+    subjectPrompt.teaching,
+    'Kết luận trắc nghiệm kèm nội dung đáp án đúng, không chỉ ghi nhãn A/B/... vì phương án có thể được trộn. Đáp án, lời giải và dữ kiện phải thống nhất.',
+    'Nếu hình/chữ không đọc được, đề thiếu thông tin hoặc đáp án nguồn mâu thuẫn với cách giải đã kiểm chứng: không bịa hay sửa đề/khóa đáp án để khớp; ghi "Cần giáo viên kiểm tra: ..." trong teacherNote, nêu cụ thể chỗ thiếu/mâu thuẫn. Không đưa cảnh báo hay ghi chú giáo viên vào explanation, prompt hoặc passage. Thiếu đáp án nguồn thì để answer:"".',
+    'explanation và teacherNote đều là chuỗi văn bản; teacherNote chỉ dành cho giáo viên, tối đa 5000 ký tự. Mã hóa xuống dòng bằng \\n hợp lệ trong JSON. Không tạo ID, URL, media hoặc dữ liệu cá nhân. Không Markdown, không giải thích ngoài JSON.',
+  ].join('\n');
 }

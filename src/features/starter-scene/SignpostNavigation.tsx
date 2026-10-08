@@ -7,9 +7,9 @@ export default function SignpostNavigation({ onNavigate, moduleId = 'starter' }:
   const definition = getSceneDefinition(moduleId);
   const links = [
   { id: 'home', label: 'Home', description: 'Về trang chủ', href: '/' },
+  { id: 'history', label: 'History', description: 'Lịch sử học tập', href: '/history' },
   ...(definition.previous ? [{ id: 'previous', label: 'Previous', description: `Về ${getSceneDefinition(definition.previous).title}`, href: examModulePath(definition.previous) }] : []),
   ...(definition.next ? [{ id: 'next', label: 'Next', description: `Sang ${getSceneDefinition(definition.next).title}`, href: examModulePath(definition.next) }] : []),
-  { id: 'history', label: 'History', description: 'Lịch sử học tập', href: '/history' },
   ];
   return <nav className="starter-signpost" data-sign-count={links.length} aria-label={`Điều hướng ${definition.title}`}>
     <img className="starter-signpost-base" src="/assets/signs/signpost-double.webp" alt="" />

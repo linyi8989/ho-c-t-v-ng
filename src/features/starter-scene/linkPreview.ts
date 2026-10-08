@@ -3,11 +3,11 @@ import { getSceneDefinition } from './sceneDefinition';
 
 // Loaded only by Vite development on loopback with the explicit preview query.
 // These links never represent published exams and never enter B's storage.
-export function createLinkPreview(moduleId: SceneModule = 'starter'): SceneCatalog {
+export function createLinkPreview(moduleId: SceneModule = 'starter', count: 1 | 5 | 25 = 25): SceneCatalog {
   const paper = (id: ScenePaperId, label: string) => ({
     revision: 0,
     configured: false,
-    links: Array.from({ length: 25 }, (_, index) => ({
+    links: Array.from({ length: count }, (_, index) => ({
       id: `preview-${id}-${index + 1}`,
       title: `${label} · Test ${String(index + 1).padStart(2, '0')}`,
       href: `#starter-house-${id}`,

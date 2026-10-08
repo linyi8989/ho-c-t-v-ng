@@ -1,3 +1,4 @@
+import { splitTeacherFeedback, studentReviewRows } from '../../shared/competition/feedback';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -48,6 +49,158 @@ test('import preserves arbitrary options, short/numeric answers, source and repo
   assert.throws(() => normalizeQuestion({ prompt: 'A', answerSpec: { kind: 'fraction', numerator: '1', denominator: '0' } }, mathScope));
   const safe = playable(result.questions[0]); assert.ok(!('answerSpec' in safe)); assert.ok(!('explanation' in safe)); assert.ok(!('ownerId' in safe));
 });
+test('authoring prompt requests source-aware teaching steps for each subject without changing the JSON contract', () => {
+  for (const subject of ['math', 'math-english', 'vietnamese', 'english'] as const) {
+    const prompt = buildImportPrompt({ subject, grade: 3, level: 'school' });
+    assert.ok(prompt.includes(SUBJECT_LABELS[subject]));
+    assert.match(prompt, /học sinh lớp 3/);
+    assert.match(prompt, /Nguồn có hướng dẫn đầy đủ/);
+    assert.match(prompt, /Nguồn chỉ có đáp án đúng/);
+    assert.match(prompt, /Nguồn không có hướng dẫn/);
+    assert.match(prompt, /không để explanation trống chỉ vì nguồn thiếu lời giải/);
+    assert.match(prompt, /2–5 bước ngắn/);
+    assert.match(prompt, /nói rõ lý do/i);
+    assert.match(prompt, /đối chiếu với đáp án nguồn/);
+    assert.match(prompt, /Cần giáo viên kiểm tra/);
+    assert.match(prompt, /không đoán đáp án/);
+    assert.match(prompt, /answer:"" để giáo viên hoàn thiện/);
+    assert.match(prompt, /không chỉ ghi nhãn A\/B/);
+    assert.match(prompt, /chuỗi văn bản/);
+    assert.ok(prompt.includes('\\n hợp lệ trong JSON'));
+    assert.doesNotMatch(prompt, /explanation \(theo nguồn, thiếu để ""\)/);
+  }
+  assert.match(buildImportPrompt(mathScope), /giá trị mỗi biểu tượng/);
+  assert.match(buildImportPrompt(mathScope), /nhóm này giảm và nhóm kia tăng/);
+  const englishMath = buildImportPrompt({ ...mathScope, subject: 'math-english' });
+  assert.match(englishMath, /không dịch sang tiếng Việt/);
+  assert.match(englishMath, /explanation cũng viết bằng tiếng Anh đơn giản/);
+  assert.match(buildImportPrompt({ ...mathScope, subject: 'vietnamese' }), /chi tiết làm bằng chứng/);
+  assert.match(buildImportPrompt({ ...mathScope, subject: 'english' }), /dấu hiệu ngữ pháp/);
+  assert.match(buildImportPrompt({ ...mathScope, grade: 1 }), /học sinh lớp 1/);
+  assert.match(buildImportPrompt({ ...mathScope, grade: 9 }), /học sinh lớp 9/);
+  for (const subject of ['math', 'math-english', 'vietnamese'] as const) {
+    const prompt = buildImportPrompt({ ...mathScope, subject });
+    assert.doesNotMatch(prompt, /domain|difficulty/);
+    assert.match(prompt, /không dịch hình thành text hoặc emoji\/icon/);
+    assert.match(prompt, /passage chỉ thêm khi nguồn có đoạn văn bằng chữ dùng chung/);
+    assert.match(prompt, /nhận xét từ hình chỉ nằm trong lời giải/);
+    assert.ok(prompt.includes('options:[{"text":""},{"text":""},{"text":""},{"text":""}]'));
+    assert.doesNotMatch(prompt, /difficulty \(1–5 theo lớp\)/);
+  }
+  assert.match(buildImportPrompt({ ...mathScope, subject: 'english' }), /thêm domain.*difficulty/i);
+});
+
+test('selected subject prompts isolate language, answer formats and metadata while retaining source and teaching safeguards', () => {
+  const subjects = ['math', 'math-english', 'vietnamese', 'english'] as const;
+  const prompts = Object.fromEntries(subjects.map(subject => [subject, buildImportPrompt({ subject, grade: 7, level: 'province' })]));
+  assert.equal(new Set(Object.values(prompts)).size, 4);
+  for (const subject of subjects) {
+    const prompt = prompts[subject];
+    assert.equal(prompt.split('\n')[0], `Bạn đang soạn dữ liệu câu hỏi môn ${SUBJECT_LABELS[subject]} cho học sinh lớp 7, cấp Tỉnh/Thành phố.`);
+    assert.match(prompt, /title.*sourceNumber.*prompt.*options.*answer.*explanation/);
+    assert.match(prompt, /Chỉ chép chữ gốc/);
+    assert.match(prompt, /không ép 4/);
+    assert.match(prompt, /Không thêm questionType/);
+    assert.match(prompt, /giáo viên tự tải ảnh/);
+    assert.match(prompt, /không dịch hình thành text hoặc emoji\/icon/);
+    assert.match(prompt, /Cần giáo viên kiểm tra/);
+    assert.match(prompt, /Không tạo ID, URL, media hoặc dữ liệu cá nhân/);
+    if (subject !== 'english') assert.doesNotMatch(prompt, /domain|difficulty|vocabulary|grammar|reading|listening|IOE/);
+    if (subject === 'math' || subject === 'math-english') {
+      assert.match(prompt, /answerSpec.*fraction.*decimal.*numeric-with-unit/);
+      assert.match(prompt, /vì sao chọn phép tính/);
+      assert.match(prompt, /nhóm này giảm và nhóm kia tăng/);
+      assert.doesNotMatch(prompt, /dấu hiệu ngữ pháp|bằng chứng đọc\/nghe|chi tiết làm bằng chứng trong câu\/đoạn văn/);
+    } else {
+      assert.doesNotMatch(prompt, /answerSpec|fraction|decimal|numeric-with-unit|phép tính|nửa hiệu|đơn vị/);
+    }
+  }
+  assert.doesNotMatch(prompts.math, /tiếng Anh|nghĩa từ|ngữ pháp/i);
+  assert.match(prompts.math, /explanation bằng tiếng Việt/);
+  assert.match(prompts['math-english'], /không dịch sang tiếng Việt/);
+  assert.match(prompts['math-english'], /explanation cũng viết bằng tiếng Anh đơn giản/);
+  assert.doesNotMatch(prompts['math-english'], /explanation bằng tiếng Việt/);
+  assert.match(prompts.vietnamese, /dấu tiếng Việt/);
+  assert.match(prompts.vietnamese, /chi tiết làm bằng chứng.*nghĩa từ/);
+  assert.doesNotMatch(prompts.vietnamese, /tiếng Anh|bài nghe/i);
+  assert.match(prompts.english, /domain \(vocabulary\/grammar\/reading\/listening\).*difficulty \(1–5 theo lớp\)/);
+  assert.match(prompts.english, /dấu hiệu ngữ pháp/);
+  assert.match(prompts.english, /Không bịa nội dung bài nghe/);
+  assert.match(prompts.english, /explanation bằng tiếng Việt/);
+  assert.doesNotMatch(prompts.english, /đề Toán|dấu tiếng Việt|explanation cũng viết bằng tiếng Anh/);
+});
+
+test('short-answer errors identify empty answers separately from the 2000-character limit on each accepted answer', () => {
+  for (const answer of ['', '   ', undefined]) assert.throws(() => normalizeQuestion({ prompt: '358 − □ = 156 − 27', options: [], answer, explanation: 'Tính được số cần điền.' }, mathScope), /Đáp án trả lời ngắn đang trống/);
+  assert.throws(() => normalizeQuestion({ prompt: 'Viết đáp án', options: [], answer: 'x'.repeat(2001) }, mathScope), /Đáp án trả lời ngắn vượt quá 2000 ký tự/);
+  assert.throws(() => normalizeQuestion({ prompt: 'Viết đáp án', acceptedAnswers: ['229', ''] }, mathScope), /Đáp án trả lời ngắn đang trống/);
+  assert.equal(normalizeQuestion({ prompt: 'Viết đáp án', answer: 'x'.repeat(2000), explanation: 'a'.repeat(2100) }, mathScope).explanation.length, 2100);
+  assert.equal(normalizeQuestion({ prompt: 'Viết số không', answer: '0' }, mathScope).answerSpec.kind, 'integer');
+});
+
+test('teacher-only notes split from old explanation markers without losing teaching steps and are requested in all four prompts', () => {
+  const steps = '1. Tính vế phải: 156 − 27 = 129.\n2. Số cần điền: 358 − 129 = 229.\n3. Kiểm tra hai vế bằng nhau.';
+  const warning = 'Cần giáo viên kiểm tra: Ảnh nguồn chưa có đáp án chính thức.';
+  assert.deepEqual(splitTeacherFeedback(steps), { explanation: steps, teacherNote: '' });
+  assert.deepEqual(splitTeacherFeedback(steps + '\n4. ' + warning + '\nĐối chiếu trang đáp án gốc.'), { explanation: steps, teacherNote: warning + '\nĐối chiếu trang đáp án gốc.' });
+  assert.deepEqual(splitTeacherFeedback('1. Đọc yêu cầu.\n2. ' + warning + '\n3. Tìm dữ kiện.'), { explanation: '1. Đọc yêu cầu.\n3. Tìm dữ kiện.', teacherNote: warning });
+  assert.deepEqual(splitTeacherFeedback('Kết quả là 229. ' + warning), { explanation: 'Kết quả là 229.', teacherNote: warning });
+  assert.deepEqual(splitTeacherFeedback(steps + '\n' + warning, warning), { explanation: steps, teacherNote: warning });
+  for (const subject of ['math', 'math-english', 'vietnamese', 'english'] as const) {
+    const scope = { ...mathScope, subject };
+    const question = normalizeQuestion({ prompt: 'Câu hỏi nguồn', answer: '229', explanation: steps + '\n' + warning, teacherNote: 'Ghi chú riêng có sẵn.' }, scope);
+    assert.equal(question.explanation, steps); assert.equal(question.teacherNote, 'Ghi chú riêng có sẵn.\n' + warning);
+    assert.deepEqual(normalizeQuestion(question, scope), question);
+    assert.doesNotMatch(JSON.stringify(playable(question)), /teacherNote|Cần giáo viên kiểm tra|Ghi chú riêng/);
+    const prompt = buildImportPrompt(scope);
+    assert.match(prompt, /teacherNote \(ghi chú riêng cho giáo viên/);
+    assert.match(prompt, /ghi "Cần giáo viên kiểm tra: \.\.\." trong teacherNote/);
+    assert.match(prompt, /Không đưa cảnh báo hay ghi chú giáo viên vào explanation/);
+    assert.doesNotMatch(prompt, /ghi "Cần giáo viên kiểm tra: \.\.\." trong explanation/);
+  }
+  assert.throws(() => normalizeQuestion({ prompt: 'Câu hỏi', answer: '1', teacherNote: {} }, mathScope), /Ghi chú cho giáo viên phải là chữ hoặc số/);
+  assert.throws(() => normalizeQuestion({ prompt: 'Câu hỏi', answer: '1', teacherNote: 'x'.repeat(5001) }, mathScope), /Ghi chú cho giáo viên vượt quá 5000 ký tự/);
+  assert.equal(normalizeQuestion({ prompt: 'Câu hỏi', answer: '1', teacherNote: 'x'.repeat(5000) }, mathScope).teacherNote?.length, 5000);
+  const question = normalizeQuestion({ prompt: 'Câu hỏi', answer: '1', teacherNote: 'PRIVATE_NOTE' }, mathScope);
+  const rows = [{ question, studentAnswer: '1', correctAnswer: '1', isCorrect: true, unanswered: false, pointsAwarded: 10, explanation: steps + '\n' + warning, teacherNote: 'PRIVATE_ROW_NOTE' }];
+  const safe = studentReviewRows(rows);
+  assert.equal(safe[0].explanation, steps); assert.doesNotMatch(JSON.stringify(safe), /teacherNote|PRIVATE|Cần giáo viên kiểm tra/);
+});
+
+test('image-only options remain empty draft slots until teacher media is attached, with no invented passage or metadata required', () => {
+  const row = { title: 'Chọn đáp án đúng', sourceNumber: '2', prompt: 'Hình nào là tam giác?', options: [{ text: '' }, { text: '' }], answer: 'B', explanation: 'Quan sát số cạnh. Tam giác có 3 cạnh.' };
+  assert.throws(() => normalizeQuestion(row, mathScope), /Phương án 1 trống/);
+  const completed = { ...row, options: row.options.map((option, i) => ({ ...option, media: [{ kind: 'image', url: `/listening-media/teacher-option-${i + 1}.png` }] })) };
+  for (const subject of ['math', 'math-english', 'vietnamese'] as const) {
+    const scope = { ...mathScope, subject }, result = importQuestions(JSON.stringify({ questions: [completed] }), scope);
+    assert.deepEqual(result.errors, []);
+    const question = result.questions[0];
+    assert.equal(question.passage, ''); assert.equal(question.explanation, row.explanation);
+    assert.ok(question.options.every(option => option.text === '' && option.media.length === 1));
+    assert.equal(graderRegistry.grade(question.answerSpec, { selectedOptionId: 'option-2' }).isCorrect, true);
+    assert.deepEqual(blueprint(scope).domains, {}); assert.deepEqual(blueprint(scope).difficulties, {});
+  }
+});
+
+test('teaching explanations round-trip through JSON import while answers remain gradable and private before submission', () => {
+  const samples = [
+    { subject: 'math' as const, row: { title: 'Điền số thích hợp', sourceNumber: '3', prompt: 'Tủ A có 345 quyển sách, tủ B có 497 quyển. Chuyển bao nhiêu quyển từ B sang A để hai tủ bằng nhau?', options: [], answer: '76', domain: 'arithmetic', explanation: '1. Tủ B nhiều hơn tủ A: 497 − 345 = 152 quyển.\n2. Chuyển 1 quyển thì B giảm 1, A tăng 1; chênh lệch giảm 2 quyển. Vậy cần chuyển 152 : 2 = 76 quyển.\n3. Kiểm tra: 497 − 76 = 421 và 345 + 76 = 421. Hai tủ bằng nhau.' }, response: { textAnswer: '76' } },
+    { subject: 'math' as const, row: { title: 'Hãy chọn đáp án đúng', sourceNumber: '1', prompt: 'Jerry được 112 ngày tuổi. Tom gấp 3 lần số ngày tuổi của Jerry. Tom được bao nhiêu ngày tuổi?', options: ['115 ngày', '336 ngày', '333 ngày', '335 ngày'], answer: 'B', domain: 'arithmetic', explanation: '1. Gấp 3 lần nghĩa là lấy 3 phần, mỗi phần 112 ngày.\n2. Tính 112 × 3 = 336. Vậy Tom được 336 ngày tuổi.' }, response: { selectedOptionId: 'option-2' } },
+    { subject: 'math-english' as const, row: { title: 'Read the chart', sourceNumber: '4', prompt: 'How many cakes are in box C?', passage: 'Box C has five cake symbols. Each symbol represents two cakes.', options: [], answer: '10', domain: 'arithmetic', explanation: '1. Count the five symbols in box C.\n2. Each symbol means two cakes, so calculate 5 × 2 = 10.\n3. Check by counting in twos: 2, 4, 6, 8, 10. There are 10 cakes.' }, response: { textAnswer: '10' } },
+    { subject: 'vietnamese' as const, row: { title: 'Đọc hiểu', sourceNumber: '2', prompt: 'Lan che ô cho ai?', passage: 'Trời mưa. Lan che ô cho em nhỏ.', options: ['Em nhỏ', 'Bà'], answer: 'A', domain: 'reading', explanation: '1. Đọc câu “Lan che ô cho em nhỏ.”\n2. Cụm từ “cho em nhỏ” cho biết người được che ô. Vậy đáp án là em nhỏ.' }, response: { selectedOptionId: 'option-1' } },
+  ];
+  for (const { subject, row, response } of samples) {
+    const imported = importQuestions(JSON.stringify({ questions: [row] }), { ...mathScope, subject });
+    assert.deepEqual(imported.errors, []); assert.equal(imported.questions.length, 1);
+    const question = imported.questions[0];
+    assert.equal(question.explanation, row.explanation);
+    assert.equal(question.prompt, row.prompt); assert.equal(question.sourceNumber, row.sourceNumber);
+    assert.deepEqual(question.options.map(option => option.text), row.options);
+    assert.equal(graderRegistry.grade(question.answerSpec, response).isCorrect, true);
+    assert.doesNotMatch(JSON.stringify(playable(question)), /explanation|answerSpec|correctOptionId/);
+  }
+});
+
 test('ported grader handles Unicode, exact fractions, decimal comma and units', () => {
   const q = normalizeQuestion({ prompt: 'Viết từ', answer: 'Học trò' }, { ...mathScope, subject: 'vietnamese' });
   assert.equal(graderRegistry.grade(q.answerSpec, { textAnswer: '  HỌC  TRÒ ' }).isCorrect, true);
@@ -111,8 +264,9 @@ test('real B SQLite: immutable flow, ownership, CAS, signed tickets, deadline, h
   const legacyBefore = (await db.collection('vocab_sets').doc('existing-vocab').get()).data();
   await sqliteImmediateTransaction(migrateCompetitionSchema); await sqliteImmediateTransaction(migrateCompetitionSchema);
   assert.deepEqual((await db.collection('vocab_sets').doc('existing-vocab').get()).data(), legacyBefore);
-  const saved = await saveQuestions(staff, mathScope, Array.from({ length: 35 }, (_, i) => fixture(i)), 'fixture-save-key');
-  assert.deepEqual(await saveQuestions(staff, mathScope, Array.from({ length: 35 }, (_, i) => fixture(i)), 'fixture-save-key'), saved);
+  const bankFixtures = Array.from({ length: 35 }, (_, i) => ({ ...fixture(i), explanation: `Giải thích ${i}\n1. Cộng thêm 1 vào ${i}.\n2. Kết quả là ${i + 1}.` }));
+  const saved = await saveQuestions(staff, mathScope, bankFixtures, 'fixture-save-key');
+  assert.deepEqual(await saveQuestions(staff, mathScope, bankFixtures, 'fixture-save-key'), saved);
   await assert.rejects(saveQuestions(staff, mathScope, [fixture(80)], 'fixture-save-key'), /nội dung khác/);
   assert.equal((await listBank(other, mathScope, '', 1)).total, 0);
   assert.equal((await inventory(staff))[0].ready, true);
@@ -147,9 +301,11 @@ test('real B SQLite: immutable flow, ownership, CAS, signed tickets, deadline, h
   assert.equal((await sqliteQueryOne<{ count: number }>('SELECT COUNT(*) AS count FROM competition_attempt_details WHERE attempt_id=?', [active.id]))?.count, 1);
   const review = await engine.review(actor, active.id, active.ticket);
   assert.equal(review.rows.length, 30); assert.ok(review.rows.every(q => q.question.options.length === 5 && q.explanation.startsWith('Giải thích')));
+  for (const row of review.rows) assert.equal(row.explanation, bankFixtures.find(source => source.prompt === row.question.prompt)!.explanation);
   const filters = parseLearningHistoryFilters({ sourceType: 'competition' });
   const history = await getLearningHistory(actor, filters); assert.equal(history.items[0].attemptId, active.id); assert.equal(history.items[0].rawScore, 300); assert.equal(history.items[0].score, 100);
   const detail = await getLearningHistoryDetail(actor, active.id); assert.equal(detail.detailStatus, 'available'); assert.ok(detail.detail?.extraDetails.competitionReview);
+  assert.deepEqual(detail.detail?.extraDetails.competitionReview, { version: 1, rows: review.rows });
   await assert.rejects(getLearningHistoryDetail(secondActor, active.id), /Không tìm thấy/);
   await t.test('expiry finalizes saved answers after tab closes and ignores late client writes', async () => {
     const next = await engine.prepare(actor, 'Học sinh kiểm thử', paper.id, 'expired-run-fixture'), started = await engine.activate(actor, next.id, next.ticket);
@@ -222,6 +378,13 @@ test('actual HTTP module protects staff/private routes and supports larger JSON 
     assert.equal((await call('/admin/questions?subject=math&grade=3&level=school')).status, 401);
     assert.equal((await call('/admin/questions')).status, 401);
     assert.equal((await call('/admin/questions', actor.id)).status, 403);
+    assert.equal((await call('/admin/prompt', '', 'POST', mathScope)).status, 401);
+    assert.equal((await call('/admin/prompt', actor.id, 'POST', mathScope)).status, 403);
+    for (const subject of ['math', 'math-english', 'vietnamese', 'english'] as const) {
+      const scope = { ...mathScope, subject };
+      const response = await call('/admin/prompt', staff.id, 'POST', scope);
+      assert.equal(response.status, 200); assert.deepEqual(await response.json(), { prompt: buildImportPrompt(scope) });
+    }
     for (const suffix of ['', '?subject=&grade=&level=', '?grade=3', '?subject=math', '?level=school']) {
       const response = await call('/admin/questions' + suffix, staff.id); assert.equal(response.status, 200);
       const data = await response.json(); assert.ok(data.items.every((q: Question) => q.ownerId === staff.id));
@@ -457,4 +620,50 @@ test('media maintenance dry-run protects TTS used by archived competition versio
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout); assert.equal(report.mode, 'dry-run'); assert.equal(report.report.tts.referenced, 1); assert.deepEqual(report.report.tts.candidates.map((f: { name: string }) => f.name), [orphan]);
   assert.ok(fs.existsSync(path.join(mediaDir, orphan))); assert.ok(fs.existsSync(path.join(mediaDir, referenced)));
+});
+
+test('teacher notes persist through bank edits but stay private in attempts, frozen reviews and History, including legacy warnings', async () => {
+  const scope: Scope = { subject: 'math', grade: 6, level: 'national' };
+  const explanation = '1. Đọc dữ kiện.\n2. Chọn phép tính và kiểm tra.';
+  const privateNote = 'PRIVATE_TEACHER_NOTE_CHECK_ORIGINAL';
+  const saved = await saveQuestions(staff, scope, Array.from({ length: 30 }, (_, i) => ({ prompt: `Tính tổng ${i} + 1`, options: [], answer: String(i + 1), explanation, teacherNote: privateNote })), 'teacher-note-roundtrip');
+  const bank = await listBank(staff, scope, '', 1);
+  assert.equal(bank.items.length, 30); assert.ok(bank.items.every(question => question.teacherNote === privateNote));
+  const paper = await createPaper(staff, scope, 'Teacher note privacy fixture', 'public');
+  const source = bank.items.find(question => question.id === saved.ids[0])!;
+  const updated = await updateQuestion(staff, source.id, scope, { ...source, teacherNote: 'UPDATED_TEACHER_NOTE' }, source.revision);
+  assert.equal(updated.teacherNote, 'UPDATED_TEACHER_NOTE');
+  const cleared = await updateQuestion(staff, source.id, scope, { ...updated, teacherNote: '' }, updated.revision);
+  assert.equal(cleared.teacherNote, undefined);
+  const engine = createCompetitionEngine('teacher-note-fixture-signing-secret');
+  const prepared = await engine.prepare(actor, 'Student fixture', paper.id, 'teacher-note-private-run');
+  assert.doesNotMatch(JSON.stringify(prepared), /teacherNote|PRIVATE_TEACHER|UPDATED_TEACHER/);
+  const attempt = await sqliteQueryOne<{ data_json: string }>('SELECT data_json FROM competition_attempts WHERE id=?', [prepared.id]);
+  const frozen = JSON.parse(attempt!.data_json);
+  assert.ok(frozen.questions.every((question: Question) => question.teacherNote === privateNote), 'Bank note edits do not rewrite frozen versions.');
+  // Simulate an older snapshot whose teacher warning was mixed into the explanation.
+  const legacyWarning = 'Cần giáo viên kiểm tra: LEGACY_TEACHER_ONLY_WARNING';
+  frozen.questions[0].explanation += '\n' + legacyWarning;
+  await sqliteImmediateTransaction(db => db.run('UPDATE competition_attempts SET data_json=? WHERE id=?', [JSON.stringify(frozen), prepared.id]));
+  const active = await engine.activate(actor, prepared.id, prepared.ticket);
+  await engine.submit(actor, active.id, active.ticket, active.revision, {});
+  const review = await engine.review(actor, active.id, active.ticket);
+  assert.ok(review.rows.every(row => row.explanation === explanation));
+  assert.doesNotMatch(JSON.stringify(review), /teacherNote|PRIVATE_TEACHER|UPDATED_TEACHER|LEGACY_TEACHER|Cần giáo viên kiểm tra/);
+  const detail = await sqliteQueryOne<{ data_json: string }>('SELECT data_json FROM competition_attempt_details WHERE attempt_id=?', [active.id]);
+  const historical = JSON.parse(detail!.data_json);
+  historical.rows[0].explanation += '\n' + legacyWarning;
+  historical.rows[0].question.teacherNote = privateNote;
+  historical.rows[0].teacherNote = privateNote;
+  historical.answerDetails[0].explanation += '\n' + legacyWarning;
+  historical.extraDetails.competitionReview.rows[0].explanation += '\n' + legacyWarning;
+  historical.extraDetails.competitionReview.rows[0].question.teacherNote = privateNote;
+  const originalDetail = JSON.stringify(historical);
+  await sqliteImmediateTransaction(db => db.run('UPDATE competition_attempt_details SET data_json=? WHERE attempt_id=?', [originalDetail, active.id]));
+  const legacyReview = await engine.review(actor, active.id, active.ticket);
+  const history = await getLearningHistoryDetail(actor, active.id);
+  assert.equal(history.detailStatus, 'available');
+  for (const payload of [legacyReview, history]) assert.doesNotMatch(JSON.stringify(payload), /teacherNote|PRIVATE_TEACHER|UPDATED_TEACHER|LEGACY_TEACHER|Cần giáo viên kiểm tra/);
+  assert.equal((await sqliteQueryOne<{ data_json: string }>('SELECT data_json FROM competition_attempt_details WHERE attempt_id=?', [active.id]))!.data_json, originalDetail, 'Reading sanitizes responses without rewriting History.');
+  await assert.rejects(getLearningHistoryDetail(secondActor, active.id), /Không tìm thấy/);
 });

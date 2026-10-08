@@ -1,3 +1,4 @@
+import { splitTeacherFeedback } from '../../shared/competition/feedback';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { buildImportPrompt, normalizeQuestion, normalizeMedia, record } from '../../shared/competition/import';
 import { LEVEL_LABELS, SUBJECT_LABELS, levelsFor, playable, type Scope, type QuestionFilters, type Subject, type CompetitionLevel, type Question, type PlayableQuestion, type Option, type Media } from '../../shared/competition/types';
@@ -18,6 +19,7 @@ function draftMedia(value: unknown): Media[] {
 function draftData(value: unknown): Record<string, unknown> {
   const source = record(value), content = source.content ? record(source.content) : source;
   const data: Record<string, unknown> = { ...source, title: content.title || '', prompt: content.prompt ?? source.question ?? source.text ?? '', passage: content.passage || '', media: content.media || [] };
+  if (typeof source.explanation === 'string' && (source.teacherNote == null || typeof source.teacherNote === 'string' || typeof source.teacherNote === 'number')) Object.assign(data, splitTeacherFeedback(source.explanation, string(source.teacherNote)));
   delete data.content;
   const spec = source.answerSpec ? record(source.answerSpec) : undefined;
   if (spec?.kind === 'single-choice') { data.answer = spec.correctOptionId; delete data.answerSpec; }
@@ -154,7 +156,7 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
         {drafts.map((row, i) => {
           let validation = ''; try { normalizeQuestion(saveData(row.data), scope); } catch (e) { validation = e instanceof Error ? e.message : 'Không hợp lệ.'; }
           const opts = draftOptions(row.data), attached = draftMedia(row.data.media);
-          const answer = string(row.data.answer), optionAnswer = opts.find(o => o.id === answer || o.label === answer.toUpperCase() || o.text === answer)?.id || '';
+          const answer = string(row.data.answer), optionAnswer = answer.trim() ? opts.find(o => o.id === answer || o.label === answer.toUpperCase() || o.text === answer)?.id || '' : '';
           return <article key={row.key} className="competition-card" data-competition-draft-row>
             <fieldset disabled={busy} className="competition-draft-fields">
             <div className="competition-toolbar"><h3>Dòng {i + 1}{row.databaseId ? ' · Sửa câu đã lưu' : ''}</h3><button type="button" disabled={busy} onClick={() => { setDrafts(old => old.filter(r => r.key !== row.key)); saveKey.current = null; }}>Bỏ dòng</button></div>
@@ -163,8 +165,8 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
               <label className="competition-full">Tiêu đề nguồn<input maxLength={500} value={string(row.data.title)} onChange={e => change(row.key, { title: e.target.value })} /></label>
               <label className="competition-full">Nội dung câu hỏi<textarea value={string(row.data.prompt)} maxLength={20000} onChange={e => change(row.key, { prompt: e.target.value })} /></label>
               <label className="competition-full">Đoạn văn / dữ kiện chung<textarea value={string(row.data.passage)} maxLength={20000} onChange={e => change(row.key, { passage: e.target.value })} /></label>
-              <label>Nhóm kiến thức{scope.subject === 'english' ? <select value={string(row.data.domain) || 'vocabulary'} onChange={e => change(row.key, { domain: e.target.value })}>{['vocabulary', 'grammar', 'reading', 'listening'].map(d => <option key={d} value={d}>{d}</option>)}</select> : <input maxLength={80} value={string(row.data.domain)} onChange={e => change(row.key, { domain: e.target.value })} />}</label>
-              <label>Độ khó<select value={Number(row.data.difficulty || 2)} onChange={e => change(row.key, { difficulty: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map(d => <option key={d}>{d}</option>)}</select></label>
+              {scope.subject === 'english' && <><label>Nhóm kiến thức<select value={string(row.data.domain) || 'vocabulary'} onChange={e => change(row.key, { domain: e.target.value })}>{['vocabulary', 'grammar', 'reading', 'listening'].map(d => <option key={d} value={d}>{d}</option>)}</select></label>
+              <label>Độ khó<select value={Number(row.data.difficulty || 2)} onChange={e => change(row.key, { difficulty: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map(d => <option key={d}>{d}</option>)}</select></label></>}
             </div>
             <MediaEditor token={token} value={attached} onChange={items => change(row.key, { media: items })} assets={assets} onAsset={onAsset} onBusyChange={onMediaBusy} />
             <h3>Phương án (để trống danh sách với câu trả lời ngắn)</h3>
@@ -177,6 +179,7 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
               : opts.length ? <label>Đáp án đúng<select value={optionAnswer} onChange={e => change(row.key, { answer: e.target.value })}><option value="">Chưa có đáp án</option>{opts.map(o => <option key={o.id} value={o.id}>{o.label}. {o.text.slice(0, 80)}</option>)}</select></label>
               : <label>Đáp án trả lời ngắn (nhiều đáp án cách nhau bằng |)<input maxLength={2000} value={answer} onChange={e => change(row.key, { answer: e.target.value })} /></label>}
             <label>Giải thích<textarea maxLength={20000} value={string(row.data.explanation)} onChange={e => change(row.key, { explanation: e.target.value })} /></label>
+            <label className="competition-teacher-note">Ghi chú cho giáo viên (không hiển thị cho học sinh)<textarea rows={3} maxLength={5000} value={string(row.data.teacherNote)} placeholder="Thông tin nguồn thiếu, đáp án cần xác nhận hoặc điểm cần kiểm tra..." onChange={e => change(row.key, { teacherNote: e.target.value })} /></label>
             {!validation && <button type="button" disabled={busy} onClick={() => setPreview({ question: playable(normalizeQuestion(saveData(row.data), scope)), number: i + 1 })}>Xem trước</button>}
             </fieldset>
           </article>;
