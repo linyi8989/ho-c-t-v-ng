@@ -26,7 +26,7 @@ export default function StarterScenePage({ onNavigate, moduleId = 'starter' }: {
     const align = () => {
       const frame = viewport.current, scene = canvas.current; if (!frame || !scene) return;
       const index = Math.max(0, papers.findIndex(paper => paper.id === active));
-      const center = three ? [.2, .5, .8][index] : frame.clientWidth < 768 ? (active === 'listening' ? .337 : .778) : (active === 'listening' ? .28 : moduleId === 'starter' ? .76 : .745);
+      const center = three ? [.2, .5, .8][index] : frame.clientWidth < 768 ? (active === 'listening' ? .337 : .778) : (active === 'listening' ? .28 : .76);
       frame.scrollTo({ left: scene.clientWidth > frame.clientWidth ? scene.clientWidth * center - frame.clientWidth / 2 : 0 });
     };
     align(); const observer = new ResizeObserver(align); if (viewport.current) observer.observe(viewport.current);
@@ -49,7 +49,7 @@ export default function StarterScenePage({ onNavigate, moduleId = 'starter' }: {
         <div className="starter-title-board starter-wood-board"><img src="/assets/boards/board-title-large.webp" alt="" /><div><h1 aria-label={definition.title}><span className="starter-title-word" aria-hidden="true">{definition.title.split('').map((letter, index) => <span className="starter-title-letter" key={index}>{letter}</span>)}</span></h1><p>{definition.level}</p></div></div>
         {papers.map(({id: paper, displayName}, index) => <React.Fragment key={paper}><HouseSign paper={paper} label={displayName} style={three ? {'--scene-house-x': `${[20.5,49.8,80.5][index]}%`} as React.CSSProperties : undefined} /></React.Fragment>)}
         {papers.map(({id: paper, displayName}, index) => <React.Fragment key={`${moduleId}-${paper}`}><SceneYard paper={paper} label={displayName}
-          links={catalog?.papers[paper]?.links} loading={!catalog && !error} error={error} preview={preview} contour={moduleId === 'starter' ? (paper === 'listening' ? 'left' : 'right') : undefined}
+          links={catalog?.papers[paper]?.links} loading={!catalog && !error} error={error} preview={preview} contour={three ? (index === 0 ? 'left' : index === 1 ? 'center' : 'right') : (paper === 'listening' ? 'left' : 'right')}
           style={three ? {'--scene-yard-x': `${[20,50,80][index]}%`} as React.CSSProperties : undefined}
           onRetry={() => setReload(value => value + 1)} onNavigate={navigateLink} /></React.Fragment>)}
       </div>

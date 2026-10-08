@@ -5,7 +5,7 @@ import type { SceneLink, ScenePaperId } from './types';
 
 export default function SceneYard({ paper, label, links, loading, error, preview, contour, style, onRetry, onNavigate }: {
   paper: ScenePaperId; label: string; links?: SceneLink[]; loading: boolean; error: string; preview: boolean;
-  contour?: 'left' | 'right'; style?: React.CSSProperties; onRetry: () => void;
+  contour?: 'left' | 'center' | 'right'; style?: React.CSSProperties; onRetry: () => void;
   onNavigate: (event: React.MouseEvent<HTMLAnchorElement>, href: string) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -16,6 +16,8 @@ export default function SceneYard({ paper, label, links, loading, error, preview
     let frame = 0;
     const update = () => {
       frame = 0;
+      // Width changes can wrap titles and extend the list after a scroll to its end.
+      const atEnd = element.scrollTop > 0 && element.scrollTop + element.clientHeight >= element.scrollHeight - 2;
       const box = element.getBoundingClientRect();
       const rows = [...element.querySelectorAll('li')];
       // Five 60px rows, four 10px gaps and 5px padding at each end anchor the lawn.
@@ -29,14 +31,15 @@ export default function SceneYard({ paper, label, links, loading, error, preview
         const position = Math.max(0, Math.min(1, (rect.top + rect.height / 2 - box.top) / height));
         const upper = position < .52;
         const curve = ((position - .52) / (upper ? .52 : .48)) ** 2;
-        const start = contour === 'right' ? (upper ? .28 : .20) : (upper ? .19 : .16);
-        const end = contour === 'right' ? (upper ? .24 : .16) : (upper ? .12 : .09);
+        const start = contour === 'center' ? (upper ? .16 : .13) : contour === 'right' ? (upper ? .28 : .20) : (upper ? .19 : .16);
+        const end = contour === 'center' ? (upper ? .16 : .13) : contour === 'right' ? (upper ? .24 : .16) : (upper ? .12 : .09);
         return { row, start: (curve * start * 100).toFixed(3) + '%', end: (curve * end * 100).toFixed(3) + '%' };
       });
       if (contour) for (const { row, start, end } of insets) {
         if (row.style.getPropertyValue('--starter-contour-start') !== start) row.style.setProperty('--starter-contour-start', start);
         if (row.style.getPropertyValue('--starter-contour-end') !== end) row.style.setProperty('--starter-contour-end', end);
       }
+      if (atEnd) element.scrollTop = element.scrollHeight - element.clientHeight;
       const next = { first: visible[0] || 1, last: visible.at(-1) || 1, above: element.scrollTop > 2, below: element.scrollTop + element.clientHeight < element.scrollHeight - 2 };
       setRange(previous => previous.first === next.first && previous.last === next.last && previous.above === next.above && previous.below === next.below ? previous : next);
     };

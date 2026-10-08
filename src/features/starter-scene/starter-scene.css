@@ -48,10 +48,10 @@
 #starter-scene-page .starter-lawn { position: absolute; display: flex; flex-direction: column; width: 38%; height: 37%; top: 49%; transform: translateX(-50%); --starter-gap: 10px; --starter-mascot: 64px; --starter-badge: 34px; }
 #starter-scene-page .starter-lawn-listening { left: 28%; }
 #starter-scene-page .starter-lawn-reading-writing { left: 74.5%; }
-/* Starter's right lawn clears the path and shrubs, including the leading mascot. */
-#starter-scene-page[data-listening-module="starter"] .starter-lawn-reading-writing { top: 50%; }
+/* All two-yard scenes use Starter's right-lawn clearance, including the leading mascot. */
+#starter-scene-page[data-scene-yards="2"] .starter-lawn-reading-writing { top: 50%; }
 @media (min-width: 768px) {
-  #starter-scene-page[data-listening-module="starter"] .starter-lawn-reading-writing { left: 76%; }
+  #starter-scene-page[data-scene-yards="2"] .starter-lawn-reading-writing { left: 76%; }
 }
 #starter-scene-page .starter-house-sign { position: absolute; top: 28%; left: 33.7%; width: 9%; transform: translateX(-50%) rotate(-3deg); pointer-events: none; filter: drop-shadow(0 3px 2px #61301955); }
 #starter-scene-page .starter-house-sign-reading-writing { top: 29.4%; left: 77.8%; width: 12.6%; transform: translateX(-50%) rotate(3deg); }
@@ -68,7 +68,7 @@
 #starter-scene-page .starter-lawn-list::-webkit-scrollbar { display: none; }
 #starter-scene-page .starter-lawn-list ol { list-style: none; margin: 0; padding: 5px; display: grid; gap: var(--starter-gap); }
 #starter-scene-page .starter-lawn-list li { min-width: 0; }
-/* Each Starter row rests inside the rounded lawn edges; preserve the complete label. */
+/* Each courtyard row rests inside the rounded lawn edges; preserve the complete label. */
 #starter-scene-page .starter-lawn[data-starter-contour] li { margin-inline: var(--starter-contour-start, 0%) var(--starter-contour-end, 0%); }
 #starter-scene-page .starter-lawn[data-starter-contour] .starter-lesson-art rect { rx: 36px; }
 @media (max-width: 767px) {
