@@ -2,6 +2,7 @@ import type {
   MoverReadingWritingAnswers,
   MoverReadingWritingChoiceQuestion,
   MoverReadingWritingContent,
+  MoverReadingWritingPart5Scene,
 } from '../../features/mover-reading-writing/types.js';
 import {
   MOVER_READING_WRITING_PAPER_ID,
@@ -125,7 +126,7 @@ export function validateMoverReadingWritingContent(input: MoverReadingWritingCon
   const part5Questions = (part5.scenes || []).flatMap(scene => scene.questions || []);
   if (part5Questions.length !== 10) errors.push('Part 5: ba nhóm cần tổng cộng đúng 10 câu.');
   if (!unique(part5Questions.map(question => question.id))) errors.push('Part 5: ID câu hỏi bị trùng.');
-  (part5.scenes || []).forEach((scene, sceneIndex) => {
+  (part5.scenes || []).forEach((scene: MoverReadingWritingPart5Scene, sceneIndex) => {
     if (!nonEmptyText(scene.id, 160) || !nonEmptyText(scene.imageAssetId, 160)) errors.push(`Part 5 tranh ${sceneIndex + 1}: thiếu ID hoặc ảnh.`);
     if (!nonEmptyText(scene.passage, 10_000)) errors.push(`Part 5 tranh ${sceneIndex + 1}: thiếu nội dung câu chuyện.`);
     if (!scene.questions?.length) errors.push(`Part 5 tranh ${sceneIndex + 1}: cần ít nhất một câu hỏi.`);

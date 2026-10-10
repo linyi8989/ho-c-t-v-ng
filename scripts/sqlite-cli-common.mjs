@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
+import Database from 'better-sqlite3';
 
-const require = createRequire(import.meta.url);
-export const Database = require('better-sqlite3');
+export { Database };
 
 export function readArg(name) {
   const prefix = `${name}=`;
@@ -79,9 +78,10 @@ export async function createVerifiedBackup(sourcePath, destinationDirectory) {
 
   const backup = new Database(destinationPath, {
     fileMustExist: true,
-    readonly: true,
   });
   try {
+    // Only the newly created, private snapshot is normalized. The live DB is untouched.
+    backup.pragma('journal_mode = DELETE');
     assertQuickCheck(backup, 'backup');
   } catch (error) {
     error.message = `Backup validation failed for ${path.basename(destinationPath)}: ${error.message}`;

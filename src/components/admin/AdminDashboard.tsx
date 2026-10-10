@@ -41,6 +41,8 @@ import GrammarEditorPanel from './grammar/GrammarEditorPanel';
 const ListeningLibraryAdmin = React.lazy(() => import('../../features/listening-library/admin/ListeningLibraryAdmin'));
 const WritingLibraryAdmin = React.lazy(() => import('../../features/writing-library/admin/WritingLibraryAdmin'));
 const SpeakingAdmin = React.lazy(() => import('../../features/speaking/Admin'));
+const MaintenancePanel = React.lazy(() => import('./maintenance/MaintenancePanel'));
+const MaintenanceOverviewCard = React.lazy(() => import('./maintenance/MaintenanceOverviewCard'));
 const CompetitionAdmin = React.lazy(() => import('../../features/ioe-violympic/Admin'));
 
 interface AdminDashboardProps {
@@ -2776,7 +2778,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
         {/* ==================================================================== */}
         {/* TAB 1: OVERVIEW DASHBOARD */}
         {/* ==================================================================== */}
-        {activeTab === 'dashboard' && (
+        {activeTab === 'dashboard' && (<>
           <DashboardOverviewPanel
             controller={{
               teacherDisplayName,
@@ -2811,7 +2813,11 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               getSessionEndTime,
             }}
           />
+          {user?.role === 'super_admin' && token && <React.Suspense fallback={null}><MaintenanceOverviewCard token={token} onOpen={() => setActiveTab('maintenance')} /></React.Suspense>}
+          </>
         )}
+        {activeTab === 'maintenance' && user?.role === 'super_admin' && token && <React.Suspense fallback={<p role="status">Đang tải quản lý dung lượng…</p>}><MaintenancePanel token={token} /></React.Suspense>}
+
 
         {/* ==================================================================== */}
         {/* TAB 2: VOCAB SETS DIRECTORY */}

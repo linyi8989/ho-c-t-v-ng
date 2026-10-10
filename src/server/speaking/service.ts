@@ -11,7 +11,7 @@ interface StoredAttempt extends Omit<AttemptView, 'audioAvailable' | 'ticket'> {
 interface Options { secret: string; audioDir: string; providers: Record<ProviderId, PronunciationProvider>; dailyLimit?: number; retentionDays?: number; queueCapacity?: number; pendingLimit?: number; feedback?: (attempt: StoredAttempt, wav: Buffer) => Promise<Feedback> }
 const notFound = () => new SpeakingError(404, 'NOT_FOUND', 'Không tìm thấy lượt luyện đọc.');
 export function createSpeakingService(options: Options) {
-  const dailyLimit = Math.max(1, Math.min(200, options.dailyLimit || 20)), retentionDays = Math.max(1, Math.min(365, options.retentionDays || 30));
+  const dailyLimit = Math.max(1, Math.min(200, options.dailyLimit || 20)), retentionDays = Math.max(1, Math.min(1, options.retentionDays || 1));
   const queueCapacity = Math.max(1, options.queueCapacity ?? 100), pendingLimit = Math.max(queueCapacity, options.pendingLimit ?? 1000);
   const file = (id: string) => { if (!/^[0-9a-f-]{36}$/.test(id)) throw notFound(); return path.join(options.audioDir, `${id}.wav`); };
   const ticket = (a: StoredAttempt) => crypto.createHmac('sha256', options.secret).update(`${a.id}|${a.ownerKey}|${a.lesson.versionId}`).digest('base64url');
@@ -86,6 +86,8 @@ export function createSpeakingService(options: Options) {
   }
   async function retry(actor: LearningHistoryActor, id: string, signed: string) {
     await access(actor, id, signed);
+    const recording = await fs.stat(file(id)).catch(() => { throw new SpeakingError(409, 'RETRY_UNAVAILABLE', 'Bản thu không còn khả dụng. Hãy tạo lượt mới.'); });
+    if (Date.now() - recording.mtimeMs >= 86400000) throw new SpeakingError(409, 'RETRY_UNAVAILABLE', 'Bản thu đã hết thời hạn 24 giờ. Hãy tạo lượt mới.');
     return transaction(db => {
       const a = decode<StoredAttempt>(db.one<{ data_json: string }>('SELECT data_json FROM speaking_attempts WHERE id=?', [id])!), job = db.one<{ tries: number }>('SELECT tries FROM speaking_jobs WHERE id=?', [id]);
       if (a.status !== 'failed' || !a.audioExpiresAt || a.audioExpiresAt <= new Date().toISOString() || !job || job.tries >= 3) throw new SpeakingError(409, 'RETRY_UNAVAILABLE', 'Lượt này không thể chấm lại. Hãy tạo lượt mới.');
@@ -110,6 +112,7 @@ export function createSpeakingService(options: Options) {
     if (!job) return false;
     let assessment: Assessment | undefined, feedback: Feedback | undefined, failure = '';
     try {
+      if (!job.attempt.audioExpiresAt || job.attempt.audioExpiresAt <= new Date().toISOString() || Date.now() - (await fs.stat(file(job.attempt.id))).mtimeMs >= 86400000) throw new SpeakingError(410, 'AUDIO_EXPIRED', 'Bản thu đã hết thời hạn chấm lại. Hãy tạo lượt mới.');
       const wav = await fs.readFile(file(job.attempt.id)); if (crypto.createHash('sha256').update(wav).digest('hex') !== job.attempt.audioHash) throw new SpeakingError(422, 'AUDIO_INTEGRITY', 'Bản thu lưu trữ không còn nguyên vẹn.');
       if (job.kind === 'assessment') {
         assessment = await options.providers[job.attempt.lesson.provider].assess({ lesson: job.attempt.lesson, wav, durationSeconds: job.attempt.durationSeconds! });
@@ -137,7 +140,7 @@ export function createSpeakingService(options: Options) {
     async reviewResult(actor: LearningHistoryActor, id: string, staff: Staff) { const row = await queryOne<{ id: string }>('SELECT id FROM speaking_sessions WHERE id=?', [id]); return row ? readSession(actor, id, sanitized => view(sanitized), staff) : view(await access(actor, id, undefined, staff)); },
     async resume(actor: LearningHistoryActor, id: string) { return view(await access(actor, id), true); },
     async review(actor: LearningHistoryActor, id: string, staff?: Staff) { return view(await access(actor, id, undefined, staff)); },
-    async audio(actor: LearningHistoryActor, id: string, staff?: Staff) { const candidate = await load(id), a = await access(actor, id, undefined, candidate.ownerKey === actor.ownerKey ? undefined : staff); if (!a.audioHash || !a.audioExpiresAt || a.audioExpiresAt <= new Date().toISOString()) throw new SpeakingError(410, 'AUDIO_EXPIRED', 'Bản thu đã hết thời hạn nghe lại.'); return fs.readFile(file(id)).catch(() => { throw new SpeakingError(410, 'AUDIO_MISSING', 'Bản thu không còn khả dụng.'); }); },
+    async audio(actor: LearningHistoryActor, id: string, staff?: Staff) { const candidate = await load(id), a = await access(actor, id, undefined, candidate.ownerKey === actor.ownerKey ? undefined : staff); if (!a.audioHash || !a.audioExpiresAt || a.audioExpiresAt <= new Date().toISOString()) throw new SpeakingError(410, 'AUDIO_EXPIRED', 'Bản thu đã hết thời hạn nghe lại.'); const recording = await fs.stat(file(id)).catch(() => { throw new SpeakingError(410, 'AUDIO_MISSING', 'Bản thu không còn khả dụng.'); }); if (Date.now() - recording.mtimeMs >= 86400000) throw new SpeakingError(410, 'AUDIO_EXPIRED', 'Bản thu đã hết thời hạn 24 giờ.'); return fs.readFile(file(id)).catch(() => { throw new SpeakingError(410, 'AUDIO_MISSING', 'Bản thu không còn khả dụng.'); }); },
     async history(actor: LearningHistoryActor) { const rows = await queryAll<{ data_json: string }>("SELECT data_json FROM speaking_attempts WHERE owner_key=? ORDER BY created_at DESC,id LIMIT 50", [actor.ownerKey]); return rows.map(r => view(decode<StoredAttempt>(r))); },
   };
 }

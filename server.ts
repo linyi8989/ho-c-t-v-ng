@@ -1,4 +1,8 @@
 import express from "express";
+import { createMaintenance, maintenanceConfig } from "./scripts/maintenance-core.mjs";
+import { createHostingInventory } from "./scripts/hosting-inventory-core.mjs";
+import { inventoryConfig } from "./scripts/hosting-inventory-store.mjs";
+import { createMaintenanceRouter } from "./src/server/maintenance/router.js";
 import path from "path";
 import crypto from "crypto";
 import {
@@ -2658,6 +2662,11 @@ async function loadReadyLeaderboardEvents(timing?: ReturnType<typeof createApiTi
   });
   return mergeLeaderboardEvents(events);
 }
+
+const maintenanceConfiguration = maintenanceConfig();
+const maintenanceService = createMaintenance(maintenanceConfiguration);
+const hostingInventoryService = createHostingInventory(inventoryConfig(maintenanceConfiguration));
+app.use('/api/admin/maintenance', createFixedWindowRateLimiter({ namespace: 'maintenance', windowMs: 60000, maxCost: 120, key: req => getRequestNetworkKey(req), message: 'Có quá nhiều yêu cầu maintenance.' }), createMaintenanceRouter({ service: maintenanceService, inventory: hostingInventoryService, authenticateUser, requireSuperAdmin: requireRole(['super_admin']) }));
 
 const PHONE_AUTH_WINDOW_MS = 10 * 60 * 1000;
 const PHONE_AUTH_MAX_ATTEMPTS = 5;

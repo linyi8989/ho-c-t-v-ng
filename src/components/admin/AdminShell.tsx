@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Award,
+  HardDrive,
   BookOpen,
   Edit3,
   FileText,
@@ -25,7 +26,8 @@ export type AdminTab =
   | 'assignments'
   | 'results'
   | 'users'
-  | 'audit-logs';
+  | 'audit-logs'
+  | 'maintenance';
 
 interface AdminShellUser {
   name?: string;
@@ -206,6 +208,7 @@ export default function AdminShell({
             <span>{user?.role === 'super_admin' ? 'Quản lý Tài khoản' : 'Quản lý Học sinh'}</span>
           </button>
 
+          {user?.role === 'super_admin' && <button id="tab-maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined} onClick={() => onSelectTab('maintenance')} className={'w-full flex items-center space-x-3 p-3 px-4 rounded-xl text-sm font-bold ' + (activeTab === 'maintenance' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500')}><HardDrive size={18} /><span>Dung lượng & Dọn dẹp</span></button>}
           {user?.role === 'super_admin' && (
             <button
               onClick={() => onSelectTab('audit-logs')}

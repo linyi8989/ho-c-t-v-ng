@@ -1,0 +1,22 @@
+export type HostingStatus='protected'|'active'|'unknown'|'candidate'|'verified';
+export const hostingStatus:Record<HostingStatus,string>={protected:'Được bảo vệ',active:'Đang được tham chiếu',unknown:'Chưa xác minh',candidate:'Ứng viên cần xem xét',verified:'Đã xác minh theo chính sách'};
+export const sourceStatus:Record<string,string>={available:'Đọc được',unconfigured:'Chưa cấu hình',permission_denied:'Thiếu quyền',unsupported:'Chưa hỗ trợ',partial:'Chỉ đọc một phần',failed:'Đọc lỗi',stale:'Đã cũ'};
+export const scanStatus:Record<string,string>={queued:'Đang chờ',running:'Đang chạy',paused:'Tạm dừng',interrupted:'Executor đã dừng',completed:'Đã kết thúc',failed:'Lỗi',cancelled:'Đã hủy'};
+export interface HostingSource {id:string;label:string;status:string;reason:string;at:string;version:string}
+export interface HostingTask {id:string;task:string;source:string;executor:string;configuration:string;schedule:string;timezone:string;execution:string;at:string;reason:string;counts?:{status:string;count:number}[]}
+export interface HostingScan {id:string;root:string;scope:string;version:string;actor:string;status:string;phase:string;startedAt:string;finishedAt:string|null;heartbeat:string|null;reason:string|null;fileCount:number;directoryCount:number;logicalBytes:number;uniqueBytes:number;allocatedBytes:number|null;filesystemComplete:boolean;dependencyComplete:boolean;currentPath:string|null;sources:HostingSource[];tasks:HostingTask[];alerts:{key:string;severity:string;message:string}[];baseline:string|null;retained:boolean}
+export interface HostingAudit {id:number;at:string;actor:string;action:string;scan:string;reason:string}
+export interface HostingSummary {enabled:boolean;executor:string;root:string;scope:string;version:string;timezone:string;readOnly:boolean;latest:HostingScan|null;scans:HostingScan[];storage:{bytes:number;limitBytes:number;freeBytes:number;freeReserveBytes:number;allowed:boolean}|null;growth:{days:number;bytes:number|null;reason:string}[];audit:HostingAudit[]}
+export type CleanupCategory='ready'|'review'|'protected'|'unverified';
+export const cleanupCategory:Record<CleanupCategory,string>={ready:'Có thể dọn có xác nhận',review:'Cần xem xét',protected:'Được bảo vệ / đang dùng',unverified:'Chưa đủ xác minh'};
+export const associationKind:Record<string,string>={this_app:'Ứng dụng này',other_project:'Domain / dự án khác',runtime:'Runtime / dependency',hosting_service:'Dịch vụ hosting',mixed:'Dùng chung / nhiều vai trò',unknown:'Chưa xác định'};
+export interface HostingAssociation {kind:string;label:string;basis:string;owners:string[];reason:string}
+export interface HostingCleanup {category:CleanupCategory;reason:string;nextSteps:string[];action:'inspect'|'manage-application'|'manage-backup';deleteAllowed:false;current:boolean;applicationId?:string;applicationKind?:string;applicationStatus?:string;catalogAt?:string}
+export interface HostingEntry {id:string;parent:string|null;name:string;relative:string;type:string;bytes:number;uniqueBytes:number;allocatedBytes:number|null;fileCount:number;directoryCount:number;modifiedAt:string|null;status:HostingStatus;role:string;protected:boolean;reason:string;issue:string|null;linkTarget:string|null;association:HostingAssociation;cleanup:HostingCleanup}
+export interface HostingPage<T> {items:T[];page:number;pages:number;total:number}
+export interface HostingTree extends HostingPage<HostingEntry> {breadcrumbs:{id:string;name:string;relative:string}[];partial:boolean;roles:string[]}
+export interface HostingEdge {id:string;source:string;status:string;at:string;from_node:string;to_node:string;relation:string;reason:string;version:string}
+export interface HostingEvidence {entry:HostingEntry;edges:HostingEdge[];page:number;pages:number;total:number;at:string;sources:HostingSource[];scopeChanged:boolean}
+export interface HostingBackup extends HostingEntry {kind:string;recognition:string;membership:string;formatCheck:string;restoreCheck:string;offHost:string;mayBeWriting:boolean;deleteAllowed:boolean}
+export interface HostingDelta {rel:string;kind:string;before_bytes:number|null;after_bytes:number|null;attribution:string}
+export interface HostingDeltas extends HostingPage<HostingDelta> {comparable:boolean;baseline:string|null}

@@ -10,7 +10,7 @@
     "dev": "tsx server.ts",
     "dev:local": "node scripts/start-local-test.mjs",
     "dev:local:native": "node -e \"process.env.LOCAL_TEST_SQLITE_DRIVER='better-sqlite3';import('./scripts/start-local-test.mjs')\"",
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/write-client-manifest.mjs",
     "build:history-ui": "node scripts/build-history-ui.mjs",
     "start": "node app.js",
     "clean": "rm -rf dist server.js",
@@ -64,7 +64,11 @@
     "maintenance:activity-prune": "node scripts/activity-prune.mjs",
     "maintenance:media-orphans": "node scripts/media-orphan-maintenance.mjs",
     "test:competition-browser": "node scripts/ioe-violympic-browser-smoke.mjs",
-    "test:competition-bundle": "node scripts/ioe-violympic-bundle-smoke.mjs"
+    "test:competition-bundle": "node scripts/ioe-violympic-bundle-smoke.mjs",
+    "maintenance:storage": "node scripts/maintenance-run.mjs",
+    "test:maintenance": "tsx --test src/server/maintenance/maintenance.test.ts src/components/admin/maintenance/sha256.test.ts",
+    "test:hosting-inventory": "tsx --test src/server/maintenance/hostingInventory.test.ts",
+    "maintenance:inventory": "node scripts/hosting-inventory-run.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

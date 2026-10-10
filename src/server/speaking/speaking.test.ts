@@ -292,3 +292,20 @@ test('the third recording from one student waits durably instead of rejecting th
   for (let i = 0; i < 3; i++) { const a = await queue.prepare(student, 'Overflow', lesson.id, `owner-overflow-${i}`); const uploaded = await queue.upload(student, a.id, a.ticket!, wav()); assert.equal(uploaded.queueState, i < 2 ? 'queued' : 'waiting'); }
   while (await queue.runNext()) { /* Drain isolated fixture work. */ }
 });
+
+test('recordings are capped at 24h and expired queued jobs do not call providers or lose history', async () => {
+  const draft = await saveLesson(teacher, input), lesson = await setLessonStatus(teacher, draft.id, 1, 'published');
+  let called = 0;
+  const guarded = createSpeakingService({ secret:'expiry', retentionDays:30, audioDir:path.join(root,'expiry-audio'), providers:{...providers,azure:{...fixtureProvider,async assess(i){called++;return fixtureProvider.assess(i);}}} });
+  const student = {...actor,id:'expiry-student',ownerKey:'user:expiry-student'};
+  const a = await guarded.prepare(student,'Expiry',lesson.id,'expiry-24h-test');
+  await guarded.upload(student,a.id,a.ticket!,wav());
+  const stored = await sqliteQueryOne<{data_json:string}>('SELECT data_json FROM speaking_attempts WHERE id=?',[a.id]);
+  assert.ok(Date.parse(JSON.parse(stored!.data_json).audioExpiresAt) <= Date.now()+86400000);
+  const file=path.join(root,'expiry-audio',a.id+'.wav'),old=new Date(Date.now()-25*3600000);
+  fs.utimesSync(file,old,old);
+  await assert.rejects(guarded.audio(student,a.id),(e:any)=>e.code==='AUDIO_EXPIRED');
+  await guarded.runNext();assert.equal(called,0);assert.equal((await guarded.resume(student,a.id)).status,'failed');
+  await assert.rejects(guarded.retry(student,a.id,a.ticket!),(e:any)=>e.code==='RETRY_UNAVAILABLE');
+  assert.ok(await sqliteQueryOne('SELECT id FROM speaking_attempts WHERE id=?',[a.id]));
+});

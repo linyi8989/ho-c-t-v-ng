@@ -4,6 +4,13 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all2) => {
+  for (var name in all2)
+    __defProp(target, name, { get: all2[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key2 of __getOwnPropNames(from))
@@ -21,8 +28,1830 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// scripts/media-reference-index.mjs
+var media_reference_index_exports = {};
+__export(media_reference_index_exports, {
+  loadMediaReferences: () => loadMediaReferences
+});
+function tableExists(db, name) {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+}
+function fileNameFromPublicUrl(value, publicPrefix) {
+  const text8 = String(value || "").trim();
+  const marker = `${publicPrefix}/`;
+  const markerIndex = text8.indexOf(marker);
+  if (markerIndex < 0) return "";
+  const withoutQuery = text8.slice(markerIndex + marker.length).split(/[?#]/, 1)[0];
+  try {
+    const decoded = decodeURIComponent(withoutQuery);
+    return import_node_path2.default.basename(decoded) === decoded ? decoded : "";
+  } catch {
+    return "";
+  }
+}
+function addTtsReferencesFromJson(references, value) {
+  let data;
+  try {
+    data = JSON.parse(String(value || ""));
+  } catch {
+    throw new Error("Malformed media JSON; refusing orphan classification.");
+  }
+  const visit = (current) => {
+    if (!current || typeof current !== "object") return;
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    const audioFileName2 = fileNameFromPublicUrl(
+      current.audioUrl || current.audio_url,
+      "/audio"
+    );
+    if (TTS_FILE_NAME.test(audioFileName2)) references.add(audioFileName2);
+    const audioHash = String(current.audioHash || current.audio_hash || "").trim();
+    if (/^[a-f0-9]{64}$/i.test(audioHash)) references.add(`${audioHash}.mp3`);
+    Object.values(current).forEach(visit);
+  };
+  visit(data);
+}
+function loadMediaReferences(db) {
+  if (!tableExists(db, "listening_assets")) {
+    throw new Error("Required table listening_assets is missing; refusing media maintenance.");
+  }
+  if (!tableExists(db, "vocab_items") || !tableExists(db, "vocab_sets")) {
+    throw new Error("Required vocabulary tables are missing; refusing media maintenance.");
+  }
+  const listening = /* @__PURE__ */ new Set();
+  for (const row of db.prepare(
+    "SELECT storage_key, public_url FROM listening_assets"
+  ).all()) {
+    const storageKey = String(row.storage_key || "").trim();
+    if (import_node_path2.default.basename(storageKey) === storageKey && MEDIA_FILE_NAME.test(storageKey)) {
+      listening.add(storageKey);
+    }
+    const publicFileName = fileNameFromPublicUrl(row.public_url, "/listening-media");
+    if (MEDIA_FILE_NAME.test(publicFileName)) listening.add(publicFileName);
+  }
+  const tts = /* @__PURE__ */ new Set();
+  for (const row of db.prepare(
+    "SELECT audio_url, data_json FROM vocab_items"
+  ).all()) {
+    const audioFileName2 = fileNameFromPublicUrl(row.audio_url, "/audio");
+    if (TTS_FILE_NAME.test(audioFileName2)) tts.add(audioFileName2);
+    addTtsReferencesFromJson(tts, row.data_json);
+  }
+  for (const row of db.prepare("SELECT data_json FROM vocab_sets").all()) {
+    addTtsReferencesFromJson(tts, row.data_json);
+  }
+  if (tableExists(db, "competition_asset_usages")) {
+    for (const row of db.prepare("SELECT url FROM competition_asset_usages").iterate()) {
+      const ttsName = fileNameFromPublicUrl(row.url, "/audio");
+      if (TTS_FILE_NAME.test(ttsName)) tts.add(ttsName);
+      const listeningName = fileNameFromPublicUrl(row.url, "/listening-media");
+      if (MEDIA_FILE_NAME.test(listeningName)) listening.add(listeningName);
+    }
+  }
+  for (const [table, jsonPath] of [["speaking_lessons", "$.sampleAudioUrl"], ["speaking_versions", "$.sampleAudioUrl"], ["speaking_attempts", "$.lesson.sampleAudioUrl"], ["speaking_sessions", "$.lesson.sampleAudioUrl"]]) {
+    if (!tableExists(db, table)) continue;
+    for (const row of db.prepare(`SELECT json_extract(data_json, '${jsonPath}') AS sample_url FROM ${table}`).iterate()) {
+      const name = fileNameFromPublicUrl(row.sample_url, "/audio");
+      if (TTS_FILE_NAME.test(name)) tts.add(name);
+    }
+  }
+  for (const [table, itemsPath] of [["speaking_lessons", "$.items"], ["speaking_versions", "$.items"], ["speaking_sessions", "$.lesson.items"]]) {
+    if (!tableExists(db, table)) continue;
+    for (const row of db.prepare(`SELECT json_extract(item.value,'$.sampleAudioUrl') AS sample_url FROM ${table},json_each(json_extract(data_json,'${itemsPath}')) item`).iterate()) {
+      const name = fileNameFromPublicUrl(row.sample_url, "/audio");
+      if (TTS_FILE_NAME.test(name)) tts.add(name);
+    }
+  }
+  const vocab = /* @__PURE__ */ new Set();
+  if (tableExists(db, "vocab_image_assets")) {
+    for (const row of db.prepare("SELECT storage_key,public_url FROM vocab_image_assets").iterate()) {
+      const key2 = String(row.storage_key || "");
+      if (import_node_path2.default.basename(key2) === key2) vocab.add(key2);
+      const name = fileNameFromPublicUrl(row.public_url, "/vocab-images");
+      if (name) vocab.add(name);
+    }
+  }
+  return { listening, tts, vocab };
+}
+var import_node_path2, MEDIA_FILE_NAME, TTS_FILE_NAME;
+var init_media_reference_index = __esm({
+  "scripts/media-reference-index.mjs"() {
+    import_node_path2 = __toESM(require("node:path"), 1);
+    MEDIA_FILE_NAME = /^[a-f0-9]{64}\.(?:gif|jpe?g|m4a|mp3|ogg|png|wav|webp)$/i;
+    TTS_FILE_NAME = /^[a-f0-9]{64}\.mp3$/i;
+  }
+});
+
 // server.ts
-var import_express24 = __toESM(require("express"), 1);
+var import_express26 = __toESM(require("express"), 1);
+
+// scripts/maintenance-core.mjs
+var import_promises = __toESM(require("node:fs/promises"), 1);
+var import_node_fs2 = require("node:fs");
+var import_node_path3 = __toESM(require("node:path"), 1);
+var import_node_os = __toESM(require("node:os"), 1);
+var import_node_crypto = __toESM(require("node:crypto"), 1);
+var import_better_sqlite32 = __toESM(require("better-sqlite3"), 1);
+var import_node_child_process = require("node:child_process");
+var import_node_util = require("node:util");
+
+// scripts/sqlite-cli-common.mjs
+var import_node_fs = __toESM(require("node:fs"), 1);
+var import_node_path = __toESM(require("node:path"), 1);
+var import_better_sqlite3 = __toESM(require("better-sqlite3"), 1);
+function assertExistingFile(filePath) {
+  if (!import_node_fs.default.existsSync(filePath) || !import_node_fs.default.statSync(filePath).isFile()) {
+    throw new Error(`SQLite database file does not exist: ${import_node_path.default.basename(filePath)}`);
+  }
+}
+function assertQuickCheck(db, label = "database") {
+  const rows = db.pragma("quick_check");
+  const values = rows.map((row) => String(Object.values(row)[0] || "").toLowerCase());
+  if (values.length !== 1 || values[0] !== "ok") {
+    throw new Error(`${label} quick_check failed: ${values.join(", ") || "no result"}`);
+  }
+}
+function createTimestamp() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+}
+function applyPrivatePermissions(filePath, mode) {
+  if (process.platform !== "win32") import_node_fs.default.chmodSync(filePath, mode);
+}
+async function createVerifiedBackup(sourcePath2, destinationDirectory) {
+  assertExistingFile(sourcePath2);
+  const backupDirectory = import_node_path.default.resolve(destinationDirectory);
+  import_node_fs.default.mkdirSync(backupDirectory, { recursive: true, mode: 448 });
+  applyPrivatePermissions(backupDirectory, 448);
+  const parsed = import_node_path.default.parse(sourcePath2);
+  const destinationPath = import_node_path.default.join(
+    backupDirectory,
+    `${parsed.name}-${createTimestamp()}${parsed.ext || ".sqlite"}`
+  );
+  if (import_node_fs.default.existsSync(destinationPath)) {
+    throw new Error(`Refusing to overwrite backup: ${import_node_path.default.basename(destinationPath)}`);
+  }
+  const source = new import_better_sqlite3.default(sourcePath2, { fileMustExist: true, timeout: 1e4 });
+  let previousUmask;
+  try {
+    assertQuickCheck(source, "source");
+    previousUmask = process.umask(63);
+    await source.backup(destinationPath);
+  } finally {
+    if (previousUmask !== void 0) process.umask(previousUmask);
+    if (import_node_fs.default.existsSync(destinationPath)) applyPrivatePermissions(destinationPath, 384);
+    source.close();
+  }
+  const backup = new import_better_sqlite3.default(destinationPath, {
+    fileMustExist: true
+  });
+  try {
+    backup.pragma("journal_mode = DELETE");
+    assertQuickCheck(backup, "backup");
+  } catch (error) {
+    error.message = `Backup validation failed for ${import_node_path.default.basename(destinationPath)}: ${error.message}`;
+    throw error;
+  } finally {
+    backup.close();
+  }
+  return destinationPath;
+}
+
+// scripts/maintenance-core.mjs
+var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var DAY = 864e5;
+var MAX_STATE_BYTES = 12 * 1024 * 1024;
+var hash = (value) => import_node_crypto.default.createHash("sha256").update(value).digest("hex");
+var inside = (root, target) => target === root || !import_node_path3.default.relative(root, target).startsWith(".." + import_node_path3.default.sep) && import_node_path3.default.relative(root, target) !== ".." && !import_node_path3.default.isAbsolute(import_node_path3.default.relative(root, target));
+var same = (a, b) => a && b && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ino === b.ino && a.dev === b.dev;
+var maintenanceInodeKey = (s) => String(s.dev) + ":" + String(s.ino);
+var fingerprint = (s) => ({ size: s.size, mtimeMs: s.mtimeMs, ino: s.ino, dev: s.dev });
+var MaintenanceError = class extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+};
+var fail = (status, message) => {
+  throw new MaintenanceError(status, message);
+};
+function maintenanceConfig(env = process.env, cwd = process.cwd()) {
+  const dbPath = import_node_path3.default.resolve(env.SQLITE_DB_PATH || import_node_path3.default.join(cwd, ".data/app.sqlite"));
+  const dataRoot = import_node_path3.default.dirname(dbPath);
+  const deployRoot = import_node_path3.default.resolve(env.MAINTENANCE_DEPLOY_ROOT || cwd);
+  const accountRoot = import_node_path3.default.resolve(env.MAINTENANCE_ACCOUNT_ROOT || (env.NODE_ENV === "production" && import_node_os.default.homedir().startsWith("/home/") ? import_node_os.default.homedir() : dataRoot));
+  const backupRoots = [env.SQLITE_BACKUP_DIR || import_node_path3.default.join(dataRoot, "backups"), import_node_path3.default.join(dataRoot, "restore-backup"), import_node_path3.default.join(dataRoot, "release-b-backups"), import_node_path3.default.join(dataRoot, "retention-backups")].map((p) => import_node_path3.default.resolve(p));
+  return {
+    dbPath,
+    dataRoot,
+    deployRoot,
+    accountRoot,
+    backupRoots,
+    stateRoot: import_node_path3.default.resolve(env.MAINTENANCE_STATE_DIR || import_node_path3.default.join(dataRoot, "maintenance")),
+    audioRoot: import_node_path3.default.resolve(env.TTS_AUDIO_DIR || import_node_path3.default.join(dataRoot, "audio")),
+    listeningRoot: import_node_path3.default.resolve(env.LISTENING_MEDIA_DIR || import_node_path3.default.join(dataRoot, "listening-media")),
+    vocabRoot: import_node_path3.default.resolve(env.VOCAB_IMAGE_DIR || import_node_path3.default.join(dataRoot, "vocab-images")),
+    speakingRoot: import_node_path3.default.join(dataRoot, "speaking-recordings"),
+    maxFiles: Math.min(5e5, Math.max(100, Number(env.MAINTENANCE_MAX_FILES) || 1e5)),
+    maxScanMs: Math.min(3e5, Math.max(1e3, Number(env.MAINTENANCE_SCAN_SECONDS) * 1e3 || 6e4)),
+    reserveBytes: Math.max(64 * 1024 * 1024, (Number.isFinite(Number(env.MAINTENANCE_RESERVE_MB)) && Number(env.MAINTENANCE_RESERVE_MB) > 0 ? Number(env.MAINTENANCE_RESERVE_MB) : 256) * 1024 * 1024),
+    nativeSqlite: env.STORAGE_MODE === "sqlite" && env.SQLITE_DRIVER === "better-sqlite3",
+    quotaHost: env.MAINTENANCE_CPANEL_HOST || "",
+    quotaUser: env.MAINTENANCE_CPANEL_USER || "",
+    quotaToken: env.MAINTENANCE_CPANEL_TOKEN || "",
+    cronDiscovery: env.MAINTENANCE_CRON_DISCOVERY === "true"
+  };
+}
+async function privateDir(directory) {
+  let current = import_node_path3.default.parse(import_node_path3.default.resolve(directory)).root;
+  for (const part2 of import_node_path3.default.relative(current, import_node_path3.default.resolve(directory)).split(import_node_path3.default.sep).filter(Boolean)) {
+    current = import_node_path3.default.join(current, part2);
+    try {
+      const item = await import_promises.default.lstat(current);
+      if (item.isSymbolicLink() || !item.isDirectory()) fail(409, "Parent directory kh\xF4ng an to\xE0n.");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      await import_promises.default.mkdir(current, { mode: 448 });
+    }
+  }
+  const stat = await import_promises.default.lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) fail(409, "Th\u01B0 m\u1EE5c maintenance kh\xF4ng an to\xE0n.");
+  if (process.platform !== "win32") await import_promises.default.chmod(directory, 448);
+}
+async function atomicJson(file, value) {
+  const text8 = JSON.stringify(value);
+  if (Buffer.byteLength(text8) > MAX_STATE_BYTES) fail(507, "Metadata v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n; d\u1EEBng \u0111\u1EC3 b\u1EA3o v\u1EC7 dung l\u01B0\u1EE3ng.");
+  const temporary = file + "." + import_node_crypto.default.randomUUID() + ".tmp";
+  const handle = await import_promises.default.open(temporary, "wx", 384);
+  try {
+    await handle.writeFile(text8);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await import_promises.default.rename(temporary, file);
+}
+function emptyState() {
+  return { version: 1, latest: null, snapshots: [], audit: [], jobs: [], holds: {}, pins: {}, verifications: {}, previews: {}, quarantine: {}, policy: { temporary: false, speaking: false } };
+}
+async function safeFile(root, relative, expected) {
+  if (typeof relative !== "string" || !relative || import_node_path3.default.isAbsolute(relative) || relative.includes("\0")) fail(400, "\u0110\u01B0\u1EDDng d\u1EABn kh\xF4ng h\u1EE3p l\u1EC7.");
+  const resolvedRoot = import_node_path3.default.resolve(root), target = import_node_path3.default.resolve(resolvedRoot, relative);
+  if (!inside(resolvedRoot, target) || target === resolvedRoot) fail(403, "File ngo\xE0i ph\u1EA1m vi cho ph\xE9p.");
+  let current = import_node_path3.default.parse(resolvedRoot).root;
+  for (const part2 of import_node_path3.default.relative(current, target).split(import_node_path3.default.sep).filter(Boolean)) {
+    current = import_node_path3.default.join(current, part2);
+    const stat2 = await import_promises.default.lstat(current);
+    if (stat2.isSymbolicLink()) fail(409, "Kh\xF4ng x\u1EED l\xFD symlink.");
+  }
+  const stat = await import_promises.default.lstat(target);
+  if (!stat.isFile() || stat.nlink !== 1) fail(409, "Ch\u1EC9 x\u1EED l\xFD file th\u01B0\u1EDDng, kh\xF4ng hardlink.");
+  if (expected && !same(fingerprint(stat), expected)) fail(409, "File \u0111\xE3 thay \u0111\u1ED5i. H\xE3y qu\xE9t v\xE0 x\xE1c minh l\u1EA1i.");
+  return { target, stat };
+}
+var MEDIA_ROOTS = /* @__PURE__ */ new Set(["temporary-pdf", "temporary-reading", "speaking", "tts", "listening", "vocab", "assets", "assets-client"]);
+function previewFormat(entry) {
+  if (!MEDIA_ROOTS.has(entry.rootId)) return null;
+  const formats = {
+    ".png": ["image", "image/png"],
+    ".jpg": ["image", "image/jpeg"],
+    ".jpeg": ["image", "image/jpeg"],
+    ".webp": ["image", "image/webp"],
+    ".gif": ["image", "image/gif"],
+    ".wav": ["audio", "audio/wav"],
+    ".mp3": ["audio", "audio/mpeg"],
+    ".ogg": ["audio", "audio/ogg"],
+    ".m4a": ["audio", "audio/mp4"]
+  };
+  const match = formats[import_node_path3.default.extname(entry.name).toLowerCase()];
+  return match ? { type: match[0], mime: match[1], maxBytes: (match[0] === "image" ? 16 : 32) * 1024 * 1024 } : null;
+}
+function matchesMediaSignature(bytes, mime) {
+  const text8 = (start2, end) => bytes.toString("ascii", start2, end);
+  if (mime === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mime === "image/jpeg") return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+  if (mime === "image/gif") return ["GIF87a", "GIF89a"].includes(text8(0, 6));
+  if (mime === "image/webp") return text8(0, 4) === "RIFF" && text8(8, 12) === "WEBP";
+  if (mime === "audio/wav") return text8(0, 4) === "RIFF" && text8(8, 12) === "WAVE";
+  if (mime === "audio/mpeg") return text8(0, 3) === "ID3" || bytes[0] === 255 && (bytes[1] & 224) === 224 && (bytes[1] & 6) !== 0;
+  if (mime === "audio/ogg") return text8(0, 4) === "OggS";
+  if (mime === "audio/mp4") return text8(4, 8) === "ftyp" && bytes.length >= 12;
+  return false;
+}
+function presentedEntry(state, entry) {
+  const overlay = ["held", "pinned"].includes(entry.status);
+  const baseStatus = entry.baseStatus || (overlay ? "unknown" : entry.status);
+  const baseReason = entry.baseReason || (overlay ? "Qu\xE9t l\u1EA1i \u0111\u1EC3 x\xE1c \u0111\u1ECBnh tr\u1EA1ng th\xE1i sau khi b\u1ECF gi\u1EEF/ghim." : entry.reason);
+  const held = state.holds[entry.id]?.until > Date.now() ? state.holds[entry.id] : null;
+  const pinned = Boolean(state.pins[entry.id]);
+  return {
+    ...entry,
+    status: pinned ? "pinned" : held ? "held" : baseStatus,
+    reason: pinned ? "Backup \u0111\u01B0\u1EE3c ghim; b\u1ECF ghim tr\u01B0\u1EDBc khi x\u1EED l\xFD." : held ? held.reason : baseReason,
+    pinned,
+    heldUntil: held ? new Date(held.until).toISOString() : null
+  };
+}
+function createMaintenance(config) {
+  const stateFile = import_node_path3.default.join(config.stateRoot, "state.json");
+  const lockFile = import_node_path3.default.join(config.stateRoot, "task.lock");
+  let busy = false;
+  async function readState() {
+    try {
+      const info = await import_promises.default.lstat(stateFile);
+      if (info.isSymbolicLink() || info.size > MAX_STATE_BYTES) fail(503, "Metadata maintenance kh\xF4ng an to\xE0n.");
+      const state = JSON.parse(await import_promises.default.readFile(stateFile, "utf8"));
+      if (state.version !== 1 || !Array.isArray(state.audit) || !Array.isArray(state.jobs) || !state.policy) fail(503, "Metadata maintenance kh\xF4ng h\u1EE3p l\u1EC7.");
+      return state;
+    } catch (error) {
+      if (error.code === "ENOENT") return emptyState();
+      throw error;
+    }
+  }
+  async function save(state) {
+    state.audit = state.audit.slice(-600);
+    state.jobs = state.jobs.slice(-80);
+    state.snapshots = state.snapshots.slice(-120);
+    const now2 = Date.now();
+    for (const [key2, value] of Object.entries(state.holds)) if (value.until <= now2) delete state.holds[key2];
+    for (const [key2, value] of Object.entries(state.verifications)) if (value.expiresAt < now2) delete state.verifications[key2];
+    for (const [key2, value] of Object.entries(state.previews)) if (value.expiresAt < now2) delete state.previews[key2];
+    await atomicJson(stateFile, state);
+  }
+  async function locked(actor, task, action) {
+    if (busy) fail(409, "M\u1ED9t t\xE1c v\u1EE5 maintenance \u0111ang ch\u1EA1y. H\xE3y th\u1EED l\u1EA1i sau.");
+    await privateDir(config.stateRoot);
+    await safeParents2(config.stateRoot);
+    let lease;
+    try {
+      lease = await import_promises.default.open(lockFile, "wx", 384);
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const info = await import_promises.default.lstat(lockFile);
+      if (info.isSymbolicLink()) fail(409, "Kh\xF3a t\xE1c v\u1EE5 kh\xF4ng h\u1EE3p l\u1EC7.");
+      const prior = JSON.parse(await import_promises.default.readFile(lockFile, "utf8"));
+      let alive2 = true;
+      try {
+        process.kill(prior.pid, 0);
+      } catch (e) {
+        if (e.code === "ESRCH") alive2 = false;
+      }
+      if (alive2 || !Number.isFinite(prior.startedAt) || Date.now() - prior.startedAt < 6e4) fail(409, "T\xE1c v\u1EE5 kh\xE1c \u0111ang gi\u1EEF kh\xF3a.");
+      await import_promises.default.unlink(lockFile);
+      lease = await import_promises.default.open(lockFile, "wx", 384);
+    }
+    busy = true;
+    try {
+      await lease.writeFile(JSON.stringify({ pid: process.pid, startedAt: Date.now(), task }));
+      await lease.sync();
+      const state = await readState();
+      for (const job2 of state.jobs) if (job2.status === "running") {
+        job2.status = "interrupted";
+        job2.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+      }
+      const job = { id: import_node_crypto.default.randomUUID(), task, source: actor === "cron" ? "cron" : "dashboard", actor, status: "running", startedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      state.jobs.push(job);
+      await save(state);
+      try {
+        const result = await action(state, job);
+        job.status = "success";
+        job.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+        job.durationMs = Date.now() - Date.parse(job.startedAt);
+        await save(state);
+        return result;
+      } catch (error) {
+        job.status = "failed";
+        job.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+        job.error = error instanceof MaintenanceError ? error.message : "T\xE1c v\u1EE5 l\u1ED7i; ch\u01B0a x\xE1c nh\u1EADn ho\xE0n t\u1EA5t.";
+        await save(state);
+        throw error;
+      }
+    } finally {
+      busy = false;
+      await lease.close();
+      await import_promises.default.unlink(lockFile);
+    }
+  }
+  async function audit2(state, actor, action, details) {
+    state.audit.push({ id: import_node_crypto.default.randomUUID(), at: (/* @__PURE__ */ new Date()).toISOString(), actor, action, ...details });
+    await save(state);
+  }
+  async function safeParents2(target) {
+    let current = import_node_path3.default.parse(target).root;
+    for (const part2 of import_node_path3.default.relative(current, target).split(import_node_path3.default.sep).filter(Boolean)) {
+      current = import_node_path3.default.join(current, part2);
+      const info = await import_promises.default.lstat(current);
+      if (info.isSymbolicLink()) fail(409, "Kh\xF4ng s\u1EED d\u1EE5ng th\u01B0 m\u1EE5c symlink.");
+    }
+  }
+  function resolveEntry(state, id2) {
+    const entry = state.latest?.entries.find((e) => e.id === id2);
+    if (!entry) fail(404, "File kh\xF4ng c\xF2n trong b\xE1o c\xE1o. H\xE3y qu\xE9t l\u1EA1i.");
+    const root = roots().find((r) => r.id === entry.rootId);
+    if (!root) fail(403, "Ph\u1EA1m vi file kh\xF4ng c\xF2n \u0111\u01B0\u1EE3c ph\xE9p.");
+    return { entry, root };
+  }
+  function roots() {
+    const definitions = [
+      ["backups", config.backupRoots[0], "Backup"],
+      ...config.backupRoots.slice(1).map((p, i) => ["backup-" + i, p, "Backup ph\u1EE5c h\u1ED3i"]),
+      ["temporary-pdf", import_node_path3.default.join(config.listeningRoot, ".tmp-pdf-import"), "File t\u1EA1m nh\u1EADp PDF"],
+      ["temporary-reading", import_node_path3.default.join(config.listeningRoot, ".tmp-mover-reading-import"), "File t\u1EA1m nh\u1EADp Reading"],
+      ["speaking", config.speakingRoot, "B\u1EA3n thu Speaking"],
+      ["tts", config.audioRoot, "Audio TTS"],
+      ["listening", config.listeningRoot, "Media Listening"],
+      ["vocab", config.vocabRoot, "\u1EA2nh t\u1EEB v\u1EF1ng"],
+      ["quarantine", import_node_path3.default.join(config.stateRoot, "quarantine"), "File c\xE1ch ly"],
+      ["assets", import_node_path3.default.join(config.deployRoot, "assets"), "Asset frontend"],
+      ["assets-client", import_node_path3.default.join(config.deployRoot, "dist/client/assets"), "Asset frontend (Node)"],
+      ["data", config.dataRoot, "D\u1EEF li\u1EC7u \u1EE9ng d\u1EE5ng"],
+      ["deployment", config.deployRoot, "Code tri\u1EC3n khai"],
+      ["account", config.accountRoot, "T\xE0i kho\u1EA3n hosting"]
+    ];
+    return definitions.map(([id2, root, label]) => ({ id: id2, root: import_node_path3.default.resolve(root), label }));
+  }
+  async function quota() {
+    if (!config.quotaHost || !config.quotaUser || !config.quotaToken) return { status: "unconfigured", measuredAt: null, usedBytes: null, limitBytes: null };
+    try {
+      const url = new URL("https://" + config.quotaHost);
+      if (url.pathname !== "/" || url.username || url.password || url.port && url.port !== "2083") throw new Error("Invalid host");
+      url.port = "2083";
+      url.pathname = "/execute/Quota/get_quota_info";
+      const response = await fetch(url, { signal: AbortSignal.timeout(8e3), redirect: "error", headers: { Authorization: "cpanel " + config.quotaUser + ":" + config.quotaToken } });
+      if (!response.ok) throw new Error("API unavailable");
+      const result = await response.json(), d = result.data;
+      const usedBytes = Number(d?.bytes_used), limitBytes = Number(d?.byte_limit);
+      if (result.status !== 1 || d?.bytes_used == null || d?.byte_limit == null || !Number.isFinite(usedBytes) || usedBytes < 0 || !Number.isFinite(limitBytes) || limitBytes <= 0) throw new Error("Unsupported quota");
+      return { status: "available", measuredAt: (/* @__PURE__ */ new Date()).toISOString(), usedBytes, limitBytes };
+    } catch {
+      return { status: "unavailable", measuredAt: (/* @__PURE__ */ new Date()).toISOString(), usedBytes: null, limitBytes: null };
+    }
+  }
+  async function cronList() {
+    if (!config.cronDiscovery) return { status: "unconfigured", schedules: [] };
+    try {
+      const { stdout } = await execFileAsync("crontab", ["-l"], { timeout: 4e3, maxBuffer: 65536, windowsHide: true });
+      const schedules = stdout.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith("#") && !/^\s*[A-Za-z_]\w*\s*=/.test(l)).slice(0, 100).map((line, i) => {
+        const parts = line.trim().split(/\s+/);
+        const known = ["maintenance-run.mjs", "sqlite-backup.mjs", "activity-prune.mjs", "media-orphan-maintenance.mjs"].find((name) => line.includes(name));
+        return { id: i, task: known || "T\xE1c v\u1EE5 ch\u01B0a nh\u1EADn di\u1EC7n", schedule: parts[0].startsWith("@") ? parts[0] : parts.slice(0, 5).join(" "), command: "[L\u1EC7nh \u0111\u01B0\u1EE3c \u1EA9n \u0111\u1EC3 b\u1EA3o v\u1EC7 th\xF4ng tin]", status: "unknown" };
+      });
+      return { status: "available", schedules };
+    } catch {
+      return { status: "unavailable", schedules: [] };
+    }
+  }
+  async function assetReferences() {
+    const protectedFiles = /* @__PURE__ */ new Set(), historical = /* @__PURE__ */ new Set(), digests = /* @__PURE__ */ new Map();
+    const directory = import_node_path3.default.join(config.dataRoot, "frontend-releases");
+    try {
+      await safeParents2(directory);
+      const records3 = [];
+      for (const name of (await import_promises.default.readdir(directory)).filter((n) => /^release-[a-zA-Z0-9._-]+\.json$/.test(n)).slice(-500)) {
+        const file = await safeFile(directory, name);
+        if (file.stat.size > 1024 * 1024) throw new Error("Manifest too large");
+        const data = JSON.parse(await import_promises.default.readFile(file.target, "utf8"));
+        if (data.version !== 1 || !Array.isArray(data.files) || data.files.length > 1e4 || data.files.some((f) => typeof f.path !== "string" || f.path.includes("..") || import_node_path3.default.isAbsolute(f.path) || !/^[a-f0-9]{64}$/.test(f.sha256))) throw new Error("Invalid manifest");
+        records3.push({ data, activated: file.stat.mtimeMs });
+      }
+      records3.sort((a, b) => b.activated - a.activated);
+      if (!records3.length) throw new Error("No manifest");
+      const indexPaths = [import_node_path3.default.join(config.deployRoot, "index.html"), import_node_path3.default.join(config.deployRoot, "dist/client/index.html")];
+      for (const indexPath of indexPaths) {
+        const file = await safeFile(import_node_path3.default.dirname(indexPath), import_node_path3.default.basename(indexPath));
+        if (file.stat.size > 1024 * 1024) throw new Error("Index too large");
+        const html = await import_promises.default.readFile(file.target, "utf8");
+        const matches = [...html.matchAll(/(?:\/|["'])assets\/([^"'<>?\s]+)/g)].map((m) => "assets/" + m[1]);
+        if (!matches.length || !records3.some((r) => matches.every((m) => r.data.files.some((f) => f.path === m)))) throw new Error("Live index not covered by manifest");
+        for (const record3 of records3.filter((r) => matches.every((m) => r.data.files.some((f) => f.path === m)))) for (const f of record3.data.files) protectedFiles.add(f.path);
+      }
+      records3.forEach((record3, index) => {
+        for (const f of record3.data.files) {
+          historical.add(f.path);
+          if (!digests.has(f.path)) digests.set(f.path, /* @__PURE__ */ new Set());
+          digests.get(f.path).add(f.sha256);
+          if (index < 2 || Date.now() - record3.activated < 365 * DAY) protectedFiles.add(f.path);
+        }
+      });
+      return { status: "available", protectedFiles, historical, digests };
+    } catch {
+      return { status: "unknown", protectedFiles, historical, digests };
+    }
+  }
+  async function references() {
+    const assets = await assetReferences();
+    if (!config.nativeSqlite) return { status: "unknown", error: "Ki\u1EC3m tra tham chi\u1EBFu c\u1EA7n SQLite native.", speaking: /* @__PURE__ */ new Map(), assets };
+    try {
+      const file = await safeFile(import_node_path3.default.dirname(config.dbPath), import_node_path3.default.basename(config.dbPath));
+      const db = new import_better_sqlite32.default(file.target, { readonly: true, fileMustExist: true, timeout: 3e3 });
+      try {
+        const { loadMediaReferences: loadMediaReferences2 } = await Promise.resolve().then(() => (init_media_reference_index(), media_reference_index_exports));
+        const media = loadMediaReferences2(db);
+        const speaking = /* @__PURE__ */ new Map();
+        if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='speaking_attempts'").get() || !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='speaking_jobs'").get()) throw new Error("Speaking schema missing");
+        for (const row of db.prepare("SELECT id,status,data_json FROM speaking_attempts").iterate()) {
+          const value = JSON.parse(row.data_json);
+          const expiry = Date.parse(value.audioExpiresAt);
+          speaking.set(row.id, { status: row.status, expiry, busy: false });
+        }
+        for (const row of db.prepare("SELECT attempt_id FROM speaking_jobs WHERE status IN ('waiting','queued','running')").iterate()) {
+          const item = speaking.get(row.attempt_id);
+          if (item) item.busy = true;
+        }
+        return { status: "available", ...media, speaking, assets };
+      } finally {
+        db.close();
+      }
+    } catch {
+      return { status: "unknown", error: "Kh\xF4ng \u0111\u1ECDc \u0111\u1EE7 tham chi\u1EBFu/schema. Kh\xF4ng c\u1EA5p quy\u1EC1n d\u1ECDn media.", speaking: /* @__PURE__ */ new Map(), assets };
+    }
+  }
+  function classify2(root, name, stat, ref) {
+    const age = Date.now() - stat.mtimeMs;
+    if (root.id.startsWith("backup") && /^(?:app|db|backup|sqlite)[a-zA-Z0-9._-]*\.(?:sqlite|db)$/i.test(name) && import_node_path3.default.resolve(root.root, name) !== config.dbPath) return { kind: "backup", status: "review", reason: "B\u1EA3n sao c\u1EA7n quick_check v\xE0 \u0111\u1ED1i chi\u1EBFu file local tr\u01B0\u1EDBc khi x\xF3a." };
+    if (root.id.startsWith("temporary") && /^[a-f0-9-]{36}(?:[._-][a-zA-Z0-9-]+)*\.(?:png|jpg|jpeg|webp|gif)$/i.test(name)) return { kind: "temporary", status: age > 2 * DAY ? "eligible" : "used", reason: age > 2 * DAY ? "File t\u1EA1m nh\u1EADp \u0111\u1EC1 qu\xE1 48 gi\u1EDD." : "Ch\u01B0a h\u1EBFt th\u1EDDi gian b\u1EA3o v\u1EC7 file t\u1EA1m." };
+    if (root.id === "speaking" && /^[a-f0-9-]{36}\.wav$/i.test(name)) {
+      const attempt = ref.speaking.get(name.slice(0, -4));
+      if (ref.status !== "available" || !attempt || !Number.isFinite(attempt.expiry)) return { kind: "speaking", status: "unknown", reason: "Kh\xF4ng x\xE1c minh \u0111\u01B0\u1EE3c b\u1EA3n thu v\xE0 th\u1EDDi \u0111i\u1EC3m h\u1EBFt h\u1EA1n." };
+      const expired = Date.now() >= Math.min(attempt.expiry, stat.mtimeMs + DAY);
+      if (attempt.busy || ["prepared", "queued", "assessing"].includes(attempt.status)) return { kind: "speaking", status: expired ? "blocked" : "used", reason: expired ? "Qu\xE1 h\u1EA1n nh\u01B0ng t\xE1c v\u1EE5 c\xF2n s\u1EED d\u1EE5ng. C\u1EA7n x\u1EED l\xFD h\xE0ng ch\u1EDD." : "T\xE1c v\u1EE5 ch\u1EA5m/nh\u1EADn x\xE9t c\xF2n s\u1EED d\u1EE5ng." };
+      return { kind: "speaking", status: expired ? "eligible" : "used", reason: expired ? "B\u1EA3n thu h\u1EBFt h\u1EA1n; k\u1EBFt qu\u1EA3 ch\u1EA5m \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn." : "B\u1EA3n thu ch\u01B0a h\u1EBFt h\u1EA1n 24 gi\u1EDD." };
+    }
+    if (root.id === "tts" || root.id === "listening") {
+      const pattern = root.id === "tts" ? /^[a-f0-9]{64}\.mp3$/i : /^[a-f0-9]{64}\.(?:gif|jpe?g|m4a|mp3|ogg|png|wav|webp)$/i;
+      if (pattern.test(name) && ref.status === "available") {
+        const used = (root.id === "tts" ? ref.tts : ref.listening).has(name);
+        return { kind: "media", status: used ? "used" : age > 7 * DAY ? "suspected" : "used", reason: used ? "C\xF3 tham chi\u1EBFu, g\u1ED3m c\u1EA3 n\u1ED9i dung \u0111\xE3 archive v\xE0 l\u1ECBch s\u1EED." : age > 7 * DAY ? "Kh\xF4ng t\xECm th\u1EA5y tham chi\u1EBFu; c\u1EA7n maintenance media ri\xEAng tr\u01B0\u1EDBc khi x\u1EED l\xFD." : "File m\u1EDBi c\xF2n trong th\u1EDDi gian b\u1EA3o v\u1EC7." };
+      }
+      return { kind: "media", status: "unknown", reason: "Ch\u01B0a c\xF3 \u0111\u1EE7 b\u1EB1ng ch\u1EE9ng tham chi\u1EBFu; \u0111\u01B0\u1EE3c b\u1EA3o v\u1EC7." };
+    }
+    if (root.id === "vocab") return { kind: "media", status: ref.status === "available" && ref.vocab.has(name) ? "used" : "unknown", reason: ref.status === "available" && ref.vocab.has(name) ? "\u1EA2nh c\xF3 trong th\u01B0 vi\u1EC7n t\xE1i s\u1EED d\u1EE5ng; \u0111\u01B0\u1EE3c b\u1EA3o v\u1EC7." : "Ch\u01B0a x\xE1c minh \u0111\u1EA7y \u0111\u1EE7 \u1EA3nh legacy/tham chi\u1EBFu; kh\xF4ng c\u1EA5p quy\u1EC1n x\xF3a." };
+    if (root.id.startsWith("assets")) {
+      const key2 = "assets/" + name.split(import_node_path3.default.sep).join("/");
+      const eligible = ref.assets?.status === "available" && ref.assets.historical.has(key2) && !ref.assets.protectedFiles.has(key2);
+      return { kind: "asset", status: eligible ? "eligible" : "protected", reason: eligible ? "Asset c\xF3 manifest l\u1ECBch s\u1EED, kh\xF4ng thu\u1ED9c b\u1EA3n live/rollback v\xE0 \u0111\xE3 qua 365 ng\xE0y b\u1EA3o v\u1EC7." : "B\u1EA3o v\u1EC7 asset live/rollback/cache 365 ng\xE0y; legacy ho\u1EB7c thi\u1EBFu manifest kh\xF4ng \u0111\u01B0\u1EE3c x\xF3a." };
+    }
+    return { kind: root.id === "quarantine" ? "quarantine" : "other", status: "protected", reason: "Ch\u1EC9 gi\xE1m s\xE1t; kh\xF4ng thu\u1ED9c danh s\xE1ch \u0111\u01B0\u1EE3c ph\xE9p x\xF3a." };
+  }
+  async function scan(actor = "cron") {
+    return locked(actor, "scan", async (state, job) => {
+      const started = Date.now(), definitions = roots(), groups = {}, seen = /* @__PURE__ */ new Set(), walked = /* @__PURE__ */ new Set(), entries = [], largest = [];
+      const ref = await references(), issues = [];
+      let fileCount = 0, groupCount = 0, partial = false;
+      for (const root of definitions) {
+        if (Date.now() - started >= config.maxScanMs || fileCount >= config.maxFiles) {
+          partial = true;
+          break;
+        }
+        let rootStat;
+        try {
+          await safeParents2(root.root);
+          rootStat = await import_promises.default.lstat(root.root);
+        } catch (error) {
+          issues.push({ root: root.id, status: error.code === "ENOENT" ? "missing" : "unreadable" });
+          continue;
+        }
+        if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+          issues.push({ root: root.id, status: "excluded" });
+          continue;
+        }
+        const stack = [root.root];
+        while (stack.length) {
+          if (Date.now() - started >= config.maxScanMs || fileCount >= config.maxFiles) {
+            partial = true;
+            break;
+          }
+          const directory = stack.pop();
+          if (walked.has(directory)) continue;
+          walked.add(directory);
+          let children;
+          try {
+            children = await import_promises.default.readdir(directory, { withFileTypes: true });
+          } catch {
+            issues.push({ root: root.id, status: "unreadable", relative: import_node_path3.default.relative(root.root, directory) });
+            continue;
+          }
+          for (const child of children) {
+            const target = import_node_path3.default.join(directory, child.name);
+            if (child.isSymbolicLink()) {
+              issues.push({ root: root.id, status: "symlink-excluded", relative: import_node_path3.default.relative(root.root, target) });
+              continue;
+            }
+            if (child.isDirectory()) {
+              stack.push(target);
+              continue;
+            }
+            if (!child.isFile()) continue;
+            let stat;
+            try {
+              stat = await import_promises.default.lstat(target);
+            } catch {
+              partial = true;
+              continue;
+            }
+            if (!stat.isFile() || stat.isSymbolicLink()) continue;
+            const identity = Number.isSafeInteger(stat.ino) ? stat : await import_promises.default.lstat(target, { bigint: true });
+            if (!identity.isFile() || Number(identity.size) !== stat.size) {
+              partial = true;
+              continue;
+            }
+            const inode = maintenanceInodeKey(identity);
+            if (seen.has(inode)) continue;
+            seen.add(inode);
+            fileCount++;
+            const owner = definitions.find((r) => inside(r.root, target)) || root;
+            const relative = import_node_path3.default.relative(owner.root, target);
+            const segments = relative.split(import_node_path3.default.sep);
+            const bucket = segments.length > 1 ? segments[0] : "[file t\u1EA1i root]";
+            let groupId = owner.id === "account" ? "account:" + bucket : owner.id;
+            if (!groups[groupId] && groupCount >= 1e3) groupId = owner.id + ":other";
+            if (!groups[groupId]) groupCount++;
+            const groupedAccount = owner.id === "account" && !groupId.endsWith(":other");
+            const group = groups[groupId] ||= { id: groupId, label: groupedAccount ? bucket : groupId.endsWith(":other") ? owner.label + " \xB7 nh\xF3m c\xF2n l\u1EA1i" : owner.label, root: groupedAccount && segments.length > 1 ? import_node_path3.default.join(owner.root, bucket) : owner.root, bytes: 0, allocatedBytes: 0, files: 0 };
+            group.bytes += stat.size;
+            group.allocatedBytes += Number.isFinite(stat.blocks) ? stat.blocks * 512 : stat.size;
+            group.files++;
+            const result = classify2(owner, import_node_path3.default.relative(owner.root, target), stat, ref);
+            const entry = { id: hash(owner.id + ":" + relative), rootId: owner.id, relative, name: child.name, bytes: stat.size, modifiedAt: new Date(stat.mtimeMs).toISOString(), fingerprint: fingerprint(stat), ...result };
+            if (stat.nlink !== 1) {
+              entry.status = "protected";
+              entry.reason = "Hardlink: ch\u1EC9 gi\xE1m s\xE1t.";
+            }
+            entry.baseStatus = entry.status;
+            entry.baseReason = entry.reason;
+            if (state.holds[entry.id] && state.holds[entry.id].until > Date.now()) {
+              entry.status = "held";
+              entry.reason = state.holds[entry.id].reason;
+            }
+            if (state.pins[entry.id]) {
+              entry.status = "pinned";
+              entry.reason = "Backup \u0111\u01B0\u1EE3c ghim; b\u1ECF ghim tr\u01B0\u1EDBc khi x\u1EED l\xFD.";
+            }
+            if (entry.kind === "backup" || ["eligible", "blocked", "suspected", "held"].includes(entry.status)) {
+              if (entries.length < 3e3) entries.push(entry);
+              else partial = true;
+            }
+            largest.push(entry);
+            largest.sort((a, b) => b.bytes - a.bytes);
+            if (largest.length > 50) largest.pop();
+            if (fileCount % 100 === 0) await new Promise((resolve) => setImmediate(resolve));
+            if (fileCount >= config.maxFiles || Date.now() - started >= config.maxScanMs) {
+              partial = true;
+              break;
+            }
+          }
+        }
+      }
+      const knownIds = new Set(entries.map((e) => e.id));
+      for (const item of largest) if (!knownIds.has(item.id)) entries.push(item);
+      const quotaInfo = await quota(), cron = await cronList(), measuredAt = (/* @__PURE__ */ new Date()).toISOString();
+      const totalBytes = Object.values(groups).reduce((n, g) => n + g.bytes, 0);
+      const alerts = [];
+      if (partial || issues.some((i) => i.status === "unreadable")) alerts.push({ severity: "warning", message: "Ph\u1EA1m vi qu\xE9t ch\u01B0a \u0111\u1EA7y \u0111\u1EE7; s\u1ED1 li\u1EC7u l\xE0 ph\u1EA7n \u0111\xE3 \u0111\u1ECDc.", action: "Xem ph\u1EA1m vi v\xE0 t\u0103ng gi\u1EDBi h\u1EA1n qu\xE9t n\u1EBFu ph\xF9 h\u1EE3p." });
+      if (ref.status !== "available") alerts.push({ severity: "warning", message: ref.error, action: "Ki\u1EC3m tra c\u1EA5u h\xECnh native SQLite v\xE0 d\u1EEF li\u1EC7u; kh\xF4ng d\u1ECDn media khi ch\u01B0a x\xE1c minh." });
+      if (quotaInfo.status === "available") {
+        const percent = quotaInfo.usedBytes / quotaInfo.limitBytes * 100;
+        if (percent >= 80) alerts.push({ severity: percent >= 95 ? "critical" : percent >= 90 ? "warning" : "info", message: "Quota hosting \u0111\xE3 d\xF9ng " + percent.toFixed(1) + "%.", action: "\u01AFu ti\xEAn t\u1EA3i/x\xE1c minh backup c\xF3 s\u1EB5n; kh\xF4ng t\u1EA1o th\xEAm b\u1EA3n l\u1EDBn khi thi\u1EBFu ch\u1ED7." });
+      }
+      const blocked = entries.filter((e) => e.status === "blocked");
+      if (blocked.length) alerts.push({ severity: "warning", message: blocked.length + " b\u1EA3n thu qu\xE1 h\u1EA1n \u0111ang b\u1ECB t\xE1c v\u1EE5 gi\u1EEF.", action: "Ki\u1EC3m tra h\xE0ng ch\u1EDD Speaking; kh\xF4ng x\xF3a b\u1EA3n \u0111ang \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng." });
+      const previous = state.snapshots.findLast((s) => Date.parse(s.at) <= Date.now() - DAY) || state.snapshots.at(-1);
+      const growth = !partial && previous?.complete ? Object.values(groups).map((g) => ({ id: g.id, label: g.label, bytes: g.bytes - (previous.groups[g.id] || 0) })).sort((a, b) => b.bytes - a.bytes) : [];
+      if (growth[0]?.bytes > 100 * 1024 * 1024) alerts.push({ severity: "warning", message: growth[0].label + " t\u0103ng " + Math.round(growth[0].bytes / 1024 / 1024) + " MiB t\u1EEB " + previous.at + ".", action: "Xem file l\u1EDBn v\xE0 log t\xE1c v\u1EE5. Ch\u01B0a quy ngu\u1ED3n n\u1EBFu kh\xF4ng c\xF3 b\u1EB1ng ch\u1EE9ng." });
+      state.latest = { at: measuredAt, complete: !partial && !issues.some((i) => i.status === "unreadable"), totalBytes, fileCount, groups: Object.values(groups), entries, issues: issues.slice(0, 200), quota: quotaInfo, cron, alerts, growth, referenceStatus: ref.status, durationMs: Date.now() - started };
+      const point = { at: measuredAt, complete: state.latest.complete, bytes: totalBytes, groups: Object.fromEntries(Object.values(groups).map((g) => [g.id, g.bytes])) };
+      if (state.snapshots.at(-1)?.at.slice(0, 10) === measuredAt.slice(0, 10)) state.snapshots[state.snapshots.length - 1] = point;
+      else state.snapshots.push(point);
+      job.scanned = fileCount;
+      job.bytes = totalBytes;
+      job.partial = !state.latest.complete;
+      await audit2(state, actor, "scan.completed", { files: fileCount, bytes: totalBytes, complete: state.latest.complete });
+      return state.latest;
+    });
+  }
+  async function summary(actor) {
+    const state = await readState();
+    const latest = state.latest ? { ...state.latest, alerts: [...state.latest.alerts], entries: state.latest.entries.map(({ fingerprint: _f, baseStatus: _s, baseReason: _r, ...e }) => ({ ...presentedEntry(state, { ...e, baseStatus: _s, baseReason: _r }), baseStatus: void 0, baseReason: void 0, previewType: previewFormat(e)?.type || null, verified: Object.values(state.verifications).some((v) => v.actor === actor && v.id === e.id && v.expiresAt > Date.now() && same(v.fingerprint, _f)) })) } : null;
+    if (latest) {
+      const recentTasks = /* @__PURE__ */ new Map();
+      for (const job of [...state.jobs].reverse()) if (!recentTasks.has(job.task)) recentTasks.set(job.task, job);
+      for (const job of recentTasks.values()) if (["failed", "interrupted"].includes(job.status) && Date.now() - Date.parse(job.startedAt) < DAY) {
+        latest.alerts.push({ severity: "warning", message: "T\xE1c v\u1EE5 " + job.task + " ch\u01B0a ho\xE0n t\u1EA5t l\xFAc " + job.startedAt + ".", action: "Xem T\xE1c v\u1EE5 n\u1EC1n/Nh\u1EADt k\xFD; ki\u1EC3m tra l\u1ED7i v\xE0 tr\u1EA1ng th\xE1i file tr\u01B0\u1EDBc khi ch\u1EA1y l\u1EA1i." });
+      }
+    }
+    return { latest, snapshots: state.snapshots, jobs: state.jobs.slice(-30).reverse(), audit: state.audit.slice(-100).reverse(), quarantine: Object.values(state.quarantine), policy: state.policy, roots: roots(), busy, cloud: { status: "unconfigured" } };
+  }
+  async function previewMedia(actor, id2, consume) {
+    return locked(actor, "file.preview", async (state) => {
+      const { entry, root } = resolveEntry(state, id2), format = previewFormat(entry);
+      if (!format) fail(415, "Ch\u1EC9 xem tr\u01B0\u1EDBc \u1EA3nh PNG/JPEG/WebP/GIF v\xE0 audio WAV/MP3/OGG/M4A trong ph\u1EA1m vi media cho ph\xE9p.");
+      const file = await safeFile(root.root, entry.relative, entry.fingerprint);
+      if (file.stat.size <= 0 || file.stat.size > format.maxBytes) fail(413, "Gi\u1EDBi h\u1EA1n xem tr\u01B0\u1EDBc: \u1EA3nh 16 MiB, audio 32 MiB.");
+      const handle = await import_promises.default.open(file.target, import_node_fs2.constants.O_RDONLY | (import_node_fs2.constants.O_NOFOLLOW || 0));
+      try {
+        if (!same(fingerprint(await handle.stat()), entry.fingerprint)) fail(409, "File \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi xem. H\xE3y qu\xE9t l\u1EA1i.");
+        const header2 = Buffer.alloc(32), result = await handle.read(header2, 0, 32, 0);
+        if (!matchesMediaSignature(header2.subarray(0, result.bytesRead), format.mime)) fail(415, "N\u1ED9i dung file kh\xF4ng kh\u1EDBp \u0111\u1ECBnh d\u1EA1ng \u1EA3nh/audio \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+        await audit2(state, actor, "file.preview-opened", { file: entry.relative, root: root.id, bytes: file.stat.size });
+        await consume(handle, { ...entry, type: format.type, mime: format.mime });
+      } finally {
+        await handle.close();
+      }
+    });
+  }
+  async function backupEntry(state, id2) {
+    const { entry, root } = resolveEntry(state, id2);
+    if (entry.kind !== "backup" || !root.id.startsWith("backup")) fail(403, "Ch\u1EC9 x\u1EED l\xFD backup trong th\u01B0 m\u1EE5c \u0111\u01B0\u1EE3c ph\xE9p.");
+    const file = await safeFile(root.root, entry.relative, entry.fingerprint);
+    const main = await import_promises.default.stat(config.dbPath);
+    if (file.stat.ino === main.ino && file.stat.dev === main.dev || file.target === config.dbPath || file.target.startsWith(config.dbPath + "-")) fail(403, "Database \u0111ang ch\u1EA1y \u0111\u01B0\u1EE3c b\u1EA3o v\u1EC7.");
+    return { entry, root, ...file };
+  }
+  async function checksum(target, expected) {
+    const handle = await import_promises.default.open(target, import_node_fs2.constants.O_RDONLY | (import_node_fs2.constants.O_NOFOLLOW || 0));
+    try {
+      if (!same(fingerprint(await handle.stat()), expected)) fail(409, "File thay \u0111\u1ED5i tr\u01B0\u1EDBc khi \u0111\u1ECDc.");
+      const digest = import_node_crypto.default.createHash("sha256");
+      const stream = handle.createReadStream({ autoClose: false });
+      for await (const chunk of stream) digest.update(chunk);
+      if (!same(fingerprint(await handle.stat()), expected)) fail(409, "File thay \u0111\u1ED5i khi \u0111\u1ECDc.");
+      return digest.digest("hex");
+    } finally {
+      await handle.close();
+    }
+  }
+  async function checkBackup(target) {
+    const wal = await import_promises.default.stat(target + "-wal").catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (wal && wal.size > 0) fail(409, "Backup c\xF2n WAL c\xF3 d\u1EEF li\u1EC7u; kh\xF4ng th\u1EC3 x\xE1c minh ch\u1EC9 m\u1ED9t file. C\u1EA7n snapshot \u0111\u1ED9c l\u1EADp.");
+    if (!config.nativeSqlite) fail(503, "Ki\u1EC3m tra backup c\u1EA7n better-sqlite3.");
+    const db = new import_better_sqlite32.default(target, { readonly: true, fileMustExist: true, timeout: 3e3 });
+    try {
+      if (db.pragma("quick_check").some((row) => Object.values(row)[0] !== "ok")) fail(409, "Backup kh\xF4ng \u0111\u1EA1t quick_check; kh\xF4ng \u0111\u01B0\u1EE3c x\xF3a.");
+      if (db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table'").get().n < 1) fail(409, "Backup kh\xF4ng c\xF3 b\u1EA3ng d\u1EEF li\u1EC7u.");
+    } finally {
+      db.close();
+    }
+    const afterWal = await import_promises.default.stat(target + "-wal").catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (afterWal && afterWal.size > 0) fail(409, "Backup thay \u0111\u1ED5i WAL trong l\xFAc ki\u1EC3m tra.");
+  }
+  async function verifyBackup(actor, id2, localHash, bytes) {
+    if (!/^[a-f0-9]{64}$/.test(localHash) || !Number.isSafeInteger(bytes) || bytes <= 0) fail(400, "Checksum ho\u1EB7c dung l\u01B0\u1EE3ng file local kh\xF4ng h\u1EE3p l\u1EC7.");
+    return locked(actor, "backup.verify", async (state) => {
+      const file = await backupEntry(state, id2);
+      if (bytes !== file.stat.size) fail(409, "Dung l\u01B0\u1EE3ng file local kh\xF4ng kh\u1EDBp backup.");
+      await checkBackup(file.target);
+      const sha2564 = await checksum(file.target, file.entry.fingerprint);
+      if (sha2564 !== localHash) fail(409, "Checksum kh\xF4ng kh\u1EDBp. Kh\xF4ng cho ph\xE9p x\xF3a.");
+      const verification = { id: id2, actor, sha256: sha2564, bytes, fingerprint: file.entry.fingerprint, verifiedAt: (/* @__PURE__ */ new Date()).toISOString(), expiresAt: Date.now() + DAY, quickCheck: "ok", restoreTested: false, source: "local-file-checksum" };
+      state.verifications[actor + ":" + id2] = verification;
+      await audit2(state, actor, "backup.local-verified", { file: file.entry.relative, bytes, sha256: sha2564, restoreTested: false });
+      return verification;
+    });
+  }
+  function evidence(state, actor, file) {
+    if (state.pins[file.entry.id]) fail(409, "Backup \u0111ang \u0111\u01B0\u1EE3c ghim.");
+    const proof = state.verifications[actor + ":" + file.entry.id];
+    if (!proof || proof.expiresAt <= Date.now() || !same(proof.fingerprint, file.entry.fingerprint)) fail(409, "C\u1EA7n x\xE1c minh file local b\u1EB1ng t\xE0i kho\u1EA3n hi\u1EC7n t\u1EA1i tr\u01B0\u1EDBc khi x\xF3a.");
+    return proof;
+  }
+  async function previewDelete(actor, id2) {
+    return locked(actor, "backup.delete-preview", async (state) => {
+      const file = await backupEntry(state, id2), proof = evidence(state, actor, file);
+      const approval = import_node_crypto.default.randomUUID();
+      state.previews[approval] = { actor, id: id2, fingerprint: file.entry.fingerprint, sha256: proof.sha256, expiresAt: Date.now() + 10 * 6e4 };
+      await audit2(state, actor, "backup.delete-preview", { file: file.entry.relative, bytes: file.stat.size });
+      return { approval, name: file.entry.name, bytes: file.stat.size, localVerifiedAt: proof.verifiedAt, expiresAt: state.previews[approval].expiresAt, retainedOnHostRequired: false };
+    });
+  }
+  async function deleteBackup(actor, id2, approval, confirmation) {
+    return locked(actor, "backup.delete", async (state, job) => {
+      const file = await backupEntry(state, id2), proof = evidence(state, actor, file), preview = state.previews[approval];
+      if (!preview || preview.actor !== actor || preview.id !== id2 || preview.expiresAt <= Date.now() || preview.sha256 !== proof.sha256 || !same(preview.fingerprint, file.entry.fingerprint)) fail(409, "Preview h\u1EBFt h\u1EA1n ho\u1EB7c kh\xF4ng kh\u1EDBp. H\xE3y xem tr\u01B0\u1EDBc l\u1EA1i.");
+      if (confirmation !== file.entry.name) fail(400, "T\xEAn file x\xE1c nh\u1EADn kh\xF4ng kh\u1EDBp.");
+      await checkBackup(file.target);
+      if (await checksum(file.target, file.entry.fingerprint) !== proof.sha256) fail(409, "N\u1ED9i dung backup thay \u0111\u1ED5i; d\u1EEBng x\xF3a.");
+      await backupEntry(state, id2);
+      await audit2(state, actor, "backup.delete-intent", { operation: job.id, file: file.entry.relative, bytes: file.stat.size, sha256: proof.sha256, localVerifiedAt: proof.verifiedAt });
+      await import_promises.default.unlink(file.target);
+      delete state.previews[approval];
+      for (const [key2, value] of Object.entries(state.verifications)) if (value.id === id2) delete state.verifications[key2];
+      state.latest.entries = state.latest.entries.filter((e) => e.id !== id2);
+      job.removedBytes = file.stat.size;
+      job.removedFiles = 1;
+      await audit2(state, actor, "backup.deleted", { operation: job.id, file: file.entry.relative, removedBytes: file.stat.size, quotaDeltaBytes: null, recovery: "B\u1EA3n local \u0111\xE3 \u0111\u1ED1i chi\u1EBFu SHA-256; ch\u01B0a th\u1EED restore." });
+      return { removedBytes: file.stat.size, quotaDeltaBytes: null };
+    });
+  }
+  async function downloadTicket(actor, id2) {
+    return locked(actor, "backup.download-ticket", async (state) => {
+      const file = await backupEntry(state, id2), ticket = import_node_crypto.default.randomBytes(32).toString("hex");
+      state.downloads ||= {};
+      for (const [key2, value] of Object.entries(state.downloads)) if (value.expiresAt < Date.now()) delete state.downloads[key2];
+      state.downloads[hash(ticket)] = { id: id2, actor, expiresAt: Date.now() + 12e4, fingerprint: file.entry.fingerprint };
+      await audit2(state, actor, "backup.download-requested", { file: file.entry.relative, bytes: file.stat.size });
+      return { ticket, expiresInSeconds: 120 };
+    });
+  }
+  async function download(ticket, consume) {
+    if (!/^[a-f0-9]{64}$/.test(ticket)) fail(404, "L\u01B0\u1EE3t t\u1EA3i kh\xF4ng h\u1EE3p l\u1EC7.");
+    const preliminary = await readState();
+    if (!preliminary.downloads?.[hash(ticket)] || preliminary.downloads[hash(ticket)].expiresAt < Date.now()) fail(404, "L\u01B0\u1EE3t t\u1EA3i h\u1EBFt h\u1EA1n.");
+    return locked("download", "backup.download", async (state, job) => {
+      const key2 = hash(ticket), lease = state.downloads?.[key2];
+      if (!lease || lease.expiresAt < Date.now()) fail(404, "L\u01B0\u1EE3t t\u1EA3i h\u1EBFt h\u1EA1n. H\xE3y b\u1EA5m T\u1EA3i l\u1EA1i.");
+      const file = await backupEntry(state, lease.id);
+      if (!same(file.entry.fingerprint, lease.fingerprint)) fail(409, "Backup \u0111\xE3 thay \u0111\u1ED5i.");
+      delete state.downloads[key2];
+      await save(state);
+      const handle = await import_promises.default.open(file.target, import_node_fs2.constants.O_RDONLY | (import_node_fs2.constants.O_NOFOLLOW || 0));
+      try {
+        if (!same(fingerprint(await handle.stat()), lease.fingerprint)) fail(409, "Backup \u0111\xE3 thay \u0111\u1ED5i tr\u01B0\u1EDBc khi t\u1EA3i.");
+        await consume(handle, file.entry);
+      } finally {
+        await handle.close();
+      }
+      await audit2(state, lease.actor, "backup.download-served", { file: file.entry.relative, bytes: file.stat.size, localSavedVerified: false });
+      job.bytes = file.stat.size;
+    });
+  }
+  async function preflightBackup() {
+    const source = await safeFile(import_node_path3.default.dirname(config.dbPath), import_node_path3.default.basename(config.dbPath));
+    let destination = config.backupRoots[0];
+    while (true) {
+      try {
+        await import_promises.default.lstat(destination);
+        break;
+      } catch (error) {
+        if (error.code !== "ENOENT" || import_node_path3.default.dirname(destination) === destination) throw error;
+        destination = import_node_path3.default.dirname(destination);
+      }
+    }
+    await safeParents2(destination);
+    const disk = await import_promises.default.statfs(destination), quotaInfo = await quota();
+    const diskFree = Number(disk.bavail) * Number(disk.bsize);
+    const quotaFree = quotaInfo.status === "available" ? Math.max(0, quotaInfo.limitBytes - quotaInfo.usedBytes) : null;
+    if (process.platform !== "win32" && quotaFree === null) fail(503, "Ch\u01B0a x\xE1c minh quota t\xE0i kho\u1EA3n. Kh\xF4ng t\u1EF1 t\u1EA1o backup l\u1EDBn tr\xEAn shared hosting.");
+    const free = quotaFree === null ? diskFree : Math.min(diskFree, quotaFree);
+    const db = new import_better_sqlite32.default(source.target, { readonly: true, fileMustExist: true });
+    let estimate;
+    try {
+      estimate = Math.max(source.stat.size, db.pragma("page_count", { simple: true }) * db.pragma("page_size", { simple: true }));
+    } finally {
+      db.close();
+    }
+    const required2 = Math.ceil(estimate * 1.15) + config.reserveBytes;
+    if (free < required2) fail(507, "Kh\xF4ng \u0111\u1EE7 kho\u1EA3ng tr\u1ED1ng v\xE0 d\u1EF1 ph\xF2ng. H\xE3y chuy\u1EC3n backup c\xF3 s\u1EB5n ra ngo\xE0i tr\u01B0\u1EDBc.");
+    return { requiredBytes: required2, freeBytes: free, quotaVerified: quotaFree !== null };
+  }
+  async function createBackup(actor) {
+    if (!config.nativeSqlite) fail(503, "T\u1EA1o backup c\u1EA7n SQLite native.");
+    return locked(actor, "backup.create", async (state, job) => {
+      const space = await preflightBackup();
+      await privateDir(config.backupRoots[0]);
+      await safeParents2(config.backupRoots[0]);
+      await audit2(state, actor, "backup.create-intent", { requiredBytes: space.requiredBytes });
+      const target = await createVerifiedBackup(config.dbPath, config.backupRoots[0]);
+      job.bytes = (await import_promises.default.stat(target)).size;
+      await audit2(state, actor, "backup.created", { file: import_node_path3.default.basename(target), bytes: job.bytes, quickCheck: "ok" });
+      return { name: import_node_path3.default.basename(target), bytes: job.bytes, quickCheck: "ok" };
+    });
+  }
+  async function pin(actor, id2, enabled) {
+    if (typeof enabled !== "boolean") fail(400, "Tr\u1EA1ng th\xE1i ghim kh\xF4ng h\u1EE3p l\u1EC7.");
+    return locked(actor, "backup.pin", async (state) => {
+      const file = await backupEntry(state, id2);
+      if (enabled) state.pins[id2] = { actor, at: (/* @__PURE__ */ new Date()).toISOString() };
+      else delete state.pins[id2];
+      await audit2(state, actor, enabled ? "backup.pinned" : "backup.unpinned", { file: file.entry.relative });
+      return { pinned: enabled };
+    });
+  }
+  async function hold(actor, id2, days, reason) {
+    if (!Number.isInteger(days) || days < 0 || days > 365 || typeof reason !== "string" || reason.length > 200) fail(400, "Th\u1EDDi h\u1EA1n/l\xFD do gi\u1EEF kh\xF4ng h\u1EE3p l\u1EC7.");
+    return locked(actor, "file.hold", async (state) => {
+      const { entry } = resolveEntry(state, id2);
+      if (entry.kind === "speaking" && days > 0) fail(409, "Kh\xF4ng k\xE9o d\xE0i b\u1EA3n thu v\u01B0\u1EE3t ch\xEDnh s\xE1ch 24 gi\u1EDD.");
+      if (days) state.holds[id2] = { until: Date.now() + days * DAY, reason: reason || "Gi\u1EEF theo quy\u1EBFt \u0111\u1ECBnh super admin", actor };
+      else delete state.holds[id2];
+      await audit2(state, actor, days ? "file.held" : "file.released", { file: entry.relative, days, reason });
+      return { held: Boolean(days) };
+    });
+  }
+  async function policy(actor, updates, confirmation) {
+    if (!updates || Object.keys(updates).some((k) => !["temporary", "speaking"].includes(k)) || Object.values(updates).some((v) => typeof v !== "boolean")) fail(400, "Ch\xEDnh s\xE1ch kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (confirmation !== "B\u1EACT D\u1ECCN T\u1EF0 \u0110\u1ED8NG" && Object.values(updates).some(Boolean)) fail(400, "C\u1EA7n x\xE1c nh\u1EADn k\xEDch ho\u1EA1t ch\xEDnh s\xE1ch t\u1EF1 \u0111\u1ED9ng.");
+    return locked(actor, "policy.update", async (state) => {
+      state.policy = { ...state.policy, ...updates };
+      await audit2(state, actor, "policy.updated", { policy: state.policy });
+      return state.policy;
+    });
+  }
+  async function cleanup(actor, id2, action, confirmation) {
+    if (!["quarantine", "delete-expired"].includes(action)) fail(400, "H\xE0nh \u0111\u1ED9ng kh\xF4ng h\u1EE3p l\u1EC7.");
+    return locked(actor, "file." + action, async (state, job) => {
+      const { entry, root } = resolveEntry(state, id2);
+      if (!["temporary", "speaking", "asset"].includes(entry.kind)) fail(403, "Lo\u1EA1i file ch\u01B0a \u0111\u01B0\u1EE3c c\u1EA5p quy\u1EC1n d\u1ECDn.");
+      if (state.holds[id2]?.until > Date.now()) fail(409, "File \u0111ang \u0111\u01B0\u1EE3c gi\u1EEF.");
+      if (confirmation !== entry.name) fail(400, "T\xEAn file x\xE1c nh\u1EADn kh\xF4ng kh\u1EDBp.");
+      const file = await safeFile(root.root, entry.relative, entry.fingerprint);
+      const refs = await references(), fresh2 = classify2(root, entry.relative, file.stat, refs);
+      if (fresh2.status !== "eligible") fail(409, "File kh\xF4ng c\xF2n \u0111\u1EE7 \u0111i\u1EC1u ki\u1EC7n: " + fresh2.reason);
+      if (entry.kind === "asset") {
+        const key2 = "assets/" + entry.relative.split(import_node_path3.default.sep).join("/");
+        if (!refs.assets.digests.get(key2)?.has(await checksum(file.target, entry.fingerprint))) fail(409, "N\u1ED9i dung asset kh\xF4ng kh\u1EDBp manifest l\u1ECBch s\u1EED; d\u1EEBng x\u1EED l\xFD.");
+        await safeFile(root.root, entry.relative, entry.fingerprint);
+      }
+      await audit2(state, actor, "file." + action + "-intent", { operation: job.id, file: entry.relative, root: root.id, bytes: file.stat.size, reason: fresh2.reason });
+      if (action === "quarantine") {
+        const quarantineId = import_node_crypto.default.randomUUID(), directory = import_node_path3.default.join(config.stateRoot, "quarantine");
+        await privateDir(directory);
+        await safeParents2(directory);
+        const target = import_node_path3.default.join(directory, quarantineId + import_node_path3.default.extname(entry.name));
+        const manifest2 = { id: quarantineId, rootId: root.id, relative: entry.relative, name: entry.name, target: import_node_path3.default.basename(target), bytes: file.stat.size, fingerprint: entry.fingerprint, at: (/* @__PURE__ */ new Date()).toISOString(), status: "moving" };
+        state.quarantine[quarantineId] = manifest2;
+        await save(state);
+        await import_promises.default.rename(file.target, target);
+        manifest2.status = "quarantined";
+        job.quarantinedBytes = file.stat.size;
+      } else {
+        await import_promises.default.unlink(file.target);
+        job.removedBytes = file.stat.size;
+      }
+      state.latest.entries = state.latest.entries.filter((e) => e.id !== id2);
+      await audit2(state, actor, "file." + action + "-completed", { operation: job.id, file: entry.relative, removedBytes: action === "delete-expired" ? file.stat.size : 0, quarantinedBytes: action === "quarantine" ? file.stat.size : 0, quotaDeltaBytes: null });
+      return { removedBytes: job.removedBytes || 0, quarantinedBytes: job.quarantinedBytes || 0 };
+    });
+  }
+  async function quarantineAction(actor, id2, action, confirmation) {
+    if (!["restore", "delete"].includes(action)) fail(400, "H\xE0nh \u0111\u1ED9ng kh\xF4ng h\u1EE3p l\u1EC7.");
+    return locked(actor, "quarantine." + action, async (state) => {
+      const item = state.quarantine[id2], root = item && roots().find((r) => r.id === item.rootId);
+      if (!item || !root || !["speaking", "temporary-pdf", "temporary-reading", "assets", "assets-client"].includes(root.id) || item.status !== "quarantined") fail(404, "Manifest c\xE1ch ly kh\xF4ng h\u1EE3p l\u1EC7.");
+      if (confirmation !== item.name) fail(400, "T\xEAn x\xE1c nh\u1EADn kh\xF4ng kh\u1EDBp.");
+      const source = await safeFile(import_node_path3.default.join(config.stateRoot, "quarantine"), item.target, item.fingerprint);
+      await audit2(state, actor, "quarantine." + action + "-intent", { file: item.name, bytes: item.bytes });
+      if (action === "restore") {
+        const target = import_node_path3.default.resolve(root.root, item.relative);
+        if (!inside(root.root, target)) fail(403, "\u0110\u01B0\u1EDDng d\u1EABn ph\u1EE5c h\u1ED3i ngo\xE0i ph\u1EA1m vi.");
+        await safeParents2(import_node_path3.default.dirname(target));
+        await import_promises.default.link(source.target, target);
+        await import_promises.default.unlink(source.target);
+      } else await import_promises.default.unlink(source.target);
+      delete state.quarantine[id2];
+      await audit2(state, actor, "quarantine." + action + "-completed", { file: item.name, removedBytes: action === "delete" ? item.bytes : 0 });
+      return { restored: action === "restore", removedBytes: action === "delete" ? item.bytes : 0 };
+    });
+  }
+  async function automate(execute = false) {
+    await scan("cron");
+    const state = await readState();
+    const eligible = state.latest.entries.filter((e) => e.status === "eligible" && ["temporary", "speaking"].includes(e.kind));
+    if (!execute) return { dryRun: true, candidates: eligible.map((e) => ({ id: e.id, name: e.name, bytes: e.bytes, reason: e.reason, policyEnabled: Boolean(state.policy[e.kind]) })) };
+    const candidates = eligible.filter((e) => Boolean(state.policy[e.kind]));
+    const results = [];
+    for (const entry of candidates.slice(0, 100)) {
+      const current = await readState();
+      if (!current.policy[entry.kind]) break;
+      try {
+        results.push({ id: entry.id, result: await cleanup("cron", entry.id, "delete-expired", entry.name) });
+      } catch (error) {
+        results.push({ id: entry.id, error: error instanceof MaintenanceError ? error.message : "T\xE1c v\u1EE5 l\u1ED7i" });
+        break;
+      }
+    }
+    return { dryRun: false, results };
+  }
+  return { summary, scan, previewMedia, verifyBackup, previewDelete, deleteBackup, downloadTicket, download, createBackup, pin, hold, policy, cleanup, quarantineAction, automate, config };
+}
+
+// scripts/hosting-inventory-core.mjs
+var import_node_path7 = __toESM(require("node:path"), 1);
+var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var import_node_child_process3 = require("node:child_process");
+
+// scripts/hosting-inventory-store.mjs
+var import_node_fs3 = __toESM(require("node:fs"), 1);
+var import_promises2 = __toESM(require("node:fs/promises"), 1);
+var import_node_path4 = __toESM(require("node:path"), 1);
+var import_node_crypto2 = __toESM(require("node:crypto"), 1);
+var import_better_sqlite33 = __toESM(require("better-sqlite3"), 1);
+var nanosecondsToMilliseconds = (value) => Number(value / 1000000n) + Number(value % 1000000n) / 1e6;
+async function metadataStat(file) {
+  const s = await import_promises2.default.lstat(file, { bigint: true });
+  return { isFile: () => s.isFile(), isDirectory: () => s.isDirectory(), isSymbolicLink: () => s.isSymbolicLink(), size: Number(s.size), mtimeMs: nanosecondsToMilliseconds(s.mtimeNs), ctimeMs: nanosecondsToMilliseconds(s.ctimeNs), ino: String(s.ino), dev: String(s.dev), nlink: Number(s.nlink), blocks: Number(s.blocks) };
+}
+var VERSION = "hosting-inventory-v1.2";
+var hash2 = (value) => import_node_crypto2.default.createHash("sha256").update(value).digest("hex");
+var within = (root, target) => {
+  const r = import_node_path4.default.relative(root, target);
+  return r === "" || !import_node_path4.default.isAbsolute(r) && r !== ".." && !r.startsWith(".." + import_node_path4.default.sep);
+};
+function inventoryConfig(core, env = process.env) {
+  const number2 = (name, fallback, min, max) => Math.min(max, Math.max(min, Number(env[name]) || fallback));
+  return {
+    ...core,
+    version: VERSION,
+    file: import_node_path4.default.join(core.stateRoot, "inventory.sqlite"),
+    enabled: core.nativeSqlite,
+    executor: env.MAINTENANCE_INVENTORY_EXECUTOR === "process",
+    budgetBytes: number2("MAINTENANCE_INVENTORY_BUDGET_MB", 128, 8, 1024) * 1048576,
+    freeReserveBytes: number2("MAINTENANCE_INVENTORY_FREE_MB", 32, 1, 1024) * 1048576,
+    memoryBytes: number2("MAINTENANCE_INVENTORY_MEMORY_MB", 256, 64, 512) * 1048576,
+    batchSize: number2("MAINTENANCE_INVENTORY_BATCH", 100, 10, 500),
+    batchMs: number2("MAINTENANCE_INVENTORY_BATCH_MS", 250, 20, 2e3),
+    delayMs: number2("MAINTENANCE_INVENTORY_DELAY_MS", 50, 1, 2e3),
+    windowMs: number2("MAINTENANCE_INVENTORY_WINDOW_SECONDS", 60, 1, 300) * 1e3,
+    timezone: env.MAINTENANCE_INVENTORY_TIMEZONE || "Asia/Bangkok",
+    growthBytes: number2("MAINTENANCE_INVENTORY_GROWTH_MB", 100, 1, 102400) * 1048576,
+    growthRatio: number2("MAINTENANCE_INVENTORY_GROWTH_PERCENT", 20, 1, 1e4) / 100,
+    nodeDiscovery: env.MAINTENANCE_NODE_SELECTOR_DISCOVERY === "true",
+    processDiscovery: env.MAINTENANCE_PROCESS_DISCOVERY === "true",
+    sourceTimeoutMs: 5e3,
+    scope: hash2(JSON.stringify([core.accountRoot, core.deployRoot, core.dbPath, core.stateRoot, core.audioRoot, core.listeningRoot, core.vocabRoot, core.speakingRoot, core.backupRoots, core.quotaHost, core.quotaUser, core.cronDiscovery, env.MAINTENANCE_NODE_SELECTOR_DISCOVERY === "true", env.MAINTENANCE_PROCESS_DISCOVERY === "true", VERSION]))
+  };
+}
+function safeParents(target, create = false) {
+  const absolute2 = import_node_path4.default.resolve(target);
+  let current = import_node_path4.default.parse(absolute2).root;
+  for (const part2 of import_node_path4.default.relative(current, absolute2).split(import_node_path4.default.sep).filter(Boolean)) {
+    current = import_node_path4.default.join(current, part2);
+    try {
+      const s = import_node_fs3.default.lstatSync(current);
+      if (s.isSymbolicLink() || !s.isDirectory()) throw new MaintenanceError(409, "Parent ch\u1EC9 m\u1EE5c/root kh\xF4ng an to\xE0n.");
+    } catch (e) {
+      if (e.code !== "ENOENT" || !create) throw e;
+      import_node_fs3.default.mkdirSync(current, { mode: 448 });
+    }
+  }
+}
+function alive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+function budget(config, reserve = 1048576) {
+  let bytes = 0;
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) try {
+    bytes += import_node_fs3.default.lstatSync(config.file + suffix).size;
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+  }
+  const stat = import_node_fs3.default.statfsSync(config.stateRoot), free = Number(stat.bavail) * Number(stat.bsize);
+  return {
+    bytes,
+    limitBytes: config.budgetBytes,
+    freeBytes: free,
+    freeReserveBytes: config.freeReserveBytes,
+    allowed: bytes + reserve < config.budgetBytes && free > config.freeReserveBytes + reserve
+  };
+}
+var schema = `
+CREATE TABLE meta(version INTEGER NOT NULL); INSERT INTO meta VALUES(1);
+CREATE TABLE scans(id TEXT PRIMARY KEY,scope TEXT NOT NULL,root TEXT NOT NULL,version TEXT NOT NULL,actor TEXT NOT NULL,status TEXT NOT NULL,phase TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,heartbeat TEXT,pid INTEGER,request TEXT,reason TEXT,files INTEGER DEFAULT 0,dirs INTEGER DEFAULT 0,logical_bytes INTEGER DEFAULT 0,unique_bytes INTEGER DEFAULT 0,allocated_bytes INTEGER,fs_complete INTEGER DEFAULT 0,dependency_complete INTEGER DEFAULT 0,current_path TEXT,baseline TEXT,source_json TEXT DEFAULT '[]',task_json TEXT DEFAULT '[]',alerts_json TEXT DEFAULT '[]',retained INTEGER DEFAULT 1);
+CREATE TABLE entries(scan TEXT NOT NULL,id TEXT NOT NULL,rel TEXT NOT NULL,parent TEXT,name TEXT NOT NULL,type TEXT NOT NULL,size INTEGER DEFAULT 0,mtime REAL,ctime REAL,dev TEXT,ino TEXT,nlink INTEGER,blocks INTEGER,status TEXT NOT NULL,role TEXT NOT NULL,protected INTEGER NOT NULL,reason TEXT NOT NULL,issue TEXT,target TEXT,seen TEXT,bytes INTEGER DEFAULT 0,unique_bytes INTEGER DEFAULT 0,allocated_bytes INTEGER,files INTEGER DEFAULT 0,dirs INTEGER DEFAULT 0,PRIMARY KEY(scan,rel),UNIQUE(scan,id));
+CREATE INDEX entry_parent ON entries(scan,parent,size DESC); CREATE INDEX entry_inode ON entries(scan,dev,ino);
+CREATE TABLE queue(scan TEXT NOT NULL,rel TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',token TEXT,PRIMARY KEY(scan,rel));
+CREATE TABLE evidence(scan TEXT NOT NULL,id TEXT NOT NULL,source TEXT NOT NULL,status TEXT NOT NULL,at TEXT NOT NULL,from_node TEXT NOT NULL,to_node TEXT NOT NULL,relation TEXT NOT NULL,reason TEXT NOT NULL,version TEXT NOT NULL,PRIMARY KEY(scan,id));
+CREATE INDEX evidence_scan ON evidence(scan);
+CREATE TABLE deltas(scan TEXT NOT NULL,rel TEXT NOT NULL,kind TEXT NOT NULL,before_bytes INTEGER,after_bytes INTEGER,attribution TEXT NOT NULL,PRIMARY KEY(scan,rel));
+CREATE TABLE backup_sets(scan TEXT NOT NULL,id TEXT NOT NULL,entry_id TEXT NOT NULL,kind TEXT NOT NULL,recognition TEXT NOT NULL,PRIMARY KEY(scan,id));
+CREATE TABLE audit(id INTEGER PRIMARY KEY AUTOINCREMENT,at TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,scan TEXT,reason TEXT);
+`;
+function openStore(config, write = false) {
+  if (!config.enabled) throw new MaintenanceError(503, "Inventory c\u1EA7n Node22 v\xE0 SQLite native \u0111\xE3 c\u1EA5u h\xECnh.");
+  safeParents(config.stateRoot, write);
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    try {
+      const s = import_node_fs3.default.lstatSync(config.file + suffix);
+      if (!s.isFile() || s.isSymbolicLink() || s.nlink !== 1) throw new MaintenanceError(409, "Ch\u1EC9 m\u1EE5c inventory kh\xF4ng an to\xE0n.");
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      if (!write && suffix === "") return null;
+    }
+  }
+  if (write && !budget(config).allowed) throw new MaintenanceError(507, "Thi\u1EBFu dung l\u01B0\u1EE3ng d\u1EF1 ph\xF2ng cho ch\u1EC9 m\u1EE5c inventory.");
+  const exists = import_node_fs3.default.existsSync(config.file);
+  const db = new import_better_sqlite33.default(config.file, { readonly: !write, fileMustExist: !write, timeout: 3e3 });
+  try {
+    const validate = () => {
+      const meta = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").get();
+      if (!meta) {
+        const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").get();
+        if (!write || table) throw new MaintenanceError(503, "File ch\u1EC9 m\u1EE5c kh\xF4ng c\xF3 schema inventory; kh\xF4ng ghi v\xE0o database kh\xE1c.");
+        db.exec(schema);
+      }
+      if (db.prepare("SELECT version FROM meta").get()?.version !== 1) throw new MaintenanceError(503, "Schema inventory ch\u01B0a \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3.");
+    };
+    if (write) db.transaction(validate).immediate();
+    else validate();
+    if (!exists && process.platform !== "win32") import_node_fs3.default.chmodSync(config.file, 384);
+    if (write) {
+      db.pragma("journal_mode = WAL");
+      db.pragma("wal_autocheckpoint = 100");
+      db.pragma("synchronous = FULL");
+    } else db.pragma("query_only = ON");
+    return db;
+  } catch (e) {
+    db.close();
+    throw e;
+  }
+}
+function withStore(config, write, fn) {
+  const db = openStore(config, write);
+  if (!db) return null;
+  try {
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
+function scanDTO(row) {
+  if (!row) return null;
+  const interrupted = ["queued", "running"].includes(row.status) && (row.pid ? !alive(row.pid) : Date.now() - Date.parse(row.heartbeat || row.started_at) > 3e4);
+  const sources = JSON.parse(row.source_json).map((s) => s.status === "available" && (Date.now() - Date.parse(s.at) > 864e5 || s.version !== VERSION) ? { ...s, status: "stale", reason: "B\u1EB1ng ch\u1EE9ng qu\xE1 24h ho\u1EB7c phi\xEAn b\u1EA3n b\u1ED9 ki\u1EC3m tra \u0111\xE3 \u0111\u1ED5i; \u0111\u1ECDc l\u1EA1i ngu\u1ED3n." } : s);
+  return {
+    id: row.id,
+    root: row.root,
+    scope: row.scope,
+    version: row.version,
+    actor: row.actor,
+    status: interrupted ? "interrupted" : row.status,
+    phase: row.phase,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    heartbeat: row.heartbeat,
+    reason: interrupted ? "Executor \u0111\xE3 d\u1EEBng; c\u1EA7n ti\u1EBFp t\u1EE5c c\xF3 ch\u1EE7 \u0111\xEDch." : row.reason,
+    fileCount: row.files,
+    directoryCount: row.dirs,
+    logicalBytes: row.logical_bytes,
+    uniqueBytes: row.unique_bytes,
+    allocatedBytes: row.allocated_bytes,
+    filesystemComplete: Boolean(row.fs_complete),
+    dependencyComplete: Boolean(row.dependency_complete) && sources.every((s) => s.status === "available"),
+    currentPath: row.current_path,
+    sources,
+    tasks: JSON.parse(row.task_json),
+    alerts: JSON.parse(row.alerts_json),
+    baseline: row.baseline,
+    retained: Boolean(row.retained)
+  };
+}
+function entryDTO(row) {
+  return {
+    id: row.id,
+    parent: row.parent,
+    name: row.name,
+    relative: row.rel,
+    type: row.type,
+    bytes: row.type === "directory" ? row.bytes : row.size,
+    uniqueBytes: row.unique_bytes,
+    allocatedBytes: row.allocated_bytes,
+    fileCount: row.files,
+    directoryCount: row.dirs,
+    modifiedAt: row.mtime ? new Date(row.mtime).toISOString() : null,
+    status: row.status,
+    role: row.role,
+    protected: Boolean(row.protected),
+    reason: row.reason,
+    issue: row.issue,
+    linkTarget: row.target
+  };
+}
+function audit(db, actor, action, scan, reason = "") {
+  db.prepare("INSERT INTO audit(at,actor,action,scan,reason) VALUES(?,?,?,?,?)").run((/* @__PURE__ */ new Date()).toISOString(), actor, action, scan, reason);
+  db.exec("DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 500)");
+}
+function getScan(db, id2) {
+  if (typeof id2 !== "string" || !/^[a-f0-9-]{36}$/.test(id2)) throw new MaintenanceError(400, "Scan ID kh\xF4ng h\u1EE3p l\u1EC7.");
+  const row = db.prepare("SELECT * FROM scans WHERE id=?").get(id2);
+  if (!row) throw new MaintenanceError(404, "Kh\xF4ng c\xF3 l\u1EA7n qu\xE9t.");
+  return row;
+}
+
+// scripts/hosting-inventory-sources.mjs
+var import_promises3 = __toESM(require("node:fs/promises"), 1);
+var import_node_fs4 = require("node:fs");
+var import_node_path5 = __toESM(require("node:path"), 1);
+var import_node_child_process2 = require("node:child_process");
+var import_node_util2 = require("node:util");
+var import_better_sqlite34 = __toESM(require("better-sqlite3"), 1);
+var exec = (0, import_node_util2.promisify)(import_node_child_process2.execFile);
+var cleanPath = (value) => typeof value === "string" && value.length < 4096 && !/[\x00-\x1f\x7f]/.test(value) ? value : null;
+var errorStatus = (e) => ["EACCES", "EPERM"].includes(e.code) ? "permission_denied" : e.code === "ENOENT" ? "unsupported" : "failed";
+async function readConfigFile(file, max = 131072) {
+  safeParents(import_node_path5.default.dirname(file));
+  const handle = await import_promises3.default.open(file, import_node_fs4.constants.O_RDONLY | (import_node_fs4.constants.O_NOFOLLOW || 0));
+  try {
+    const s = await handle.stat();
+    if (!s.isFile() || s.nlink !== 1 || s.size > max) throw Object.assign(new Error("Unsafe configuration"), { code: "EACCES" });
+    return await handle.readFile("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+function parsePassenger(text8, root) {
+  const edges = [];
+  const appMatch = text8.match(/^\s*PassengerAppRoot\s+(?:"([^"\r\n]+)"|([^\s#]+))\s*(?:#.*)?$/im);
+  const configuredRoot = appMatch && cleanPath(appMatch[1] || appMatch[2]) ? import_node_path5.default.resolve(root, appMatch[1] || appMatch[2]) : root;
+  for (const line of text8.split(/\r?\n/)) {
+    const match = line.match(/^\s*(PassengerAppRoot|PassengerNodejs|PassengerStartupFile)\s+(?:"([^"\r\n]+)"|([^\s#]+))\s*(?:#.*)?$/i);
+    if (!match) continue;
+    const value = cleanPath(match[2] || match[3]);
+    if (!value) continue;
+    const startup = match[1].toLowerCase() === "passengerstartupfile";
+    edges.push({ from: startup ? configuredRoot : root, to: import_node_path5.default.resolve(startup ? configuredRoot : root, value), relation: match[1], reason: "Ch\u1EC9 tr\u01B0\u1EDDng Passenger allowlist; kh\xF4ng thu th\u1EADp SetEnv." });
+  }
+  return edges;
+}
+function parseDomains(result) {
+  if (result?.status !== 1 || !result.data || typeof result.data !== "object") throw new Error("Unsupported domain schema");
+  const data = result.data, rows = [data.main_domain, ...Object.values(data.addon_domains || {}), ...Object.values(data.sub_domains || {})].flat().filter(Boolean), edges = [];
+  for (const row of rows) {
+    const domain = typeof row.domain === "string" && /^[a-z0-9._-]{1,253}$/i.test(row.domain) ? row.domain : null;
+    const target = cleanPath(row.documentroot);
+    if (domain && target && import_node_path5.default.isAbsolute(target)) edges.push({ from: "domain:" + domain, to: target, relation: "document_root", reason: "cPanel DomainInfo/domains_data." });
+  }
+  if (!edges.length) throw new Error("Unsupported/empty domain schema");
+  return edges;
+}
+function parseNodeSelector(value, config) {
+  if (value?.result !== "success" || !value.available_versions || typeof value.available_versions !== "object") throw new Error("Unsupported selector schema");
+  const edges = [];
+  let recognized = false;
+  for (const [version, data] of Object.entries(value.available_versions)) {
+    if (!/^[0-9.]{1,20}$/.test(version)) continue;
+    for (const [user, info] of Object.entries(data.users || {})) {
+      if (config.quotaUser && user !== config.quotaUser) continue;
+      if (import_node_path5.default.resolve(info.homedir || "/invalid") !== config.accountRoot) continue;
+      if (!info.applications || typeof info.applications !== "object") continue;
+      recognized = true;
+      for (const [relative, app3] of Object.entries(info.applications)) {
+        const r = cleanPath(relative);
+        if (!r) continue;
+        const appRoot = import_node_path5.default.resolve(config.accountRoot, r);
+        if (!within(config.accountRoot, appRoot)) continue;
+        edges.push({ from: "node-selector:" + version, to: appRoot, relation: "application_root", reason: "CloudLinux app \u0111\u01B0\u1EE3c \u0111\u0103ng k\xFD; kh\xF4ng suy ra tr\u1EA1ng th\xE1i ch\u1EA1y t\u1EEB t\xEAn." });
+        const start2 = cleanPath(app3.startup_file);
+        if (start2) edges.push({ from: appRoot, to: import_node_path5.default.resolve(appRoot, start2), relation: "startup", reason: "CloudLinux startup_file." });
+        edges.push({ from: appRoot, to: import_node_path5.default.join(config.accountRoot, "nodevenv", import_node_path5.default.relative(config.accountRoot, appRoot), version), relation: "runtime_layout", reason: "\u0110\u01B0\u1EDDng d\u1EABn runtime theo layout CloudLinux; c\u1EA7n symlink/process \u0111\u1ED1i chi\u1EBFu." });
+        if (typeof app3.domain === "string" && /^[a-z0-9._-]+$/i.test(app3.domain)) edges.push({ from: "domain:" + app3.domain, to: appRoot, relation: "registered_app", reason: "CloudLinux domain mapping." });
+      }
+    }
+  }
+  if (!recognized) throw new Error("User application schema absent");
+  return edges;
+}
+async function cpanelDomains(config) {
+  if (!config.quotaHost || !config.quotaUser || !config.quotaToken) return { status: "unconfigured", reason: "Ch\u01B0a c\u1EA5u h\xECnh API cPanel \u1EDF server.", edges: [] };
+  const url = new URL(config.quotaHost.startsWith("https://") ? config.quotaHost : "https://" + config.quotaHost);
+  if (url.protocol !== "https:" || url.username || url.password) throw new Error("Invalid cPanel endpoint");
+  url.pathname = "/execute/DomainInfo/domains_data";
+  url.search = "?format=hash";
+  const res = await fetch(url, { headers: { Authorization: "cpanel " + config.quotaUser + ":" + config.quotaToken }, signal: AbortSignal.timeout(config.sourceTimeoutMs), redirect: "error" });
+  if ([401, 403].includes(res.status)) return { status: "permission_denied", reason: "API t\u1EEB ch\u1ED1i quy\u1EC1n xem domain.", edges: [] };
+  if (!res.ok) throw new Error("cPanel response failure");
+  if (Number(res.headers.get("content-length") || 0) > 1048576) throw new Error("Response too large");
+  const reader = res.body.getReader();
+  let bytes = 0;
+  const chunks = [];
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.length;
+      if (bytes > 1048576) throw new Error("Response too large");
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    await reader.cancel();
+  }
+  return { status: "available", reason: "DomainInfo \u0111\xE3 tr\u1EA3 schema nh\u1EADn di\u1EC7n \u0111\u01B0\u1EE3c.", edges: parseDomains(JSON.parse(Buffer.concat(chunks).toString()).result) };
+}
+async function collectSources(config, adapters = {}) {
+  const sources = [], edges = [], tasks = [], at = (/* @__PURE__ */ new Date()).toISOString();
+  const source = async (id2, label, collect) => {
+    let result;
+    try {
+      result = await collect();
+    } catch (e) {
+      result = { status: errorStatus(e), reason: "Kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c ngu\u1ED3n ho\u1EB7c schema ch\u01B0a h\u1ED7 tr\u1EE3; kh\xF4ng suy ra kh\xF4ng d\xF9ng.", edges: [] };
+    }
+    const allowed = ["available", "unconfigured", "permission_denied", "unsupported", "partial", "failed", "stale"];
+    if (!allowed.includes(result.status)) result = { status: "failed", reason: "Tr\u1EA1ng th\xE1i ngu\u1ED3n kh\xF4ng h\u1EE3p l\u1EC7.", edges: [] };
+    sources.push({ id: id2, label, status: result.status, reason: result.reason, at, version: VERSION });
+    for (const edge of result.edges || []) if (cleanPath(edge.from) && cleanPath(edge.to)) edges.push({ ...edge, source: id2, status: result.status, at, version: VERSION });
+    tasks.push(...result.tasks || []);
+    return result;
+  };
+  await source("app-config", "\u0110\u01B0\u1EDDng d\u1EABn \u1EE9ng d\u1EE5ng", async () => ({ status: "available", reason: "\u0110\u01B0\u1EDDng d\u1EABn resolved t\u1EEB allowlist c\u1EA5u h\xECnh server.", edges: [
+    ...["deployRoot", "dataRoot", "dbPath", "audioRoot", "listeningRoot", "vocabRoot", "speakingRoot", "stateRoot"].map((key2) => ({ from: "application:vhomework", to: config[key2], relation: key2, reason: "C\u1EA5u h\xECnh server \u0111\xE3 n\u1EA1p; kh\xF4ng \u0111\u1ECDc .env." })),
+    { from: "process:inventory", to: process.execPath, relation: "runtime", reason: "Runtime th\u1EF1c thi collector." },
+    ...config.backupRoots.map((to) => ({ from: "application:vhomework", to, relation: "backup_destination", reason: "\u0110\xEDch backup c\u1EA5u h\xECnh; b\u1EA3n s\u1EB5n c\xF3 c\u1EA7n ki\u1EC3m k\xEA ri\xEAng." }))
+  ] }));
+  await source("domains", "Domain cPanel", () => adapters.domains ? adapters.domains(config) : cpanelDomains(config));
+  await source("node-selector", "CloudLinux Node.js Selector", async () => {
+    if (adapters.nodeSelector) return adapters.nodeSelector(config);
+    if (!config.nodeDiscovery) return { status: "unconfigured", reason: "Discovery ch\u1EC9 ch\u1EA1y khi opt-in \u1EDF server.", edges: [] };
+    if (process.platform !== "linux") return { status: "unsupported", reason: "CLI CloudLinux c\u1EA7n host Linux.", edges: [] };
+    const args = ["get", "--json", "--interpreter", "nodejs"];
+    if (config.quotaUser) args.push("--user", config.quotaUser);
+    const result = await exec("/usr/bin/cloudlinux-selector", args, { timeout: config.sourceTimeoutMs, maxBuffer: 1048576, windowsHide: true });
+    return { status: "available", reason: "Ch\u1EC9 CLI get; tr\u1EA1ng th\xE1i recovery/migration ch\u01B0a c\xF3 adapter.", edges: parseNodeSelector(JSON.parse(result.stdout), config) };
+  });
+  await source("passenger", "Passenger / startup", async () => {
+    const roots = /* @__PURE__ */ new Set([config.deployRoot, ...edges.filter((e) => e.relation === "document_root" || e.relation === "application_root").map((e) => e.to)]);
+    const found = [];
+    let errors = 0;
+    for (const root of roots) {
+      if (!within(config.accountRoot, root)) continue;
+      try {
+        found.push(...parsePassenger(await readConfigFile(import_node_path5.default.join(root, ".htaccess")), root));
+      } catch (e) {
+        if (e.code !== "ENOENT") errors++;
+      }
+    }
+    try {
+      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, "app.js"), 32768);
+      for (const m of text8.matchAll(/(?:require\(|(?:from|import)\s+)['"](\.\.?\/[^'"\r\n]{1,256})['"]/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, "app.js"), to: import_node_path5.default.resolve(config.deployRoot, m[1]), relation: "startup_import", reason: "Import t\u0129nh \u0111\u01B0\u1EE3c nh\u1EADn di\u1EC7n; kh\xF4ng th\u1EF1c thi file." });
+    } catch (e) {
+      if (e.code !== "ENOENT") errors++;
+    }
+    return { status: errors ? "partial" : found.length ? "available" : "unconfigured", reason: found.length ? "\u0110\u1ECDc tr\u01B0\u1EDDng allowlist, kh\xF4ng s\u1EEDa c\u1EA5u h\xECnh." : "Ch\u01B0a c\xF3 c\u1EA5u h\xECnh Passenger/startup \u0111\u1ECDc \u0111\u01B0\u1EE3c.", edges: found };
+  });
+  await source("git-deploy", "Git v\xE0 c\u1EA5u h\xECnh deploy", async () => {
+    const found = [];
+    let errors = 0;
+    try {
+      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".cpanel.yml"));
+      for (const m of text8.matchAll(/DEPLOYPATH\s*=\s*["']?(\/[a-zA-Z0-9_./-]+)/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, ".cpanel.yml"), to: m[1], relation: "configured_deploy_target", reason: "C\u1EA5u h\xECnh pipeline; ch\u01B0a ch\u1EE9ng minh \u0111\xE3 tri\u1EC3n khai." });
+    } catch (e) {
+      if (e.code !== "ENOENT") errors++;
+    }
+    try {
+      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".git", "HEAD"), 1024);
+      if (/^(?:ref: refs\/[a-zA-Z0-9_./-]+|[a-f0-9]{40,64})\s*$/.test(text8)) found.push({ from: config.deployRoot, to: import_node_path5.default.join(config.deployRoot, ".git"), relation: "git_metadata", reason: "Repository metadata t\u1ED3n t\u1EA1i; kh\xF4ng ch\u1EA1y Git/hook, kh\xF4ng thu remote credential." });
+    } catch (e) {
+      if (e.code !== "ENOENT") errors++;
+    }
+    for (const file of ["release-manifest.json", "dist/client/release-manifest.json"]) try {
+      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, file));
+      const value = JSON.parse(text8);
+      if (value && typeof value === "object") found.push({ from: import_node_path5.default.join(config.deployRoot, file), to: config.deployRoot, relation: "release_manifest", reason: "Manifest t\u1ED3n t\u1EA1i; cleanup asset v\u1EABn theo verifier c\u0169." });
+    } catch (e) {
+      if (e.code !== "ENOENT") errors++;
+    }
+    return { status: errors ? "partial" : found.length ? "available" : "unconfigured", reason: "Ch\u1EC9 quan s\xE1t metadata deploy; thi\u1EBFu l\u1ECBch s\u1EED th\u1EF1c thi th\xEC ch\u01B0a x\xE1c minh.", edges: found };
+  });
+  await source("cron", "L\u1ECBch cron", async () => {
+    if (adapters.cron) return adapters.cron(config);
+    if (!config.cronDiscovery) return { status: "unconfigured", reason: "Ch\u01B0a b\u1EADt \u0111\u1ECDc crontab \u1EDF server.", edges: [] };
+    if (process.platform !== "linux") return { status: "unsupported", reason: "Local kh\xF4ng c\xF3 crontab Linux.", edges: [] };
+    const { stdout } = await exec("/usr/bin/crontab", ["-l"], { timeout: config.sourceTimeoutMs, maxBuffer: 131072, windowsHide: true });
+    const found = [], registry = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      const match = line.match(/^\s*((?:\S+\s+){4}\S+)\s+(.+)$/);
+      if (!match || line.trim().startsWith("#") || !/^[-*,/0-9A-Za-z ]+$/.test(match[1])) continue;
+      const id2 = hash2(line);
+      registry.push({ id: "cron:" + id2, task: "Cron quan s\xE1t", source: "cron", executor: "system scheduler", configuration: "observed", schedule: match[1], timezone: "Ch\u01B0a x\xE1c minh CRON_TZ", execution: "unverified", at, reason: "L\u1EC7nh \u0111\u01B0\u1EE3c \u1EA9n; l\u1ECBch kh\xF4ng ch\u1EE9ng minh \u0111\xE3 ch\u1EA1y." });
+      for (const m of match[2].matchAll(/(?:^|\s)(\/[a-zA-Z0-9_./-]+\.(?:mjs|js|cjs|sh|php))(?=\s|$)/g)) if (within(config.accountRoot, m[1])) found.push({ from: "cron:" + id2, to: m[1], relation: "configured_script", reason: "\u0110\u01B0\u1EDDng d\u1EABn script allowlist trong crontab; kh\xF4ng ch\u1EA1y l\u1EC7nh." });
+    }
+    return { status: "available", reason: "Ch\u1EC9 \u0111\u1ECDc l\u1ECBch user; cron provider c\xF3 th\u1EC3 ngo\xE0i quy\u1EC1n quan s\xE1t.", edges: found, tasks: registry };
+  });
+  await source("services", "V\xF9ng h\u1EC7 th\u1ED1ng v\xE0 d\u1ECBch v\u1EE5", async () => ({ status: "partial", reason: "Nh\u1EADn di\u1EC7n policy v\xF9ng d\u1ECBch v\u1EE5; ch\u01B0a c\xF3 metadata provider/backup service.", edges: ["mail", "ssl", "etc", ".cpanel", ".cagefs", ".ssh", "nodevenv", "public_html", "repositories", "app-data"].map((name) => ({ from: "account-services", to: import_node_path5.default.join(config.accountRoot, name), relation: "protected_zone", reason: "Policy b\u1EA3o v\u1EC7; kh\xF4ng k\u1EBFt lu\u1EADn c\xF2n d\xF9ng ch\u1EC9 v\xEC t\xEAn." })) }));
+  await source("processes", "Ti\u1EBFn tr\xECnh thu\u1ED9c t\xE0i kho\u1EA3n", async () => {
+    if (adapters.processes) return adapters.processes(config);
+    if (!config.processDiscovery) return { status: "unconfigured", reason: "Ch\u01B0a b\u1EADt process metadata discovery.", edges: [] };
+    if (process.platform !== "linux" || !process.getuid) return { status: "unsupported", reason: "Collector ch\u1EC9 h\u1ED7 tr\u1EE3 metadata /proc Linux.", edges: [] };
+    const list3 = (await import_promises3.default.readdir("/proc")).filter((n) => /^\d+$/.test(n)), found = [];
+    let denied = 0;
+    for (const pid of list3.slice(0, 500)) try {
+      const s = await import_promises3.default.stat("/proc/" + pid);
+      if (s.uid !== process.getuid()) continue;
+      const cwd = await import_promises3.default.readlink("/proc/" + pid + "/cwd");
+      if (within(config.accountRoot, cwd)) found.push({ from: "process:" + pid, to: cwd, relation: "observed_cwd", reason: "CWD quan s\xE1t c\u1EE7a process c\xF9ng UID; kh\xF4ng \u0111\u1ECDc argv/environment." });
+    } catch (e) {
+      if (["EACCES", "EPERM"].includes(e.code)) denied++;
+    }
+    return { status: denied || list3.length > 500 ? "partial" : "available", reason: "Kh\xF4ng th\u1EA5y process kh\xF4ng ch\u1EE9ng minh th\u01B0 m\u1EE5c v\xF4 d\u1EE5ng.", edges: found };
+  });
+  await source("speaking", "Worker Speaking", async () => {
+    const db = new import_better_sqlite34.default(config.dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const rows = db.prepare("SELECT status,COUNT(*) count FROM speaking_jobs GROUP BY status").all();
+      return { status: "available", reason: "Ch\u1EC9 aggregate b\u1EA3ng job; kh\xF4ng g\u1ECDi provider.", edges: [], tasks: [{ id: "speaking-worker", task: "Ch\u1EA5m Speaking", source: "speaking_jobs", executor: "worker \u1EE9ng d\u1EE5ng", configuration: "observed", schedule: "Theo h\xE0ng ch\u1EDD", timezone: config.timezone, execution: "observed", at, counts: rows, reason: "Tr\u1EA1ng th\xE1i l\u01B0u trong DB; ch\u01B0a c\xF3 heartbeat c\u1EE7a worker trong inventory." }] };
+    } finally {
+      db.close();
+    }
+  });
+  tasks.unshift({ id: "hosting-inventory", task: "Qu\xE9t to\xE0n t\xE0i kho\u1EA3n", source: "inventory", executor: config.executor ? "process ri\xEAng" : "CLI th\u1EE7 c\xF4ng", configuration: config.executor ? "configured" : "manual", schedule: "Th\u1EE7 c\xF4ng; ch\u01B0a \u0111\u0103ng k\xFD cron", timezone: config.timezone, execution: "verified", at, reason: "Ti\u1EBFn \u0111\u1ED9/heartbeat t\u1EEB executor inventory; kh\xF4ng t\u1EF1 qu\xE9t khi t\u1EA3i trang." });
+  return { sources, edges, tasks };
+}
+
+// scripts/hosting-inventory-assessment.mjs
+var import_node_path6 = __toESM(require("node:path"), 1);
+var fresh = (value) => Number.isFinite(Date.parse(value)) && Date.now() - Date.parse(value) < 864e5 && Date.parse(value) <= Date.now() + 6e4;
+var usable = (edge) => ["available", "partial"].includes(edge.status) && fresh(edge.at);
+var actualPath = (value) => typeof value === "string" && import_node_path6.default.isAbsolute(value) ? import_node_path6.default.resolve(value) : null;
+var topName = (config, absolute2) => import_node_path6.default.relative(config.accountRoot, absolute2).split(import_node_path6.default.sep)[0];
+var systemZones = /* @__PURE__ */ new Set(["mail", "ssl", "etc", ".cpanel", ".cagefs", ".ssh", ".pki", ".cl.selector", ".htpasswds", ".caldav", ".cphorde", ".softaculous", ".spamassassin", ".subaccounts"]);
+function assessmentContext(config, scan, edges, truncated = false) {
+  const projects = [];
+  const add = (root, label, kind, source) => {
+    if (!root || !within(config.accountRoot, root)) return;
+    let project = projects.find((p) => p.root === root);
+    if (!project) {
+      project = { root, label, kind, source, domains: [] };
+      projects.push(project);
+    }
+    return project;
+  };
+  add(config.deployRoot, "\u1EE8ng d\u1EE5ng Ti\u1EBFng Anh", "this_app", "app-config");
+  if (config.dataRoot !== config.accountRoot) add(config.dataRoot, "D\u1EEF li\u1EC7u \u1EE9ng d\u1EE5ng Ti\u1EBFng Anh", "this_app", "app-config");
+  for (const root of [config.dbPath, config.audioRoot, config.listeningRoot, config.vocabRoot, config.speakingRoot, config.stateRoot, ...config.backupRoots]) add(root, "D\u1EEF li\u1EC7u \u1EE9ng d\u1EE5ng Ti\u1EBFng Anh", "this_app", "app-config");
+  const valid = edges.filter(usable), runtime = [];
+  for (const edge of valid) {
+    const target = actualPath(edge.to_node);
+    if (!target) continue;
+    if (["document_root", "application_root", "registered_app", "PassengerAppRoot"].includes(edge.relation)) {
+      const own = within(config.deployRoot, target), domain = edge.from_node.startsWith("domain:") ? edge.from_node.slice(7) : null;
+      const project = add(target, own ? "\u1EE8ng d\u1EE5ng Ti\u1EBFng Anh" : domain ? "Domain " + domain : "\u1EE8ng d\u1EE5ng kh\xE1c: " + import_node_path6.default.basename(target), own ? "this_app" : "other_project", edge.source);
+      if (project && domain && !project.domains.includes(domain)) project.domains.push(domain);
+    }
+  }
+  for (const edge of valid) {
+    const target = actualPath(edge.to_node), from = actualPath(edge.from_node);
+    if (!target || !from || !within(config.accountRoot, target)) continue;
+    if (["runtime_layout", "PassengerNodejs", "symlink_target"].includes(edge.relation)) {
+      const owner = projects.filter((p) => within(p.root, from)).sort((a, b) => b.root.length - a.root.length)[0];
+      if (owner && (edge.relation !== "symlink_target" || topName(config, target) === "nodevenv" || import_node_path6.default.basename(from) === "node_modules")) runtime.push({ root: target, label: owner.label, domains: owner.domains, source: edge.source });
+    }
+  }
+  return { config, scan, projects, runtime, edges: valid, truncated, scopeChanged: scan.scope !== config.scope, stale: !fresh(scan.heartbeat || scan.started_at) };
+}
+function association(context, entry, absolute2) {
+  const { config, projects, runtime } = context, top = topName(config, absolute2);
+  if (absolute2 === config.accountRoot) return { kind: "mixed", label: "To\xE0n t\xE0i kho\u1EA3n / nhi\u1EC1u vai tr\xF2", basis: "configured", owners: [], reason: "Ch\u1EE9a \u1EE9ng d\u1EE5ng, d\u1ECBch v\u1EE5 v\xE0 c\xE1c v\xF9ng ch\u01B0a nh\u1EADn di\u1EC7n; ch\u1EC9 x\xE9t t\u1EEBng m\u1EE5c con." };
+  const parts = import_node_path6.default.relative(config.accountRoot, absolute2).split(import_node_path6.default.sep);
+  if (parts.includes("node_modules")) return { kind: "runtime", label: "Dependency c\xE0i \u0111\u1EB7t / ph\u1EE5c h\u1ED3i", basis: "policy", owners: [], reason: "Th\xE0nh ph\u1EA7n package/runtime; ch\u01B0a c\xF3 b\u1EB1ng ch\u1EE9ng \u0111\u1EC3 d\u1ECDn qua dashboard." };
+  if (parts.includes(".git") || top === "repositories") return { kind: "hosting_service", label: "Repository / metadata Git", basis: "policy", owners: [], reason: "M\xE3 ngu\u1ED3n, l\u1ECBch s\u1EED v\xE0 metadata tri\u1EC3n khai c\u1EA7n gi\u1EEF; kh\xF4ng x\xF3a \u0111\u1EC3 d\u1ECDn file \u1EE9ng d\u1EE5ng." };
+  const runtimeOwners = runtime.filter((p) => within(p.root, absolute2) || entry.type === "directory" && within(absolute2, p.root));
+  if (runtimeOwners.length) return { kind: "runtime", label: "M\xF4i tr\u01B0\u1EDDng ch\u1EA1y / dependency", basis: "observed", owners: [...new Set(runtimeOwners.flatMap((p) => p.domains.length ? p.domains : [p.label]))], reason: "C\xF3 quan h\u1EC7 runtime ho\u1EB7c symlink \u0111\u01B0\u1EE3c quan s\xE1t; kh\xF4ng \u0111i theo li\xEAn k\u1EBFt khi qu\xE9t." };
+  if (top === "nodevenv" || /^node_modules.*backup/i.test(top)) return { kind: "runtime", label: top === "nodevenv" ? "M\xF4i tr\u01B0\u1EDDng Node.js" : "Dependency ph\u1EE5c h\u1ED3i", basis: "policy", owners: [], reason: "V\xF9ng runtime/recovery c\u1EA7n gi\u1EEF; ch\u01B0a \u0111\u1EE7 ngu\u1ED3n \u0111\u1EC3 g\xE1n cho m\u1ED9t \u1EE9ng d\u1EE5ng c\u1EE5 th\u1EC3." };
+  if (systemZones.has(top)) return { kind: "hosting_service", label: "D\u1ECBch v\u1EE5 / h\u1EC7 th\u1ED1ng hosting", basis: "policy", owners: [], reason: "V\xF9ng cPanel, email, SSL ho\u1EB7c c\u1EA5u h\xECnh d\u1ECBch v\u1EE5; kh\xF4ng ph\u1EA3i r\xE1c c\u1EE7a \u1EE9ng d\u1EE5ng." };
+  const matches = projects.filter((p) => within(p.root, absolute2)).sort((a, b) => b.root.length - a.root.length), chosen = matches[0];
+  const descendants = entry.type === "directory" ? projects.filter((p) => within(absolute2, p.root) && p.root !== absolute2) : [];
+  const kinds = new Set([...matches.slice(0, 1), ...descendants].map((p) => p.kind));
+  if (kinds.size > 1) return { kind: "mixed", label: "Th\u01B0 m\u1EE5c d\xF9ng chung / nhi\u1EC1u d\u1EF1 \xE1n", basis: "observed", owners: [...new Set([...matches.slice(0, 1), ...descendants].flatMap((p) => p.domains.length ? p.domains : [p.label]))], reason: "Ch\u1EE9a c\xE1c v\xF9ng c\xF3 ch\u1EE7 s\u1EDF h\u1EEFu/vai tr\xF2 kh\xE1c nhau; ph\u1EA3i x\xE9t t\u1EEBng m\u1EE5c con." };
+  if (chosen) return { kind: chosen.kind, label: chosen.label, basis: chosen.source === "app-config" ? "configured" : "observed", owners: chosen.domains, reason: "G\xE1n ph\u1EA1m vi t\u1EEB c\u1EA5u h\xECnh/document root; v\u1ECB tr\xED kh\xF4ng ch\u1EE9ng minh t\u1EEBng file c\xF2n \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng." };
+  if (descendants.length) return { kind: "mixed", label: "Th\u01B0 m\u1EE5c ch\u1EE9a d\u1EEF li\u1EC7u d\u1EF1 \xE1n", basis: "configured", owners: [...new Set(descendants.flatMap((p) => p.domains.length ? p.domains : [p.label]))], reason: "Ch\u1EE9a v\xF9ng d\u1EF1 \xE1n \u0111\xE3 nh\u1EADn di\u1EC7n v\xE0 c\xE1c m\u1EE5c ch\u01B0a r\xF5; kh\xF4ng d\u1ECDn c\u1EA3 c\xE2y." };
+  if ([".npm", ".cache", ".trash", "tmp"].includes(top)) return { kind: "hosting_service", label: "Cache / file t\u1EA1m c\u1EE7a t\xE0i kho\u1EA3n", basis: "hint", owners: [], reason: "Nh\u1EADn di\u1EC7n theo v\xF9ng; ch\u01B0a x\xE1c minh writer, d\u1ECBch v\u1EE5 ho\u1EB7c ch\xEDnh s\xE1ch d\u1ECDn." };
+  return { kind: "unknown", label: "Ch\u01B0a x\xE1c \u0111\u1ECBnh d\u1EF1 \xE1n / d\u1ECBch v\u1EE5", basis: "unknown", owners: [], reason: /\.[a-z]{2,}$/i.test(top) ? "T\xEAn gi\u1ED1ng domain nh\u01B0ng ch\u01B0a c\xF3 document root/API ch\u1EE9ng minh." : "Thi\u1EBFu c\u1EA5u h\xECnh ho\u1EB7c quan h\u1EC7 \u0111\u1EC3 x\xE1c \u0111\u1ECBnh ai \u0111ang d\xF9ng." };
+}
+function assessEntry(context, entry) {
+  const absolute2 = import_node_path6.default.resolve(context.config.accountRoot, entry.relative), owner = association(context, entry, absolute2);
+  const decision = (category, reason, nextSteps) => ({ ...entry, association: owner, cleanup: { category, reason, nextSteps, action: "inspect", deleteAllowed: false, current: !context.scopeChanged && !context.stale && !entry.issue } });
+  if (!within(context.config.accountRoot, absolute2) || context.scopeChanged || context.stale || entry.issue) return decision("unverified", "B\xE1o c\xE1o/\u0111\u1ED1i t\u01B0\u1EE3ng ch\u01B0a \u0111\u1EE7 m\u1EDBi ho\u1EB7c \u0111\u1ECDc ch\u01B0a \u0111\u1EA7y \u0111\u1EE7.", ["Qu\xE9t l\u1EA1i \u0111\xFAng ph\u1EA1m vi v\xE0 x\u1EED l\xFD l\u1ED7i quy\u1EC1n/file thay \u0111\u1ED5i tr\u01B0\u1EDBc khi x\xE9t d\u1ECDn."]);
+  const referenced = context.edges.some((e) => e.to_node === absolute2 && e.relation !== "protected_zone" && e.relation !== "backup_destination");
+  const system = entry.status === "protected" || ["runtime", "other_project", "mixed"].includes(owner.kind) || owner.kind === "hosting_service" && owner.basis === "policy";
+  if (system || entry.type === "link" || entry.type === "metadata") return decision("protected", owner.kind === "other_project" ? "Thu\u1ED9c domain/\u1EE9ng d\u1EE5ng kh\xE1c; vi\u1EC7c d\u1ECDn \u1EE9ng d\u1EE5ng n\xE0y kh\xF4ng c\u1EA5p quy\u1EC1n x\xF3a d\u1EEF li\u1EC7u c\u1EE7a d\u1EF1 \xE1n \u0111\xF3." : ["runtime", "mixed"].includes(owner.kind) || owner.kind === "hosting_service" && owner.basis === "policy" ? owner.reason : entry.reason, ["Gi\u1EEF nguy\xEAn. V\u1EDBi th\u01B0 m\u1EE5c ch\u1EE9a nhi\u1EC1u vai tr\xF2, m\u1EDF t\u1EEBng m\u1EE5c con \u0111\u1EC3 \u0111\xE1nh gi\xE1 ri\xEAng."]);
+  if (entry.status === "active" || referenced) return decision("protected", "C\xF3 tham chi\u1EBFu c\u1EA5u h\xECnh/cron/startup/process \u0111\u01B0\u1EE3c quan s\xE1t.", ["Xem quan h\u1EC7 v\xE0 ch\u1EE7 s\u1EDF h\u1EEFu; x\xE1c nh\u1EADn \u0111\xE3 ng\u1EEBng d\xF9ng tr\u01B0\u1EDBc khi \u0111\u1EC1 xu\u1EA5t ch\xEDnh s\xE1ch d\u1ECDn."]);
+  if (entry.status === "candidate") {
+    const backup = /backup|rollback|restore/i.test(entry.role);
+    return decision("review", backup ? "C\xF3 d\u1EA5u hi\u1EC7u backup/rollback, ch\u01B0a \u0111\u1EE7 x\xE1c minh \u0111\u1EC3 x\xF3a." : entry.reason, backup ? ["Ch\u1ED1t t\u1EEBng b\u1ED9/th\xE0nh ph\u1EA7n; lo\u1EA1i tr\u1EEB database \u0111ang ch\u1EA1y v\xE0 th\u01B0 m\u1EE5c \u0111\xEDch \u0111ang \u0111\u01B0\u1EE3c ghi.", "T\u1EA3i b\u1EA3n \u0111\xE3 c\xF3 ra ngo\xE0i host, \u0111\u1ED1i chi\u1EBFu \u0111\u1EE7 file/checksum/\u0111\u1ECBnh d\u1EA1ng r\u1ED3i m\u1EDBi xem tr\u01B0\u1EDBc x\xF3a."] : ["\u0110\u1ED1i chi\u1EBFu writer, cron, deploy v\xE0 d\u1ECBch v\u1EE5 \u0111ang d\xF9ng.", "Ch\u1ECDn \u0111\xFAng policy cho t\u1EEBng file; t\xEAn, tu\u1ED5i ho\u1EB7c kh\xF4ng t\xECm th\u1EA5y tham chi\u1EBFu ch\u01B0a \u0111\u1EE7 c\u1EA5p x\xF3a."]);
+  }
+  if (owner.kind === "this_app") return decision("review", "Thu\u1ED9c \u1EE9ng d\u1EE5ng n\xE0y nh\u01B0ng ch\u01B0a c\xF3 k\u1EBFt lu\u1EADn d\u1ECDn ri\xEAng cho file.", ["\u0110\u1ED1i chi\u1EBFu b\xE1o c\xE1o file \u1EE9ng d\u1EE5ng v\xE0 b\u1ED9 ki\u1EC3m tra \u0111\xFAng lo\u1EA1i.", "Media c\u1EA7n ki\u1EC3m tra draft, phi\xEAn b\u1EA3n \u0111\xE3 xu\u1EA5t b\u1EA3n, b\xE0i h\u1ECDc/k\u1EBFt qu\u1EA3 v\xE0 job tr\u01B0\u1EDBc khi c\xE1ch ly ho\u1EB7c x\xF3a."]);
+  return decision("unverified", owner.reason, [context.truncated ? "Danh s\xE1ch quan h\u1EC7 v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n \u0111\u1ECDc; c\u1EA7n ki\u1EC3m tra ngu\u1ED3n chi ti\u1EBFt." : "\u0110\u1ECDc ngu\u1ED3n domain/Node.js/cron/process c\xF2n thi\u1EBFu \u0111\u1EC3 x\xE1c \u0111\u1ECBnh d\u1EF1 \xE1n ho\u1EB7c d\u1ECBch v\u1EE5.", "Sau khi nh\u1EADn di\u1EC7n vai tr\xF2, c\u1EA7n policy v\xE0 ki\u1EC3m tra \u0111\xFAng lo\u1EA1i tr\u01B0\u1EDBc khi c\u1EA5p quy\u1EC1n d\u1ECDn."]);
+}
+function linkApplicationCatalog(entry, root, summary) {
+  if (entry.type !== "file" || entry.cleanup.category === "protected" || !entry.cleanup.current || !summary?.latest || !fresh(summary.latest.at) || !["this_app", "unknown"].includes(entry.association.kind) || entry.issue) return entry;
+  const absolute2 = import_node_path6.default.resolve(root, entry.relative), roots = new Map(summary.roots.map((r) => [r.id, import_node_path6.default.resolve(r.root)]));
+  const match = summary.latest.entries.find((e) => roots.has(e.rootId) && import_node_path6.default.resolve(roots.get(e.rootId), e.relative) === absolute2 && e.bytes === entry.bytes && e.modifiedAt === entry.modifiedAt);
+  if (!match) return entry;
+  const canReview = entry.cleanup.category !== "protected";
+  const ready = match.status === "eligible" && ["speaking", "temporary", "asset"].includes(match.kind) || match.kind === "backup" && match.verified && !match.pinned;
+  const category = !canReview || ["held", "pinned", "blocked", "used", "protected"].includes(match.status) ? "protected" : ready ? "ready" : ["suspected", "review", "eligible"].includes(match.status) ? "review" : "unverified";
+  return { ...entry, cleanup: { category, reason: match.reason, nextSteps: category === "ready" ? ["M\u1EDF thao t\xE1c d\u1ECDn hi\u1EC7n c\xF3; xem tr\u01B0\u1EDBc v\xE0 nh\u1EADp t\xEAn x\xE1c nh\u1EADn. Server ki\u1EC3m tra l\u1EA1i file, tham chi\u1EBFu, job v\xE0 ch\xEDnh s\xE1ch."] : match.kind === "backup" ? ["T\u1EA3i v\xE0 ch\u1ECDn l\u1EA1i b\u1EA3n local \u0111\u1EC3 \u0111\u1ED1i chi\u1EBFu SHA-256/bytes/quick_check; b\u1ECF ghim tr\u01B0\u1EDBc khi xem tr\u01B0\u1EDBc x\xF3a."] : ["Xem chi ti\u1EBFt/preview v\xE0 \u0111i\u1EC1u ki\u1EC7n d\u1ECDn c\u1EE7a file \u1EE9ng d\u1EE5ng. Gi\u1EEF 30 ng\xE0y ch\u1EC9 l\xE0 kh\xF3a t\u1EA1m th\u1EDDi."], action: match.kind === "backup" ? "manage-backup" : "manage-application", applicationId: match.id, applicationKind: match.kind, applicationStatus: match.status, catalogAt: summary.latest.at, deleteAllowed: false, current: true } };
+}
+
+// scripts/hosting-inventory-core.mjs
+var now = () => (/* @__PURE__ */ new Date()).toISOString();
+var idFor = (rel) => hash2(rel).slice(0, 32);
+function recordSources(db, id2, result) {
+  db.transaction(() => {
+    db.prepare("DELETE FROM evidence WHERE scan=? AND source<>'symlink'").run(id2);
+    const insert = db.prepare("INSERT OR REPLACE INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?)");
+    for (const e of result.edges) insert.run(id2, hash2(JSON.stringify([e.source, e.from, e.to, e.relation])), e.source, e.status, e.at, e.from, e.to, e.relation, e.reason, VERSION);
+    db.prepare("UPDATE scans SET source_json=?,task_json=?,dependency_complete=0 WHERE id=?").run(JSON.stringify(result.sources), JSON.stringify(result.tasks), id2);
+  })();
+}
+function createHostingInventory(config, options2 = {}) {
+  const read = (fn) => {
+    try {
+      return withStore(config, false, fn);
+    } catch (e) {
+      if (e.code === "ENOENT") return null;
+      throw e;
+    }
+  };
+  const contexts = /* @__PURE__ */ new WeakMap();
+  const describe = (db, scan, row) => {
+    let context = contexts.get(db);
+    if (!context) {
+      const saved = db.prepare("SELECT * FROM evidence WHERE scan=? ORDER BY CASE WHEN source='symlink' THEN 1 ELSE 0 END,source,id LIMIT 1001").all(scan.id), sources = scanDTO(scan).sources;
+      const edges = saved.slice(0, 1e3).map((e) => ({ ...e, status: sources.find((s) => s.id === e.source)?.status || e.status }));
+      context = assessmentContext(config, scan, edges, saved.length > 1e3);
+      contexts.set(db, context);
+    }
+    return assessEntry(context, entryDTO(row));
+  };
+  const page = (value, max = 100) => Math.max(1, Math.min(max, Number.isInteger(Number(value)) ? Number(value) : 1));
+  const launch = (id2) => {
+    if (options2.launch) return options2.launch(id2);
+    const worker = import_node_path7.default.resolve(process.cwd(), "scripts/hosting-inventory-run.mjs");
+    safeParents(import_node_path7.default.dirname(worker));
+    const child = (0, import_node_child_process3.spawn)(process.execPath, [worker, "--scan-id", id2], { cwd: process.cwd(), env: process.env, stdio: "ignore", windowsHide: true });
+    child.once("error", () => {
+      try {
+        withStore(config, true, (db) => db.prepare("UPDATE scans SET status='failed',pid=NULL,reason='Kh\xF4ng kh\u1EDFi ch\u1EA1y \u0111\u01B0\u1EE3c executor process.' WHERE id=?").run(id2));
+      } catch {
+      }
+    });
+    child.unref();
+    withStore(config, true, (db) => db.prepare("UPDATE scans SET pid=? WHERE id=? AND status='queued'").run(child.pid || null, id2));
+  };
+  return {
+    summary() {
+      const result = config.enabled ? read((db) => {
+        const scans = db.prepare("SELECT * FROM scans ORDER BY started_at DESC LIMIT 120").all(), latest = scans.find((s) => s.retained === 1);
+        const budgetInfo = budget(config, 0);
+        const growth = [1, 7, 30].map((days) => {
+          if (!latest?.fs_complete || latest.scope !== config.scope) return { days, bytes: null, reason: "M\u1ED1c hi\u1EC7n t\u1EA1i ch\u01B0a \u0111\u1EE7/c\xF9ng scope." };
+          const older = scans.find((s) => s.fs_complete && s.scope === latest.scope && Date.parse(s.started_at) <= Date.parse(latest.started_at) - days * 864e5);
+          return { days, bytes: older ? latest.logical_bytes - older.logical_bytes : null, reason: older ? "Hai m\u1ED1c \u0111\u1EA7y \u0111\u1EE7 c\xF9ng scope." : "Ch\u01B0a c\xF3 m\u1ED1c \u0111\u1EE7 " + days + " ng\xE0y." };
+        });
+        return { latest: scanDTO(latest), scans: scans.slice(0, 20).map(scanDTO), storage: budgetInfo, growth, audit: db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 50").all() };
+      }) : null;
+      return { enabled: config.enabled, executor: config.executor ? "process" : "unconfigured", root: config.accountRoot, scope: config.scope, version: VERSION, timezone: config.timezone, readOnly: true, latest: null, scans: [], storage: null, growth: [], audit: [], ...result };
+    },
+    start(actor, cli = false) {
+      if (!config.executor && !cli && !options2.launch) throw new MaintenanceError(503, "Ch\u01B0a c\u1EA5u h\xECnh executor. B\u1EADt process sau pilot ho\u1EB7c d\xF9ng CLI inventory.");
+      if (config.accountRoot === import_node_path7.default.parse(config.accountRoot).root) throw new MaintenanceError(403, "Kh\xF4ng ki\u1EC3m k\xEA g\u1ED1c filesystem/m\xE1y ch\u1EE7. C\u1EA7n root t\xE0i kho\u1EA3n ri\xEAng.");
+      safeParents(config.accountRoot);
+      const id2 = import_node_crypto3.default.randomUUID();
+      withStore(config, true, (db) => db.transaction(() => {
+        const current = db.prepare("SELECT * FROM scans WHERE status IN ('queued','running','paused') ORDER BY started_at DESC LIMIT 1").get();
+        if (current && ["queued", "running"].includes(scanDTO(current).status)) throw new MaintenanceError(409, "\u0110ang c\xF3 t\xE1c v\u1EE5 inventory.");
+        if (current && current.status === "paused") throw new MaintenanceError(409, "C\xF3 t\xE1c v\u1EE5 t\u1EA1m d\u1EEBng; ti\u1EBFp t\u1EE5c ho\u1EB7c h\u1EE7y tr\u01B0\u1EDBc khi qu\xE9t m\u1EDBi.");
+        const keep = db.prepare("SELECT id FROM scans WHERE status='completed' AND fs_complete=1 AND retained=1 ORDER BY started_at DESC LIMIT 1").get();
+        for (const old of db.prepare("SELECT id FROM scans WHERE retained=1 AND status NOT IN ('running','queued')").all()) if (old.id !== keep?.id) {
+          for (const table of ["entries", "queue", "evidence", "deltas", "backup_sets"]) db.prepare("DELETE FROM " + table + " WHERE scan=?").run(old.id);
+          db.prepare("UPDATE scans SET retained=0 WHERE id=?").run(old.id);
+        }
+        db.prepare("INSERT INTO scans(id,scope,root,version,actor,status,phase,started_at,heartbeat) VALUES(?,?,?,?,?,'queued','queued',?,?)").run(id2, config.scope, config.accountRoot, VERSION, actor, now(), now());
+        audit(db, actor, "inventory.requested", id2);
+      })());
+      if (!cli) launch(id2);
+      return { id: id2, accepted: true };
+    },
+    control(actor, id2, action) {
+      if (!["pause", "resume", "cancel"].includes(action)) throw new MaintenanceError(400, "Control kh\xF4ng h\u1EE3p l\u1EC7.");
+      withStore(config, true, (db) => db.transaction(() => {
+        const row = getScan(db, id2), s = scanDTO(row);
+        if (!row.retained) throw new MaintenanceError(409, "Chi ti\u1EBFt job \u0111\xE3 thu g\u1ECDn; c\u1EA7n qu\xE9t m\u1EDBi.");
+        if (row.scope !== config.scope && action !== "cancel") throw new MaintenanceError(409, "Scope \u0111\xE3 \u0111\u1ED5i; h\u1EE7y job c\u0169 r\u1ED3i qu\xE9t m\u1EDBi.");
+        if (["completed", "cancelled"].includes(s.status)) throw new MaintenanceError(409, "T\xE1c v\u1EE5 \u0111\xE3 k\u1EBFt th\xFAc.");
+        if (action === "resume") {
+          const others = db.prepare("SELECT * FROM scans WHERE id<>? AND status IN ('queued','running')").all(id2);
+          if (others.some((job) => ["queued", "running"].includes(scanDTO(job).status))) throw new MaintenanceError(409, "Executor kh\xE1c \u0111ang ch\u1EA1y job inventory.");
+          if (!["paused", "interrupted", "failed"].includes(s.status)) throw new MaintenanceError(409, "Ch\u1EC9 ti\u1EBFp t\u1EE5c t\xE1c v\u1EE5 \u0111\xE3 d\u1EEBng.");
+          if (!config.executor && !options2.launch) throw new MaintenanceError(503, "Executor ch\u01B0a c\u1EA5u h\xECnh; d\xF9ng CLI --scan-id.");
+          db.prepare("UPDATE scans SET status='queued',pid=NULL,request=NULL,heartbeat=?,reason=NULL WHERE id=?").run(now(), id2);
+        } else if (["running", "queued"].includes(s.status)) db.prepare("UPDATE scans SET request=? WHERE id=?").run(action, id2);
+        else db.prepare("UPDATE scans SET status=?,request=NULL,pid=NULL,reason=? WHERE id=?").run(action === "cancel" ? "cancelled" : "paused", "Y\xEAu c\u1EA7u qu\u1EA3n tr\u1ECB.", id2);
+        audit(db, actor, "inventory." + action + "-requested", id2);
+      })());
+      if (action === "resume") launch(id2);
+      return { accepted: true };
+    },
+    tree(id2, parentId = "", query = {}) {
+      return read((db) => {
+        const scan = getScan(db, id2);
+        if (!scan.retained) throw new MaintenanceError(410, "Chi ti\u1EBFt m\u1ED1c \u0111\xE3 \u0111\u01B0\u1EE3c thu g\u1ECDn; ch\u1EC9 c\xF2n t\u1ED5ng h\u1EE3p.");
+        let parent = "";
+        if (parentId) {
+          const row = db.prepare("SELECT rel,type FROM entries WHERE scan=? AND id=?").get(id2, parentId);
+          if (!row || row.type !== "directory") throw new MaintenanceError(404, "Kh\xF4ng c\xF3 th\u01B0 m\u1EE5c.");
+          parent = row.rel;
+        }
+        const p = page(query.page, 1e5), limit = 50, filter = typeof query.filter === "string" ? query.filter.slice(0, 200) : "", status = ["protected", "active", "unknown", "candidate", "verified"].includes(query.status) ? query.status : "";
+        const sort = query.sort === "name" ? "type DESC,name COLLATE NOCASE" : "bytes DESC,size DESC,name COLLATE NOCASE";
+        const args = [id2, parent, "%" + filter + "%", status, status, Math.max(0, Number(query.minBytes) || 0)];
+        const role = typeof query.role === "string" ? query.role.slice(0, 100) : "";
+        args.push(role, role);
+        const where = "scan=? AND parent=? AND name LIKE ? AND (?='' OR status=?) AND max(bytes,size)>=? AND (?='' OR role=?)";
+        const n = db.prepare("SELECT COUNT(*) n FROM entries WHERE " + where).get(...args).n;
+        const items = db.prepare("SELECT * FROM entries WHERE " + where + " ORDER BY " + sort + " LIMIT ? OFFSET ?").all(...args, limit, (p - 1) * limit).map((e) => describe(db, scan, e));
+        const crumbs = [{ id: idFor(""), name: "T\xE0i kho\u1EA3n", relative: "" }];
+        let current = "";
+        for (const part2 of parent.split("/").filter(Boolean)) {
+          current = current ? current + "/" + part2 : part2;
+          crumbs.push({ id: idFor(current), name: part2, relative: current });
+        }
+        return { items, page: p, pages: Math.max(1, Math.ceil(n / limit)), total: n, breadcrumbs: crumbs, partial: !scan.fs_complete, roles: db.prepare("SELECT DISTINCT role FROM entries WHERE scan=? AND parent=? ORDER BY role").all(id2, parent).map((r) => r.role) };
+      });
+    },
+    evidence(id2, entryId, query = {}) {
+      return read((db) => {
+        getScan(db, id2);
+        const e = db.prepare("SELECT * FROM entries WHERE scan=? AND id=?").get(id2, entryId);
+        if (!e) throw new MaintenanceError(404, "Kh\xF4ng c\xF3 \u0111\u1ED1i t\u01B0\u1EE3ng.");
+        const absolute2 = import_node_path7.default.join(config.accountRoot, e.rel), p = page(query.page, 1e4);
+        const where = "scan=? AND (from_node=? OR to_node=? OR substr(to_node,1,?)=? OR substr(?,1,length(to_node)+1)=to_node||?)";
+        const args = [id2, absolute2, absolute2, absolute2.length + 1, absolute2 + import_node_path7.default.sep, absolute2, import_node_path7.default.sep];
+        const edges = db.prepare("SELECT * FROM evidence WHERE " + where + " ORDER BY source,to_node LIMIT 50 OFFSET ?").all(...args, (p - 1) * 50), n = db.prepare("SELECT COUNT(*) n FROM evidence WHERE " + where).get(...args).n;
+        return { entry: describe(db, getScan(db, id2), e), edges, page: p, pages: Math.max(1, Math.ceil(n / 50)), total: n, at: getScan(db, id2).heartbeat, sources: scanDTO(getScan(db, id2)).sources.map((s) => getScan(db, id2).scope !== config.scope && s.status === "available" ? { ...s, status: "stale", reason: "Scope c\u1EA5u h\xECnh \u0111\xE3 \u0111\u1ED5i; c\u1EA7n qu\xE9t m\u1EDBi." } : s), scopeChanged: getScan(db, id2).scope !== config.scope };
+      });
+    },
+    async reverify(actor, id2, entryId) {
+      const scan = read((db) => getScan(db, id2));
+      if (!scan || scan.scope !== config.scope) throw new MaintenanceError(409, "Scope \u0111\xE3 \u0111\u1ED5i; qu\xE9t l\u1EA1i.");
+      if (["running", "queued"].includes(scanDTO(scan).status)) throw new MaintenanceError(409, "\u0110\u1EE3i collector d\u1EEBng tr\u01B0\u1EDBc khi x\xE1c minh l\u1EA1i ngu\u1ED3n.");
+      const entry = read((db) => db.prepare("SELECT * FROM entries WHERE scan=? AND id=?").get(id2, entryId));
+      if (!entry) throw new MaintenanceError(404, "Kh\xF4ng c\xF3 \u0111\u1ED1i t\u01B0\u1EE3ng.");
+      const target = import_node_path7.default.join(config.accountRoot, entry.rel);
+      safeParents(import_node_path7.default.dirname(target));
+      let s;
+      try {
+        s = await metadataStat(target);
+      } catch (e) {
+        throw new MaintenanceError(409, "\u0110\u1ED1i t\u01B0\u1EE3ng \u0111\xE3 bi\u1EBFn m\u1EA5t/kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c; c\u1EA7n qu\xE9t m\u1EDBi.");
+      }
+      if (String(s.ino) !== entry.ino || s.mtimeMs !== entry.mtime || s.size !== entry.size && entry.type === "file") throw new MaintenanceError(409, "\u0110\u1ED1i t\u01B0\u1EE3ng \u0111\xE3 \u0111\u1ED5i; c\u1EA7n qu\xE9t m\u1EDBi, kh\xF4ng c\u1EA5p quy\u1EC1n x\xF3a.");
+      const result = await collectSources(config, options2.adapters);
+      withStore(config, true, (db) => {
+        recordSources(db, id2, result);
+        audit(db, actor, "inventory.sources-reverified", id2, entry.rel);
+      });
+      return { verifiedAt: now(), deleteAllowed: false };
+    },
+    backups(id2, query = {}) {
+      return read((db) => {
+        getScan(db, id2);
+        const p = page(query.page, 1e5), total = db.prepare("SELECT COUNT(*) n FROM backup_sets WHERE scan=?").get(id2).n;
+        return { page: p, pages: Math.max(1, Math.ceil(total / 50)), total, items: db.prepare("SELECT b.*,e.* FROM backup_sets b JOIN entries e ON e.scan=b.scan AND e.id=b.entry_id WHERE b.scan=? ORDER BY max(e.bytes,e.size) DESC LIMIT 50 OFFSET ?").all(id2, (p - 1) * 50).map((e) => ({ ...describe(db, getScan(db, id2), e), kind: e.kind, recognition: e.recognition, membership: "observed", formatCheck: "unverified", restoreCheck: "unverified", offHost: "unverified", mayBeWriting: Date.now() - e.mtime < 6e4, deleteAllowed: false })) };
+      });
+    },
+    deltas(id2, query = {}) {
+      return read((db) => {
+        const scan = getScan(db, id2), p = page(query.page, 1e5), total = db.prepare("SELECT COUNT(*) n FROM deltas WHERE scan=?").get(id2).n;
+        return { page: p, pages: Math.max(1, Math.ceil(total / 50)), total, comparable: Boolean(scan.baseline && scan.fs_complete), baseline: scan.baseline, items: db.prepare("SELECT * FROM deltas WHERE scan=? ORDER BY abs(COALESCE(after_bytes,0)-COALESCE(before_bytes,0)) DESC LIMIT 50 OFFSET ?").all(id2, (p - 1) * 50) };
+      });
+    }
+  };
+}
+
+// src/server/maintenance/router.ts
+var import_express2 = __toESM(require("express"), 1);
+
+// src/server/maintenance/hostingInventoryRouter.ts
+var import_express = __toESM(require("express"), 1);
+function createHostingInventoryRouter(service, application) {
+  const router = import_express.default.Router();
+  const decorate = async (result, actor) => {
+    if (!result || !application) return result;
+    const summary = await application.summary(actor), root = service.summary().root;
+    if (result.items) result.items = result.items.map((entry) => linkApplicationCatalog(entry, root, summary));
+    if (result.entry) result.entry = linkApplicationCatalog(result.entry, root, summary);
+    return result;
+  };
+  const handle = (action) => (req, res) => {
+    void Promise.resolve().then(() => action(req, res)).catch((error) => res.status(error instanceof MaintenanceError ? error.status : 503).json({ error: error instanceof MaintenanceError ? error.message : "Kh\xF4ng \u0111\u1ECDc \u0111\u01B0\u1EE3c ch\u1EC9 m\u1EE5c/ngu\u1ED3n inventory. B\xE1o c\xE1o tr\u01B0\u1EDBc \u0111\u01B0\u1EE3c gi\u1EEF." }));
+  };
+  router.get("/summary", handle((_req, res) => res.json(service.summary())));
+  router.post("/scan", handle((req, res) => res.status(202).json(service.start(req.user.id))));
+  router.post("/scans/:id/control", handle((req, res) => res.status(202).json(service.control(req.user.id, req.params.id, req.body?.action))));
+  router.get("/scans/:id/tree", handle(async (req, res) => res.json(await decorate(service.tree(req.params.id, typeof req.query.parent === "string" ? req.query.parent : "", req.query), req.user.id))));
+  router.get("/scans/:id/entries/:entry/evidence", handle(async (req, res) => res.json(await decorate(service.evidence(req.params.id, req.params.entry, req.query), req.user.id))));
+  router.post("/scans/:id/entries/:entry/reverify", handle(async (req, res) => res.json(await service.reverify(req.user.id, req.params.id, req.params.entry))));
+  router.get("/scans/:id/backups", handle(async (req, res) => res.json(await decorate(service.backups(req.params.id, req.query), req.user.id))));
+  router.get("/scans/:id/deltas", handle((req, res) => res.json(service.deltas(req.params.id, req.query))));
+  return router;
+}
+
+// src/server/maintenance/router.ts
+var import_promises4 = require("node:stream/promises");
+function createMaintenanceRouter(options2) {
+  const router = import_express2.default.Router(), service = options2.service;
+  let scanning = null, scanError = "";
+  const sendError5 = (res, error) => {
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    const known = error instanceof MaintenanceError;
+    res.status(known ? error.status : 500).json({ error: known ? error.message : "Kh\xF4ng th\u1EC3 ho\xE0n t\u1EA5t maintenance. Xem tr\u1EA1ng th\xE1i t\xE1c v\u1EE5 v\xE0 th\u1EED l\u1EA1i." });
+  };
+  const handle = (action) => (req, res) => {
+    void action(req, res).catch((error) => sendError5(res, error));
+  };
+  router.get("/download/:ticket", handle(async (req, res) => {
+    await service.download(req.params.ticket, async (file, entry) => {
+      res.set({
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(entry.bytes),
+        "Content-Disposition": "attachment; filename*=UTF-8''" + encodeURIComponent(entry.name),
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      });
+      const stream = file.createReadStream({ autoClose: false });
+      const timeout = setTimeout(() => stream.destroy(new Error("Download timeout")), 30 * 6e4);
+      try {
+        await (0, import_promises4.pipeline)(stream, res);
+      } finally {
+        clearTimeout(timeout);
+      }
+    });
+  }));
+  router.use(options2.authenticateUser, options2.requireSuperAdmin);
+  router.use((_req, res, next) => {
+    res.set("Cache-Control", "private, no-store");
+    next();
+  });
+  if (options2.inventory) router.use("/inventory", createHostingInventoryRouter(options2.inventory, service));
+  router.get("/overview", handle(async (req, res) => {
+    const d = await service.summary(req.user.id);
+    let hosting = { status: "unconfigured", at: null, bytes: null, filesystemComplete: false, dependencyComplete: false, alerts: 0 };
+    try {
+      const h = options2.inventory?.summary(), s = h?.latest;
+      if (h) hosting = { status: s?.status || "unscanned", at: s?.finishedAt || s?.heartbeat || null, bytes: s?.logicalBytes ?? null, filesystemComplete: Boolean(s?.filesystemComplete), dependencyComplete: Boolean(s?.dependencyComplete), alerts: s?.alerts.length || 0 };
+    } catch {
+      hosting.status = "unavailable";
+    }
+    res.json({ at: d.latest?.at || null, bytes: d.latest?.totalBytes ?? null, complete: Boolean(d.latest?.complete), alerts: d.latest?.alerts.length || 0, backupFiles: d.latest?.entries.filter((e) => e.kind === "backup").length || 0, hosting });
+  }));
+  router.get("/summary", handle(async (req, res) => res.json({ ...await service.summary(req.user.id), scanRunning: Boolean(scanning), scanError })));
+  router.post("/scan", handle(async (req, res) => {
+    if (scanning) return res.status(409).json({ error: "\u0110ang qu\xE9t dung l\u01B0\u1EE3ng." });
+    scanError = "";
+    scanning = service.scan(req.user.id).catch((error) => {
+      scanError = error instanceof MaintenanceError ? error.message : "Qu\xE9t l\u1ED7i; b\xE1o c\xE1o tr\u01B0\u1EDBc v\u1EABn \u0111\u01B0\u1EE3c gi\u1EEF.";
+    }).finally(() => {
+      scanning = null;
+    });
+    res.status(202).json({ accepted: true });
+  }));
+  router.post("/backups/create", handle(async (req, res) => {
+    if (req.body?.confirmation !== "T\u1EA0O BACKUP") throw new MaintenanceError(400, "C\u1EA7n x\xE1c nh\u1EADn t\u1EA1o backup m\u1EDBi.");
+    res.json(await service.createBackup(req.user.id));
+  }));
+  router.post("/backups/:id/download-ticket", handle(async (req, res) => {
+    const result = await service.downloadTicket(req.user.id, req.params.id);
+    res.json({ url: "/api/admin/maintenance/download/" + result.ticket, expiresInSeconds: result.expiresInSeconds });
+  }));
+  router.post("/backups/:id/verify", handle(async (req, res) => res.json(await service.verifyBackup(req.user.id, req.params.id, req.body?.sha256, req.body?.bytes))));
+  router.post("/backups/:id/delete-preview", handle(async (req, res) => res.json(await service.previewDelete(req.user.id, req.params.id))));
+  router.post("/backups/:id/delete", handle(async (req, res) => res.json(await service.deleteBackup(req.user.id, req.params.id, req.body?.approval, req.body?.confirmation))));
+  router.post("/backups/:id/pin", handle(async (req, res) => res.json(await service.pin(req.user.id, req.params.id, req.body?.enabled))));
+  router.post("/files/:id/preview", handle(async (req, res) => {
+    await service.previewMedia(req.user.id, req.params.id, async (file, entry) => {
+      res.set({
+        "Content-Type": entry.mime,
+        "Content-Length": String(entry.bytes),
+        "Content-Disposition": "inline; filename*=UTF-8''" + encodeURIComponent(entry.name),
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; sandbox"
+      });
+      const stream = file.createReadStream({ autoClose: false, start: 0 });
+      const timeout = setTimeout(() => stream.destroy(new Error("Media preview timeout")), 3e4);
+      try {
+        await (0, import_promises4.pipeline)(stream, res);
+      } finally {
+        clearTimeout(timeout);
+      }
+    });
+  }));
+  router.post("/files/:id/hold", handle(async (req, res) => res.json(await service.hold(req.user.id, req.params.id, req.body?.days, req.body?.reason))));
+  router.post("/files/:id/cleanup", handle(async (req, res) => res.json(await service.cleanup(req.user.id, req.params.id, req.body?.action, req.body?.confirmation))));
+  router.post("/quarantine/:id", handle(async (req, res) => res.json(await service.quarantineAction(req.user.id, req.params.id, req.body?.action, req.body?.confirmation))));
+  router.post("/policy", handle(async (req, res) => res.json(await service.policy(req.user.id, req.body?.updates, req.body?.confirmation))));
+  return router;
+}
+
+// server.ts
 var import_path5 = __toESM(require("path"), 1);
 var import_crypto4 = __toESM(require("crypto"), 1);
 
@@ -123,8 +1952,8 @@ function migrateSpeakingSchema(db) {
 }
 
 // src/lib/storage/sqliteConfig.ts
-var import_node_path = __toESM(require("node:path"), 1);
-var DEFAULT_SQLITE_PATH = import_node_path.default.join(process.cwd(), ".data", "app.sqlite");
+var import_node_path8 = __toESM(require("node:path"), 1);
+var DEFAULT_SQLITE_PATH = import_node_path8.default.join(process.cwd(), ".data", "app.sqlite");
 function parseBoolean(name, fallback) {
   const raw = process.env[name];
   if (raw === void 0 || raw.trim() === "") return fallback;
@@ -162,7 +1991,7 @@ function resolveDatabasePath(production) {
     throw new Error("SQLITE_DB_PATH is required when NODE_ENV=production and STORAGE_MODE=sqlite.");
   }
   const selected = configured || DEFAULT_SQLITE_PATH;
-  return import_node_path.default.isAbsolute(selected) ? import_node_path.default.normalize(selected) : import_node_path.default.resolve(selected);
+  return import_node_path8.default.isAbsolute(selected) ? import_node_path8.default.normalize(selected) : import_node_path8.default.resolve(selected);
 }
 function resolveSQLiteStorageConfig() {
   const production = process.env.NODE_ENV === "production";
@@ -188,8 +2017,8 @@ function resolveSQLiteStorageConfig() {
   };
 }
 function redactSQLitePath(dbPath) {
-  const parentName = import_node_path.default.basename(import_node_path.default.dirname(dbPath));
-  return `${parentName ? `${parentName}/` : ""}${import_node_path.default.basename(dbPath)}`;
+  const parentName = import_node_path8.default.basename(import_node_path8.default.dirname(dbPath));
+  return `${parentName ? `${parentName}/` : ""}${import_node_path8.default.basename(dbPath)}`;
 }
 
 // src/lib/storage/sqliteInstrumentation.ts
@@ -270,19 +2099,19 @@ function recordSQLiteTransaction(driver, durationMs, error) {
 }
 
 // src/lib/storage/sqliteStorageFactory.ts
-var import_node_fs2 = __toESM(require("node:fs"), 1);
-var import_node_path4 = __toESM(require("node:path"), 1);
+var import_node_fs6 = __toESM(require("node:fs"), 1);
+var import_node_path11 = __toESM(require("node:path"), 1);
 
 // src/lib/storage/betterSqliteStorage.ts
 var import_node_module = require("node:module");
-var import_node_path2 = __toESM(require("node:path"), 1);
-var require2 = (0, import_node_module.createRequire)(import_node_path2.default.join(process.cwd(), "package.json"));
+var import_node_path9 = __toESM(require("node:path"), 1);
+var require2 = (0, import_node_module.createRequire)(import_node_path9.default.join(process.cwd(), "package.json"));
 function callStatement(statement, method, params) {
   return params.length > 0 ? statement[method](...params) : statement[method]();
 }
 async function openBetterSQLite(config) {
-  const Database = require2("better-sqlite3");
-  const db = new Database(config.dbPath, {
+  const Database5 = require2("better-sqlite3");
+  const db = new Database5(config.dbPath, {
     fileMustExist: !config.allowCreate,
     timeout: config.busyTimeoutMs
   });
@@ -400,13 +2229,13 @@ async function openBetterSQLite(config) {
 }
 
 // src/lib/storage/sqlJsStorage.ts
-var import_node_fs = __toESM(require("node:fs"), 1);
-var import_node_path3 = __toESM(require("node:path"), 1);
+var import_node_fs5 = __toESM(require("node:fs"), 1);
+var import_node_path10 = __toESM(require("node:path"), 1);
 var import_node_module2 = require("node:module");
-var require3 = (0, import_node_module2.createRequire)(import_node_path3.default.join(process.cwd(), "package.json"));
+var require3 = (0, import_node_module2.createRequire)(import_node_path10.default.join(process.cwd(), "package.json"));
 async function openSqlJsSQLite(config) {
   const walPath = `${config.dbPath}-wal`;
-  if (import_node_fs.default.existsSync(walPath) && import_node_fs.default.statSync(walPath).size > 0) {
+  if (import_node_fs5.default.existsSync(walPath) && import_node_fs5.default.statSync(walPath).size > 0) {
     throw new Error(
       "sql.js rollback refused: a non-empty SQLite WAL sidecar exists. Run the native rollback preparation command first."
     );
@@ -414,7 +2243,7 @@ async function openSqlJsSQLite(config) {
   const initSqlJs = require3("sql.js");
   const wasmPath = require3.resolve("sql.js/dist/sql-wasm.wasm");
   const SQL = await initSqlJs({ locateFile: () => wasmPath });
-  const existing = import_node_fs.default.existsSync(config.dbPath) ? import_node_fs.default.readFileSync(config.dbPath) : void 0;
+  const existing = import_node_fs5.default.existsSync(config.dbPath) ? import_node_fs5.default.readFileSync(config.dbPath) : void 0;
   const db = existing ? new SQL.Database(existing) : new SQL.Database();
   const all2 = (sql, params = []) => {
     const startedAt = performance.now();
@@ -503,12 +2332,12 @@ async function openSqlJsSQLite(config) {
 
 // src/lib/storage/sqliteStorageFactory.ts
 async function openSQLiteDriver(config) {
-  const exists = import_node_fs2.default.existsSync(config.dbPath);
+  const exists = import_node_fs6.default.existsSync(config.dbPath);
   if (!exists && !config.allowCreate) {
-    throw new Error(`SQLite database file does not exist: ${import_node_path4.default.basename(config.dbPath)}`);
+    throw new Error(`SQLite database file does not exist: ${import_node_path11.default.basename(config.dbPath)}`);
   }
   if (!exists && config.allowCreate) {
-    import_node_fs2.default.mkdirSync(import_node_path4.default.dirname(config.dbPath), { recursive: true });
+    import_node_fs6.default.mkdirSync(import_node_path11.default.dirname(config.dbPath), { recursive: true });
   }
   if (config.driver === "better-sqlite3") return openBetterSQLite(config);
   if (config.driver === "sqljs") return openSqlJsSQLite(config);
@@ -3701,7 +5530,7 @@ async function initializeSQLiteStorage() {
       sqliteConfig = resolveSQLiteStorageConfig();
       sqliteDbPath = sqliteConfig.dbPath;
       sqliteDb = await openSQLiteDriver(sqliteConfig);
-      assertQuickCheck("pre-migration");
+      assertQuickCheck2("pre-migration");
       withTransaction(() => {
         runSchemaMigration();
         migrateActivityExpiryColumns();
@@ -3723,7 +5552,7 @@ async function initializeSQLiteStorage() {
         if (sqliteConfig?.allowJsonImport) migrateFromJsonIfNeeded();
       }, "immediate");
       configureSQLiteConnection(sqliteConfig);
-      assertQuickCheck("post-migration");
+      assertQuickCheck2("post-migration");
       sqliteReady = true;
       sqliteLastError = null;
       console.log(
@@ -3772,7 +5601,7 @@ function readPragmaValue(name) {
   const row = one(`PRAGMA ${name}`) || {};
   return Object.values(row)[0];
 }
-function assertQuickCheck(stage) {
+function assertQuickCheck2(stage) {
   const rows = all("PRAGMA quick_check");
   const values = rows.map((row) => String(Object.values(row)[0] || "").toLowerCase());
   if (values.length !== 1 || values[0] !== "ok") {
@@ -4572,19 +6401,19 @@ function validateStudentDisplayName(value) {
 }
 
 // src/lib/serverLearningRuns.ts
-var import_node_crypto = __toESM(require("node:crypto"), 1);
+var import_node_crypto4 = __toESM(require("node:crypto"), 1);
 function normalizeRunKeyPart(value) {
   return String(value || "").normalize("NFKC").trim().slice(0, 240);
 }
 function deterministicRunDocumentId(prefix, parts) {
-  const digest = import_node_crypto.default.createHash("sha256").update(parts.map(normalizeRunKeyPart).join("")).digest("hex");
+  const digest = import_node_crypto4.default.createHash("sha256").update(parts.map(normalizeRunKeyPart).join("")).digest("hex");
   return `${prefix}-${digest.slice(0, 40)}`;
 }
 function normalizeClientStartedAt(value, fallback = (/* @__PURE__ */ new Date()).toISOString()) {
   const parsed = new Date(String(value || ""));
   if (Number.isNaN(parsed.getTime())) return fallback;
-  const now = Date.now();
-  const clamped = Math.max(now - 24 * 60 * 60 * 1e3, Math.min(now, parsed.getTime()));
+  const now2 = Date.now();
+  const clamped = Math.max(now2 - 24 * 60 * 60 * 1e3, Math.min(now2, parsed.getTime()));
   return new Date(clamped).toISOString();
 }
 
@@ -4648,10 +6477,10 @@ function getQuizQuestionText(item, questionType) {
 }
 
 // src/server/learning-history/learningHistoryRouter.ts
-var import_express = __toESM(require("express"), 1);
+var import_express3 = __toESM(require("express"), 1);
 
 // src/server/learning-history/learningHistoryAuth.ts
-var import_node_crypto4 = __toESM(require("node:crypto"), 1);
+var import_node_crypto7 = __toESM(require("node:crypto"), 1);
 
 // src/shared/competition/types.ts
 var SUBJECT_LABELS = { english: "IOE Ti\u1EBFng Anh", math: "To\xE1n", "math-english": "To\xE1n Ti\u1EBFng Anh", vietnamese: "Ti\u1EBFng Vi\u1EC7t" };
@@ -4730,7 +6559,7 @@ function competitionReviewDetail(input) {
 }
 
 // src/server/speaking/sessions.ts
-var import_node_crypto3 = __toESM(require("node:crypto"), 1);
+var import_node_crypto6 = __toESM(require("node:crypto"), 1);
 
 // src/shared/speaking/types.ts
 var KIND_LABELS = { word: "T\u1EEB v\u1EF1ng", sentence: "C\xE2u", dialogue: "H\u1ED9i tho\u1EA1i", passage: "\u0110o\u1EA1n v\u0103n" };
@@ -4815,7 +6644,7 @@ function publicLesson(lesson) {
 }
 
 // src/server/speaking/repository.ts
-var import_node_crypto2 = __toESM(require("node:crypto"), 1);
+var import_node_crypto5 = __toESM(require("node:crypto"), 1);
 var queryAll = sqliteQueryAll;
 var queryOne = sqliteQueryOne;
 var transaction = sqliteImmediateTransaction;
@@ -4859,15 +6688,15 @@ async function lessonPage(actor, grade, kind, search = "", page = 1) {
   return { items: await listLessons(actor, grade, kind, search, page, 30), total: count?.n || 0, page, pageSize: 30 };
 }
 async function saveLesson(actor, input, id2, revision) {
-  const data = normalizeLesson(input), now = (/* @__PURE__ */ new Date()).toISOString();
+  const data = normalizeLesson(input), now2 = (/* @__PURE__ */ new Date()).toISOString();
   return transaction((db) => {
     const row = id2 ? db.one("SELECT data_json FROM speaking_lessons WHERE id=?", [id2]) : void 0;
     const previous = id2 ? owned(row ? decode(row) : void 0, actor) : void 0;
     if (previous && previous.revision !== revision) throw new SpeakingError(409, "REVISION_CONFLICT", "B\xE0i \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EEDa \u1EDF n\u01A1i kh\xE1c. H\xE3y t\u1EA3i l\u1EA1i.");
-    const lesson = { ...data, id: previous?.id || import_node_crypto2.default.randomUUID(), ownerId: previous?.ownerId || actor.id, revision: (previous?.revision || 0) + 1, versionId: "", status: "draft", createdAt: previous?.createdAt || now, updatedAt: now };
+    const lesson = { ...data, id: previous?.id || import_node_crypto5.default.randomUUID(), ownerId: previous?.ownerId || actor.id, revision: (previous?.revision || 0) + 1, versionId: "", status: "draft", createdAt: previous?.createdAt || now2, updatedAt: now2 };
     db.run(
       "INSERT INTO speaking_lessons(id,owner_id,status,grade,kind,revision,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,grade=excluded.grade,kind=excluded.kind,revision=excluded.revision,updated_at=excluded.updated_at,data_json=excluded.data_json",
-      [lesson.id, lesson.ownerId, lesson.status, lesson.grade, lesson.kind, lesson.revision, lesson.createdAt, now, JSON.stringify(lesson)]
+      [lesson.id, lesson.ownerId, lesson.status, lesson.grade, lesson.kind, lesson.revision, lesson.createdAt, now2, JSON.stringify(lesson)]
     );
     return lesson;
   });
@@ -4997,8 +6826,8 @@ async function prepareSession(actor, studentName, lessonId, clientRunId, context
     }
     const active = db.one("SELECT COUNT(*) n FROM speaking_sessions WHERE owner_key=? AND status='in_progress'", [actor.ownerKey]);
     if ((active?.n || 0) >= 10) throw new SpeakingError(429, "SESSION_LIMIT", "H\xE3y ho\xE0n th\xE0nh c\xE1c b\u1ED9 \u0111ang h\u1ECDc tr\u01B0\u1EDBc khi m\u1EDF l\u01B0\u1EE3t m\u1EDBi.");
-    const id2 = import_node_crypto3.default.randomUUID(), now = (/* @__PURE__ */ new Date()).toISOString();
-    db.run("INSERT INTO speaking_sessions(id,owner_key,lesson_id,version_id,client_run_id,status,student_name,user_id,guest_id,class_id,class_name,total_items,created_at,data_json) VALUES (?,?,?,?,?,'in_progress',?,?,?,?,?,?,?,?)", [id2, actor.ownerKey, lessonId, snapshot.versionId, clientRunId, studentName, actor.kind === "user" ? actor.id : null, actor.kind === "guest" ? actor.id : null, context.classId || null, context.className || "", items.length, now, JSON.stringify({ lesson: snapshot })]);
+    const id2 = import_node_crypto6.default.randomUUID(), now2 = (/* @__PURE__ */ new Date()).toISOString();
+    db.run("INSERT INTO speaking_sessions(id,owner_key,lesson_id,version_id,client_run_id,status,student_name,user_id,guest_id,class_id,class_name,total_items,created_at,data_json) VALUES (?,?,?,?,?,'in_progress',?,?,?,?,?,?,?,?)", [id2, actor.ownerKey, lessonId, snapshot.versionId, clientRunId, studentName, actor.kind === "user" ? actor.id : null, actor.kind === "guest" ? actor.id : null, context.classId || null, context.className || "", items.length, now2, JSON.stringify({ lesson: snapshot })]);
     return sessionView(db, sessionRow(db, id2, actor));
   });
 }
@@ -5076,14 +6905,14 @@ function pointInListeningRegion(point, region) {
     return dx * dx + dy * dy <= 1 + EPSILON;
   }
   if (region.shape === "polygon" && region.points?.length) {
-    let inside = false;
+    let inside2 = false;
     for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
       const a = region.points[index];
       const b = region.points[previous];
       const crosses = a.y > point.y !== b.y > point.y && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y || EPSILON) + a.x;
-      if (crosses) inside = !inside;
+      if (crosses) inside2 = !inside2;
     }
-    return inside;
+    return inside2;
   }
   return point.x >= region.x - EPSILON && point.x <= region.x + region.width + EPSILON && point.y >= region.y - EPSILON && point.y <= region.y + region.height + EPSILON;
 }
@@ -6942,8 +8771,8 @@ function resolveListeningPart5SubmittedActions(actions, answers) {
   const placeAnswers = submittedAnswers.filter((answer) => answer.type === "place_object");
   placeActions.forEach((action) => {
     if (resolved.has(action.id)) return;
-    const inside = placeAnswers.filter((answer) => !usedAnswers.has(answer) && pointInListeningRegion(answer.anchor, action.targetRegion));
-    assign(action, inside.find((answer) => answer.paletteItemId === action.correctPaletteItemId) || inside[0]);
+    const inside2 = placeAnswers.filter((answer) => !usedAnswers.has(answer) && pointInListeningRegion(answer.anchor, action.targetRegion));
+    assign(action, inside2.find((answer) => answer.paletteItemId === action.correctPaletteItemId) || inside2[0]);
   });
   placeActions.forEach((action) => {
     if (resolved.has(action.id)) return;
@@ -8496,9 +10325,9 @@ function safeGuestId(value) {
 function tokenMatches(token, expectedHash) {
   if (!token || token.length < 32 || token.length > 512) return false;
   if (!/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
-  const actual = import_node_crypto4.default.createHash("sha256").update(token).digest();
+  const actual = import_node_crypto7.default.createHash("sha256").update(token).digest();
   const expected = Buffer.from(expectedHash, "hex");
-  return actual.length === expected.length && import_node_crypto4.default.timingSafeEqual(actual, expected);
+  return actual.length === expected.length && import_node_crypto7.default.timingSafeEqual(actual, expected);
 }
 async function resolveLearningHistoryActor(req) {
   const user = req.user;
@@ -8903,7 +10732,7 @@ function validateAttemptId(value) {
 }
 
 // src/server/learning-history/learningHistoryRouter.ts
-function errorStatus(error) {
+function errorStatus2(error) {
   const status = Number(error?.status || error?.statusCode || 500);
   return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500;
 }
@@ -8944,7 +10773,7 @@ function withHistoryTiming(label, slowRequestMs, handler) {
   };
 }
 function createLearningHistoryRouter(options2) {
-  const router = import_express.default.Router();
+  const router = import_express3.default.Router();
   const slowRequestMs = Math.max(0, Number(options2.slowRequestMs || 500));
   router.use((_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -8969,7 +10798,7 @@ function createLearningHistoryRouter(options2) {
         const response = await getLearningHistory(actor, filters);
         res.json(response);
       } catch (error) {
-        const status = errorStatus(error);
+        const status = errorStatus2(error);
         res.status(status).json(errorBody(error, status));
       }
     }
@@ -8984,7 +10813,7 @@ function createLearningHistoryRouter(options2) {
         const response = await getLearningHistoryDetail(actor, attemptId, options2);
         res.json(response);
       } catch (error) {
-        const status = errorStatus(error);
+        const status = errorStatus2(error);
         res.status(status).json(errorBody(error, status));
       }
     }
@@ -8993,20 +10822,20 @@ function createLearningHistoryRouter(options2) {
 }
 
 // src/server/listening-library/router.ts
-var import_express3 = __toESM(require("express"), 1);
+var import_express5 = __toESM(require("express"), 1);
 
 // src/server/listening/listeningRouter.ts
 var import_crypto = __toESM(require("crypto"), 1);
-var import_express2 = __toESM(require("express"), 1);
+var import_express4 = __toESM(require("express"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_path3 = __toESM(require("path"), 1);
 
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
-function validateRegion(region, path14, errors) {
+function validateRegion(region, path21, errors) {
   if (!region || !["rect", "ellipse", "polygon"].includes(region.shape)) {
-    errors.push(`${path14}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path21}: v\xF9ng t\u01B0\u01A1ng t\xE1c kh\xF4ng h\u1EE3p l\u1EC7.`);
     return;
   }
   for (const [key2, value] of Object.entries({
@@ -9016,25 +10845,25 @@ function validateRegion(region, path14, errors) {
     height: region.height
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      errors.push(`${path14}.${key2}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+      errors.push(`${path21}.${key2}: ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
     }
   }
   if (region.width <= 0 || region.height <= 0 || region.x + region.width > 1 || region.y + region.height > 1) {
-    errors.push(`${path14}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
+    errors.push(`${path21}: v\xF9ng t\u01B0\u01A1ng t\xE1c v\u01B0\u1EE3t ra ngo\xE0i h\xECnh.`);
   }
   if (region.shape === "polygon") {
     if (!Array.isArray(region.points) || region.points.length < 3) {
-      errors.push(`${path14}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
+      errors.push(`${path21}: polygon c\u1EA7n \xEDt nh\u1EA5t 3 \u0111i\u1EC3m.`);
     } else {
       region.points.forEach((point, index) => {
         if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) {
-          errors.push(`${path14}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
+          errors.push(`${path21}.points[${index}]: \u0111i\u1EC3m ph\u1EA3i n\u1EB1m trong kho\u1EA3ng 0\u20131.`);
         }
       });
     }
   }
   if (region && !isValidListeningRegion(region)) {
-    errors.push(`${path14}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
+    errors.push(`${path21}: h\xECnh h\u1ECDc r\u1ED7ng, t\u1EF1 c\u1EAFt ho\u1EB7c kh\xF4ng h\u1EE3p l\u1EC7.`);
   }
 }
 function regionsOverlap(a, b) {
@@ -9044,12 +10873,12 @@ function regionsOverlap(a, b) {
   const bottom = Math.min(a.y + a.height, b.y + b.height);
   return right - left > 0.01 && bottom - top > 0.01;
 }
-function validateRegionCollection(items, path14, errors) {
-  items.forEach((item, index) => validateRegion(item.region, `${path14}[${index}].region`, errors));
+function validateRegionCollection(items, path21, errors) {
+  items.forEach((item, index) => validateRegion(item.region, `${path21}[${index}].region`, errors));
   for (let first = 0; first < items.length; first += 1) {
     for (let second = first + 1; second < items.length; second += 1) {
       if (regionsOverlap(items[first].region, items[second].region)) {
-        errors.push(`${path14}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
+        errors.push(`${path21}: v\xF9ng "${items[first].id}" ch\u1ED3ng l\xEAn v\xF9ng "${items[second].id}".`);
       }
     }
   }
@@ -9368,7 +11197,7 @@ function sanitizeListeningContentForStudent(content) {
 }
 
 // src/server/listening-smart-import/service.ts
-var import_node_crypto5 = __toESM(require("node:crypto"), 1);
+var import_node_crypto8 = __toESM(require("node:crypto"), 1);
 
 // src/features/listening-library/modules/mover/editor/colourCatalog.ts
 var MOVER_COLOUR_CATALOG = [
@@ -9943,9 +11772,9 @@ function part1TransformedGeometryPoint(entry, expectedEntry, questionScene, posi
   const subjectRegion = normalizedRegion(expectedEntry?.questionSubjectRegion);
   const endpoints = list(entry?.lineEndpoints).map(normalizedPoint).filter(Boolean);
   if (!expectedPoint || !subjectRegion || endpoints.length !== 2 || !questionScene || !positionScene) return void 0;
-  const inside = endpoints.filter((point) => pointInListeningRegion(point, positionScene));
-  if (inside.length !== 1) return void 0;
-  const transformed = transformListeningPoint(inside[0], positionScene, questionScene);
+  const inside2 = endpoints.filter((point) => pointInListeningRegion(point, positionScene));
+  if (inside2.length !== 1) return void 0;
+  const transformed = transformListeningPoint(inside2[0], positionScene, questionScene);
   return transformed && pointInListeningRegion(transformed, questionScene) && pointNearListeningRegion(transformed, subjectRegion, 0.08) && part1PointDistance(transformed, expectedPoint) <= 0.12 ? transformed : void 0;
 }
 function part1GeometryEvidenceIsUsable(entry, expectedEntry, questionScene, positionScene) {
@@ -9987,9 +11816,9 @@ function verifiedPart1GeometryExample(raw, contentRaw, questionScene) {
   const printedNames = list(contentRaw?.printedNames).map((entry) => cleanText(entry?.label ?? entry, 120)).filter(Boolean);
   const endpoints = list(raw?.example?.lineEndpoints).map(normalizedPoint).filter(Boolean);
   if (!label || !expectedLabel || comparable(label) !== comparable(expectedLabel) || !printedNames.some((name) => comparable(name) === comparable(label)) || !questionScene || endpoints.length !== 2 || clamp3(raw?.example?.confidence, 0) < 0.8) return void 0;
-  const inside = endpoints.filter((point) => pointInListeningRegion(point, questionScene));
-  if (inside.length !== 1) return void 0;
-  return { label, targetPoint: inside[0], confidence: clamp3(raw?.example?.confidence, 0.8) };
+  const inside2 = endpoints.filter((point) => pointInListeningRegion(point, questionScene));
+  if (inside2.length !== 1) return void 0;
+  return { label, targetPoint: inside2[0], confidence: clamp3(raw?.example?.confidence, 0.8) };
 }
 function verifiedPart1QuestionExample(raw, contentRaw) {
   const questionScene = normalizedRegion(contentRaw?.questionScene);
@@ -10661,9 +12490,9 @@ async function createListeningSmartImportCandidate(input) {
   const selectedProvider = input.preferredProvider || DEFAULT_SMART_IMPORT_AI_PROVIDER_ID;
   let raw;
   if (input.images.length && input.analyzeVision) {
-    const requestId = `limport-analysis-${import_node_crypto5.default.randomUUID()}`;
+    const requestId = `limport-analysis-${import_node_crypto8.default.randomUUID()}`;
     const usedProviders = /* @__PURE__ */ new Set();
-    const analyzeAndParse = async (prompt, images, schema, schemaName, validateResponse) => {
+    const analyzeAndParse = async (prompt, images, schema2, schemaName, validateResponse) => {
       let parsed;
       let lastParseError = "";
       for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -10673,7 +12502,7 @@ Your previous response was not valid for the required JSON schema and extraction
         try {
           result = await input.analyzeVision(prompt + retryInstruction, images, {
             preferredProvider: selectedProvider,
-            responseJsonSchema: schema,
+            responseJsonSchema: schema2,
             schemaName,
             requestId,
             attempt
@@ -10702,7 +12531,7 @@ Your previous response was not valid for the required JSON schema and extraction
         } catch (reason) {
           const returnedProvider = cleanText(result.provider, 60) || "AI";
           lastParseError = cleanText(reason?.message || "JSON kh\xF4ng h\u1EE3p l\u1EC7.", 240);
-          const digest = import_node_crypto5.default.createHash("sha256").update(result.text).digest("hex").slice(0, 16);
+          const digest = import_node_crypto8.default.createHash("sha256").update(result.text).digest("hex").slice(0, 16);
           console.warn(`[ListeningSmartImport] request=${requestId} part=${input.part} schema=${schemaName} provider=${returnedProvider} attempt=${attempt} invalid-response length=${result.text.length} sha256=${digest}: ${lastParseError}`);
           if (attempt === 2) {
             const invalidJsonError = new Error(`Nh\xE0 cung c\u1EA5p AI tr\u1EA3 d\u1EEF li\u1EC7u kh\xF4ng h\u1EE3p l\u1EC7 cho Part ${input.part}. Draft ch\u01B0a \u0111\u01B0\u1EE3c thay \u0111\u1ED5i.`);
@@ -10896,7 +12725,7 @@ Your previous response was not valid for the required JSON schema and extraction
   warnings.push(...list(raw?.warnings).map((value) => cleanText(value, 500)).filter(Boolean));
   const data = normalizeData(input.part, raw, input.currentPart, warnings);
   return {
-    id: `limport-${import_node_crypto5.default.randomUUID()}`,
+    id: `limport-${import_node_crypto8.default.randomUUID()}`,
     moduleId: "mover",
     part: input.part,
     basePartHash: input.basePartHash,
@@ -10928,7 +12757,7 @@ function getListeningSmartImportRoleDefinitions(part2) {
 }
 
 // src/server/listening-pdf-import/manifest.ts
-var import_node_crypto6 = __toESM(require("node:crypto"), 1);
+var import_node_crypto9 = __toESM(require("node:crypto"), 1);
 var manifestSchema = {
   type: "object",
   additionalProperties: false,
@@ -11083,7 +12912,7 @@ async function createListeningPdfManifest(input) {
     error.status = 503;
     throw error;
   }
-  const requestId = `lpdf-manifest-${import_node_crypto6.default.randomUUID()}`;
+  const requestId = `lpdf-manifest-${import_node_crypto9.default.randomUUID()}`;
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
@@ -11119,9 +12948,9 @@ The previous manifest was invalid: ${lastError}. Re-read the visible PDF page la
 }
 
 // src/server/listening-pdf-import/transientSources.ts
-var import_node_crypto7 = __toESM(require("node:crypto"), 1);
-var import_node_fs3 = __toESM(require("node:fs"), 1);
-var import_node_path5 = __toESM(require("node:path"), 1);
+var import_node_crypto10 = __toESM(require("node:crypto"), 1);
+var import_node_fs7 = __toESM(require("node:fs"), 1);
+var import_node_path12 = __toESM(require("node:path"), 1);
 var SUPPORTED_MIME_TYPES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp"]);
 var EXTENSIONS = {
   "image/jpeg": ".jpg",
@@ -11131,20 +12960,20 @@ var EXTENSIONS = {
 var safeEqual = (left, right) => {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && import_node_crypto7.default.timingSafeEqual(leftBuffer, rightBuffer);
+  return leftBuffer.length === rightBuffer.length && import_node_crypto10.default.timingSafeEqual(leftBuffer, rightBuffer);
 };
 var sourcePath = (directory, payload) => {
   const extension = EXTENSIONS[payload.mimeType];
   if (!extension || !/^[0-9a-f-]{36}$/i.test(payload.sourceId)) throw new Error("Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
-  const root = import_node_path5.default.resolve(directory);
-  const filePath = import_node_path5.default.resolve(directory, `${payload.sourceId}${extension}`);
-  if (!filePath.startsWith(`${root}${import_node_path5.default.sep}`)) throw new Error("\u0110\u01B0\u1EDDng d\u1EABn ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
+  const root = import_node_path12.default.resolve(directory);
+  const filePath = import_node_path12.default.resolve(directory, `${payload.sourceId}${extension}`);
+  if (!filePath.startsWith(`${root}${import_node_path12.default.sep}`)) throw new Error("\u0110\u01B0\u1EDDng d\u1EABn ngu\u1ED3n PDF t\u1EA1m kh\xF4ng h\u1EE3p l\u1EC7.");
   return filePath;
 };
 function createListeningPdfTransientSourceStore(options2) {
   const ttlMs = Math.min(30 * 60 * 1e3, Math.max(60 * 1e3, options2.ttlMs || 10 * 60 * 1e3));
-  import_node_fs3.default.mkdirSync(options2.directory, { recursive: true });
-  const sign = (encoded) => import_node_crypto7.default.createHmac("sha256", options2.secret).update(`listening-pdf-source:${encoded}`).digest("base64url");
+  import_node_fs7.default.mkdirSync(options2.directory, { recursive: true });
+  const sign = (encoded) => import_node_crypto10.default.createHmac("sha256", options2.secret).update(`listening-pdf-source:${encoded}`).digest("base64url");
   const decode3 = (token, ownerId) => {
     const [encoded, signature, extra] = String(token || "").split(".");
     if (!encoded || !signature || extra || !safeEqual(signature, sign(encoded))) {
@@ -11162,7 +12991,7 @@ function createListeningPdfTransientSourceStore(options2) {
   };
   const removePayload = async (payload) => {
     const filePath = sourcePath(options2.directory, payload);
-    await import_node_fs3.default.promises.rm(filePath, { force: true });
+    await import_node_fs7.default.promises.rm(filePath, { force: true });
   };
   return {
     async create(ownerId, mimeType, data) {
@@ -11171,14 +13000,14 @@ function createListeningPdfTransientSourceStore(options2) {
       }
       const payload = {
         version: 1,
-        sourceId: import_node_crypto7.default.randomUUID(),
+        sourceId: import_node_crypto10.default.randomUUID(),
         ownerId,
         mimeType,
         expiresAt: Date.now() + ttlMs
       };
       const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
       const filePath = sourcePath(options2.directory, payload);
-      await import_node_fs3.default.promises.writeFile(filePath, data, { flag: "wx" });
+      await import_node_fs7.default.promises.writeFile(filePath, data, { flag: "wx" });
       const cleanupTimer = setTimeout(() => {
         void removePayload(payload);
       }, ttlMs + 1e3);
@@ -11190,7 +13019,7 @@ function createListeningPdfTransientSourceStore(options2) {
       const filePath = sourcePath(options2.directory, payload);
       let data;
       try {
-        data = await import_node_fs3.default.promises.readFile(filePath);
+        data = await import_node_fs7.default.promises.readFile(filePath);
       } catch (reason) {
         if (reason?.code === "ENOENT") throw new Error("Ngu\u1ED3n PDF t\u1EA1m kh\xF4ng c\xF2n t\u1ED3n t\u1EA1i. Vui l\xF2ng t\u1EA3i l\u1EA1i.");
         throw reason;
@@ -11532,7 +13361,7 @@ function createListeningRouter(dependencies) {
     logAudit,
     smartImport
   } = dependencies;
-  const router = import_express2.default.Router();
+  const router = import_express4.default.Router();
   const draftLocks = /* @__PURE__ */ new Map();
   const smartImportUsage = /* @__PURE__ */ new Map();
   const pdfImportSources = createListeningPdfTransientSourceStore({
@@ -11594,7 +13423,7 @@ function createListeningRouter(dependencies) {
     "/admin/assets",
     authenticateUser2,
     requireStaff,
-    import_express2.default.raw({ type: Object.keys(MIME_EXTENSIONS), limit: AUDIO_MAX_BYTES }),
+    import_express4.default.raw({ type: Object.keys(MIME_EXTENSIONS), limit: AUDIO_MAX_BYTES }),
     async (req, res) => {
       let temporaryPath = "";
       try {
@@ -11652,7 +13481,7 @@ function createListeningRouter(dependencies) {
           if (!existing && sameOwner && sameDerivative) existing = data;
         });
         if (existing) return res.json(existing);
-        const now = nowIso2();
+        const now2 = nowIso2();
         const asset = {
           id: identifier("lasset"),
           ownerId: req.user.id,
@@ -11671,8 +13500,8 @@ function createListeningRouter(dependencies) {
           url: `${mediaPublicPrefix}/${storageKey}`,
           ...derivedFromAssetId && crop ? { derivedFromAssetId, crop } : {},
           status: "active",
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         };
         await db.collection("listening_assets").doc(asset.id).set(asset);
         res.status(201).json(asset);
@@ -11703,7 +13532,7 @@ function createListeningRouter(dependencies) {
     "/admin/pdf-import/sources",
     authenticateUser2,
     requireStaff,
-    import_express2.default.raw({ type: PDF_IMPORT_SOURCE_MIME_TYPES, limit: IMAGE_MAX_BYTES }),
+    import_express4.default.raw({ type: PDF_IMPORT_SOURCE_MIME_TYPES, limit: IMAGE_MAX_BYTES }),
     async (req, res) => {
       try {
         if (!req.user) throw apiError(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
@@ -11979,7 +13808,7 @@ function createListeningRouter(dependencies) {
       const rawContent = req.body?.content;
       if (!rawContent || rawContent.schemaVersion !== 1) throw apiError(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
       const content = withMoverContentMetadata(rawContent);
-      const now = nowIso2();
+      const now2 = nowIso2();
       const set = {
         id: identifier("listen"),
         moduleId: DEFAULT_LISTENING_MODULE_ID,
@@ -11995,8 +13824,8 @@ function createListeningRouter(dependencies) {
         draftRevision: 1,
         draftContent: content,
         validationErrors: validateListeningSetContent(content),
-        createdAt: now,
-        updatedAt: now
+        createdAt: now2,
+        updatedAt: now2
       };
       await db.collection("listening_sets").doc(set.id).set(set);
       await logAudit?.(req.user.id, req.user.name, req.user.email, "CREATE_LISTENING_SET", `T\u1EA1o b\u1ED9 \u0111\u1EC1 nghe "${set.title}".`);
@@ -12033,7 +13862,7 @@ function createListeningRouter(dependencies) {
         ...structuredClone(sourceContent),
         title: cloneTitle
       });
-      const now = nowIso2();
+      const now2 = nowIso2();
       const clone = {
         id: identifier("listen"),
         moduleId: DEFAULT_LISTENING_MODULE_ID,
@@ -12049,8 +13878,8 @@ function createListeningRouter(dependencies) {
         draftRevision: 1,
         draftContent: content,
         validationErrors: validateListeningSetContent(content),
-        createdAt: now,
-        updatedAt: now
+        createdAt: now2,
+        updatedAt: now2
       };
       await db.collection("listening_sets").doc(clone.id).set(clone);
       await logAudit?.(
@@ -12190,7 +14019,7 @@ function createListeningRouter(dependencies) {
       versionsSnapshot.forEach((document) => {
         versionNumber = Math.max(versionNumber, Number(document.data()?.versionNumber || 0) + 1);
       });
-      const now = nowIso2();
+      const now2 = nowIso2();
       const version = {
         id: identifier("listenver"),
         moduleId: DEFAULT_LISTENING_MODULE_ID,
@@ -12200,9 +14029,9 @@ function createListeningRouter(dependencies) {
         versionNumber,
         status: "published",
         content: resolved.content,
-        createdAt: now,
-        updatedAt: now,
-        publishedAt: now
+        createdAt: now2,
+        updatedAt: now2,
+        publishedAt: now2
       };
       const batch = db.batch();
       batch.set(db.collection("listening_set_versions").doc(version.id), version);
@@ -12211,7 +14040,7 @@ function createListeningRouter(dependencies) {
         if (previous) {
           batch.update(db.collection("listening_set_versions").doc(previous.id), {
             status: "superseded",
-            updatedAt: now
+            updatedAt: now2
           });
         }
       }
@@ -12231,7 +14060,7 @@ function createListeningRouter(dependencies) {
         publishedVersionId: version.id,
         publishedVersionNumber: versionNumber,
         validationErrors: [],
-        updatedAt: now
+        updatedAt: now2
       };
       batch.set(db.collection("listening_sets").doc(set.id), publishedSet);
       resolved.references.forEach((reference2) => {
@@ -12243,8 +14072,8 @@ function createListeningRouter(dependencies) {
           versionId: version.id,
           entityId: reference2.entityId,
           role: reference2.role,
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         });
       });
       await batch.commit();
@@ -13779,14 +15608,14 @@ function pointInRegion(point, region) {
     return dx * dx + dy * dy <= 1;
   }
   if (region.shape === "polygon" && region.points?.length) {
-    let inside = false;
+    let inside2 = false;
     for (let index = 0, previous = region.points.length - 1; index < region.points.length; previous = index++) {
       const currentPoint = region.points[index];
       const previousPoint = region.points[previous];
       const crosses = currentPoint.y > point.y !== previousPoint.y > point.y && point.x < (previousPoint.x - currentPoint.x) * (point.y - currentPoint.y) / (previousPoint.y - currentPoint.y || Number.EPSILON) + currentPoint.x;
-      if (crosses) inside = !inside;
+      if (crosses) inside2 = !inside2;
     }
-    return inside;
+    return inside2;
   }
   return point.x >= region.x && point.x <= region.x + region.width && point.y >= region.y && point.y <= region.y + region.height;
 }
@@ -14008,7 +15837,7 @@ function markAiWritingFailed(grade, questionId) {
 
 // src/server/listening-library/router.ts
 function createListeningLibraryRouter() {
-  const router = import_express3.default.Router();
+  const router = import_express5.default.Router();
   router.get("/modules", (_req, res) => {
     res.json(getVisibleListeningModules().map(publicListeningModuleManifest));
   });
@@ -14033,7 +15862,7 @@ function createListeningLibraryRouter() {
 
 // src/server/mover-reading-writing/moverReadingWritingRouter.ts
 var import_crypto2 = __toESM(require("crypto"), 1);
-var import_express4 = __toESM(require("express"), 1);
+var import_express6 = __toESM(require("express"), 1);
 var import_fs4 = __toESM(require("fs"), 1);
 var import_path4 = __toESM(require("path"), 1);
 
@@ -14365,7 +16194,7 @@ function sanitizeMoverReadingWritingAnswers(inputContent, input) {
 }
 
 // src/server/mover-reading-writing/moverReadingWritingSmartImportService.ts
-var import_node_crypto8 = __toESM(require("node:crypto"), 1);
+var import_node_crypto11 = __toESM(require("node:crypto"), 1);
 
 // src/features/exam-platform/chatGptJsonOutput.ts
 var CHATGPT_COPYABLE_JSON_OUTPUT_INSTRUCTION = [
@@ -14380,33 +16209,33 @@ var CHATGPT_COPYABLE_JSON_OUTPUT_INSTRUCTION = [
 var schemaId = (part2) => `mover-rw-part${part2}-external-v${part2 === 6 ? 3 : part2 === 1 || part2 === 5 ? 2 : 1}`;
 var isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 var cleanText2 = (value, max = 2e4) => typeof value === "string" ? value.normalize("NFKC").replace(/\r\n?/g, "\n").trim().slice(0, max) : "";
-function fail(message) {
+function fail2(message) {
   const error = new Error(message);
   error.status = 400;
   throw error;
 }
 function objectAt(value, label) {
-  if (!isObject(value)) fail(`${label} ph\u1EA3i l\xE0 object JSON.`);
+  if (!isObject(value)) fail2(`${label} ph\u1EA3i l\xE0 object JSON.`);
   return value;
 }
 function assertKeys(value, allowed, label) {
   const extras = Object.keys(value).filter((key2) => !allowed.includes(key2));
-  if (extras.length) fail(`${label} c\xF3 tr\u01B0\u1EDDng kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3: ${extras.join(", ")}.`);
+  if (extras.length) fail2(`${label} c\xF3 tr\u01B0\u1EDDng kh\xF4ng \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3: ${extras.join(", ")}.`);
   if (Object.keys(value).some((key2) => /(^id$|Id$|uuid|database|technical)/i.test(key2))) {
-    fail(`${label} kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a ID k\u1EF9 thu\u1EADt.`);
+    fail2(`${label} kh\xF4ng \u0111\u01B0\u1EE3c ch\u1EE9a ID k\u1EF9 thu\u1EADt.`);
   }
 }
 function arrayAt(value, label) {
-  if (!Array.isArray(value)) fail(`${label} ph\u1EA3i l\xE0 m\u1EA3ng JSON.`);
+  if (!Array.isArray(value)) fail2(`${label} ph\u1EA3i l\xE0 m\u1EA3ng JSON.`);
   return value;
 }
 function exactNumbered(rows, count, label) {
   const numbers = rows.map((row) => row.questionNumber);
   const expected = Array.from({ length: count }, (_, index) => index + 1);
   if (numbers.length !== count || numbers.some((number2) => !Number.isInteger(number2)) || new Set(numbers).size !== count) {
-    fail(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ${count} s\u1ED1 th\u1EE9 t\u1EF1 kh\xF4ng tr\xF9ng.`);
+    fail2(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ${count} s\u1ED1 th\u1EE9 t\u1EF1 kh\xF4ng tr\xF9ng.`);
   }
-  if (expected.some((number2) => !numbers.includes(number2))) fail(`${label} ph\u1EA3i \u0111\xE1nh s\u1ED1 li\xEAn t\u1EE5c t\u1EEB 1 \u0111\u1EBFn ${count}.`);
+  if (expected.some((number2) => !numbers.includes(number2))) fail2(`${label} ph\u1EA3i \u0111\xE1nh s\u1ED1 li\xEAn t\u1EE5c t\u1EEB 1 \u0111\u1EBFn ${count}.`);
   return [...rows].sort((first, second) => first.questionNumber - second.questionNumber);
 }
 function answersAt(value, label, warnings, maxWords) {
@@ -14414,7 +16243,7 @@ function answersAt(value, label, warnings, maxWords) {
   const answers = [...new Set(rows)];
   if (!answers.length) warnings.push(`${label}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c \u0111\xE1p \xE1n; d\u1EEF li\u1EC7u hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
   if (maxWords && answers.some((answer) => answer.split(/\s+/).filter(Boolean).length > maxWords)) {
-    fail(`${label}: m\u1ED7i \u0111\xE1p \xE1n t\u1ED1i \u0111a ${maxWords} t\u1EEB.`);
+    fail2(`${label}: m\u1ED7i \u0111\xE1p \xE1n t\u1ED1i \u0111a ${maxWords} t\u1EEB.`);
   }
   return answers;
 }
@@ -14453,7 +16282,7 @@ function choiceQuestionAt(value, label, warnings, withNumber) {
   if (withNumber) allowed.unshift("questionNumber");
   assertKeys(row, allowed, label);
   const rawOptions = arrayAt(row.options, `${label} l\u1EF1a ch\u1ECDn`);
-  if (rawOptions.length !== 3) fail(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
+  if (rawOptions.length !== 3) fail2(`${label} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
   const options2 = rawOptions.map((option) => cleanText2(option, 500));
   if (options2.some((option) => !option)) warnings.push(`${label}: c\xF3 l\u1EF1a ch\u1ECDn ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c; n\u1ED9i dung hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
   const result = {
@@ -14469,20 +16298,20 @@ function choiceQuestionAt(value, label, warnings, withNumber) {
 function validateQuestionMarker(template, number2, label) {
   const markers = [...template.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
   if (markers.length !== 1 || markers[0] !== String(number2)) {
-    fail(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t marker [[${number2}]].`);
+    fail2(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t marker [[${number2}]].`);
   }
 }
 function validateMarkers(template, count, label) {
   const allMarkers = [...template.matchAll(/\[\[([^\]]+)\]\]/g)].map((match) => match[1].trim());
   const found = [...template.matchAll(/\[\[(\d+)\]\]/g)].map((match) => Number(match[1]));
   const expected = Array.from({ length: count }, (_, index) => index + 1);
-  if (allMarkers.length !== found.length || found.length !== count || new Set(found).size !== count || expected.some((number2) => !found.includes(number2))) fail(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t l\u1EA7n c\xE1c marker [[1]] \u0111\u1EBFn [[${count}]].`);
+  if (allMarkers.length !== found.length || found.length !== count || new Set(found).size !== count || expected.some((number2) => !found.includes(number2))) fail2(`${label} ph\u1EA3i ch\u1EE9a \u0111\xFAng m\u1ED9t l\u1EA7n c\xE1c marker [[1]] \u0111\u1EBFn [[${count}]].`);
 }
 function rootAt(part2, value, allowed) {
   const root = objectAt(value, `JSON Part ${part2}`);
   assertKeys(root, ["schema", "part", ...allowed], `JSON Part ${part2}`);
-  if (root.schema !== schemaId(part2)) fail(`schema ph\u1EA3i l\xE0 "${schemaId(part2)}".`);
-  if (Number(root.part) !== part2) fail(`D\u1EEF li\u1EC7u kh\xF4ng thu\u1ED9c Part ${part2}.`);
+  if (root.schema !== schemaId(part2)) fail2(`schema ph\u1EA3i l\xE0 "${schemaId(part2)}".`);
+  if (Number(root.part) !== part2) fail2(`D\u1EEF li\u1EC7u kh\xF4ng thu\u1ED9c Part ${part2}.`);
   return root;
 }
 function validateAndNormalizeMoverReadingWritingImport(part2, value) {
@@ -14555,14 +16384,14 @@ function validateAndNormalizeMoverReadingWritingImport(part2, value) {
       };
     });
     if (scenes.length !== 3 || new Set(scenes.map((scene) => scene.sceneNumber)).size !== 3 || [1, 2, 3].some((number2) => !scenes.some((scene) => scene.sceneNumber === number2))) {
-      fail("Part 5 ph\u1EA3i c\xF3 \u0111\xFAng ba scene \u0111\xE1nh s\u1ED1 1, 2, 3.");
+      fail2("Part 5 ph\u1EA3i c\xF3 \u0111\xFAng ba scene \u0111\xE1nh s\u1ED1 1, 2, 3.");
     }
     const allQuestions = scenes.flatMap((scene) => scene.questions);
     exactNumbered(allQuestions, 10, "Part 5 questions");
     scenes.forEach((scene) => {
       scene.questions.sort((first, second) => first.questionNumber - second.questionNumber);
       if (!scene.passage) warnings.push(`Part 5 scene ${scene.sceneNumber}: ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c n\u1ED9i dung truy\u1EC7n.`);
-      if (!scene.questions.length) fail(`Part 5 scene ${scene.sceneNumber} ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u.`);
+      if (!scene.questions.length) fail2(`Part 5 scene ${scene.sceneNumber} ph\u1EA3i c\xF3 \xEDt nh\u1EA5t m\u1ED9t c\xE2u.`);
     });
     return { data: { part: part2, title: cleanText2(root2.title, 160), instruction: cleanText2(root2.instruction, 1e3), example: exampleAt(root2.example, "Part 5 example", warnings), scenes: scenes.sort((a, b) => a.sceneNumber - b.sceneNumber) }, warnings };
   }
@@ -14572,7 +16401,7 @@ function validateAndNormalizeMoverReadingWritingImport(part2, value) {
       const row = objectAt(value2, `Part 6 c\xE2u ${index + 1}`);
       assertKeys(row, ["questionNumber", "options", "correctOption"], `Part 6 c\xE2u ${index + 1}`);
       const rawOptions = arrayAt(row.options, `Part 6 c\xE2u ${index + 1} l\u1EF1a ch\u1ECDn`);
-      if (rawOptions.length !== 3) fail(`Part 6 c\xE2u ${index + 1} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
+      if (rawOptions.length !== 3) fail2(`Part 6 c\xE2u ${index + 1} ph\u1EA3i c\xF3 \u0111\xFAng ba l\u1EF1a ch\u1ECDn A/B/C.`);
       const options2 = rawOptions.map((option) => cleanText2(option, 500));
       if (options2.some((option) => !option)) warnings.push(`Part 6 c\xE2u ${index + 1}: c\xF3 l\u1EF1a ch\u1ECDn ch\u01B0a \u0111\u1ECDc \u0111\u01B0\u1EE3c; n\u1ED9i dung draft hi\u1EC7n c\xF3 s\u1EBD \u0111\u01B0\u1EE3c gi\u1EEF nguy\xEAn.`);
       return {
@@ -14666,7 +16495,7 @@ function providerRequestError(reason) {
   return error;
 }
 async function createMoverReadingWritingSmartImportCandidate(input) {
-  const requestId = import_node_crypto8.default.randomUUID();
+  const requestId = import_node_crypto11.default.randomUUID();
   let lastError = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const correction = attempt === 1 ? "" : [
@@ -14697,7 +16526,7 @@ async function createMoverReadingWritingSmartImportCandidate(input) {
       const normalized7 = validateAndNormalizeMoverReadingWritingImport(input.part, parseJson5(result.text));
       const providerWarnings = Array.isArray(result.errors) ? result.errors.map((error) => String(error).slice(0, 300)).filter(Boolean) : [];
       return {
-        id: `mrw-import-${import_node_crypto8.default.randomUUID()}`,
+        id: `mrw-import-${import_node_crypto11.default.randomUUID()}`,
         moduleId: "mover",
         paperId: "reading-writing",
         part: input.part,
@@ -14960,7 +16789,7 @@ function createMoverReadingWritingRouter(dependencies) {
     logAudit,
     smartImport
   } = dependencies;
-  const router = import_express4.default.Router();
+  const router = import_express6.default.Router();
   const draftLocks = /* @__PURE__ */ new Map();
   const smartImportUsage = /* @__PURE__ */ new Map();
   const transientSources = mediaDir ? createListeningPdfTransientSourceStore({
@@ -15002,7 +16831,7 @@ function createMoverReadingWritingRouter(dependencies) {
     "/admin/smart-import/sources",
     authenticateUser2,
     requireStaff,
-    import_express4.default.raw({ type: SMART_IMPORT_IMAGE_MIME_TYPES, limit: SMART_IMPORT_IMAGE_MAX_BYTES }),
+    import_express6.default.raw({ type: SMART_IMPORT_IMAGE_MIME_TYPES, limit: SMART_IMPORT_IMAGE_MAX_BYTES }),
     async (req, res) => {
       try {
         if (!req.user) throw apiError2(401, "Vui l\xF2ng \u0111\u0103ng nh\u1EADp.");
@@ -15177,7 +17006,7 @@ function createMoverReadingWritingRouter(dependencies) {
       const rawContent = req.body?.content;
       if (!rawContent || !isSupportedMoverReadingWritingSchemaVersion(rawContent.schemaVersion)) throw apiError2(400, "C\u1EA5u tr\xFAc b\u1ED9 \u0111\u1EC1 kh\xF4ng h\u1EE3p l\u1EC7.");
       const content = normalizeMoverReadingWritingContent(rawContent);
-      const now = nowIso3();
+      const now2 = nowIso3();
       const set = {
         id: identifier2("mrwset"),
         moduleId: "mover",
@@ -15193,8 +17022,8 @@ function createMoverReadingWritingRouter(dependencies) {
         draftRevision: 1,
         draftContent: content,
         validationErrors: validateMoverReadingWritingContent(content),
-        createdAt: now,
-        updatedAt: now
+        createdAt: now2,
+        updatedAt: now2
       };
       await db.collection("mover_reading_sets").doc(set.id).set(set);
       await logAudit?.(req.user.id, req.user.name, req.user.email, "CREATE_MOVER_READING_SET", `T\u1EA1o b\u1ED9 \u0111\u1EC1 Reading & Writing "${set.title}".`);
@@ -15328,7 +17157,7 @@ function createMoverReadingWritingRouter(dependencies) {
       const suffix = " (B\u1EA3n sao)";
       const cloneTitle = `${text4(source.title, 160 - suffix.length)}${suffix}`;
       const content = { ...normalizeMoverReadingWritingContent(sourceContent), title: cloneTitle };
-      const now = nowIso3();
+      const now2 = nowIso3();
       const clone = {
         id: identifier2("mrwset"),
         moduleId: "mover",
@@ -15344,8 +17173,8 @@ function createMoverReadingWritingRouter(dependencies) {
         draftRevision: 1,
         draftContent: content,
         validationErrors: validateMoverReadingWritingContent(content),
-        createdAt: now,
-        updatedAt: now
+        createdAt: now2,
+        updatedAt: now2
       };
       await db.collection("mover_reading_sets").doc(clone.id).set(clone);
       res.status(201).json(clone);
@@ -15369,7 +17198,7 @@ function createMoverReadingWritingRouter(dependencies) {
       versionsSnapshot.forEach((document) => {
         versionNumber = Math.max(versionNumber, Number(document.data()?.versionNumber || 0) + 1);
       });
-      const now = nowIso3();
+      const now2 = nowIso3();
       const version = {
         id: identifier2("mrwver"),
         setId: set.id,
@@ -15377,15 +17206,15 @@ function createMoverReadingWritingRouter(dependencies) {
         status: "published",
         schemaVersion: resolved.content.schemaVersion,
         content: resolved.content,
-        createdAt: now,
-        updatedAt: now,
-        publishedAt: now
+        createdAt: now2,
+        updatedAt: now2,
+        publishedAt: now2
       };
       const batch = db.batch();
       batch.set(db.collection("mover_reading_set_versions").doc(version.id), version);
       if (set.publishedVersionId) {
         const previous = await getVersion2(db, set.publishedVersionId);
-        if (previous) batch.update(db.collection("mover_reading_set_versions").doc(previous.id), { status: "superseded", updatedAt: now });
+        if (previous) batch.update(db.collection("mover_reading_set_versions").doc(previous.id), { status: "superseded", updatedAt: now2 });
       }
       const publishedSet = {
         ...set,
@@ -15399,7 +17228,7 @@ function createMoverReadingWritingRouter(dependencies) {
         publishedVersionId: version.id,
         publishedVersionNumber: versionNumber,
         validationErrors: [],
-        updatedAt: now
+        updatedAt: now2
       };
       batch.set(db.collection("mover_reading_sets").doc(set.id), publishedSet);
       resolved.references.forEach((reference2) => {
@@ -15411,8 +17240,8 @@ function createMoverReadingWritingRouter(dependencies) {
           versionId: version.id,
           entityId: reference2.entityId,
           role: reference2.role,
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         });
       });
       await batch.commit();
@@ -15692,7 +17521,7 @@ function createMoverReadingWritingRouter(dependencies) {
 
 // src/server/exam-platform/examRouter.ts
 var import_crypto3 = __toESM(require("crypto"), 1);
-var import_express6 = __toESM(require("express"), 1);
+var import_express8 = __toESM(require("express"), 1);
 
 // src/server/listening-smart-import/devQuotaProvider.ts
 var DEVQUOTA_PROVIDER_ID = "devquota:gpt-5.6-sol";
@@ -16134,8 +17963,8 @@ function getWritingGradingProviders(config) {
 }
 
 // src/server/exam-platform/starterSceneRouter.ts
-var import_node_crypto9 = __toESM(require("node:crypto"), 1);
-var import_express5 = __toESM(require("express"), 1);
+var import_node_crypto12 = __toESM(require("node:crypto"), 1);
+var import_express7 = __toESM(require("express"), 1);
 
 // src/features/listening-library/routes.ts
 function decodeSegment(value) {
@@ -16264,7 +18093,7 @@ var failure = (status, message) => Object.assign(new Error(message), { status })
 var settingId = (moduleId, paper2) => `${moduleId}-scene-${paper2}-v1`;
 var publicSet = (set) => set.status === "published" && set.visibility === "public";
 function createStarterSceneRouter({ db, authenticateUser: authenticateUser2, requireStaff }) {
-  const router = import_express5.default.Router(), locks = /* @__PURE__ */ new Map();
+  const router = import_express7.default.Router(), locks = /* @__PURE__ */ new Map();
   const manage = (user, set) => user?.role === "super_admin" || Boolean(set && user?.role === "teacher" && user.id === set.ownerId);
   const moduleParam = (req) => {
     const moduleId = req.params.moduleId || "starter";
@@ -16354,7 +18183,7 @@ function createStarterSceneRouter({ db, authenticateUser: authenticateUser2, req
         if (seenIds.has(value.id) || seenSets.has(value.setId)) throw failure(400, "M\u1ED9t b\xE0i ch\u1EC9 xu\u1EA5t hi\u1EC7n m\u1ED9t l\u1EA7n trong danh s\xE1ch.");
         seenIds.add(value.id);
         seenSets.add(value.setId);
-        return { id: prior ? prior.id : import_node_crypto9.default.randomUUID(), setId: value.setId };
+        return { id: prior ? prior.id : import_node_crypto12.default.randomUUID(), setId: value.setId };
       });
       if (req.user?.role !== "super_admin") {
         const foreign = (entry) => !manage(req.user, byId.get(entry.setId));
@@ -16657,7 +18486,7 @@ function attemptSummary(attempt) {
 }
 function createExamRouter(dependencies) {
   const { db, authenticateUser: authenticateUser2, authenticateOptionalUser: authenticateOptionalUser2, requireStaff, ticketSecret, resolveGuestProfile: resolveGuestProfile2, logAudit, writingGrading } = dependencies;
-  const router = import_express6.default.Router();
+  const router = import_express8.default.Router();
   router.use(createStarterSceneRouter({ db, authenticateUser: authenticateUser2, requireStaff }));
   const draftLocks = /* @__PURE__ */ new Map();
   const writingGradeLocks = /* @__PURE__ */ new Map();
@@ -17576,7 +19405,7 @@ function isLocalServerAuthBypassAllowed(input) {
 }
 
 // src/server/learning-history/learningAttemptProjector.ts
-var import_node_crypto10 = __toESM(require("node:crypto"), 1);
+var import_node_crypto13 = __toESM(require("node:crypto"), 1);
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -17620,7 +19449,7 @@ function studyDateInBangkok(value) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function deterministicLearningAttemptId(sourceType, sourceRecordId) {
-  const digest = import_node_crypto10.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
+  const digest = import_node_crypto13.default.createHash("sha256").update(`learning-attempt-v1:${sourceType}:${sourceRecordId}`).digest("hex");
   return `attempt-${digest.slice(0, 40)}`;
 }
 function resolveOwnership(source) {
@@ -17738,8 +19567,8 @@ function projectVocabularyAttempt(session, options2 = {}) {
   const startedAt = isoOrNull(session?.startedAt || session?.createdAt);
   const activityAt = completedAt || isoOrNull(session?.lastSavedAt || session?.updatedAt) || startedAt || (/* @__PURE__ */ new Date()).toISOString();
   const status = activityStatus(session?.status, completedAt);
-  const counts = vocabularyCounts(session);
-  const now = isoOrNull(session?.updatedAt) || activityAt;
+  const counts2 = vocabularyCounts(session);
+  const now2 = isoOrNull(session?.updatedAt) || activityAt;
   const assignmentVerified = Boolean(session?.assignmentVerified || session?.assignmentAccessVerified);
   const assignmentId = assignmentVerified ? text6(session?.assignmentId, 180) || null : null;
   const includeDetail = options2.includeDetail !== false && status === "completed";
@@ -17763,14 +19592,14 @@ function projectVocabularyAttempt(session, options2 = {}) {
     lessonType: "vocab_set",
     gameId: text6(session?.gameId, 160) || "vocabulary-practice",
     gameTitleSnapshot: text6(session?.gameName || session?.gameTitle || session?.gameId, 240),
-    score: counts.score,
-    rawScore: counts.rawScore,
-    maxScore: counts.maxScore,
-    correctCount: counts.correct,
-    incorrectCount: counts.incorrect,
-    unansweredCount: counts.unanswered,
-    mistakeCount: counts.mistakeCount,
-    totalQuestions: counts.total,
+    score: counts2.score,
+    rawScore: counts2.rawScore,
+    maxScore: counts2.maxScore,
+    correctCount: counts2.correct,
+    incorrectCount: counts2.incorrect,
+    unansweredCount: counts2.unanswered,
+    mistakeCount: counts2.mistakeCount,
+    totalQuestions: counts2.total,
     startedAt,
     completedAt,
     activityAt,
@@ -17782,9 +19611,9 @@ function projectVocabularyAttempt(session, options2 = {}) {
     attemptNumber: integer3(session?.attemptNumber),
     schemaVersion: HISTORY_SCHEMA_VERSION,
     detailStatus,
-    normalizationStatus: counts.normalizationStatus,
+    normalizationStatus: counts2.normalizationStatus,
     createdAt: isoOrNull(session?.createdAt) || startedAt || activityAt,
-    updatedAt: now
+    updatedAt: now2
   };
   const detail = includeDetail && completedAt ? createDetail("vocabulary", attemptId, attempt.clientRunId, completedAt, {
     answerDetails,
@@ -17960,7 +19789,7 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options2 = {}) {
 }
 
 // src/server/publicStudentIdentity.ts
-var import_node_crypto11 = __toESM(require("node:crypto"), 1);
+var import_node_crypto14 = __toESM(require("node:crypto"), 1);
 function normalizedName(value) {
   return String(value || "").normalize("NFKC").trim().toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, " ").slice(0, 300);
 }
@@ -17968,7 +19797,7 @@ function createPublicStudentKey(data, secret) {
   const identity = String(
     data?.ownerKey || (data?.userId ? `user:${data.userId}` : "") || (data?.guestId ? `guest:${data.guestId}` : "") || (data?.studentId ? `student:${data.studentId}` : "") || `name:${normalizedName(data?.studentName || "H\u1ECDc sinh")}`
   ).normalize("NFKC").trim().slice(0, 300);
-  return `student-${import_node_crypto11.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
+  return `student-${import_node_crypto14.default.createHmac("sha256", secret).update(identity).digest("hex").slice(0, 24)}`;
 }
 function sanitizePublicStudentRecord(value, secret) {
   const {
@@ -18195,7 +20024,7 @@ function resolveTrustedRole(decodedToken, storedProfile = {}, bootstrapEmails) {
 }
 
 // src/server/httpHardening.ts
-var import_node_crypto12 = __toESM(require("node:crypto"), 1);
+var import_node_crypto15 = __toESM(require("node:crypto"), 1);
 var DEFAULT_JSON_BODY_LIMIT = "100kb";
 function parseTrustedProxyHops(value) {
   if (value === void 0 || value === null || value === "") return 0;
@@ -18224,10 +20053,10 @@ function getRequestNetworkKey(req) {
   return String(req.ip || req.socket.remoteAddress || "unknown").trim() || "unknown";
 }
 var FixedWindowRateLimitStore = class {
-  constructor(windowMs, maxCost, now = Date.now, maxEntries = 5e4) {
+  constructor(windowMs, maxCost, now2 = Date.now, maxEntries = 5e4) {
     this.windowMs = windowMs;
     this.maxCost = maxCost;
-    this.now = now;
+    this.now = now2;
     this.maxEntries = maxEntries;
     this.entries = /* @__PURE__ */ new Map();
     this.operations = 0;
@@ -18295,7 +20124,7 @@ function createFixedWindowRateLimiter(options2) {
 function safeEqualSecret(provided, configured) {
   const left = Buffer.from(String(provided || ""));
   const right = Buffer.from(String(configured || ""));
-  return left.length > 0 && left.length === right.length && import_node_crypto12.default.timingSafeEqual(left, right);
+  return left.length > 0 && left.length === right.length && import_node_crypto15.default.timingSafeEqual(left, right);
 }
 
 // src/server/legacySessionAccess.ts
@@ -18314,20 +20143,20 @@ function canUseLegacyGuestSessionUpdate(options2) {
   if (session.status === "completed" || session.submissionStatus === "completed") return false;
   const sourceTime = session.lastSavedAt || session.updatedAt || session.startedAt || session.createdAt;
   const timestamp = new Date(String(sourceTime || "")).getTime();
-  const now = options2.now ?? Date.now();
-  if (!Number.isFinite(timestamp) || timestamp > now + 6e4) return false;
-  return now - timestamp <= maxAgeMs;
+  const now2 = options2.now ?? Date.now();
+  if (!Number.isFinite(timestamp) || timestamp > now2 + 6e4) return false;
+  return now2 - timestamp <= maxAgeMs;
 }
 
 // src/server/runtimeConfig.ts
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_node_path13 = __toESM(require("node:path"), 1);
 function resolvePersistentDirectory(options2) {
   const configured = options2.env[options2.variable]?.trim();
-  if (configured) return import_node_path6.default.resolve(configured);
+  if (configured) return import_node_path13.default.resolve(configured);
   if (options2.env.NODE_ENV === "production") {
     throw new Error(`${options2.variable} is required in production.`);
   }
-  return import_node_path6.default.resolve(options2.cwd || process.cwd(), ".data", options2.localDirectory);
+  return import_node_path13.default.resolve(options2.cwd || process.cwd(), ".data", options2.localDirectory);
 }
 function resolveDevQuotaApiKey(env, warn = console.warn) {
   const configured = env.DEVQUOTA_API_KEY?.trim();
@@ -18411,14 +20240,14 @@ function isArchivedRecord(record3) {
   if (!record3) return false;
   return record3.lifecycleStatus === "archived" || record3.status === "archived" || Boolean(record3.archivedAt);
 }
-function archiveResourceRecord(record3, actorId, now = (/* @__PURE__ */ new Date()).toISOString(), options2 = {}) {
+function archiveResourceRecord(record3, actorId, now2 = (/* @__PURE__ */ new Date()).toISOString(), options2 = {}) {
   const archived = {
     ...record3,
     status: "archived",
     lifecycleStatus: "archived",
-    archivedAt: record3.archivedAt || now,
+    archivedAt: record3.archivedAt || now2,
     archivedBy: record3.archivedBy || actorId,
-    updatedAt: now
+    updatedAt: now2
   };
   if (options2.forceDraftVisibility || Object.hasOwn(record3, "visibility")) {
     archived.visibility = "draft";
@@ -18457,8 +20286,8 @@ function toBusinessClock(date, utcOffsetMinutes) {
 function fromBusinessClock(year, month, day, utcOffsetMinutes) {
   return new Date(Date.UTC(year, month, day) - utcOffsetMinutes * 6e4);
 }
-function getPeriodStart(period, now = /* @__PURE__ */ new Date(), utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES) {
-  const businessNow = toBusinessClock(now, utcOffsetMinutes);
+function getPeriodStart(period, now2 = /* @__PURE__ */ new Date(), utcOffsetMinutes = LEADERBOARD_UTC_OFFSET_MINUTES) {
+  const businessNow = toBusinessClock(now2, utcOffsetMinutes);
   if (period === "month") {
     return fromBusinessClock(
       businessNow.getUTCFullYear(),
@@ -18591,9 +20420,9 @@ function assignBadges(entry) {
   return badges.length ? badges : ["\u0110ang t\u1ECFa s\xE1ng"];
 }
 function buildLeaderboard(sessions, assignments, filters) {
-  const now = resolveNow(filters.now);
+  const now2 = resolveNow(filters.now);
   const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes) ? Number(filters.utcOffsetMinutes) : LEADERBOARD_UTC_OFFSET_MINUTES;
-  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  const periodStart = getPeriodStart(filters.period, now2, utcOffsetMinutes);
   const previousStart = getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
   const previousEnd = getPreviousPeriodEnd(filters.period, periodStart);
   const currentBest = getBestSessions(sessions, assignments, filters, periodStart);
@@ -18619,14 +20448,14 @@ function buildLeaderboard(sessions, assignments, filters) {
   return { gold, diligent, accurate, improved };
 }
 function getLeaderboardQueryStart(filters) {
-  const now = resolveNow(filters.now);
+  const now2 = resolveNow(filters.now);
   const utcOffsetMinutes = Number.isFinite(filters.utcOffsetMinutes) ? Number(filters.utcOffsetMinutes) : LEADERBOARD_UTC_OFFSET_MINUTES;
-  const periodStart = getPeriodStart(filters.period, now, utcOffsetMinutes);
+  const periodStart = getPeriodStart(filters.period, now2, utcOffsetMinutes);
   return getPreviousPeriodStart(filters.period, periodStart, utcOffsetMinutes);
 }
 
 // src/server/vocab-images/router.ts
-var import_express7 = __toESM(require("express"), 1);
+var import_express9 = __toESM(require("express"), 1);
 function sendError4(res, error) {
   const requested = Number(error?.status || error?.statusCode || 500);
   const status = Number.isInteger(requested) && requested >= 400 && requested <= 599 ? requested : 500;
@@ -18644,7 +20473,7 @@ function requestFileName(req) {
   }
 }
 function createVocabImageRouter(options2) {
-  const router = import_express7.default.Router();
+  const router = import_express9.default.Router();
   const rateLimit = createFixedWindowRateLimiter({
     namespace: "vocab-image-generation",
     windowMs: 10 * 60 * 1e3,
@@ -18719,7 +20548,7 @@ function createVocabImageRouter(options2) {
   });
   router.post(
     "/upload",
-    import_express7.default.raw({ type: ["image/jpeg", "image/png", "image/webp", "image/gif"], limit: options2.service.uploadLimitBytes }),
+    import_express9.default.raw({ type: ["image/jpeg", "image/png", "image/webp", "image/gif"], limit: options2.service.uploadLimitBytes }),
     async (req, res) => {
       try {
         const user = req.user;
@@ -18750,12 +20579,12 @@ function httpBodyError() {
 }
 
 // src/server/vocab-images/service.ts
-var import_node_crypto14 = __toESM(require("node:crypto"), 1);
-var import_node_fs4 = __toESM(require("node:fs"), 1);
-var import_node_path7 = __toESM(require("node:path"), 1);
+var import_node_crypto17 = __toESM(require("node:crypto"), 1);
+var import_node_fs8 = __toESM(require("node:fs"), 1);
+var import_node_path14 = __toESM(require("node:path"), 1);
 
 // src/server/vocab-images/downloadSecurity.ts
-var import_promises = __toESM(require("node:dns/promises"), 1);
+var import_promises5 = __toESM(require("node:dns/promises"), 1);
 var import_node_net2 = __toESM(require("node:net"), 1);
 var MIME_ALIASES = {
   "image/jpeg": "image/jpeg",
@@ -18791,7 +20620,7 @@ function hostnameMatchesAllowlist(hostname, allowedHosts) {
   });
 }
 async function defaultResolveHost(hostname) {
-  const records3 = await import_promises.default.lookup(hostname, { all: true, verbatim: true });
+  const records3 = await import_promises5.default.lookup(hostname, { all: true, verbatim: true });
   return records3.map((record3) => ({ address: record3.address, family: record3.family }));
 }
 async function assertSafeUrl(value, allowedHosts, resolveHost) {
@@ -18907,7 +20736,7 @@ async function downloadImageSecurely(sourceUrl, options2) {
 }
 
 // src/server/vocab-images/generationProviders.ts
-var import_node_crypto13 = __toESM(require("node:crypto"), 1);
+var import_node_crypto16 = __toESM(require("node:crypto"), 1);
 var STALI_IMAGE_MODEL = "req/gpt-image-2";
 var DEVQUOTA_IMAGE_MODEL = "gpt-image-2";
 var SEEDVIS_NANO_BANANA_2_MODEL = "NARWHAL";
@@ -19040,7 +20869,7 @@ function seedvisProvider(input) {
       const headers = {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "Idempotency-Key": import_node_crypto13.default.randomUUID()
+        "Idempotency-Key": import_node_crypto16.default.randomUUID()
       };
       const created = await fetchUpstream(input.fetchImpl, `${baseUrl}/developer/generations`, {
         method: "POST",
@@ -19186,7 +21015,7 @@ var BATCH_JOB_RESULT_COLLECTION = "vocab_image_batch_job_results";
 var BATCH_JOB_TTL_MS = 24 * 60 * 60 * 1e3;
 var BATCH_JOB_LEASE_MS = 60 * 1e3;
 var BATCH_JOB_HEARTBEAT_MS = 20 * 1e3;
-var BATCH_WORKER_INSTANCE_ID = `vimgworker-${process.pid}-${import_node_crypto14.default.randomUUID()}`;
+var BATCH_WORKER_INSTANCE_ID = `vimgworker-${process.pid}-${import_node_crypto17.default.randomUUID()}`;
 function httpError2(status, message) {
   return Object.assign(new Error(message), { status });
 }
@@ -19201,7 +21030,7 @@ function isGenerationProviderId(value) {
   return value === "stali" || value === "devquota" || value === "seedvis-nano-banana-2" || value === "seedvis-nano-banana-pro";
 }
 function cleanFileName(value) {
-  const baseName = import_node_path7.default.basename(String(value || "image")).replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "-").trim();
+  const baseName = import_node_path14.default.basename(String(value || "image")).replace(/[\u0000-\u001f<>:"/\\|?*]+/g, "-").trim();
   return (baseName || "image").slice(0, 180);
 }
 function createConcurrencyLimiter(concurrency) {
@@ -19260,8 +21089,8 @@ var VocabImageLibraryService = class {
   }
   async storeBytes(input) {
     const validated = validateImageBytes(input.bytes, input.declaredMimeType, this.maxBytes);
-    const sha2564 = import_node_crypto14.default.createHash("sha256").update(input.bytes).digest("hex");
-    const idHash = import_node_crypto14.default.createHash("sha256").update(`${input.provider}:${sha2564}`).digest("hex");
+    const sha2564 = import_node_crypto17.default.createHash("sha256").update(input.bytes).digest("hex");
+    const idHash = import_node_crypto17.default.createHash("sha256").update(`${input.provider}:${sha2564}`).digest("hex");
     const id2 = `vimg-${idHash.slice(0, 40)}`;
     const storageKey = `${sha2564}.${validated.extension}`;
     const publicPrefix = `/${this.options.publicPrefix.replace(/^\/+|\/+$/g, "")}`;
@@ -19273,19 +21102,19 @@ var VocabImageLibraryService = class {
       if (asset2?.sha256 === sha2564 && asset2?.publicUrl === publicUrl) return asset2;
       throw httpError2(409, "M\xE3 \u1EA3nh qu\u1EA3n l\xFD \u0111\xE3 t\u1ED3n t\u1EA1i v\u1EDBi n\u1ED9i dung kh\xE1c.");
     }
-    import_node_fs4.default.mkdirSync(this.options.imageDir, { recursive: true });
-    const finalPath = import_node_path7.default.join(this.options.imageDir, storageKey);
-    if (!import_node_fs4.default.existsSync(finalPath)) {
-      const temporaryPath = import_node_path7.default.join(this.options.imageDir, `.tmp-${process.pid}-${import_node_crypto14.default.randomUUID()}`);
+    import_node_fs8.default.mkdirSync(this.options.imageDir, { recursive: true });
+    const finalPath = import_node_path14.default.join(this.options.imageDir, storageKey);
+    if (!import_node_fs8.default.existsSync(finalPath)) {
+      const temporaryPath = import_node_path14.default.join(this.options.imageDir, `.tmp-${process.pid}-${import_node_crypto17.default.randomUUID()}`);
       try {
-        import_node_fs4.default.writeFileSync(temporaryPath, input.bytes, { flag: "wx" });
+        import_node_fs8.default.writeFileSync(temporaryPath, input.bytes, { flag: "wx" });
         try {
-          import_node_fs4.default.renameSync(temporaryPath, finalPath);
+          import_node_fs8.default.renameSync(temporaryPath, finalPath);
         } catch (error) {
-          if (!import_node_fs4.default.existsSync(finalPath)) throw error;
+          if (!import_node_fs8.default.existsSync(finalPath)) throw error;
         }
       } finally {
-        if (import_node_fs4.default.existsSync(temporaryPath)) import_node_fs4.default.unlinkSync(temporaryPath);
+        if (import_node_fs8.default.existsSync(temporaryPath)) import_node_fs8.default.unlinkSync(temporaryPath);
       }
     }
     const timestamp = this.now().toISOString();
@@ -19332,7 +21161,7 @@ var VocabImageLibraryService = class {
         bytes: downloaded.bytes,
         declaredMimeType: downloaded.mimeType,
         provider: provider2.id,
-        externalId: generated.requestId || `${provider2.id}-${import_node_crypto14.default.randomUUID()}`,
+        externalId: generated.requestId || `${provider2.id}-${import_node_crypto17.default.randomUUID()}`,
         title: `\u1EA2nh t\u1EEB v\u1EF1ng: ${term}`,
         author: `${provider2.label} \xB7 ${provider2.model}`,
         license: "\u1EA2nh do AI t\u1EA1o theo y\xEAu c\u1EA7u c\u1EE7a gi\xE1o vi\xEAn",
@@ -19352,7 +21181,7 @@ var VocabImageLibraryService = class {
   async upload(input, actorId) {
     if (!input.rightsConfirmed) throw httpError2(400, "Gi\xE1o vi\xEAn ph\u1EA3i x\xE1c nh\u1EADn c\xF3 quy\u1EC1n s\u1EED d\u1EE5ng \u1EA3nh tr\u01B0\u1EDBc khi t\u1EA3i l\xEAn.");
     const fileName = cleanFileName(input.fileName);
-    const sha = import_node_crypto14.default.createHash("sha256").update(input.bytes).digest("hex");
+    const sha = import_node_crypto17.default.createHash("sha256").update(input.bytes).digest("hex");
     return this.storeBytes({
       bytes: input.bytes,
       declaredMimeType: input.declaredMimeType,
@@ -19371,9 +21200,9 @@ var VocabImageLibraryService = class {
   }
   async startBatchGenerationJob(rawProvider, rawItems, actorId) {
     const prepared = this.prepareBatch(rawProvider, rawItems);
-    const now = this.now();
+    const now2 = this.now();
     const job = {
-      id: `vimgjob-${import_node_crypto14.default.randomUUID()}`,
+      id: `vimgjob-${import_node_crypto17.default.randomUUID()}`,
       actorId: clean2(actorId, 200),
       provider: prepared.providerChoice,
       status: "queued",
@@ -19382,9 +21211,9 @@ var VocabImageLibraryService = class {
       succeeded: 0,
       failed: 0,
       inputs: prepared.items,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + BATCH_JOB_TTL_MS).toISOString()
+      createdAt: now2.toISOString(),
+      updatedAt: now2.toISOString(),
+      expiresAt: new Date(now2.getTime() + BATCH_JOB_TTL_MS).toISOString()
     };
     await this.options.db.collection(BATCH_JOB_COLLECTION).doc(job.id).set(job);
     this.scheduleBatchGenerationJob(job, prepared.configured);
@@ -19480,10 +21309,10 @@ var VocabImageLibraryService = class {
       return persistence;
     };
     const renewLease = () => {
-      const now = this.now();
+      const now2 = this.now();
       job.leaseOwner = BATCH_WORKER_INSTANCE_ID;
-      job.leaseExpiresAt = new Date(now.getTime() + BATCH_JOB_LEASE_MS).toISOString();
-      job.updatedAt = now.toISOString();
+      job.leaseExpiresAt = new Date(now2.getTime() + BATCH_JOB_LEASE_MS).toISOString();
+      job.updatedAt = now2.toISOString();
     };
     const resultSnapshot = await this.options.db.collection(BATCH_JOB_RESULT_COLLECTION).where("jobId", "==", job.id).get();
     const existingEntries = (resultSnapshot.docs || []).map((resultDoc) => resultDoc.data());
@@ -19621,7 +21450,7 @@ function vocabImageAttributionFromAsset(asset) {
     ...sourcePageUrl ? { sourcePageUrl } : {}
   };
 }
-async function resolveVocabImageReferencesForSave(payload, existing, db, now = () => /* @__PURE__ */ new Date()) {
+async function resolveVocabImageReferencesForSave(payload, existing, db, now2 = () => /* @__PURE__ */ new Date()) {
   if (!Array.isArray(payload?.items)) return payload;
   const existingItems = new Map(
     (Array.isArray(existing?.items) ? existing.items : []).map((item) => [String(item?.id || ""), item])
@@ -19648,7 +21477,7 @@ async function resolveVocabImageReferencesForSave(payload, existing, db, now = (
         imageAssetId,
         imageUrl,
         imageAttribution: vocabImageAttributionFromAsset(asset),
-        imageAttachedAt: previous?.imageAssetId === imageAssetId && previous?.imageAttachedAt ? safeText(previous.imageAttachedAt, 80) : now().toISOString()
+        imageAttachedAt: previous?.imageAssetId === imageAssetId && previous?.imageAttachedAt ? safeText(previous.imageAttachedAt, 80) : now2().toISOString()
       };
     }
     const requestedLegacyUrl = safeText(item.imageUrl, 1e3);
@@ -20059,13 +21888,13 @@ function createAdminDataService(options2) {
     return record3;
   };
   const getDashboardSummary = async (actor) => {
-    const [counts, activity] = await Promise.all([
+    const [counts2, activity] = await Promise.all([
       options2.repository.getDashboardCounts(actor),
       options2.loadDashboardActivity(actor)
     ]);
     return {
       counts: {
-        ...counts,
+        ...counts2,
         activities: activity.total,
         honoredStudents: activity.goldRows.length
       },
@@ -20094,7 +21923,7 @@ function createAdminDataService(options2) {
 }
 
 // src/server/admin-data/router.ts
-var import_express8 = __toESM(require("express"), 1);
+var import_express10 = __toESM(require("express"), 1);
 
 // src/server/admin-data/contracts.ts
 function parseAdminPageRequest(query) {
@@ -20117,7 +21946,7 @@ function actorFromRequest(req) {
   return user;
 }
 function createAdminDataRouter(options2) {
-  const router = import_express8.default.Router();
+  const router = import_express10.default.Router();
   router.use(options2.authenticateUser);
   router.use((req, res, next) => {
     if (!actorFromRequest(req)) return res.status(403).json({ error: "Staff access required." });
@@ -20211,7 +22040,7 @@ function classHttpError(status, message) {
 
 // src/server/classes/service.ts
 function createClassManagementService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const random = options2.random || Math.random;
   const requireActor = (actor) => {
     if (!actor) throw classHttpError(401, "Unauthenticated");
@@ -20228,7 +22057,7 @@ function createClassManagementService(options2) {
   };
   const createClass = async (actorValue, payload) => {
     const actor = requireActor(actorValue);
-    const createdAt = now();
+    const createdAt = now2();
     const id2 = `class-${createdAt.getTime()}`;
     const newClass = {
       ...payload,
@@ -20254,7 +22083,7 @@ function createClassManagementService(options2) {
     if (!options2.canManageClass(actor, classRecord)) {
       throw classHttpError(403, "Ban khong co quyen xoa lop hoc nay.");
     }
-    await options2.repository.archiveClassAndAssignments(classRecord, actor.id, now().toISOString());
+    await options2.repository.archiveClassAndAssignments(classRecord, actor.id, now2().toISOString());
     await options2.logAudit(
       actor.id,
       actor.name,
@@ -20281,7 +22110,7 @@ function createClassManagementService(options2) {
     if (!options2.canManageClass(actor, classRecord)) {
       throw classHttpError(403, "Ban khong co quyen them hoc sinh vao lop nay.");
     }
-    const id2 = `member-${now().getTime()}`;
+    const id2 = `member-${now2().getTime()}`;
     const newMember = { id: id2, classId, studentName: payload?.studentName };
     await options2.repository.createClassMember(newMember);
     return newMember;
@@ -20308,9 +22137,9 @@ function createClassManagementService(options2) {
 }
 
 // src/server/classes/router.ts
-var import_express9 = __toESM(require("express"), 1);
+var import_express11 = __toESM(require("express"), 1);
 function createClassManagementRouter(options2) {
-  const router = import_express9.default.Router();
+  const router = import_express11.default.Router();
   const actor = (request) => request.user;
   const handle = (action, status = 200) => async (request, response) => {
     try {
@@ -20429,7 +22258,7 @@ function resourceIdFromPayload(resourceType, payload) {
   return String(payload.resourceId || "");
 }
 function createAssignmentManagementService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const requireActor = (actor) => {
     if (!actor) throw assignmentHttpError(401, "Unauthenticated");
     return actor;
@@ -20495,7 +22324,7 @@ function createAssignmentManagementService(options2) {
     const resourceType = normalizeResourceType(payload.resourceType);
     const resource = await loadResource(actor, resourceType, payload);
     const shareToken = options2.createShareToken();
-    const id2 = `assign-${now().getTime()}`;
+    const id2 = `assign-${now2().getTime()}`;
     const resourceFields = resourceType === "vocabulary" ? {
       vocabSetId: resource.id,
       vocabSetTitle: resource.title || payload.vocabSetTitle || ""
@@ -20524,7 +22353,7 @@ function createAssignmentManagementService(options2) {
       resourceId: resource.id,
       resourceTitle: resource.title || payload.resourceTitle || "",
       ...resourceFields,
-      createdAt: now().toISOString(),
+      createdAt: now2().toISOString(),
       createdBy: actor.id
     };
     await options2.repository.saveAssignment(assignment);
@@ -20545,7 +22374,7 @@ function createAssignmentManagementService(options2) {
     if (!options2.canManageAssignment(actor, assignment, classRecord)) {
       throw assignmentHttpError(403, "Ban khong co quyen xoa bai giao nay.");
     }
-    await options2.repository.archiveAssignment(assignment, actor.id, now().toISOString());
+    await options2.repository.archiveAssignment(assignment, actor.id, now2().toISOString());
     await options2.logAudit(
       actor.id,
       actor.name,
@@ -20559,9 +22388,9 @@ function createAssignmentManagementService(options2) {
 }
 
 // src/server/assignments/router.ts
-var import_express10 = __toESM(require("express"), 1);
+var import_express12 = __toESM(require("express"), 1);
 function createAssignmentManagementRouter(options2) {
-  const router = import_express10.default.Router();
+  const router = import_express12.default.Router();
   const actor = (request) => request.user;
   const handle = (action, status = 200) => async (request, response) => {
     try {
@@ -20613,9 +22442,9 @@ function createDiagnosticsService(options2) {
 }
 
 // src/server/diagnostics/router.ts
-var import_express11 = __toESM(require("express"), 1);
+var import_express13 = __toESM(require("express"), 1);
 function createDiagnosticsRouter(options2) {
-  const router = import_express11.default.Router();
+  const router = import_express13.default.Router();
   const handle = (action) => async (_request, response) => {
     try {
       response.json(await action());
@@ -20699,7 +22528,7 @@ function createAuthProfileProvider(options2) {
 
 // src/server/auth-profile/service.ts
 function createAuthProfileService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const assertPhoneAttempt = (networkKey, phone) => {
     const result = options2.consumePhoneAttempt(`${networkKey}:${phone}`);
     if (!result.allowed) {
@@ -20766,7 +22595,7 @@ function createAuthProfileService(options2) {
       phoneVerified: Boolean(actor.phoneVerified && normalizedPhone && normalizedPhone === existingPhone),
       role: actor.role,
       status: actor.status,
-      updatedAt: now().toISOString()
+      updatedAt: now2().toISOString()
     };
     await options2.repository.saveUser(updatedProfile);
     options2.invalidateStudentNameCache();
@@ -20776,9 +22605,9 @@ function createAuthProfileService(options2) {
 }
 
 // src/server/auth-profile/router.ts
-var import_express12 = __toESM(require("express"), 1);
+var import_express14 = __toESM(require("express"), 1);
 function createAuthProfileRouter(options2) {
-  const router = import_express12.default.Router();
+  const router = import_express14.default.Router();
   const handle = (action) => async (request, response) => {
     try {
       response.json(await action(request));
@@ -20815,7 +22644,7 @@ function createGuestIdentityRepository({ db }) {
 
 // src/server/guest-identity/service.ts
 function createGuestIdentityService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const nowMs = options2.nowMs || Date.now;
   const getGuestProfileId2 = (value) => options2.safeText(value, 120);
   const isGuestOwnedRecord2 = (data) => {
@@ -20848,7 +22677,7 @@ function createGuestIdentityService(options2) {
     if (!guestId) throw options2.createHttpError(400, "Thi\u1EBFu m\xE3 nh\u1EADn di\u1EC7n h\u1ECDc sinh.");
     const existing = await options2.repository.getProfile(guestId);
     timing?.mark("guest_profile");
-    const currentDate = now();
+    const currentDate = now2();
     const timestamp = currentDate.toISOString();
     if (existing) {
       if (existing.status === "blocked") {
@@ -20933,9 +22762,9 @@ function createGuestIdentityService(options2) {
 }
 
 // src/server/guest-identity/router.ts
-var import_express13 = __toESM(require("express"), 1);
+var import_express15 = __toESM(require("express"), 1);
 function createGuestIdentityRouter(options2) {
-  const router = import_express13.default.Router();
+  const router = import_express15.default.Router();
   router.post("/guest-profiles/resolve", options2.rateLimit, async (request, response) => {
     const timing = options2.createApiTiming(request, "POST /api/guest-profiles/resolve");
     try {
@@ -21041,7 +22870,7 @@ function isWeakVocabularyExample(example, word) {
   return normalizedExample.startsWith("the word ") || normalizedExample.startsWith("this word ") || normalizedExample.includes("appears often in everyday english") || normalizedExample.includes("students should practice") || normalizedExample.includes("is a vocabulary word");
 }
 function hashText(value) {
-  return Array.from(value || "").reduce((hash, char) => (hash << 5) - hash + char.charCodeAt(0) | 0, 0);
+  return Array.from(value || "").reduce((hash3, char) => (hash3 << 5) - hash3 + char.charCodeAt(0) | 0, 0);
 }
 function buildFallbackExample(word, meaning) {
   const wordForSentence = String(word || "").trim() || "learning";
@@ -21260,9 +23089,9 @@ Return ONLY one valid JSON object with meaning, ipa, pos, example, exampleMeanin
 }
 
 // src/server/vocabulary-ai/router.ts
-var import_express14 = __toESM(require("express"), 1);
+var import_express16 = __toESM(require("express"), 1);
 function createVocabularyAiRouter(options2) {
-  const router = import_express14.default.Router();
+  const router = import_express16.default.Router();
   const handle = (action) => async (request, response) => {
     try {
       response.json(await action(request));
@@ -21337,7 +23166,7 @@ function vocabularyHttpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 function createVocabularyService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const requireActor = (actor) => {
     if (!actor) throw vocabularyHttpError(401, "Unauthenticated");
     return actor;
@@ -21398,11 +23227,11 @@ function createVocabularyService(options2) {
   const createSet = async (actorValue, payload) => {
     const actor = requireActor(actorValue);
     const resolved = await options2.repository.resolveImageReferences(payload, {});
-    const id2 = `set-${now().getTime()}`;
+    const id2 = `set-${now2().getTime()}`;
     const set = options2.normalizeForSave({
       ...resolved,
       id: id2,
-      createdAt: now().toISOString(),
+      createdAt: now2().toISOString(),
       createdBy: actor.id,
       creatorName: actor.name
     });
@@ -21512,7 +23341,7 @@ function createVocabularyService(options2) {
         }
       }
     }
-    await options2.repository.archiveSetAndAssignments(set, assignments, actor.id, now().toISOString());
+    await options2.repository.archiveSetAndAssignments(set, assignments, actor.id, now2().toISOString());
     await options2.logAudit(
       actor.id,
       actor.name,
@@ -21528,14 +23357,14 @@ function createVocabularyService(options2) {
     if (!options2.canViewSet(actor, original)) {
       throw vocabularyHttpError(403, "Ban khong co quyen nhan ban bo tu vung nay.");
     }
-    const cloneId = `set-${now().getTime()}`;
+    const cloneId = `set-${now2().getTime()}`;
     const clone = options2.normalizeForSave({
       ...original,
       id: cloneId,
       title: `${original.title} (Nh\xE2n b\u1EA3n)`,
       visibility: "draft",
       status: "draft",
-      createdAt: now().toISOString(),
+      createdAt: now2().toISOString(),
       createdBy: actor.id,
       creatorName: actor.name
     });
@@ -21564,7 +23393,7 @@ function createVocabularyService(options2) {
       throw vocabularyHttpError(403, "You do not have permission to view results for this vocabulary set.");
     }
     const sessions = (await options2.repository.listGameSessions(set.id)).filter((session) => session.vocabSetId === set.id).map((session) => {
-      const interrupted = !session.completedAt && now().getTime() - new Date(session.lastSavedAt || session.startedAt || session.createdAt || 0).getTime() >= 24 * 60 * 60 * 1e3;
+      const interrupted = !session.completedAt && now2().getTime() - new Date(session.lastSavedAt || session.startedAt || session.createdAt || 0).getTime() >= 24 * 60 * 60 * 1e3;
       const shaped = {
         ...session,
         displayStatus: session.completedAt ? "completed" : interrupted ? "abandoned" : "in_progress"
@@ -21594,9 +23423,9 @@ function createVocabularyService(options2) {
 }
 
 // src/server/vocabulary/router.ts
-var import_express15 = __toESM(require("express"), 1);
+var import_express17 = __toESM(require("express"), 1);
 function createVocabularyRouter(options2) {
-  const router = import_express15.default.Router();
+  const router = import_express17.default.Router();
   const handle = (action, status = 200) => async (request, response) => {
     try {
       response.status(status).json(await action(request));
@@ -21769,9 +23598,9 @@ function createTtsService(options2) {
 }
 
 // src/server/tts/router.ts
-var import_express16 = __toESM(require("express"), 1);
+var import_express18 = __toESM(require("express"), 1);
 function createTtsRouter(options2) {
-  const router = import_express16.default.Router();
+  const router = import_express18.default.Router();
   const handle = (action) => async (request, response) => {
     try {
       response.json(await action(request));
@@ -21834,7 +23663,7 @@ function sortSets(list3) {
   return list3.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
 }
 function createGrammarLibraryService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const requireActor = (actor) => {
     if (!actor) throw grammarHttpError(401, "Unauthenticated");
     return actor;
@@ -21897,7 +23726,7 @@ function createGrammarLibraryService(options2) {
     const actor = requireActor(actorValue);
     const existing = await getExisting(id2);
     if (!options2.canManageSet(actor, existing)) throw grammarHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n x\xF3a b\xE0i n\xE0y.");
-    await options2.repository.archiveSet(existing, actor.id, now().toISOString());
+    await options2.repository.archiveSet(existing, actor.id, now2().toISOString());
     await options2.logAudit(
       actor.id,
       actor.name,
@@ -21954,9 +23783,9 @@ function createGrammarLibraryService(options2) {
 }
 
 // src/server/grammar/router.ts
-var import_express17 = __toESM(require("express"), 1);
+var import_express19 = __toESM(require("express"), 1);
 function createGrammarLibraryRouter(options2) {
-  const router = import_express17.default.Router();
+  const router = import_express19.default.Router();
   const handle = (action, status = 200) => async (request, response) => {
     try {
       response.status(status).json(await action(request));
@@ -22029,7 +23858,7 @@ function grammarAttemptHttpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 function createGrammarAttemptService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const actorOrThrow = async (request, message, timing) => {
     const actor = await options2.getActor(request);
     timing?.mark("identity");
@@ -22109,7 +23938,7 @@ function createGrammarAttemptService(options2) {
       }
       const { answer: answer2, feedback: feedback2 } = options2.buildAttemptAnswer(existingAttempt, set, payload);
       const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
-      const updatedAt = now().toISOString();
+      const updatedAt = now2().toISOString();
       const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
       await options2.repository.saveAttempt(updatedAttempt, set, false);
       timing?.mark("persist");
@@ -22126,7 +23955,7 @@ function createGrammarAttemptService(options2) {
     await assertAttemptLimit(set, actor, timing, true);
     const prepared = options2.buildPreparedAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
     const { answer, feedback } = options2.buildAttemptAnswer(prepared, set, payload);
-    const timestamp = now().toISOString();
+    const timestamp = now2().toISOString();
     const activated = {
       ...prepared,
       status: "in_progress",
@@ -22150,7 +23979,7 @@ function createGrammarAttemptService(options2) {
       throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n l\xE0m b\xE0i n\xE0y.");
     }
     await assertAttemptLimit(set, actor, timing);
-    const timestamp = now().toISOString();
+    const timestamp = now2().toISOString();
     const questions = set.shuffleQuestions ? options2.fisherYates(set.questions || []) : [...set.questions || []];
     const attemptQuestions = questions.map((question, index) => {
       const questionType = options2.getQuestionType(question.questionType, options2.getQuestionType(set.questionType));
@@ -22233,7 +24062,7 @@ function createGrammarAttemptService(options2) {
       questionType,
       isCorrect,
       scoreAwarded: isCorrect ? Number(attemptQuestion.scoreSnapshot || 1) : 0,
-      answeredAt: now().toISOString()
+      answeredAt: now2().toISOString()
     };
     if (questionType === "rewrite") {
       answer.textAnswer = textAnswer;
@@ -22245,7 +24074,7 @@ function createGrammarAttemptService(options2) {
     }
     const answers = (attempt.answers || []).filter((item) => item.attemptQuestionId !== attemptQuestion.id);
     answers.push(answer);
-    const updatedAt = now().toISOString();
+    const updatedAt = now2().toISOString();
     const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
     await options2.repository.saveAttempt(updatedAttempt, set, false);
     timing?.mark("persist");
@@ -22281,7 +24110,7 @@ function createGrammarAttemptService(options2) {
         score2 += Number(question.scoreSnapshot || 1);
       } else wrongCount++;
     }
-    const completedAt = now().toISOString();
+    const completedAt = now2().toISOString();
     const startedAt = attempt.startedAt || completedAt;
     const durationSeconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1e3));
     const updatedAttempt = {
@@ -22331,9 +24160,9 @@ function createGrammarAttemptService(options2) {
 }
 
 // src/server/grammar-attempts/router.ts
-var import_express18 = __toESM(require("express"), 1);
+var import_express20 = __toESM(require("express"), 1);
 function createGrammarAttemptRouter(options2) {
-  const router = import_express18.default.Router();
+  const router = import_express20.default.Router();
   const timed = (label, action) => async (request, response) => {
     const timing = options2.createApiTiming(request, label);
     try {
@@ -22452,7 +24281,7 @@ function runHttpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 function createVocabularyRunService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const nowMs = options2.nowMs || Date.now;
   const completedRecord = (base, result, completedAt, includeLastSavedAt = false) => {
     const durationMs = Math.max(0, nowMs() - new Date(base.startedAt || completedAt).getTime());
@@ -22535,7 +24364,7 @@ function createVocabularyRunService(options2) {
       clientRunId: credentials.clientRunId,
       startedAt: payload.startedAt
     });
-    const completedAt = now().toISOString();
+    const completedAt = now2().toISOString();
     const completed = completedRecord(baseSession, options2.gradeSession(baseSession, actions), completedAt, true);
     const event = options2.sessionToLeaderboardEvent({ ...completed, id: id2 });
     await options2.repository.saveCompletedSession(completed, event);
@@ -22570,7 +24399,7 @@ function createVocabularyRunService(options2) {
     if (existing.status === "completed") {
       throw runHttpError(409, "This game session has already been completed.");
     }
-    const endedAt = payload.endedAt || now().toISOString();
+    const endedAt = payload.endedAt || now2().toISOString();
     const startedAt = existing.startedAt || endedAt;
     const durationMs = Math.max(0, Number(payload.durationMs ?? new Date(endedAt).getTime() - new Date(startedAt).getTime()));
     const totalQuestions = Math.max(0, Number(payload.totalQuestions || 0));
@@ -22632,7 +24461,7 @@ function createVocabularyRunService(options2) {
       return { body: { saved: true, actionId: action.actionId, sequence: action.sequence } };
     }
     if (found.legacy) return { body: { saved: true, actionId: action.actionId, sequence: action.sequence } };
-    const timestamp = now().toISOString();
+    const timestamp = now2().toISOString();
     const touchedSession = { ...session, id: request.params.id, status: "in_progress", lastSavedAt: timestamp, updatedAt: timestamp };
     await options2.repository.saveActionAndTouchSession({
       ...action,
@@ -22657,7 +24486,7 @@ function createVocabularyRunService(options2) {
     }
     const actions = session.actionPersistence === "submit_batch" && Array.isArray(request.body?.actions) ? options2.sanitizeSubmittedActions(request.body.actions) : options2.dedupeStoredActions(await options2.repository.listActions(request.params.id));
     timing?.mark("actions_read");
-    const completedAt = now().toISOString();
+    const completedAt = now2().toISOString();
     const completed = completedRecord(session, options2.gradeSession(session, actions), completedAt);
     const event = options2.sessionToLeaderboardEvent({ ...completed, id: request.params.id });
     await options2.repository.saveCompletedSession(completed, event);
@@ -22667,7 +24496,7 @@ function createVocabularyRunService(options2) {
   };
   const savePronunciationAttempt = async (request) => {
     const payload = request.body || {};
-    const timestamp = now().toISOString();
+    const timestamp = now2().toISOString();
     const gameSessionId = options2.safeText(payload.gameSessionId, 160);
     let session = null;
     if (gameSessionId) {
@@ -22719,9 +24548,9 @@ function createVocabularyRunService(options2) {
 }
 
 // src/server/vocabulary-runs/router.ts
-var import_express19 = __toESM(require("express"), 1);
+var import_express21 = __toESM(require("express"), 1);
 function createVocabularyRunRouter(options2) {
-  const router = import_express19.default.Router();
+  const router = import_express21.default.Router();
   const timed = (label, action) => async (request, response) => {
     const timing = options2.createApiTiming(request, label);
     try {
@@ -23212,9 +25041,9 @@ function createResultsService(options2) {
 }
 
 // src/server/results/router.ts
-var import_express20 = __toESM(require("express"), 1);
+var import_express22 = __toESM(require("express"), 1);
 function createResultsRouter(options2) {
-  const router = import_express20.default.Router();
+  const router = import_express22.default.Router();
   const timed = (label, action) => async (request, response) => {
     const timing = options2.createApiTiming(request, label);
     try {
@@ -23280,7 +25109,7 @@ function httpError6(status, message) {
   return Object.assign(new Error(message), { status });
 }
 function createAccountService(options2) {
-  const now = options2.now || (() => /* @__PURE__ */ new Date());
+  const now2 = options2.now || (() => /* @__PURE__ */ new Date());
   const nowMs = options2.nowMs || Date.now;
   const requireActor = (request) => {
     if (!request.user) throw httpError6(401, "Unauthenticated");
@@ -23358,7 +25187,7 @@ function createAccountService(options2) {
     const existing = await options2.repository.getUser(request.params.userId);
     if (!existing) throw httpError6(404, "Ng\u01B0\u1EDDi d\xF9ng kh\xF4ng t\u1ED3n t\u1EA1i.");
     const displayName = validation.value || "";
-    await options2.repository.updateUser(request.params.userId, { name: displayName, updatedAt: now().toISOString() });
+    await options2.repository.updateUser(request.params.userId, { name: displayName, updatedAt: now2().toISOString() });
     options2.invalidateStudentNameCache();
     let authWarning = "";
     try {
@@ -23390,7 +25219,7 @@ function createAccountService(options2) {
       name: displayName,
       normalizedName: options2.normalizePersonName(displayName),
       needsReview: false,
-      updatedAt: now().toISOString()
+      updatedAt: now2().toISOString()
     });
     options2.invalidateStudentNameCache();
     await options2.logAudit(
@@ -23409,7 +25238,7 @@ function createAccountService(options2) {
     const guestId = options2.getGuestProfileId(request.params.guestId);
     const existing = await options2.repository.getGuestProfile(guestId);
     if (!existing) throw httpError6(404, "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i.");
-    await options2.repository.updateGuestProfile(guestId, { status, updatedAt: now().toISOString() });
+    await options2.repository.updateGuestProfile(guestId, { status, updatedAt: now2().toISOString() });
     await options2.logAudit(
       actor.id,
       actor.name,
@@ -23426,7 +25255,7 @@ function createAccountService(options2) {
     if (!profile) throw httpError6(404, "H\u1ED3 s\u01A1 h\u1ECDc sinh kh\xF4ng t\u1ED3n t\u1EA1i.");
     if (!await options2.canManageGuestProfile(actor, profile)) throw httpError6(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n c\u1EA5p l\u1EA1i quy\u1EC1n l\u1ECBch s\u1EED cho h\u1ECDc sinh n\xE0y.");
     const guestAccessToken = options2.createSessionToken();
-    const createdAt = now().toISOString();
+    const createdAt = now2().toISOString();
     const guestAccessTokenVersion = nowMs();
     await options2.repository.updateGuestProfile(guestId, {
       accessTokenHash: options2.hashSessionToken(guestAccessToken),
@@ -23494,9 +25323,9 @@ function createAccountService(options2) {
 }
 
 // src/server/accounts/router.ts
-var import_express21 = __toESM(require("express"), 1);
+var import_express23 = __toESM(require("express"), 1);
 function createAccountRouter(options2) {
-  const router = import_express21.default.Router();
+  const router = import_express23.default.Router();
   const handle = (action) => async (request, response) => {
     try {
       const result = await action(request);
@@ -23520,10 +25349,10 @@ function createAccountRouter(options2) {
 }
 
 // src/server/ioe-violympic/router.ts
-var import_express22 = __toESM(require("express"), 1);
+var import_express24 = __toESM(require("express"), 1);
 
 // src/server/ioe-violympic/practice.ts
-var import_node_crypto17 = __toESM(require("node:crypto"), 1);
+var import_node_crypto20 = __toESM(require("node:crypto"), 1);
 
 // src/shared/competition/answer.ts
 var DEFAULT_ENGLISH_TEXT_NORMALIZATION = {
@@ -23553,83 +25382,83 @@ var CompetitionError = class extends Error {
     this.code = code;
   }
 };
-var fail2 = (message) => {
+var fail3 = (message) => {
   throw new CompetitionError(400, "INVALID_QUESTION", message);
 };
 function record2(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return fail2("C\u1EA7n m\u1ED9t \u0111\u1ED1i t\u01B0\u1EE3ng JSON.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fail3("C\u1EA7n m\u1ED9t \u0111\u1ED1i t\u01B0\u1EE3ng JSON.");
   return value;
 }
 function text7(value, max = 2e4, required2 = false, field = "N\u1ED9i dung") {
   if (value === void 0 || value === null) value = "";
-  if (typeof value !== "string" && typeof value !== "number") return fail2(`${field} ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.`);
+  if (typeof value !== "string" && typeof value !== "number") return fail3(`${field} ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.`);
   const result = String(value).normalize("NFC").trim();
-  if (required2 && !result) return fail2(`${field} \u0111ang tr\u1ED1ng.`);
-  if (result.length > max) return fail2(`${field} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
-  if (/\u0000/.test(result)) return fail2(`${field} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
+  if (required2 && !result) return fail3(`${field} \u0111ang tr\u1ED1ng.`);
+  if (result.length > max) return fail3(`${field} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  if (/\u0000/.test(result)) return fail3(`${field} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
   return result;
 }
 function parseScope(value) {
   const row = record2(value);
-  if (!isSubject(row.subject)) return fail2("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (!isSubject(row.subject)) return fail3("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
   const grade = Number(row.grade), level = row.level;
-  if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail2("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
-  if (level !== "practice" && level !== "school" && level !== "district" && level !== "province" && level !== "national") return fail2("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
-  if (!levelsFor(row.subject).includes(level)) return fail2("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
+  if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail3("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
+  if (level !== "practice" && level !== "school" && level !== "district" && level !== "province" && level !== "national") return fail3("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (!levelsFor(row.subject).includes(level)) return fail3("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
   return { subject: row.subject, grade, level };
 }
 function parseQuestionFilters(value) {
   const row = record2(value), filters = {};
   if (row.subject !== void 0 && row.subject !== "") {
-    if (!isSubject(row.subject)) return fail2("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (!isSubject(row.subject)) return fail3("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
     filters.subject = row.subject;
   }
   if (row.grade !== void 0 && row.grade !== "") {
     const grade = Number(text7(row.grade, 10, true));
-    if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail2("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
+    if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail3("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
     filters.grade = grade;
   }
   if (row.level !== void 0 && row.level !== "") {
     const level = text7(row.level, 20, true);
-    if (!Object.hasOwn(LEVEL_LABELS, level)) return fail2("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (!Object.hasOwn(LEVEL_LABELS, level)) return fail3("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
     filters.level = level;
-    if (filters.subject && !levelsFor(filters.subject).includes(filters.level)) return fail2("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
+    if (filters.subject && !levelsFor(filters.subject).includes(filters.level)) return fail3("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
   }
   return filters;
 }
 function normalizeMedia(value) {
   if (value === void 0) return [];
-  if (!Array.isArray(value) || value.length > 4) return fail2("M\u1ED7i v\u1ECB tr\xED c\xF3 t\u1ED1i \u0111a 4 media.");
+  if (!Array.isArray(value) || value.length > 4) return fail3("M\u1ED7i v\u1ECB tr\xED c\xF3 t\u1ED1i \u0111a 4 media.");
   return value.map((item) => {
     const row = record2(item);
-    if (row.kind !== "image" && row.kind !== "audio") return fail2("Lo\u1EA1i media kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (row.kind !== "image" && row.kind !== "audio") return fail3("Lo\u1EA1i media kh\xF4ng h\u1EE3p l\u1EC7.");
     const url = text7(row.url, 2048, true);
-    if (!/^\/(?:listening-media|vocab-images|audio)\/[A-Za-z0-9._/-]+$/.test(url) || url.includes("..")) return fail2("Media ph\u1EA3i d\xF9ng d\u1ECBch v\u1EE5 l\u01B0u tr\u1EEF c\u1EE7a B.");
+    if (!/^\/(?:listening-media|vocab-images|audio)\/[A-Za-z0-9._/-]+$/.test(url) || url.includes("..")) return fail3("Media ph\u1EA3i d\xF9ng d\u1ECBch v\u1EE5 l\u01B0u tr\u1EEF c\u1EE7a B.");
     const rate = row.playbackRate === void 0 ? 1 : Number(row.playbackRate);
-    if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) return fail2("T\u1ED1c \u0111\u1ED9 audio kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) return fail3("T\u1ED1c \u0111\u1ED9 audio kh\xF4ng h\u1EE3p l\u1EC7.");
     return { kind: row.kind, url, ...row.assetId ? { assetId: text7(row.assetId, 160, true) } : {}, playbackRate: rate };
   });
 }
 function options(value, prefix = "option") {
   if (value === void 0) return [];
-  if (!Array.isArray(value) || value.length > 26) return fail2("Ph\u01B0\u01A1ng \xE1n ph\u1EA3i l\xE0 m\u1EA3ng, t\u1ED1i \u0111a 26.");
+  if (!Array.isArray(value) || value.length > 26) return fail3("Ph\u01B0\u01A1ng \xE1n ph\u1EA3i l\xE0 m\u1EA3ng, t\u1ED1i \u0111a 26.");
   return value.map((item, i) => {
     const row = typeof item === "string" || typeof item === "number" ? { text: item } : record2(item);
     const body = text7(row.text ?? row.content ?? "", 8e3).replace(/^[A-Z][.)]\s+/, "");
     const attached = normalizeMedia(row.media);
-    if (!body && !attached.length) return fail2(`Ph\u01B0\u01A1ng \xE1n ${i + 1} tr\u1ED1ng.`);
+    if (!body && !attached.length) return fail3(`Ph\u01B0\u01A1ng \xE1n ${i + 1} tr\u1ED1ng.`);
     return { id: `${prefix}-${i + 1}`, label: String.fromCharCode(65 + i), text: body, media: attached };
   });
 }
 function reference(value, opts) {
   const target = text7(value, 160, true);
   const match = opts.find((o) => o.id === target || o.label === target.toUpperCase() || o.text === target);
-  if (!match) return fail2("\u0110\xE1p \xE1n kh\xF4ng kh\u1EDBp ph\u01B0\u01A1ng \xE1n.");
+  if (!match) return fail3("\u0110\xE1p \xE1n kh\xF4ng kh\u1EDBp ph\u01B0\u01A1ng \xE1n.");
   return match.id;
 }
 function numeric(value, kind) {
   const result = text7(value, 120, true);
-  if (!(kind === "integer" ? /^[+-]?\d+$/ : /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/).test(result)) return fail2("\u0110\xE1p \xE1n s\u1ED1 kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (!(kind === "integer" ? /^[+-]?\d+$/ : /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/).test(result)) return fail3("\u0110\xE1p \xE1n s\u1ED1 kh\xF4ng h\u1EE3p l\u1EC7.");
   return result;
 }
 function normalizeQuestion5(value, scope) {
@@ -23641,48 +25470,48 @@ function normalizeQuestion5(value, scope) {
   let interaction = "text-entry";
   let pairs;
   if (kind === "single-choice") {
-    if (opts.length < 2) return fail2("Tr\u1EAFc nghi\u1EC7m c\u1EA7n \xEDt nh\u1EA5t 2 ph\u01B0\u01A1ng \xE1n.");
+    if (opts.length < 2) return fail3("Tr\u1EAFc nghi\u1EC7m c\u1EA7n \xEDt nh\u1EA5t 2 ph\u01B0\u01A1ng \xE1n.");
     answerSpec = { kind, correctOptionId: reference(spec?.correctOptionId ?? row.answer ?? row.correctAnswer, opts) };
     interaction = "choice";
   } else if (kind === "text") {
     const values = spec?.acceptedAnswers ?? row.acceptedAnswers ?? [row.answer ?? row.correctAnswer];
-    if (!Array.isArray(values) || !values.length || values.length > 20) return fail2("C\u1EA7n \u0111\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn.");
+    if (!Array.isArray(values) || !values.length || values.length > 20) return fail3("C\u1EA7n \u0111\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn.");
     answerSpec = { kind, acceptedAnswers: values.map((v) => text7(v, 2e3, true, "\u0110\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn")), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
   } else if (kind === "integer") {
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), allowLeadingPlus: true };
   } else if (kind === "decimal") {
     const tolerance = spec?.tolerance === void 0 ? void 0 : numeric(spec.tolerance, "decimal");
-    if (tolerance && Number(tolerance) < 0) return fail2("Sai s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c \xE2m.");
+    if (tolerance && Number(tolerance) < 0) return fail3("Sai s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c \xE2m.");
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), acceptCommaDecimal: true, ...tolerance ? { tolerance } : {} };
   } else if (kind === "fraction") {
     const numerator = numeric(spec?.numerator, "integer"), denominator = numeric(spec?.denominator, "integer");
-    if (BigInt(denominator) === 0n) return fail2("M\u1EABu s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c b\u1EB1ng 0.");
+    if (BigInt(denominator) === 0n) return fail3("M\u1EABu s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c b\u1EB1ng 0.");
     answerSpec = { kind, numerator, denominator, acceptEquivalent: spec?.acceptEquivalent !== false };
   } else if (kind === "numeric-with-unit") {
-    if (!Array.isArray(spec?.acceptedUnits) || !spec.acceptedUnits.length || spec.acceptedUnits.length > 20) return fail2("C\u1EA7n \u0111\u01A1n v\u1ECB \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.");
+    if (!Array.isArray(spec?.acceptedUnits) || !spec.acceptedUnits.length || spec.acceptedUnits.length > 20) return fail3("C\u1EA7n \u0111\u01A1n v\u1ECB \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.");
     answerSpec = { kind, value: numeric(spec.value, "decimal"), acceptedUnits: spec.acceptedUnits.map((v) => text7(v, 60, true)) };
   } else if (kind === "ordering") {
-    if (opts.length < 2 || !Array.isArray(spec?.orderedTokenIds) || spec.orderedTokenIds.length !== opts.length) return fail2("S\u1EAFp x\u1EBFp c\u1EA7n \u0111\u1EE7 th\u1EE9 t\u1EF1 cho m\u1ECDi th\u1EBB.");
+    if (opts.length < 2 || !Array.isArray(spec?.orderedTokenIds) || spec.orderedTokenIds.length !== opts.length) return fail3("S\u1EAFp x\u1EBFp c\u1EA7n \u0111\u1EE7 th\u1EE9 t\u1EF1 cho m\u1ECDi th\u1EBB.");
     const ids = spec.orderedTokenIds.map((v) => reference(v, opts));
-    if (new Set(ids).size !== opts.length) return fail2("Th\u1EE9 t\u1EF1 ch\u1EE9a th\u1EBB tr\xF9ng.");
+    if (new Set(ids).size !== opts.length) return fail3("Th\u1EE9 t\u1EF1 ch\u1EE9a th\u1EBB tr\xF9ng.");
     answerSpec = { kind, orderedTokenIds: ids };
     interaction = "ordering";
   } else if (kind === "matching") {
     const pairRow = record2(row.pairs), left = options(pairRow.left, "left"), right = options(pairRow.right, "right");
-    if (left.length < 2 || left.length !== right.length) return fail2("N\u1ED1i c\u1EB7p c\u1EA7n hai c\u1ED9t c\xF9ng s\u1ED1 ph\u1EA7n t\u1EED.");
+    if (left.length < 2 || left.length !== right.length) return fail3("N\u1ED1i c\u1EB7p c\u1EA7n hai c\u1ED9t c\xF9ng s\u1ED1 ph\u1EA7n t\u1EED.");
     const matches = record2(spec?.correctPairMatches), entries = Object.entries(matches);
-    if (entries.length !== left.length) return fail2("Thi\u1EBFu \u0111\xE1p \xE1n n\u1ED1i c\u1EB7p.");
+    if (entries.length !== left.length) return fail3("Thi\u1EBFu \u0111\xE1p \xE1n n\u1ED1i c\u1EB7p.");
     const mapped = Object.fromEntries(entries.map(([l, r]) => [reference(l, left), reference(r, right)]));
-    if (new Set(Object.values(mapped)).size !== right.length || Object.keys(mapped).length !== left.length) return fail2("\u0110\xE1p \xE1n n\u1ED1i c\u1EB7p ph\u1EA3i m\u1ED9t-m\u1ED9t.");
+    if (new Set(Object.values(mapped)).size !== right.length || Object.keys(mapped).length !== left.length) return fail3("\u0110\xE1p \xE1n n\u1ED1i c\u1EB7p ph\u1EA3i m\u1ED9t-m\u1ED9t.");
     answerSpec = { kind, correctPairMatches: mapped };
     interaction = "matching";
     pairs = { left, right };
-  } else return fail2("D\u1EA1ng \u0111\xE1p \xE1n ch\u01B0a \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3 \u1EDF lu\u1ED3ng \u0111\u1EA7u ti\xEAn.");
+  } else return fail3("D\u1EA1ng \u0111\xE1p \xE1n ch\u01B0a \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3 \u1EDF lu\u1ED3ng \u0111\u1EA7u ti\xEAn.");
   const prompt = text7(content.prompt ?? row.question ?? row.text, 2e4, true);
   const difficulty = row.difficulty === void 0 ? 2 : Number(row.difficulty);
-  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail2("\u0110\u1ED9 kh\xF3 ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 5.");
+  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail3("\u0110\u1ED9 kh\xF3 ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 5.");
   const domain = text7(row.domain ?? "vocabulary", 80, true);
-  if (scope.subject === "english" && !["vocabulary", "grammar", "reading", "listening"].includes(domain)) return fail2("Nh\xF3m IOE kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (scope.subject === "english" && !["vocabulary", "grammar", "reading", "listening"].includes(domain)) return fail3("Nh\xF3m IOE kh\xF4ng h\u1EE3p l\u1EC7.");
   const feedback = splitTeacherFeedback(text7(row.explanation ?? (row.feedback ? record2(row.feedback).explanation : ""), 2e4, false, "Gi\u1EA3i th\xEDch"), text7(row.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn"));
   const teacherNote = text7(feedback.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn");
   return {
@@ -23752,10 +25581,10 @@ function buildImportPrompt(scope) {
 }
 
 // src/server/ioe-violympic/repository.ts
-var import_node_crypto16 = __toESM(require("node:crypto"), 1);
+var import_node_crypto19 = __toESM(require("node:crypto"), 1);
 
 // src/server/ioe-violympic/selection.ts
-var import_node_crypto15 = __toESM(require("node:crypto"), 1);
+var import_node_crypto18 = __toESM(require("node:crypto"), 1);
 function allocate(total, weights) {
   const sum = Object.values(weights).reduce((a, b) => a + b, 0);
   const rows = Object.entries(weights).map(([key2, w]) => ({ key: key2, count: Math.floor(total * w / sum), remainder: total * w / sum % 1 }));
@@ -23781,9 +25610,9 @@ function blueprint(scope) {
     difficulties: scope.subject === "english" ? allocate(total, weights[scope.level]) : {}
   };
 }
-function fingerprint(q) {
+function fingerprint2(q) {
   const normalize = (v) => v.normalize("NFKC").toLocaleLowerCase("vi").replace(/\s+/g, " ").trim();
-  return import_node_crypto15.default.createHash("sha256").update(JSON.stringify([
+  return import_node_crypto18.default.createHash("sha256").update(JSON.stringify([
     q.subject,
     q.grade,
     q.level,
@@ -23798,7 +25627,7 @@ function fingerprint(q) {
 function shuffle(items) {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) {
-    const j = import_node_crypto15.default.randomInt(i + 1);
+    const j = import_node_crypto18.default.randomInt(i + 1);
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -23856,7 +25685,7 @@ function exactAllocation(pool, b) {
 function selectQuestions(input, b) {
   const seen = /* @__PURE__ */ new Set();
   const pool = shuffle(input.filter((q) => !q.archived && q.subject === b.subject && q.grade === b.grade && q.level === b.level)).filter((q) => {
-    const key2 = fingerprint(q);
+    const key2 = fingerprint2(q);
     if (seen.has(key2)) return false;
     seen.add(key2);
     return true;
@@ -23893,13 +25722,13 @@ function requireOwned(value, actor) {
 var transaction2 = sqliteImmediateTransaction;
 var queryAll2 = sqliteQueryAll;
 var queryOne2 = sqliteQueryOne;
-function registerMedia(db, resourceId, type, questions, now) {
+function registerMedia(db, resourceId, type, questions, now2) {
   const attached = questions.flatMap((q) => [...q.media, ...q.options.flatMap((o) => o.media), ...q.pairs ? [...q.pairs.left, ...q.pairs.right].flatMap((o) => o.media) : []]);
   const unique3 = new Map(attached.map((m) => [m.url, m]));
   unique3.forEach((m) => {
-    const id2 = import_node_crypto16.default.createHash("sha256").update(`${resourceId}:${m.url}`).digest("hex");
-    const data = { id: id2, assetId: m.assetId || "", url: m.url, resourceId, resourceType: type, createdAt: now };
-    db.run("INSERT OR IGNORE INTO competition_asset_usages(id,asset_id,url,resource_id,resource_type,created_at,data_json) VALUES (?,?,?,?,?,?,?)", [id2, m.assetId || null, m.url, resourceId, type, now, JSON.stringify(data)]);
+    const id2 = import_node_crypto19.default.createHash("sha256").update(`${resourceId}:${m.url}`).digest("hex");
+    const data = { id: id2, assetId: m.assetId || "", url: m.url, resourceId, resourceType: type, createdAt: now2 };
+    db.run("INSERT OR IGNORE INTO competition_asset_usages(id,asset_id,url,resource_id,resource_type,created_at,data_json) VALUES (?,?,?,?,?,?,?)", [id2, m.assetId || null, m.url, resourceId, type, now2, JSON.stringify(data)]);
   });
 }
 async function validateMediaOwnership(actor, questions) {
@@ -23955,7 +25784,7 @@ async function getBankTopic(scope) {
   const row = await queryOne2("SELECT COUNT(*) AS count,COUNT(DISTINCT fingerprint) AS available FROM competition_questions WHERE archived=0 AND subject=? AND grade=? AND level=?", scopeWhere(scope));
   return topic(scope, row?.count, row?.available);
 }
-function snapshotBank(db, scope, now) {
+function snapshotBank(db, scope, now2) {
   const b = blueprint(scope), selected = selectQuestions(bankPool(db, void 0, scope), b), info = topic(scope);
   const paper2 = {
     ...scope,
@@ -23963,22 +25792,22 @@ function snapshotBank(db, scope, now) {
     title: info.title,
     source: "bank",
     ownerId: "competition-shared-bank",
-    versionId: import_node_crypto16.default.randomUUID(),
+    versionId: import_node_crypto19.default.randomUUID(),
     visibility: "public",
     status: "published",
     total: b.total,
     durationMinutes: b.durationMinutes,
-    createdAt: now,
+    createdAt: now2,
     blueprint: b,
     relaxed: selected.relaxed,
     warnings: selected.warnings
   };
   db.run(
     "INSERT OR IGNORE INTO competition_papers(id,owner_id,subject,grade,level,status,visibility,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    [paper2.id, paper2.ownerId, scope.subject, scope.grade, scope.level, paper2.status, paper2.visibility, now, now, JSON.stringify(paper2)]
+    [paper2.id, paper2.ownerId, scope.subject, scope.grade, scope.level, paper2.status, paper2.visibility, now2, now2, JSON.stringify(paper2)]
   );
-  db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [paper2.versionId, paper2.id, now, JSON.stringify({ paper: paper2, questions: selected.questions })]);
-  registerMedia(db, paper2.versionId, "paper-version", selected.questions, now);
+  db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [paper2.versionId, paper2.id, now2, JSON.stringify({ paper: paper2, questions: selected.questions })]);
+  registerMedia(db, paper2.versionId, "paper-version", selected.questions, now2);
   return { paper: paper2, questions: selected.questions };
 }
 async function listBank(actor, filters, search, page) {
@@ -24013,24 +25842,24 @@ async function saveQuestions(actor, scope, rows, requestId) {
     }
   });
   await validateMediaOwnership(actor, normalized7);
-  const hash = import_node_crypto16.default.createHash("sha256").update(JSON.stringify([scope, rows])).digest("hex");
-  const importId = import_node_crypto16.default.createHash("sha256").update(`${actor.id}:${requestId}`).digest("hex");
+  const hash3 = import_node_crypto19.default.createHash("sha256").update(JSON.stringify([scope, rows])).digest("hex");
+  const importId = import_node_crypto19.default.createHash("sha256").update(`${actor.id}:${requestId}`).digest("hex");
   return transaction2((db) => {
     const existing = db.one("SELECT payload_hash,data_json FROM competition_imports WHERE id=?", [importId]);
     if (existing) {
-      if (existing.payload_hash !== hash) throw new CompetitionError(409, "IDEMPOTENCY_CONFLICT", "M\xE3 l\u01B0u \u0111\xE3 \u0111\u01B0\u1EE3c d\xF9ng cho n\u1ED9i dung kh\xE1c.");
+      if (existing.payload_hash !== hash3) throw new CompetitionError(409, "IDEMPOTENCY_CONFLICT", "M\xE3 l\u01B0u \u0111\xE3 \u0111\u01B0\u1EE3c d\xF9ng cho n\u1ED9i dung kh\xE1c.");
       return decode2(existing);
     }
-    const now = (/* @__PURE__ */ new Date()).toISOString(), ids = [];
+    const now2 = (/* @__PURE__ */ new Date()).toISOString(), ids = [];
     for (const q of normalized7) {
-      const id2 = import_node_crypto16.default.randomUUID(), question = { ...q, id: id2, ownerId: actor.id, revision: 1 };
-      db.run("INSERT INTO competition_questions(id,owner_id,subject,grade,level,revision,fingerprint,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, 1, fingerprint(q), now, now, JSON.stringify(question)]);
-      db.run("INSERT INTO competition_question_versions(id,question_id,revision,created_at,data_json) VALUES (?,?,?,?,?)", [`${id2}:1`, id2, 1, now, JSON.stringify(question)]);
-      registerMedia(db, `${id2}:1`, "question-version", [question], now);
+      const id2 = import_node_crypto19.default.randomUUID(), question = { ...q, id: id2, ownerId: actor.id, revision: 1 };
+      db.run("INSERT INTO competition_questions(id,owner_id,subject,grade,level,revision,fingerprint,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, 1, fingerprint2(q), now2, now2, JSON.stringify(question)]);
+      db.run("INSERT INTO competition_question_versions(id,question_id,revision,created_at,data_json) VALUES (?,?,?,?,?)", [`${id2}:1`, id2, 1, now2, JSON.stringify(question)]);
+      registerMedia(db, `${id2}:1`, "question-version", [question], now2);
       ids.push(id2);
     }
     const result = { ids, count: ids.length };
-    db.run("INSERT INTO competition_imports(id,owner_id,payload_hash,created_at,data_json) VALUES (?,?,?,?,?)", [importId, actor.id, hash, now, JSON.stringify(result)]);
+    db.run("INSERT INTO competition_imports(id,owner_id,payload_hash,created_at,data_json) VALUES (?,?,?,?,?)", [importId, actor.id, hash3, now2, JSON.stringify(result)]);
     return result;
   });
 }
@@ -24044,10 +25873,10 @@ async function updateQuestion(actor, id2, scope, input, expectedRevision) {
       if (old.revision === expectedRevision + 1 && old.subject === scope.subject && old.grade === scope.grade && old.level === scope.level && JSON.stringify(normalizeQuestion5(old, scope)) === JSON.stringify(normalized7)) return old;
       throw new CompetitionError(409, "REVISION_CONFLICT", "C\xE2u \u0111\xE3 \u0111\u01B0\u1EE3c s\u1EEDa \u1EDF n\u01A1i kh\xE1c; t\u1EA3i l\u1EA1i tr\u01B0\u1EDBc khi l\u01B0u.");
     }
-    const now = (/* @__PURE__ */ new Date()).toISOString(), q = { ...normalized7, id: id2, ownerId: old.ownerId, revision: old.revision + 1 };
-    db.run("UPDATE competition_questions SET subject=?,grade=?,level=?,revision=?,fingerprint=?,updated_at=?,data_json=? WHERE id=?", [q.subject, q.grade, q.level, q.revision, fingerprint(q), now, JSON.stringify(q), id2]);
-    db.run("INSERT INTO competition_question_versions(id,question_id,revision,created_at,data_json) VALUES (?,?,?,?,?)", [`${id2}:${q.revision}`, id2, q.revision, now, JSON.stringify(q)]);
-    registerMedia(db, `${id2}:${q.revision}`, "question-version", [q], now);
+    const now2 = (/* @__PURE__ */ new Date()).toISOString(), q = { ...normalized7, id: id2, ownerId: old.ownerId, revision: old.revision + 1 };
+    db.run("UPDATE competition_questions SET subject=?,grade=?,level=?,revision=?,fingerprint=?,updated_at=?,data_json=? WHERE id=?", [q.subject, q.grade, q.level, q.revision, fingerprint2(q), now2, JSON.stringify(q), id2]);
+    db.run("INSERT INTO competition_question_versions(id,question_id,revision,created_at,data_json) VALUES (?,?,?,?,?)", [`${id2}:${q.revision}`, id2, q.revision, now2, JSON.stringify(q)]);
+    registerMedia(db, `${id2}:${q.revision}`, "question-version", [q], now2);
     return q;
   });
 }
@@ -24057,19 +25886,19 @@ async function archiveQuestions(actor, ids) {
       const row = db.one("SELECT data_json FROM competition_questions WHERE id=?", [id2]);
       return requireOwned(row ? decode2(row) : void 0, actor);
     });
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    questions.forEach((q) => db.run("UPDATE competition_questions SET archived=1,updated_at=?,data_json=? WHERE id=?", [now, JSON.stringify({ ...q, archived: true }), q.id]));
+    const now2 = (/* @__PURE__ */ new Date()).toISOString();
+    questions.forEach((q) => db.run("UPDATE competition_questions SET archived=1,updated_at=?,data_json=? WHERE id=?", [now2, JSON.stringify({ ...q, archived: true }), q.id]));
     return { archived: ids.length };
   });
 }
 async function createPaper(actor, scope, title, visibility) {
   return transaction2((db) => {
     const b = blueprint(scope), selection = selectQuestions(bankPool(db, actor, scope), b);
-    const now = (/* @__PURE__ */ new Date()).toISOString(), id2 = import_node_crypto16.default.randomUUID(), versionId = import_node_crypto16.default.randomUUID();
-    const paper2 = { ...scope, id: id2, ownerId: actor.id, title: text7(title, 300, true), versionId, visibility, status: "published", total: b.total, durationMinutes: b.durationMinutes, createdAt: now, blueprint: b, relaxed: selection.relaxed, warnings: selection.warnings };
-    db.run("INSERT INTO competition_papers(id,owner_id,subject,grade,level,status,visibility,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, "published", visibility, now, now, JSON.stringify(paper2)]);
-    db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [versionId, id2, now, JSON.stringify({ paper: paper2, questions: selection.questions })]);
-    registerMedia(db, versionId, "paper-version", selection.questions, now);
+    const now2 = (/* @__PURE__ */ new Date()).toISOString(), id2 = import_node_crypto19.default.randomUUID(), versionId = import_node_crypto19.default.randomUUID();
+    const paper2 = { ...scope, id: id2, ownerId: actor.id, title: text7(title, 300, true), versionId, visibility, status: "published", total: b.total, durationMinutes: b.durationMinutes, createdAt: now2, blueprint: b, relaxed: selection.relaxed, warnings: selection.warnings };
+    db.run("INSERT INTO competition_papers(id,owner_id,subject,grade,level,status,visibility,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, "published", visibility, now2, now2, JSON.stringify(paper2)]);
+    db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [versionId, id2, now2, JSON.stringify({ paper: paper2, questions: selection.questions })]);
+    registerMedia(db, versionId, "paper-version", selection.questions, now2);
     return paper2;
   });
 }
@@ -24095,10 +25924,10 @@ async function overview(actor) {
     const owner = actor.role === "super_admin" ? "" : "AND p.owner_id=?", params = owner ? [actor.id] : [];
     const from = `FROM competition_attempts a JOIN competition_papers p ON p.id=a.paper_id WHERE a.status IN ('active','completed') ${owner}`;
     const columns = "COUNT(DISTINCT a.owner_key) AS players,COUNT(*) AS attempts,COALESCE(SUM(CASE WHEN a.status='completed' THEN 1 ELSE 0 END),0) AS completed";
-    const counts = db.all(`SELECT p.subject,${columns} ${from} GROUP BY p.subject`, params);
+    const counts2 = db.all(`SELECT p.subject,${columns} ${from} GROUP BY p.subject`, params);
     const totals = db.one(`SELECT ${columns} ${from}`, params);
     const subjects = Object.fromEntries(SUBJECTS.map((subject) => {
-      const count = counts.find((row) => row.subject === subject);
+      const count = counts2.find((row) => row.subject === subject);
       return [subject, { questions: rows.filter((row) => row.subject === subject).reduce((sum, row) => sum + row.count, 0), players: count?.players || 0, attempts: count?.attempts || 0, completed: count?.completed || 0 }];
     }));
     return { inventory: rows, totals: { ...totals, questions: rows.reduce((sum, row) => sum + row.count, 0) }, subjects };
@@ -24209,7 +26038,7 @@ async function getPracticeReport(ownerKey) {
 async function getMistakeTopic(ownerKey, scope) {
   return transaction2((db) => topic2(scope, pendingQuestions(db, ownerKey).questions.filter((q) => sameScope(q, scope))));
 }
-function snapshotMistakes(db, ownerKey, scope, now) {
+function snapshotMistakes(db, ownerKey, scope, now2) {
   const pending = pendingQuestions(db, ownerKey).questions.filter((q) => sameScope(q, scope));
   if (!pending.length) throw new CompetitionError(409, "PRACTICE_EMPTY", "Kh\xF4ng c\xF2n c\xE2u sai trong nh\xF3m n\xE0y. H\xE3y quay l\u1EA1i Luy\u1EC7n t\u1EADp \u0111\u1EC3 c\u1EADp nh\u1EADt.");
   const questions = shuffle(pending).slice(0, 10), info = topic2(scope, pending);
@@ -24219,27 +26048,27 @@ function snapshotMistakes(db, ownerKey, scope, now) {
     title: info.title,
     source: "mistakes",
     ownerId: "competition-private-practice",
-    versionId: import_node_crypto17.default.randomUUID(),
+    versionId: import_node_crypto20.default.randomUUID(),
     visibility: "assignment",
     status: "published",
     total: questions.length,
     durationMinutes: 30,
-    createdAt: now,
+    createdAt: now2,
     blueprint: { ...scope, total: questions.length, durationMinutes: 30, domains: {}, difficulties: {} },
     relaxed: false,
     warnings: []
   };
   db.run(
     "INSERT OR IGNORE INTO competition_papers(id,owner_id,subject,grade,level,status,visibility,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    [paper2.id, paper2.ownerId, scope.subject, scope.grade, scope.level, paper2.status, paper2.visibility, now, now, JSON.stringify(paper2)]
+    [paper2.id, paper2.ownerId, scope.subject, scope.grade, scope.level, paper2.status, paper2.visibility, now2, now2, JSON.stringify(paper2)]
   );
-  db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [paper2.versionId, paper2.id, now, JSON.stringify({ paper: paper2, questions })]);
-  registerMedia(db, paper2.versionId, "paper-version", questions, now);
+  db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [paper2.versionId, paper2.id, now2, JSON.stringify({ paper: paper2, questions })]);
+  registerMedia(db, paper2.versionId, "paper-version", questions, now2);
   return { paper: paper2, questions };
 }
 
 // src/server/ioe-violympic/engine.ts
-var import_node_crypto18 = __toESM(require("node:crypto"), 1);
+var import_node_crypto21 = __toESM(require("node:crypto"), 1);
 
 // src/server/ioe-violympic/graderRegistry.ts
 var CORRECT = { isCorrect: true, scoreRatio: 1 };
@@ -24480,13 +26309,13 @@ function createCompetitionEngine(secret, clock = Date.now) {
   if (secret.length < 24) throw new Error("Competition ticket requires the configured B signing secret.");
   const nowIso5 = () => new Date(clock()).toISOString();
   const ticket = (a) => {
-    const payload = Buffer.from(JSON.stringify({ id: a.id, owner: import_node_crypto18.default.createHash("sha256").update(a.ownerKey).digest("hex"), version: a.paper.versionId, v: 1 })).toString("base64url");
-    return `${payload}.${import_node_crypto18.default.createHmac("sha256", secret).update(payload).digest("base64url")}`;
+    const payload = Buffer.from(JSON.stringify({ id: a.id, owner: import_node_crypto21.default.createHash("sha256").update(a.ownerKey).digest("hex"), version: a.paper.versionId, v: 1 })).toString("base64url");
+    return `${payload}.${import_node_crypto21.default.createHmac("sha256", secret).update(payload).digest("base64url")}`;
   };
   const verify = (value, a) => {
     if (typeof value !== "string" || value.length > 1e3) return false;
     const actual = Buffer.from(value), expected = Buffer.from(ticket(a));
-    return actual.length === expected.length && import_node_crypto18.default.timingSafeEqual(actual, expected);
+    return actual.length === expected.length && import_node_crypto21.default.timingSafeEqual(actual, expected);
   };
   const load = (db, id2, actor, signed) => {
     const row = db.one("SELECT data_json FROM competition_attempts WHERE id=? AND owner_key=?", [id2, actor.ownerKey]);
@@ -24561,7 +26390,7 @@ function createCompetitionEngine(secret, clock = Date.now) {
       if (a2.paper.id !== paperId || (a2.assignmentId || "") !== (context.assignmentId || "")) throw new CompetitionError(409, "RUN_CONFLICT", "M\xE3 l\u01B0\u1EE3t l\xE0m \u0111\xE3 d\xF9ng cho b\xE0i kh\xE1c.");
       return session(expire(db, a2));
     }
-    const id2 = import_node_crypto18.default.randomUUID(), createdAt = nowIso5();
+    const id2 = import_node_crypto21.default.randomUUID(), createdAt = nowIso5();
     const scope = bankScope(paperId), mistakes = mistakeScope(paperId);
     let paper2, questions;
     if (mistakes) {
@@ -24656,7 +26485,7 @@ function integer4(value, min, max, fallback) {
 }
 var publicPaper = (p) => ({ id: p.id, title: p.title, subject: p.subject, grade: p.grade, level: p.level, total: p.total, durationMinutes: p.durationMinutes, visibility: p.visibility });
 function createCompetitionRouter(options2) {
-  const router = import_express22.default.Router(), engine = createCompetitionEngine(options2.ticketSecret);
+  const router = import_express24.default.Router(), engine = createCompetitionEngine(options2.ticketSecret);
   const sendError5 = (res, error) => {
     const err = error instanceof Error ? error : void 0;
     const status = err?.status || 500;
@@ -24812,10 +26641,10 @@ function createCompetitionRouter(options2) {
 }
 
 // src/server/speaking/router.ts
-var import_express23 = __toESM(require("express"), 1);
+var import_express25 = __toESM(require("express"), 1);
 
 // src/server/speaking/providers.ts
-var import_node_crypto19 = __toESM(require("node:crypto"), 1);
+var import_node_crypto22 = __toESM(require("node:crypto"), 1);
 
 // src/server/speaking/azureSession.ts
 function cancellationError(sdk2, code) {
@@ -25062,8 +26891,8 @@ function createProviders(env = process.env) {
     async assess(input) {
       if (!speechsuper.configured) throw new SpeakingError(503, "PROVIDER_NOT_CONFIGURED", "Ch\u01B0a c\u1EA5u h\xECnh SpeechSuper.");
       if (input.durationSeconds > 180) throw new SpeakingError(422, "PROVIDER_DURATION", "SpeechSuper h\u1ED7 tr\u1EE3 t\u1ED1i \u0111a 180 gi\xE2y.");
-      const started = Date.now(), timestamp = String(started), userId = import_node_crypto19.default.randomUUID(), appKey = env.SPEECHSUPER_APP_KEY, secret = env.SPEECHSUPER_SECRET_KEY;
-      const sha = (s) => import_node_crypto19.default.createHash("sha1").update(s).digest("hex");
+      const started = Date.now(), timestamp = String(started), userId = import_node_crypto22.default.randomUUID(), appKey = env.SPEECHSUPER_APP_KEY, secret = env.SPEECHSUPER_SECRET_KEY;
+      const sha = (s) => import_node_crypto22.default.createHash("sha1").update(s).digest("hex");
       const coreType = input.lesson.kind === "word" ? "word.eval.promax" : input.lesson.kind === "passage" ? "para.eval" : "sent.eval.promax";
       const params = {
         connect: { cmd: "connect", param: { sdk: { version: 16777472, source: 9, protocol: 2 }, app: { applicationId: appKey, timestamp, sig: sha(appKey + timestamp + secret) } } },
@@ -25073,7 +26902,7 @@ function createProviders(env = process.env) {
           request: {
             coreType,
             refText: input.lesson.referenceText,
-            tokenId: import_node_crypto19.default.randomUUID(),
+            tokenId: import_node_crypto22.default.randomUUID(),
             dict_type: "IPA88",
             dict_dialect: input.lesson.locale === "en-US" ? "en_us" : "en_br",
             scale: 100,
@@ -25103,9 +26932,9 @@ function createProviders(env = process.env) {
 }
 
 // src/server/speaking/service.ts
-var import_node_crypto20 = __toESM(require("node:crypto"), 1);
-var import_promises2 = __toESM(require("node:fs/promises"), 1);
-var import_node_path8 = __toESM(require("node:path"), 1);
+var import_node_crypto23 = __toESM(require("node:crypto"), 1);
+var import_promises6 = __toESM(require("node:fs/promises"), 1);
+var import_node_path15 = __toESM(require("node:path"), 1);
 
 // src/shared/speaking/audioQuality.ts
 var SAMPLE_RATE = 16e3;
@@ -25168,13 +26997,13 @@ function inspectWav(bytes, maxSeconds = 300) {
 // src/server/speaking/service.ts
 var notFound2 = () => new SpeakingError(404, "NOT_FOUND", "Kh\xF4ng t\xECm th\u1EA5y l\u01B0\u1EE3t luy\u1EC7n \u0111\u1ECDc.");
 function createSpeakingService(options2) {
-  const dailyLimit = Math.max(1, Math.min(200, options2.dailyLimit || 20)), retentionDays = Math.max(1, Math.min(365, options2.retentionDays || 30));
+  const dailyLimit = Math.max(1, Math.min(200, options2.dailyLimit || 20)), retentionDays = Math.max(1, Math.min(1, options2.retentionDays || 1));
   const queueCapacity = Math.max(1, options2.queueCapacity ?? 100), pendingLimit = Math.max(queueCapacity, options2.pendingLimit ?? 1e3);
   const file = (id2) => {
     if (!/^[0-9a-f-]{36}$/.test(id2)) throw notFound2();
-    return import_node_path8.default.join(options2.audioDir, `${id2}.wav`);
+    return import_node_path15.default.join(options2.audioDir, `${id2}.wav`);
   };
-  const ticket = (a) => import_node_crypto20.default.createHmac("sha256", options2.secret).update(`${a.id}|${a.ownerKey}|${a.lesson.versionId}`).digest("base64url");
+  const ticket = (a) => import_node_crypto23.default.createHmac("sha256", options2.secret).update(`${a.id}|${a.ownerKey}|${a.lesson.versionId}`).digest("base64url");
   const view = (raw, includeTicket = false) => {
     const a = raw;
     const { ownerKey: _o, audioHash: _h, audioExpiresAt: _e, ...v } = a;
@@ -25191,7 +27020,7 @@ function createSpeakingService(options2) {
     else if (a.ownerKey !== actor.ownerKey) throw notFound2();
     if (signed !== void 0) {
       const expected = Buffer.from(ticket(a)), given = Buffer.from(signed);
-      if (given.length !== expected.length || !import_node_crypto20.default.timingSafeEqual(given, expected)) throw new SpeakingError(403, "INVALID_TICKET", "L\u01B0\u1EE3t \u0111\u1ECDc ch\u01B0a \u0111\u01B0\u1EE3c x\xE1c minh.");
+      if (given.length !== expected.length || !import_node_crypto23.default.timingSafeEqual(given, expected)) throw new SpeakingError(403, "INVALID_TICKET", "L\u01B0\u1EE3t \u0111\u1ECDc ch\u01B0a \u0111\u01B0\u1EE3c x\xE1c minh.");
     }
     return a;
   }
@@ -25228,58 +27057,62 @@ function createSpeakingService(options2) {
         return view(a2, true);
       }
       if (session?.status === "completed") throw new SpeakingError(409, "SESSION_COMPLETED", "B\u1ED9 \u0111\xE3 ho\xE0n th\xE0nh. H\xE3y m\u1EDF l\u01B0\u1EE3t luy\u1EC7n m\u1EDBi.");
-      const now = (/* @__PURE__ */ new Date()).toISOString(), count = db.one("SELECT COUNT(*) n FROM speaking_attempts WHERE owner_key=? AND created_at>=?", [actor.ownerKey, now.slice(0, 10)]);
+      const now2 = (/* @__PURE__ */ new Date()).toISOString(), count = db.one("SELECT COUNT(*) n FROM speaking_attempts WHERE owner_key=? AND created_at>=?", [actor.ownerKey, now2.slice(0, 10)]);
       if ((count?.n || 0) >= dailyLimit) throw new SpeakingError(429, "DAILY_LIMIT", `B\u1EA1n \u0111\xE3 d\xF9ng ${dailyLimit} l\u01B0\u1EE3t \u0111\u1ECDc h\xF4m nay. C\xF3 th\u1EC3 ti\u1EBFp t\u1EE5c b\u1ED9 v\xE0o ng\xE0y sau.`);
-      const a = { id: import_node_crypto20.default.randomUUID(), ownerKey: actor.ownerKey, lesson: snapshot, status: "prepared", createdAt: now, completedAt: null, durationSeconds: null, assessment: null, feedback: null, feedbackState: "disabled", error: "", ...selection ? { sessionId: selection.sessionId, itemId: selection.itemId, itemNumber } : {} };
-      const values = [a.id, actor.ownerKey, lessonId, snapshot.versionId, clientRunId, a.status, studentName, actor.kind === "user" ? actor.id : null, actor.kind === "guest" ? actor.id : null, context.classId || null, context.className || "", now, JSON.stringify(a), selection?.sessionId || null, selection?.itemId || null];
+      const a = { id: import_node_crypto23.default.randomUUID(), ownerKey: actor.ownerKey, lesson: snapshot, status: "prepared", createdAt: now2, completedAt: null, durationSeconds: null, assessment: null, feedback: null, feedbackState: "disabled", error: "", ...selection ? { sessionId: selection.sessionId, itemId: selection.itemId, itemNumber } : {} };
+      const values = [a.id, actor.ownerKey, lessonId, snapshot.versionId, clientRunId, a.status, studentName, actor.kind === "user" ? actor.id : null, actor.kind === "guest" ? actor.id : null, context.classId || null, context.className || "", now2, JSON.stringify(a), selection?.sessionId || null, selection?.itemId || null];
       db.run(`INSERT INTO speaking_attempts(id,owner_key,lesson_id,version_id,client_run_id,status,student_name,user_id,guest_id,class_id,class_name,created_at,data_json,session_id,item_id) VALUES (${values.map(() => "?").join(",")})`, values);
       return view(a, true);
     });
   }
   async function upload(actor, id2, signed, wav) {
-    const initial = await access(actor, id2, signed), hash = import_node_crypto20.default.createHash("sha256").update(wav).digest("hex");
+    const initial = await access(actor, id2, signed), hash3 = import_node_crypto23.default.createHash("sha256").update(wav).digest("hex");
     if (initial.audioHash) {
-      if (initial.audioHash !== hash) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c. H\xE3y t\u1EA1o l\u01B0\u1EE3t \u0111\u1ECDc m\u1EDBi.");
+      if (initial.audioHash !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c. H\xE3y t\u1EA1o l\u01B0\u1EE3t \u0111\u1ECDc m\u1EDBi.");
       return view(initial, true);
     }
     if (initial.status !== "prepared" || Date.now() - Date.parse(initial.createdAt) > 864e5) throw new SpeakingError(409, "ATTEMPT_EXPIRED", "L\u01B0\u1EE3t \u0111\u1ECDc \u0111\xE3 h\u1EBFt h\u1EA1n. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
     const provider2 = options2.providers[initial.lesson.provider];
     if (!provider2.configured) throw new SpeakingError(503, "PROVIDER_NOT_CONFIGURED", "Gi\xE1o vi\xEAn ch\u01B0a c\u1EA5u h\xECnh d\u1ECBch v\u1EE5 ch\u1EA5m gi\u1ECDng.");
     const quality = inspectWav(wav, Math.min(initial.lesson.maxSeconds, provider2.maxSeconds));
-    await import_promises2.default.mkdir(options2.audioDir, { recursive: true });
-    const temporary = `${file(id2)}.${import_node_crypto20.default.randomUUID()}.tmp`;
+    await import_promises6.default.mkdir(options2.audioDir, { recursive: true });
+    const temporary = `${file(id2)}.${import_node_crypto23.default.randomUUID()}.tmp`;
     try {
-      await import_promises2.default.writeFile(temporary, wav, { flag: "wx", mode: 384 });
+      await import_promises6.default.writeFile(temporary, wav, { flag: "wx", mode: 384 });
       try {
-        await import_promises2.default.link(temporary, file(id2));
+        await import_promises6.default.link(temporary, file(id2));
       } catch (e) {
         if (e.code !== "EEXIST") throw e;
-        if (import_node_crypto20.default.createHash("sha256").update(await import_promises2.default.readFile(file(id2))).digest("hex") !== hash) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c.");
+        if (import_node_crypto23.default.createHash("sha256").update(await import_promises6.default.readFile(file(id2))).digest("hex") !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c.");
       }
     } finally {
-      await import_promises2.default.unlink(temporary).catch(() => {
+      await import_promises6.default.unlink(temporary).catch(() => {
       });
     }
     return transaction((db) => {
       const a = decode(db.one("SELECT data_json FROM speaking_attempts WHERE id=?", [id2]));
       if (a.audioHash) {
-        if (a.audioHash !== hash) throw new SpeakingError(409, "AUDIO_CONFLICT", "B\u1EA3n thu kh\xF4ng kh\u1EDBp.");
+        if (a.audioHash !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "B\u1EA3n thu kh\xF4ng kh\u1EDBp.");
         return view(a, true);
       }
       const queueState = admission(db, actor.ownerKey);
-      a.audioHash = hash;
+      a.audioHash = hash3;
       a.audioExpiresAt = new Date(Date.now() + retentionDays * 864e5).toISOString();
       a.durationSeconds = quality.durationSeconds;
       a.status = "queued";
       a.queueState = queueState;
       update(db, a);
-      const now = (/* @__PURE__ */ new Date()).toISOString();
-      db.run("INSERT INTO speaking_jobs(id,attempt_id,kind,status,created_at,updated_at) VALUES (?,?,'assessment',?,?,?)", [id2, id2, queueState, now, now]);
+      const now2 = (/* @__PURE__ */ new Date()).toISOString();
+      db.run("INSERT INTO speaking_jobs(id,attempt_id,kind,status,created_at,updated_at) VALUES (?,?,'assessment',?,?,?)", [id2, id2, queueState, now2, now2]);
       return view(a, true);
     });
   }
   async function retry(actor, id2, signed) {
     await access(actor, id2, signed);
+    const recording = await import_promises6.default.stat(file(id2)).catch(() => {
+      throw new SpeakingError(409, "RETRY_UNAVAILABLE", "B\u1EA3n thu kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
+    });
+    if (Date.now() - recording.mtimeMs >= 864e5) throw new SpeakingError(409, "RETRY_UNAVAILABLE", "B\u1EA3n thu \u0111\xE3 h\u1EBFt th\u1EDDi h\u1EA1n 24 gi\u1EDD. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
     return transaction((db) => {
       const a = decode(db.one("SELECT data_json FROM speaking_attempts WHERE id=?", [id2])), job = db.one("SELECT tries FROM speaking_jobs WHERE id=?", [id2]);
       if (a.status !== "failed" || !a.audioExpiresAt || a.audioExpiresAt <= (/* @__PURE__ */ new Date()).toISOString() || !job || job.tries >= 3) throw new SpeakingError(409, "RETRY_UNAVAILABLE", "L\u01B0\u1EE3t n\xE0y kh\xF4ng th\u1EC3 ch\u1EA5m l\u1EA1i. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
@@ -25308,7 +27141,7 @@ function createSpeakingService(options2) {
       }
       const j = db.one("SELECT id,attempt_id,kind FROM speaking_jobs WHERE status IN ('queued','waiting') ORDER BY created_at,id LIMIT 1");
       if (!j) return void 0;
-      const lease = import_node_crypto20.default.randomUUID();
+      const lease = import_node_crypto23.default.randomUUID();
       db.run("UPDATE speaking_jobs SET status='running',lease_token=?,lease_until=?,tries=tries+1,updated_at=? WHERE id=? AND status IN ('queued','waiting')", [lease, Date.now() + 48e4, (/* @__PURE__ */ new Date()).toISOString(), j.id]);
       const a = decode(db.one("SELECT data_json FROM speaking_attempts WHERE id=?", [j.attempt_id]));
       if (j.kind === "assessment") {
@@ -25321,8 +27154,9 @@ function createSpeakingService(options2) {
     if (!job) return false;
     let assessment, feedback, failure2 = "";
     try {
-      const wav = await import_promises2.default.readFile(file(job.attempt.id));
-      if (import_node_crypto20.default.createHash("sha256").update(wav).digest("hex") !== job.attempt.audioHash) throw new SpeakingError(422, "AUDIO_INTEGRITY", "B\u1EA3n thu l\u01B0u tr\u1EEF kh\xF4ng c\xF2n nguy\xEAn v\u1EB9n.");
+      if (!job.attempt.audioExpiresAt || job.attempt.audioExpiresAt <= (/* @__PURE__ */ new Date()).toISOString() || Date.now() - (await import_promises6.default.stat(file(job.attempt.id))).mtimeMs >= 864e5) throw new SpeakingError(410, "AUDIO_EXPIRED", "B\u1EA3n thu \u0111\xE3 h\u1EBFt th\u1EDDi h\u1EA1n ch\u1EA5m l\u1EA1i. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
+      const wav = await import_promises6.default.readFile(file(job.attempt.id));
+      if (import_node_crypto23.default.createHash("sha256").update(wav).digest("hex") !== job.attempt.audioHash) throw new SpeakingError(422, "AUDIO_INTEGRITY", "B\u1EA3n thu l\u01B0u tr\u1EEF kh\xF4ng c\xF2n nguy\xEAn v\u1EB9n.");
       if (job.kind === "assessment") {
         assessment = await options2.providers[job.attempt.lesson.provider].assess({ lesson: job.attempt.lesson, wav, durationSeconds: job.attempt.durationSeconds });
         if (assessment.provider !== job.attempt.lesson.provider || assessment.schemaVersion !== 1 || !Number.isFinite(assessment.score) || assessment.score < 0 || assessment.score > 100) throw new SpeakingError(502, "PROVIDER_RESPONSE", "K\u1EBFt qu\u1EA3 d\u1ECBch v\u1EE5 kh\xF4ng kh\u1EDBp c\u1EA5u h\xECnh l\u01B0\u1EE3t \u0111\u1ECDc.");
@@ -25391,7 +27225,11 @@ function createSpeakingService(options2) {
     async audio(actor, id2, staff) {
       const candidate = await load(id2), a = await access(actor, id2, void 0, candidate.ownerKey === actor.ownerKey ? void 0 : staff);
       if (!a.audioHash || !a.audioExpiresAt || a.audioExpiresAt <= (/* @__PURE__ */ new Date()).toISOString()) throw new SpeakingError(410, "AUDIO_EXPIRED", "B\u1EA3n thu \u0111\xE3 h\u1EBFt th\u1EDDi h\u1EA1n nghe l\u1EA1i.");
-      return import_promises2.default.readFile(file(id2)).catch(() => {
+      const recording = await import_promises6.default.stat(file(id2)).catch(() => {
+        throw new SpeakingError(410, "AUDIO_MISSING", "B\u1EA3n thu kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng.");
+      });
+      if (Date.now() - recording.mtimeMs >= 864e5) throw new SpeakingError(410, "AUDIO_EXPIRED", "B\u1EA3n thu \u0111\xE3 h\u1EBFt th\u1EDDi h\u1EA1n 24 gi\u1EDD.");
+      return import_promises6.default.readFile(file(id2)).catch(() => {
         throw new SpeakingError(410, "AUDIO_MISSING", "B\u1EA3n thu kh\xF4ng c\xF2n kh\u1EA3 d\u1EE5ng.");
       });
     },
@@ -25404,7 +27242,7 @@ function createSpeakingService(options2) {
 
 // src/server/speaking/router.ts
 function createSpeakingRouter(options2) {
-  const router = import_express23.default.Router(), env = options2.env || process.env, providers = options2.providers || createProviders(env);
+  const router = import_express25.default.Router(), env = options2.env || process.env, providers = options2.providers || createProviders(env);
   const service = createSpeakingService({ providers, secret: options2.ticketSecret, audioDir: options2.audioDir, dailyLimit: Number(env.SPEAKING_DAILY_LIMIT), retentionDays: Number(env.SPEAKING_AUDIO_RETENTION_DAYS), feedback: options2.feedback });
   const capability = {
     enabled: options2.enabled,
@@ -25486,7 +27324,7 @@ function createSpeakingRouter(options2) {
         next();
       })().catch((e) => sendError5(res, e));
     },
-    import_express23.default.raw({ type: "audio/wav", limit: MAX_AUDIO_BYTES }),
+    import_express25.default.raw({ type: "audio/wav", limit: MAX_AUDIO_BYTES }),
     handle(async (req, res) => {
       if (!Buffer.isBuffer(req.body)) throw new SpeakingError(400, "INVALID_AUDIO", "Thi\u1EBFu b\u1EA3n thu.");
       res.json(await service.upload(await resolveLearningHistoryActor(req), req.params.id, text(req.headers["x-attempt-ticket"], 200, true), req.body));
@@ -25643,7 +27481,7 @@ if (process.env.NODE_ENV === "production" && LOCAL_AUTH_BYPASS_REQUESTED) {
 if (LOCAL_AUTH_BYPASS_REQUESTED) {
   console.warn("[Local Test] Firebase authentication bypass is enabled for loopback requests only.");
 }
-var app2 = (0, import_express24.default)();
+var app2 = (0, import_express26.default)();
 app2.disable("x-powered-by");
 var PORT = Number(process.env.PORT) || 3e3;
 var TRUST_PROXY_HOPS = parseTrustedProxyHops(process.env.TRUST_PROXY_HOPS);
@@ -25696,8 +27534,8 @@ if (LEARNING_HISTORY_REQUESTED && !LEARNING_HISTORY_ENABLED) {
   console.warn("[History] LEARNING_HISTORY_ENABLED requires STORAGE_MODE=sqlite; history remains disabled.");
 }
 app2.use(applySecurityHeaders(process.env.NODE_ENV === "production"));
-app2.use("/api/ioe-violympic", import_express24.default.json({ limit: "2mb" }));
-app2.use(import_express24.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
+app2.use("/api/ioe-violympic", import_express26.default.json({ limit: "2mb" }));
+app2.use(import_express26.default.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 app2.use((req, _res, next) => {
   withStorageRequestMetrics(() => {
     req.__requestStartedAt = performance.now();
@@ -25706,14 +27544,14 @@ app2.use((req, _res, next) => {
   });
 });
 import_fs5.default.mkdirSync(AUDIO_DIR, { recursive: true });
-app2.use(AUDIO_PUBLIC_PREFIX, import_express24.default.static(AUDIO_DIR));
+app2.use(AUDIO_PUBLIC_PREFIX, import_express26.default.static(AUDIO_DIR));
 import_fs5.default.mkdirSync(LISTENING_MEDIA_DIR, { recursive: true });
-app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express24.default.static(LISTENING_MEDIA_DIR, {
+app2.use(LISTENING_MEDIA_PUBLIC_PREFIX, import_express26.default.static(LISTENING_MEDIA_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
 import_fs5.default.mkdirSync(VOCAB_IMAGE_DIR, { recursive: true });
-app2.use(VOCAB_IMAGE_PUBLIC_PREFIX, import_express24.default.static(VOCAB_IMAGE_DIR, {
+app2.use(VOCAB_IMAGE_PUBLIC_PREFIX, import_express26.default.static(VOCAB_IMAGE_DIR, {
   immutable: true,
   maxAge: "365d"
 }));
@@ -25745,12 +27583,12 @@ function createApiTiming(req, label) {
   let finished = false;
   return {
     mark(name) {
-      const now = performance.now();
+      const now2 = performance.now();
       entries.push({
         name: name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "step",
-        durationMs: Math.max(0, now - checkpoint)
+        durationMs: Math.max(0, now2 - checkpoint)
       });
-      checkpoint = now;
+      checkpoint = now2;
     },
     finish(res) {
       if (finished) return;
@@ -25985,9 +27823,9 @@ var PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS = 3e4;
 var PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES = 100;
 var publicLeaderboardSummaryCache = /* @__PURE__ */ new Map();
 function cachePublicLeaderboardSummary(key2, value) {
-  const now = Date.now();
+  const now2 = Date.now();
   for (const [cachedKey, cached] of publicLeaderboardSummaryCache) {
-    if (cached.expiresAt <= now) publicLeaderboardSummaryCache.delete(cachedKey);
+    if (cached.expiresAt <= now2) publicLeaderboardSummaryCache.delete(cachedKey);
   }
   while (publicLeaderboardSummaryCache.size >= PUBLIC_LEADERBOARD_SUMMARY_CACHE_MAX_ENTRIES) {
     const oldestKey = publicLeaderboardSummaryCache.keys().next().value;
@@ -25995,7 +27833,7 @@ function cachePublicLeaderboardSummary(key2, value) {
     publicLeaderboardSummaryCache.delete(oldestKey);
   }
   publicLeaderboardSummaryCache.set(key2, {
-    expiresAt: now + PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS,
+    expiresAt: now2 + PUBLIC_LEADERBOARD_SUMMARY_CACHE_MS,
     value
   });
 }
@@ -26734,8 +28572,8 @@ function grammarAttemptToActivity(attempt, set = {}) {
   };
 }
 function leaderboardEventId(sourceType, sourceId) {
-  const hash = import_crypto4.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
-  return `leaderboard-${hash}`;
+  const hash3 = import_crypto4.default.createHash("sha1").update(`${sourceType}:${sourceId}`).digest("hex");
+  return `leaderboard-${hash3}`;
 }
 function getLeaderboardEventTime(data) {
   return data.completedAt || data.endedAt || data.createdAt || data.startedAt || "";
@@ -27689,6 +29527,10 @@ async function loadReadyLeaderboardEvents(timing, requestedCutoff = "") {
   });
   return mergeLeaderboardEvents(events);
 }
+var maintenanceConfiguration = maintenanceConfig();
+var maintenanceService = createMaintenance(maintenanceConfiguration);
+var hostingInventoryService = createHostingInventory(inventoryConfig(maintenanceConfiguration));
+app2.use("/api/admin/maintenance", createFixedWindowRateLimiter({ namespace: "maintenance", windowMs: 6e4, maxCost: 120, key: (req) => getRequestNetworkKey(req), message: "C\xF3 qu\xE1 nhi\u1EC1u y\xEAu c\u1EA7u maintenance." }), createMaintenanceRouter({ service: maintenanceService, inventory: hostingInventoryService, authenticateUser, requireSuperAdmin: requireRole(["super_admin"]) }));
 var PHONE_AUTH_WINDOW_MS = 10 * 60 * 1e3;
 var PHONE_AUTH_MAX_ATTEMPTS = 5;
 var phoneAuthRateLimit = new FixedWindowRateLimitStore(PHONE_AUTH_WINDOW_MS, PHONE_AUTH_MAX_ATTEMPTS);
@@ -28338,8 +30180,8 @@ async function resolveGameSessionStartContext(req, payload, timing) {
   return { actor, assignment, access, vocabSet, vocabSetId, gameId, inferredClass, privateSnapshot };
 }
 function buildGameSessionRecord(context, payload, options2) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const startedAt = normalizeClientStartedAt(options2.startedAt, now);
+  const now2 = (/* @__PURE__ */ new Date()).toISOString();
+  const startedAt = normalizeClientStartedAt(options2.startedAt, now2);
   const { actor, assignment, access, vocabSet, vocabSetId, gameId, inferredClass, privateSnapshot } = context;
   return {
     id: options2.id,
@@ -28364,8 +30206,8 @@ function buildGameSessionRecord(context, payload, options2) {
     classId: safeText2(assignment?.classId || vocabSet.classId || inferredClass?.classId || getLessonGradeClass(vocabSet).classId || "", 160),
     className: safeText2(assignment?.className || vocabSet.className || inferredClass?.className || getLessonGradeClass(vocabSet).className || "", 160),
     startedAt,
-    createdAt: now,
-    activatedAt: options2.schemaVersion === 3 ? now : void 0,
+    createdAt: now2,
+    activatedAt: options2.schemaVersion === 3 ? now2 : void 0,
     clientRunId: options2.clientRunId || void 0,
     status: "started",
     submissionStatus: "pending",
@@ -28373,7 +30215,7 @@ function buildGameSessionRecord(context, payload, options2) {
     gradingMode: gameId.startsWith("flashcard-") ? "server-self-report" : "server",
     actionPersistence: options2.schemaVersion === 3 && gameId !== "speaking-ai" ? "submit_batch" : getGameActionPersistence(gameId, privateSnapshot),
     privateSnapshot,
-    lastSavedAt: now,
+    lastSavedAt: now2,
     score: 0,
     totalQuestions: 0,
     correctAnswers: 0,
@@ -28418,12 +30260,12 @@ async function start() {
     console.log("Vite development server loaded as middleware.");
   } else {
     const distPath = import_path5.default.join(process.cwd(), "dist", "client");
-    app2.use("/assets", import_express24.default.static(import_path5.default.join(distPath, "assets"), {
+    app2.use("/assets", import_express26.default.static(import_path5.default.join(distPath, "assets"), {
       immutable: true,
       maxAge: "365d"
     }));
     app2.use("/assets", (_req, res) => res.status(404).set("Cache-Control", "no-store").type("text/plain").send("Not found"));
-    app2.use(import_express24.default.static(distPath, {
+    app2.use(import_express26.default.static(distPath, {
       index: false,
       maxAge: "1h"
     }));
@@ -28734,8 +30576,8 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
       acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
     };
   });
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const startedAt = normalizeClientStartedAt(payload.startedAt, now);
+  const now2 = (/* @__PURE__ */ new Date()).toISOString();
+  const startedAt = normalizeClientStartedAt(payload.startedAt, now2);
   const attemptId = deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, clientRunId]);
   return {
     id: attemptId,
@@ -28762,14 +30604,14 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
     wrongCount: 0,
     unansweredCount: attemptQuestions.length,
     startedAt,
-    createdAt: now,
+    createdAt: now2,
     questions: attemptQuestions,
     answers: [],
     reviewPolicySnapshot: {
       showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
       showExplanationImmediately: Boolean(set.showExplanationImmediately),
       policyVersion: 1,
-      capturedAt: now
+      capturedAt: now2
     },
     attemptTokenHash: hashSessionToken(runSecret)
   };
@@ -28908,7 +30750,7 @@ function validateGrammarQuestion(question, index) {
   return errors;
 }
 function normalizeGrammarSetForSave(payload, existing = {}, user) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const now2 = (/* @__PURE__ */ new Date()).toISOString();
   const questionType = getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType));
   const questions = (Array.isArray(payload.questions) ? payload.questions : []).map((question, index) => normalizeGrammarQuestion(question, index, questionType)).sort((a, b) => a.position - b.position).map((question, index) => ({ ...question, position: index + 1 }));
   const errors = questions.flatMap(validateGrammarQuestion);
@@ -28951,8 +30793,8 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     showReviewAfterSubmit: payload.showReviewAfterSubmit !== false,
     createdBy: existing.createdBy || user.id,
     creatorName: existing.creatorName || user.name,
-    createdAt: existing.createdAt || now,
-    updatedAt: now,
+    createdAt: existing.createdAt || now2,
+    updatedAt: now2,
     questions
   };
   if (visibility === "assignment") {
