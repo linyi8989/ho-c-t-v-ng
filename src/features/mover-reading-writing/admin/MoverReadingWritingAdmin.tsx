@@ -1,3 +1,6 @@
+import { AuthoringDocumentScope } from '../../../lib/authoring/DocumentScope';
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
+import { useDraftAutosave } from '../../../lib/authoring/useDraftAutosave';
 import { BookOpenText, Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LibraryLinkStatus, LibraryRowActions } from '../../../components/admin/LibraryRowControls';
@@ -63,7 +66,6 @@ export default function MoverReadingWritingAdmin({
   const [resultsTitle, setResultsTitle] = useState('');
   const [expandedAttempt, setExpandedAttempt] = useState('');
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle');
-  const [autosaveTick, setAutosaveTick] = useState(0);
   const autosaveInFlight = useRef(false);
   const autosaveBlocked = useRef(false);
   const handledCreateRequest = useRef(0);
@@ -109,46 +111,50 @@ export default function MoverReadingWritingAdmin({
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, [draft.dirty, inEditor]);
 
-  useEffect(() => {
-    if (!inEditor || !editingId || !draft.dirty || busy || autosaveBlocked.current) return;
-    const timer = window.setTimeout(async () => {
-      if (autosaveInFlight.current) {
-        setAutosaveTick(value => value + 1);
-        return;
+  const editorGeneration = useRef(0);
+  const recovery = useAuthoringDraft({
+    scope: 'movers-reading-writing', entity: editingId || 'new', value: draft.document,
+    enabled: inEditor, dirty: draft.dirty, revision: draft.revision,
+    restore: async (record, asCopy, signal) => {
+      const document = record.value;
+      if (!document?.content || ![1, 2, 3].includes(document.content.schemaVersion) || !Array.isArray(document.content.parts)
+        || !['draft', 'public', 'assignment'].includes(document.visibility)) throw new Error('Bản nháp không đúng cấu trúc bộ đề.');
+      await automatic.wait();
+      let revision = 0;
+      if (!asCopy && record.entity !== 'new') {
+        const current = await moverReadingWritingApi.getAdminSet(token, record.entity);
+        revision = Number(current.draftRevision || 0);
+        if (revision !== record.revision) throw new Error('Bài trên server đã thay đổi. Chọn Khôi phục thành bài mới để giữ cả hai phiên bản.');
       }
-      autosaveInFlight.current = true;
-      const snapshot = draft.document;
-      const baseRevision = draft.revision;
-      setAutosaveStatus('saving');
-      try {
-        const saved = await moverReadingWritingApi.autosaveSet(
-          token,
-          editingId,
-          snapshot.content,
-          snapshot.visibility,
-          baseRevision,
-        );
-        draft.markSaved(snapshot, saved.draftRevision);
-        setValidationErrors(saved.validationErrors || []);
-        setAutosaveStatus('saved');
-      } catch (error: any) {
-        if (error?.status === 409) {
-          autosaveBlocked.current = true;
-          setAutosaveStatus('conflict');
-          setMessage({
-            text: 'Bản nháp đã được sửa ở tab khác. Hãy mở lại bộ đề trước khi tiếp tục để tránh ghi đè dữ liệu.',
-            error: true,
-          });
-        } else {
-          setAutosaveStatus('error');
-        }
-      } finally {
-        autosaveInFlight.current = false;
-        setAutosaveTick(value => value + 1);
-      }
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [busy, draft.dirty, draft.document, draft.markSaved, draft.revision, editingId, inEditor, token, autosaveTick]);
+      signal.throwIfAborted();
+      ++editorGeneration.current;
+      setEditingId(asCopy || record.entity === 'new' ? '' : record.entity);
+      draft.reset({ content: createDefaultMoverReadingWritingContent(), visibility: 'draft' }, revision);
+      draft.setDocument(asCopy ? { ...document, visibility: 'draft' } : document);
+      autosaveBlocked.current = false; setAutosaveStatus('idle'); setStep(0); setInEditor(true);
+    },
+  });
+  const automatic = useDraftAutosave(async () => {
+    if (autosaveInFlight.current || autosaveBlocked.current) return;
+    autosaveInFlight.current = true;
+    const snapshot = latestDraftRef.current.document, baseRevision = latestDraftRef.current.revision;
+    const id = latestEditingIdRef.current, generation = editorGeneration.current;
+    setAutosaveStatus('saving');
+    try {
+      const saved = await moverReadingWritingApi.autosaveSet(token, id, snapshot.content, snapshot.visibility, baseRevision);
+      recovery.markSaved(snapshot);
+      if (generation !== editorGeneration.current) return;
+      latestDraftRef.current.revision = saved.draftRevision;
+      draft.markSaved(snapshot, saved.draftRevision);
+      setValidationErrors(saved.validationErrors || []); setAutosaveStatus('saved');
+    } catch (error: any) {
+      if (generation !== editorGeneration.current) return;
+      if (error?.status === 409) {
+        autosaveBlocked.current = true; setAutosaveStatus('conflict');
+        setMessage({ text: 'Bản nháp đã được sửa ở tab khác. Nháp thiết bị được giữ; mở lại bài hoặc khôi phục thành bài mới để tránh ghi đè.', error: true });
+      } else setAutosaveStatus('error');
+    } finally { autosaveInFlight.current = false; }
+  }, { enabled: inEditor && Boolean(editingId), dirty: draft.dirty, busy, blocked: autosaveStatus === 'conflict' });
 
   const upload = async (
     file: File,
@@ -180,6 +186,7 @@ export default function MoverReadingWritingAdmin({
   };
 
   const applySmartImport = async (candidate: MoverReadingWritingSmartImportCandidate) => {
+    const generation = editorGeneration.current;
     setBusy(true);
     setMessage(null);
     try {
@@ -230,10 +237,14 @@ export default function MoverReadingWritingAdmin({
         revision = saved.draftRevision;
         validation = saved.validationErrors || [];
       }
+      recovery.markSaved(document, setId);
+      if (generation !== editorGeneration.current) return;
+      recovery.rebind(setId, revision);
+      latestDraftRef.current.revision = revision;
       draft.markSaved(document, revision);
       setValidationErrors(validation);
       setAutosaveStatus('saved');
-      setAutosaveTick(value => value + 1);
+
       await load();
     } catch (error: any) {
       if (error?.status === 409) {
@@ -248,6 +259,8 @@ export default function MoverReadingWritingAdmin({
   };
 
   const startNew = () => {
+    recovery.begin();
+    recovery.persist(); ++editorGeneration.current;
     draft.reset({ content: createDefaultMoverReadingWritingContent(), visibility: 'draft' });
     autosaveBlocked.current = false;
     setAutosaveStatus('idle');
@@ -271,6 +284,7 @@ export default function MoverReadingWritingAdmin({
   }, [inEditor, onEditorStateChange]);
 
   const editSet = async (id: string) => {
+    recovery.persist(); await automatic.wait(); ++editorGeneration.current;
     setBusy(true);
     try {
       const set = await moverReadingWritingApi.getAdminSet(token, id);
@@ -290,16 +304,20 @@ export default function MoverReadingWritingAdmin({
   };
 
   const save = async () => {
+    await automatic.wait();
     setBusy(true);
     setMessage(null);
     try {
-      const snapshot = draft.document;
-      let saved = editingId
-        ? await moverReadingWritingApi.updateSet(token, editingId, snapshot.content, snapshot.visibility, draft.revision)
+      const snapshot = latestDraftRef.current.document;
+      const currentId = latestEditingIdRef.current;
+      let saved = currentId
+        ? await moverReadingWritingApi.updateSet(token, currentId, snapshot.content, snapshot.visibility, latestDraftRef.current.revision)
         : await moverReadingWritingApi.createSet(token, snapshot.content);
-      if (!editingId && saved.visibility !== snapshot.visibility) {
+      if (!currentId && saved.visibility !== snapshot.visibility) {
         saved = await moverReadingWritingApi.updateSet(token, saved.id, snapshot.content, snapshot.visibility, Number(saved.draftRevision || 0));
       }
+      recovery.markSaved(snapshot, saved.id); recovery.rebind(saved.id, Number(saved.draftRevision || 0));
+      latestEditingIdRef.current = saved.id; latestDraftRef.current.revision = Number(saved.draftRevision || 0);
       setEditingId(saved.id);
       draft.markSaved(snapshot, Number(saved.draftRevision || 0));
       autosaveBlocked.current = false;
@@ -334,7 +352,9 @@ export default function MoverReadingWritingAdmin({
   };
 
   const goLibrary = () => {
+    recovery.persist();
     if (draft.dirty && !window.confirm('Bản nháp còn thay đổi chưa lưu. Bạn vẫn muốn quay lại kho bộ đề?')) return;
+    ++editorGeneration.current;
     setInEditor(false);
     setEditingId('');
     setStep(0);
@@ -434,14 +454,15 @@ export default function MoverReadingWritingAdmin({
   if (inEditor) {
     return (
       <div id="mover-reading-writing-admin">
-        <ListeningEditorShell
+        <DraftRecovery draft={recovery} />
+        <AuthoringDocumentScope.Provider value={'movers-reading-writing:' + (editingId || 'new')}><ListeningEditorShell
           rootId="mover-reading-writing-wizard"
           eyebrow="Movers Reading & Writing wizard"
           stepAriaLabel="Các bước soạn Movers Reading & Writing"
           title={draft.content.title || 'Bộ đề mới'}
           steps={steps}
           step={step}
-          busy={busy}
+          busy={busy || autosaveStatus === 'saving'}
           dirty={draft.dirty}
           autosaveStatus={autosaveStatus}
           canUndo={draft.canUndo}
@@ -449,7 +470,7 @@ export default function MoverReadingWritingAdmin({
           message={message}
           onStepChange={setStep}
           onBack={goLibrary}
-          onSave={() => { void save(); }}
+          onSave={() => { void save().catch(() => undefined); }}
           onPublish={() => { void publish(); }}
           onUndo={draft.undo}
           onRedo={draft.redo}
@@ -461,7 +482,7 @@ export default function MoverReadingWritingAdmin({
             </div>
           )}
           {step === 0 ? renderGeneral() : step <= 6 ? partEditors[step - 1] : preview}
-        </ListeningEditorShell>
+        </ListeningEditorShell></AuthoringDocumentScope.Provider>
       </div>
     );
   }
@@ -470,6 +491,7 @@ export default function MoverReadingWritingAdmin({
 
   return (
     <div className="space-y-6" id="mover-reading-writing-admin">
+      <DraftRecovery draft={recovery} />
       {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Movers paper</p>

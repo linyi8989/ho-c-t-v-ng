@@ -1,3 +1,5 @@
+import { useDocumentScope } from '../../../lib/authoring/DocumentScope';
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
 import { Check, Copy, FileJson, Sparkles, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
@@ -54,6 +56,13 @@ export default function MoverReadingWritingSmartImportPanel({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'movers-reading-import:' + documentScope, entity: 'part-' + part.part, value: { externalJson }, enabled: true, dirty: Boolean(externalJson),
+    restore: record => {
+      if (typeof record.value?.externalJson !== 'string') throw new Error('Nháp nội dung nhập không hợp lệ.');
+      setExternalJson(record.value.externalJson);
+    },
+  });
   const latestPartRef = useRef(part);
   const latestOnAnalyzedRef = useRef(onAnalyzed);
   latestPartRef.current = part;
@@ -207,6 +216,7 @@ export default function MoverReadingWritingSmartImportPanel({
 
   return (
     <section className="space-y-4 rounded-2xl border border-violet-200 bg-violet-50/40 p-4" data-mover-reading-smart-import data-part={part.part}>
+      <DraftRecovery draft={recovery} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[.14em] text-violet-700">Smart Import · Reading & Writing · Part {part.part}</p>

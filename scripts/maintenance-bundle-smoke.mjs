@@ -29,11 +29,12 @@ try{
  }
  assert.ok(ready,'Compiled native server becomes ready');
  assert.equal((await fetch(origin+'/api/admin/maintenance/inventory/summary')).status,401,'Hosting inventory enforces authentication in compiled bundle');
+ assert.equal((await fetch(origin+'/api/admin/maintenance/inventory/scans/00000000-0000-4000-8000-000000000000/report')).status,401,'Hosting report export enforces authentication in compiled bundle');
  assert.equal((await fetch(origin+'/api/admin/maintenance/summary',{headers:{Authorization:'Bearer local-test-auth-bypass'}})).status,401,'Production refuses local QA bypass');
  assert.equal((await fetch(origin+'/api/admin/maintenance/download/'+'a'.repeat(64))).status,404,'Unissued capability is rejected');
  await assert.rejects(fs.stat(path.join(root,'maintenance')),{code:'ENOENT'},'Startup/unauthorized GET never creates maintenance files');
  const db=new Database(dbPath,{readonly:true});assert.equal(db.pragma('quick_check',{simple:true}),'ok');assert.equal(db.pragma('journal_mode',{simple:true}),'wal');db.close();
- const result={compiledServer:true,nativeSqlite:true,productionTestFlagStartupRejected:true,unauthorizedSummary:401,productionBypass:401,unissuedDownload:404,noStartupMaintenanceWrites:true};
+ const result={compiledServer:true,nativeSqlite:true,productionTestFlagStartupRejected:true,unauthorizedSummary:401,unauthorizedReport:401,productionBypass:401,unissuedDownload:404,noStartupMaintenanceWrites:true};
  await fs.mkdir(path.resolve('.data/maintenance-qa'),{recursive:true});await fs.writeFile(path.resolve('.data/maintenance-qa/bundle-report.json'),JSON.stringify(result,null,2));
  console.log(JSON.stringify(result));
 }catch(error){console.error(error.message);process.exitCode=1;}

@@ -179,7 +179,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
         assert.equal(request.providerId, 'stali:gpt-5.6-sol');
         assert.match(request.taskContext, /writing task|task/i);
         assert.match(request.gradingInstructions, /Rubric:\s*Teacher rubric/i);
-        return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['Cần sửa dạng động từ trong câu đầu tiên.'], vocabularyErrors: [], feedback: 'Bài viết đã hoàn thành đúng yêu cầu với ba câu. Em cần sửa một dạng động từ; từ vựng nhìn chung phù hợp.' };
+        return { providerId: 'stali:gpt-5.6-sol', score: 8, sentenceCount: 3, grammarErrors: ['Cần sửa dạng động từ trong câu đầu tiên.'], vocabularyErrors: [], ...(request.includeRevision ? { grammarCorrections: [{ original: request.essay.split(/\s+/).slice(0, 3).join(' '), corrected: 'A clearer learner sentence', explanation: 'Sửa câu để diễn đạt rõ ràng hơn.' }], vocabularyCorrections: [], revisedEssay: request.essay + '\n\nA short closing sentence.' } : {}), feedback: 'Bài viết đã hoàn thành đúng yêu cầu với ba câu. Em cần sửa một dạng động từ; từ vựng nhìn chung phù hợp.' };
       },
     },
   }));
@@ -644,10 +644,43 @@ test('generic exam API preserves immutable publish, private grading and manual W
   const standaloneReview = await standaloneReviewResponse.json() as any;
   assert.equal(standaloneReview.questions[0].writingScore, 8);
   assert.equal(standaloneReview.questions[0].userAnswer, longEssay);
+  const revisionRequest = writingGradeRequests.find(request => request.essay === longEssay)!;
+  assert.equal(revisionRequest.includeRevision, true);
+  assert(writingGradeRequests.slice(0, writingGradeRequests.indexOf(revisionRequest)).every(request => request.includeRevision === false), 'Higher-level exam grades keep the legacy contract');
+  assert.equal(standaloneReview.questions[0].revisedEssay, longEssay + '\n\nA short closing sentence.');
+  assert.equal(standaloneReview.questions[0].grammarCorrections[0].original, 'word1 word2 word3');
+  assert.deepEqual(standaloneReview.questions[0].vocabularyCorrections, []);
+  assert.equal(standaloneCompletedAttempt.revisedEssay, undefined, 'Status/summary never leaks review-only fields');
+  const storedWriting = (await db.collection('exam_attempt_details').doc(standaloneAttempt.id).get()).data();
+  assert.deepEqual(storedWriting?.questions[0].grammarCorrections, standaloneReview.questions[0].grammarCorrections);
+  assert.equal(storedWriting?.grade.questions[0].revisedEssay, standaloneReview.questions[0].revisedEssay);
+  assert.equal(storedWriting?.answers[standaloneQuestionId], longEssay);
+  const learnerReviewUrl = `${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${standaloneAttempt.id}/review?guestId=${encodeURIComponent(identity.guestId)}&studentName=${encodeURIComponent(identity.studentName)}`;
+  const learnerReviewResponse = await fetch(learnerReviewUrl, { headers: { 'X-Exam-Run-Secret': 'standalone-writing-secret-12345678' } });
+  assert.equal(learnerReviewResponse.status, 200);
+  const learnerReview = await learnerReviewResponse.json() as any;
+  assert.deepEqual(learnerReview.questions, standaloneReview.questions);
+  const forbiddenRevision = await fetch(learnerReviewUrl, { headers: { 'X-Exam-Run-Secret': 'wrong-run-secret-12345678' } });
+  assert.equal(forbiddenRevision.status, 404);
+  assert.equal(JSON.stringify(await forbiddenRevision.json()).includes('revisedEssay'), false);
+
   const historyWithWriting = await getLearningHistory(historyActor, historyFilters);
   const standaloneHistory = historyWithWriting.items.find(item => item.gameId === 'exam:writing:writing');
   assert.equal(standaloneHistory?.rawScore, 8);
   assert.equal(standaloneHistory?.maxScore, 10);
+
+  const beforeBlankCalls = writingGradeRequests.length;
+  const blankPrepare = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/prepare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, clientRunId: 'blank-writing-run', runSecret: 'blank-writing-secret-12345678' }) });
+  const blankTicket = await blankPrepare.json() as any;
+  const blankSubmit = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...identity, ticket: blankTicket.ticket, runSecret: 'blank-writing-secret-12345678', answers: {} }) });
+  assert.equal(blankSubmit.status, 201);
+  const blankQueued = await blankSubmit.json() as any;
+  const blankComplete = await waitForAttempt(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${blankQueued.id}/status`, { 'X-Test-Teacher': 'owner' }, value => value.status === 'completed');
+  assert.equal(blankComplete.writingScore, 0);
+  assert.equal(writingGradeRequests.length, beforeBlankCalls, 'Empty essay does not request an invented AI essay');
+  const blankReview = await (await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${blankQueued.id}/review`, { headers: { 'X-Test-Teacher': 'owner' } })).json() as any;
+  assert.equal(blankReview.questions[0].revisedEssay, '');
+  assert.deepEqual(blankReview.questions[0].grammarCorrections, []);
 
   failWritingGrade = true;
   const failedPrepareResponse = await fetch(`${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/prepare`, {

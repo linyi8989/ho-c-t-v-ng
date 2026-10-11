@@ -1,3 +1,6 @@
+import { AuthoringDocumentScope } from '../../../lib/authoring/DocumentScope';
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
+import { useDraftAutosave } from '../../../lib/authoring/useDraftAutosave';
 import {
   ArrowLeft,
   BookOpenText,
@@ -59,6 +62,7 @@ import PetReadingAuthoring from './PetReadingAuthoring';
 import PetListeningAuthoring from './PetListeningAuthoring';
 import PetWritingAuthoring from './PetWritingAuthoring';
 import FceReadingAuthoring from './FceReadingAuthoring';
+import WritingFeedbackPanels from '../../writing-library/shared/WritingFeedbackPanels';
 import StandaloneWritingAuthoring from '../../writing-library/admin/StandaloneWritingAuthoring';
 
 interface Props extends ListeningAdminComponentProps { moduleId: Exclude<ExamModuleId, 'mover'> }
@@ -461,30 +465,48 @@ function PaperAdmin({
     setAssets(assetRows);
   };
   useEffect(() => { void load().catch(error => setMessage({ text: error.message, error: true })); }, [token, moduleId, paperId]);
-  useEffect(() => {
-    if (!editingId || !dirty || busy || autosaveRef.current || autosave === 'conflict') return;
-    const timer = window.setTimeout(async () => {
-      autosaveRef.current = true;
-      setAutosave('saving');
-      try {
-        const saved = await examPlatformApi.autosaveSet(token, moduleId, paperId, editingId, content, visibility, revision);
-        setRevision(saved.draftRevision);
-        setValidationErrors(saved.validationErrors || []);
-        setDirty(false);
-        setAutosave('saved');
-      } catch (error: any) {
-        setAutosave(error?.status === 409 ? 'conflict' : 'error');
-        if (error?.status === 409) setMessage({ text: 'Bản nháp đã được sửa ở tab khác. Hãy mở lại để tránh ghi đè.', error: true });
-      } finally { autosaveRef.current = false; }
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [editingId, dirty, busy, autosave, content, visibility, revision, token, moduleId, paperId]);
+  const generation = useRef(0);
+  const working = { content, visibility };
+  const latest = useRef({ working, revision, editingId }); latest.current = { working, revision, editingId };
+  const recovery = useAuthoringDraft({ scope: 'exam-' + moduleId + '-' + paperId, entity: editingId || 'new', value: working, enabled: Boolean(editingId) || dirty, dirty, revision,
+    restore: async (record, asCopy, signal) => {
+      const value = record.value;
+      if (!value?.content || !Array.isArray(value.content.parts) || value.content.moduleId !== moduleId || value.content.paperId !== paperId || !['draft', 'public', 'assignment'].includes(value.visibility)) throw new Error('Bản nháp không thuộc loại đề này.');
+      await automatic.wait(); let revision = 0;
+      if (!asCopy && record.entity !== 'new') {
+        const current = await examPlatformApi.getAdminSet(token, moduleId, paperId, record.entity);
+        revision = Number(current.draftRevision || 0);
+        if (revision !== record.revision) throw new Error('Bài trên server đã thay đổi. Chọn Khôi phục thành bài mới để giữ cả hai phiên bản.');
+      }
+      signal.throwIfAborted();
+      ++generation.current; setEditingId(asCopy || record.entity === 'new' ? '' : record.entity);
+      setContent(value.content); setVisibility(asCopy ? 'draft' : value.visibility); setRevision(revision); setDirty(true); setStep(0); setAutosave('idle'); setStarterPartsRevealed(true);
+    },
+  });
+  const automatic = useDraftAutosave(async () => {
+    const snapshot = latest.current.working, id = latest.current.editingId, baseRevision = latest.current.revision, version = generation.current;
+    autosaveRef.current = true; setAutosave('saving');
+    try {
+      const saved = await examPlatformApi.autosaveSet(token, moduleId, paperId, id, snapshot.content, snapshot.visibility, baseRevision);
+      recovery.markSaved(snapshot);
+      if (version !== generation.current) return;
+      latest.current.revision = saved.draftRevision; setRevision(saved.draftRevision); setValidationErrors(saved.validationErrors || []);
+      if (JSON.stringify(latest.current.working) === JSON.stringify(snapshot)) setDirty(false);
+      setAutosave('saved');
+    } catch (error: any) {
+      if (version !== generation.current) return;
+      setAutosave(error?.status === 409 ? 'conflict' : 'error');
+      if (error?.status === 409) setMessage({ text: 'Bản nháp đã được sửa ở tab khác. Nháp thiết bị được giữ; hãy mở lại hoặc khôi phục thành bài mới.', error: true });
+    } finally { autosaveRef.current = false; }
+  }, { enabled: Boolean(editingId), dirty, busy, blocked: autosave === 'conflict' });
 
   const updateContent = (next: ExamPaperContent | ((value: ExamPaperContent) => ExamPaperContent)) => {
     setContent(next);
     setDirty(true);
   };
   const startNew = () => {
+    recovery.begin();
+    recovery.persist(); ++generation.current;
     setEditingId(''); setContent(createDefaultExamContent(definition)); setVisibility('draft'); setRevision(0); setDirty(true); setValidationErrors([]); setStep(0); setAutosave('idle'); setResults(null); setStarterPartsRevealed(fixedStarterPaper || moduleId !== 'starter');
   };
   const convertLegacyKetReadingWriting = () => {
@@ -568,6 +590,7 @@ function PaperAdmin({
     setMessage({ text: 'Đã chuyển bản nháp sang PET Listening 4 Part mới. Hãy nhập JSON, gắn ảnh/audio và kiểm tra trước khi xuất bản.' });
   };
   const edit = async (setId: string) => {
+    recovery.persist(); await automatic.wait(); ++generation.current;
     setBusy(true);
     try {
       const set = await examPlatformApi.getAdminSet(token, moduleId, paperId, setId);
@@ -578,13 +601,16 @@ function PaperAdmin({
     finally { setBusy(false); }
   };
   const save = async () => {
+    await automatic.wait();
+    const snapshot = latest.current.working, currentId = latest.current.editingId, baseRevision = latest.current.revision;
     setBusy(true); setMessage(null);
     try {
-      let saved = editingId
-        ? await examPlatformApi.updateSet(token, moduleId, paperId, editingId, content, visibility, revision)
-        : await examPlatformApi.createSet(token, moduleId, paperId, content);
-      if (!editingId && visibility !== 'draft') saved = await examPlatformApi.updateSet(token, moduleId, paperId, saved.id, content, visibility, Number(saved.draftRevision || 1));
-      setEditingId(saved.id); setRevision(Number(saved.draftRevision || 0)); setValidationErrors(saved.validationErrors || []); setDirty(false); setAutosave('saved'); setMessage({ text: 'Đã lưu bản nháp.' }); await load(); return saved;
+      let saved = currentId
+        ? await examPlatformApi.updateSet(token, moduleId, paperId, currentId, snapshot.content, snapshot.visibility, baseRevision)
+        : await examPlatformApi.createSet(token, moduleId, paperId, snapshot.content);
+      if (!currentId && snapshot.visibility !== 'draft') saved = await examPlatformApi.updateSet(token, moduleId, paperId, saved.id, snapshot.content, snapshot.visibility, Number(saved.draftRevision || 1));
+      recovery.markSaved(snapshot, saved.id); recovery.rebind(saved.id, Number(saved.draftRevision || 0));
+      setEditingId(saved.id); setRevision(Number(saved.draftRevision || 0)); setValidationErrors(saved.validationErrors || []); if (JSON.stringify(latest.current.working) === JSON.stringify(snapshot)) setDirty(false); setAutosave('saved'); setMessage({ text: 'Đã lưu bản nháp.' }); await load(); return saved;
     } catch (error: any) { setMessage({ text: error.message, error: true }); setValidationErrors(Array.isArray(error.details) ? error.details : []); throw error; }
     finally { setBusy(false); }
   };
@@ -641,11 +667,12 @@ function PaperAdmin({
   }, [editing, onEditorStateChange]);
 
   if (editing) return (
-    <div className="space-y-4" id="generic-exam-editor" data-module={moduleId} data-paper={paperId}>
+    <AuthoringDocumentScope.Provider value={moduleId + ':' + paperId + ':' + (editingId || 'new')}><div className="space-y-4" id="generic-exam-editor" data-module={moduleId} data-paper={paperId}>
+      <DraftRecovery draft={recovery} />
       <header className="sticky top-0 z-20 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{moduleId} · {definition.displayName}</p><h2 className="text-xl font-black text-slate-900">{content.title}</h2><p className="text-xs font-semibold text-slate-500">{autosave === 'saving' ? 'Đang tự lưu…' : autosave === 'saved' ? 'Bản nháp đã lưu' : autosave === 'conflict' ? 'Xung đột bản nháp' : dirty ? 'Có thay đổi chưa lưu' : ''}</p></div>
-          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setEditingId(''); setDirty(false); setResults(null); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-black"><ArrowLeft size={15} />Kho đề</button><button type="button" disabled={busy || autosave === 'conflict'} onClick={() => void save().catch(() => undefined)} className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700"><Save size={15} />Lưu</button><button type="button" disabled={busy || autosave === 'conflict'} onClick={() => void publish()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white"><Send size={15} />Xuất bản</button></div>
+          <div><p className="text-[10px] font-black uppercase tracking-[.18em] text-indigo-600">{moduleId} · {definition.displayName}</p><h2 className="text-xl font-black text-slate-900">{content.title}</h2><p className="text-xs font-semibold text-slate-500">{autosave === 'saving' ? 'Đang tự lưu…' : autosave === 'saved' && !dirty ? 'Bản nháp đã lưu' : autosave === 'conflict' ? 'Xung đột bản nháp' : dirty ? 'Có thay đổi chưa lưu' : ''}</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { recovery.persist(); ++generation.current; setEditingId(''); setDirty(false); setResults(null); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-black"><ArrowLeft size={15} />Kho đề</button><button type="button" disabled={busy || autosave === 'saving' || autosave === 'conflict'} onClick={() => void save().catch(() => undefined)} className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs font-black text-indigo-700"><Save size={15} />Lưu</button><button type="button" disabled={busy || autosave === 'conflict'} onClick={() => void publish()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white"><Send size={15} />Xuất bản</button></div>
         </div>
         <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">{steps.map((label, index) => <button key={`${label}-${index}`} type="button" onClick={() => setStep(index)} data-active={step === index} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${step === index ? 'bg-indigo-600 text-white' : 'border border-slate-200 bg-white text-slate-600'}`}>{label}</button>)}</nav>
       </header>
@@ -661,11 +688,12 @@ function PaperAdmin({
         {step > 0 && step <= content.parts.length && <PartEditor token={token} content={content} partIndex={step - 1} assets={assets} onAssets={asset => setAssets(previous => [asset, ...previous.filter(item => item.id !== asset.id)])} onChange={part => updateContent(normalizeFixedFceReadingContent(normalizeFixedPetListeningContent(normalizeFixedPetWritingContent(normalizeFixedPetReadingContent(normalizeFixedKetListeningContent(normalizeFixedKetReadingWritingContent({ ...content, parts: content.parts.map((item, index) => index === step - 1 ? part : item) }))))))) } onContentChange={updateContent} onMessage={setMessage} />}
         {step === content.parts.length + 1 && <div className="space-y-4"><div className="rounded-2xl bg-white p-5"><p className="text-xs font-black uppercase text-indigo-600">Preview cấu trúc</p><h3 className="mt-1 text-2xl font-black text-slate-900">{content.title}</h3><p className="mt-2 text-sm font-semibold text-slate-500">{content.description}</p><p className="mt-3 text-sm font-black text-indigo-700">{content.parts.length} Part/Section · {totalQuestions} câu/task · {content.timeLimitMinutes || 'Không giới hạn'} phút</p></div>{content.parts.map(part => <article key={part.id} className="rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-black text-slate-900">Part {part.part}: {part.title}</h4>{part.passage && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{part.passage}</p>}{part.imageUrl && <img src={part.imageUrl} alt="" className="mt-3 max-h-72 rounded-xl object-contain" />}{part.audioUrl && <audio controls src={part.audioUrl} className="mt-3 w-full" /> }{part.blocks?.length ? <div className="mt-3 space-y-2">{examPartUnits(part).map(unit => <div key={unit.id} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black text-violet-700">{unit.interaction?.family} → {unit.interaction?.subtype} → {unit.interaction?.variant}</p><p className="mt-1 text-sm font-black text-slate-800">{unit.title} · {unit.questions.length} câu</p></div>)}</div> : <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm font-semibold text-slate-700">{part.questions.map(question => <li key={question.id}>{question.prompt} <span className="text-xs text-slate-400">({question.type})</span></li>)}</ol>}</article>)}</div>}
       </section>
-    </div>
+    </div></AuthoringDocumentScope.Provider>
   );
 
   return (
     <div className="space-y-6" id="generic-exam-admin" data-module={moduleId} data-paper={paperId}>
+      <DraftRecovery draft={recovery} />
       {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div>{!standaloneWriting && <p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">{definition.level}</p>}<h2 className="mt-1 flex items-center gap-2 text-2xl font-black text-slate-900">{paperId === 'listening' ? <Headphones className="text-sky-600" /> : <BookOpenText className="text-indigo-600" />}{standaloneWriting ? 'Kho đề Writing' : definition.displayName}</h2><p className="mt-1 text-sm font-semibold text-slate-500">{standaloneWriting ? 'Soạn, giao, AI chấm và theo dõi lịch sử bài viết của học sinh.' : definition.description}</p></div><button type="button" onClick={startNew} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-black text-white"><Plus size={17} />{standaloneWriting ? 'Soạn đề Writing mới' : 'Soạn đề mới'}</button></div>}
       {message && <div className={`rounded-2xl border p-3 text-sm font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{message.text}</div>}
       {standaloneWriting && <section className="writing-library-toolbar grid gap-3 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[minmax(260px,1fr)_180px_180px_190px]" aria-label="Tìm kiếm và sắp xếp kho đề Writing">
@@ -712,7 +740,13 @@ function ManualResult({ attempt, token, moduleId, paperId, setId, onGraded }: { 
         <p className="mt-2 whitespace-pre-wrap leading-5">Học sinh: {Array.isArray(question.userAnswer) ? question.userAnswer.join(', ') : question.userAnswer || 'Bỏ trống'}</p>
         {standaloneWriting && question.writingScore !== undefined && <p className="mt-2 font-black text-indigo-800">Điểm AI: {question.writingScore}/10 · {question.sentenceCount ?? 0} câu</p>}
         {standaloneWriting && question.aiFeedback && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-white p-3 font-semibold leading-5 text-slate-700">{question.aiFeedback}</p>}
-        {standaloneWriting && (question.grammarErrors?.length || question.vocabularyErrors?.length) ? <div className="mt-2 grid gap-2 md:grid-cols-2"><div><b>Lỗi ngữ pháp:</b> {question.grammarErrors?.join('; ') || 'Không có'}</div><div><b>Lỗi từ vựng:</b> {question.vocabularyErrors?.join('; ') || 'Không có'}</div></div> : null}
+        {standaloneWriting && !question.pendingManualReview && <WritingFeedbackPanels
+          grammarCorrections={question.grammarCorrections}
+          vocabularyCorrections={question.vocabularyCorrections}
+          grammarErrors={question.grammarErrors}
+          vocabularyErrors={question.vocabularyErrors}
+          revisedEssay={question.revisedEssay}
+        />}
         {question.pendingManualReview && <label className="mt-3 flex items-center gap-2 font-black">Điểm<input type="number" min={0} max={question.maxPoints} step={(standaloneWriting || (moduleId === 'ket' && paperId === 'reading-writing' && question.part === 9)) ? 1 : 0.5} value={grades[question.questionId] ?? ''} onChange={event => setGrades(previous => ({ ...previous, [question.questionId]: Number(event.target.value) }))} className="w-24 rounded-lg border border-violet-300 bg-white px-2 py-1" />/{question.maxPoints}</label>}
       </div>)}
       {attempt.status === 'pending_review' && <div className="flex flex-wrap gap-2">

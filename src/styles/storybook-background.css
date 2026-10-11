@@ -5,6 +5,7 @@
   #student-history-page[data-history-theme="storybook"],
   #student-area-root[data-vocab-theme="storybook"],
   #grammar-learning-root,
+  :is(#listening-exam-root, #generic-exam-player, #mover-reading-writing-player)[data-exam-background="storybook"],
   :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"],
   :is(#root, #app-root) :is(#ioe-violympic-student, #speaking-student)[data-student-module-theme="storybook"],
   :is(#root, #app-root) [data-student-journey][id]
@@ -17,6 +18,7 @@
   #student-history-page[data-history-theme="storybook"],
   #student-area-root[data-vocab-theme="storybook"],
   #grammar-learning-root,
+  :is(#listening-exam-root, #generic-exam-player, #mover-reading-writing-player)[data-exam-background="storybook"],
   :is(#listening-exam-root, #generic-exam-player)[data-exam-theme="starter"],
   :is(#root, #app-root) :is(#ioe-violympic-student, #speaking-student)[data-student-module-theme="storybook"],
   :is(#root, #app-root) [data-student-journey][id]
@@ -26,5 +28,9 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: #e5f7ff url('/assets/backgrounds/bg-starter-exam-v1.webp') center / cover no-repeat;
+  background-color: #e5f7ff;
+  background-image: var(--student-exam-background-image, url('/assets/backgrounds/bg-starter-exam-v1.webp'));
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
 }

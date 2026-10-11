@@ -288,6 +288,9 @@ export interface AiWritingGrade {
   grammarErrors: string[];
   vocabularyErrors: string[];
   feedback: string;
+  grammarCorrections?: ExamQuestionResult['grammarCorrections'];
+  vocabularyCorrections?: ExamQuestionResult['vocabularyCorrections'];
+  revisedEssay?: string;
 }
 
 function finalizeWritingGrade(grade: ReturnType<typeof gradeExamAttempt>, questions: ExamQuestionResult[]) {
@@ -320,6 +323,9 @@ export function applyAiWritingGrade(grade: ReturnType<typeof gradeExamAttempt>, 
     grammarErrors: ai.grammarErrors.slice(0, 20),
     vocabularyErrors: ai.vocabularyErrors.slice(0, 20),
     aiFeedback: ai.feedback,
+    ...(ai.grammarCorrections !== undefined ? { grammarCorrections: ai.grammarCorrections.slice(0, 20) } : {}),
+    ...(ai.vocabularyCorrections !== undefined ? { vocabularyCorrections: ai.vocabularyCorrections.slice(0, 20) } : {}),
+    ...(ai.revisedEssay !== undefined ? { revisedEssay: ai.revisedEssay } : {}),
   } : question));
 }
 

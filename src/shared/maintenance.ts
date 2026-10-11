@@ -15,7 +15,7 @@ export interface MaintenanceSummary {
     growth: Array<{ id: string; label: string; bytes: number }>;
     cron: { status: string; schedules: Array<{ id: number; task?: string; schedule: string; command: string; status: string }> };
   };
-  snapshots: Array<{ at: string; complete: boolean; bytes: number }>;
+  snapshots: Array<{ at: string; complete: boolean; bytes: number; groups?: Record<string, number> }>;
   jobs: Array<{ id: string; task: string; source: string; status: string; startedAt: string; finishedAt?: string; durationMs?: number; scanned?: number; removedBytes?: number; quarantinedBytes?: number; error?: string }>;
   audit: Array<{ id: string; at: string; actor: string; action: string; file?: string; bytes?: number; removedBytes?: number; quarantinedBytes?: number; reason?: string }>;
   quarantine: Array<{ id: string; name: string; relative: string; rootId: string; bytes: number; at: string; status: string }>;

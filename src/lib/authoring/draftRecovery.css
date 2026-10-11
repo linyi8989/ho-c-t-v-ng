@@ -1,0 +1,12 @@
+.authoring-draft-recovery { margin:12px 0; padding:10px 14px; border:1px solid #cbd5e1; border-radius:12px; background:#f8fafc; color:#334155; font-size:12px; overflow-wrap:anywhere; }
+.authoring-draft-recovery p { margin:3px 0; }
+.authoring-draft-recovery [role=alert] { color:#9f1239; }
+.authoring-draft-recovery ul { padding:0; list-style:none; }
+.authoring-draft-recovery li { padding:8px 0; border-top:1px solid #cbd5e1; }
+.authoring-draft-recovery li div { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.authoring-draft-recovery button { background:#e8f0fe!important; color:#174ea6!important; border:1px solid #8facd6!important; border-radius:8px; padding:6px 10px; font-weight:700; }
+.authoring-draft-recovery button:disabled { color:#475569!important; background:#e2e8f0!important; }
+.authoring-draft-recovery button:focus-visible { outline:2px solid #174ea6; outline-offset:2px; }
+
+.authoring-draft-recovery ul { max-height:240px; overflow-y:auto; }
+.authoring-draft-recovery button { min-height:34px; }

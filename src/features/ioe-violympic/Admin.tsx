@@ -1,7 +1,8 @@
+import { DraftRecovery, useAuthoringDraft } from '../../lib/authoring/useAuthoringDraft';
 import { splitTeacherFeedback } from '../../shared/competition/feedback';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { buildImportPrompt, normalizeQuestion, normalizeMedia, record } from '../../shared/competition/import';
-import { LEVEL_LABELS, SUBJECT_LABELS, levelsFor, playable, type Scope, type QuestionFilters, type Subject, type CompetitionLevel, type Question, type PlayableQuestion, type Option, type Media } from '../../shared/competition/types';
+import { LEVEL_LABELS, SUBJECT_LABELS, isSubject, levelsFor, playable, type Scope, type QuestionFilters, type Subject, type CompetitionLevel, type Question, type PlayableQuestion, type Option, type Media } from '../../shared/competition/types';
 import type { ListeningAsset } from '../listening/types';
 import { listeningApi } from '../listening/api';
 import { adminRequest, request } from './api';
@@ -58,6 +59,14 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
   const [selected, setSelected] = useState<string[]>([]), [preview, setPreview] = useState<{ question: PlayableQuestion; number: number } | null>(null);
   const [assets, setAssets] = useState<ListeningAsset[]>([]);
   const saveKey = useRef<string | null>(null), pendingRef = useRef(false);
+  const working = { scope, json, drafts, saveKey: saveKey.current };
+  const recovery = useAuthoringDraft({ scope: 'ioe-violympic', value: working, enabled: active && (tab === 'studio' || drafts.length > 0 || Boolean(json)), dirty: drafts.length > 0 || Boolean(json),
+    restore: (record, asCopy) => {
+      const value = record.value;
+      if (!value?.scope || !isSubject(value.scope.subject) || !Number.isInteger(value.scope.grade) || value.scope.grade < 1 || value.scope.grade > 9 || !levelsFor(value.scope.subject).includes(value.scope.level) || typeof value.json !== 'string' || !Array.isArray(value.drafts) || value.drafts.some(row => !row || typeof row.key !== 'string' || !row.data || typeof row.data !== 'object' || Array.isArray(row.data)) || value.saveKey != null && (typeof value.saveKey !== 'string' || value.saveKey.length > 128)) throw new Error('Nháp ngân hàng không hợp lệ.');
+      setScope(value.scope); setJson(value.json); setDrafts(asCopy ? value.drafts.map(row => ({ key: crypto.randomUUID(), data: row.data })) : value.drafts); saveKey.current = asCopy ? null : value.saveKey || null; setTab('studio');
+    },
+  });
   const onAsset = (a: ListeningAsset) => setAssets(old => [...old.filter(item => item.id !== a.id), a]);
   const scopeQuery = new URLSearchParams({ ...(bankFilters.subject ? { subject: bankFilters.subject } : {}), ...(bankFilters.grade ? { grade: String(bankFilters.grade) } : {}), ...(bankFilters.level ? { level: bankFilters.level } : {}), page: String(page), search }).toString();
   const bankLoading = refreshing || (loadedBankQuery !== scopeQuery && failedBankQuery !== scopeQuery);
@@ -110,8 +119,12 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
     setJson(''); setNotice(`Đã ghép ${rows.length} câu vào bảng. Kiểm tra và sửa các dòng báo lỗi trước khi lưu.`);
   };
   const save = async () => {
+    recovery.persist();
     drafts.forEach((row, i) => { try { normalizeQuestion(saveData(row.data), scope); } catch (e) { throw new Error(`Dòng ${i + 1}: ${e instanceof Error ? e.message : 'không hợp lệ'}`); } });
     const key = saveKey.current || crypto.randomUUID(); saveKey.current = key;
+    let pendingWorking = { ...working, saveKey: key };
+    // Retain the server idempotency key before sending, including an interrupted request.
+    recovery.checkpoint(pendingWorking, true);
     let done = 0;
     for (let i = 0; i < drafts.length;) {
       const row = drafts[i];
@@ -128,13 +141,16 @@ export default function CompetitionAdmin({ token, active }: { token: string; act
       }
       // Remove committed rows immediately: a later failed chunk can be retried without duplicating prior saves.
       const committed = drafts.slice(0, i).map(r => r.key);
+      recovery.markSaved(pendingWorking);
+      pendingWorking = { ...pendingWorking, drafts: drafts.filter(r => !committed.includes(r.key)) };
+      recovery.checkpoint(pendingWorking, drafts.length > i || Boolean(json));
       setDrafts(old => old.filter(r => !committed.includes(r.key)));
     }
     saveKey.current = null; setNotice(`Đã lưu ${done} câu hợp lệ vào bank.`); await refresh();
   };
   if (!active) return <div hidden />;
   return <section id="ioe-violympic-admin" className="competition-root competition-page">
-    <h1>IOE/Violympic</h1><p>Soạn câu từ PDF/ảnh, quản lý ngân hàng và xem kết quả học sinh.</p>
+    <DraftRecovery draft={recovery} /><h1>IOE/Violympic</h1><p>Soạn câu từ PDF/ảnh, quản lý ngân hàng và xem kết quả học sinh.</p>
     {enabled === null && <p role="status">Đang kiểm tra module...</p>}{enabled === false && <p role="status" className="competition-error">{reason}</p>}
     {error && <div role="alert" className="competition-error">{error}<button type="button" disabled={busy} onClick={() => void work(async () => { const data = await request<{ enabled: boolean; reason: string }>('/capabilities'); setEnabled(data.enabled); setReason(data.reason); if (data.enabled) await refresh(); })}>Tải lại dữ liệu</button></div>}{notice && <div role="status" className="competition-notice">{notice}</div>}
     {enabled && <>

@@ -1,3 +1,6 @@
+import { AuthoringDocumentScope } from '../../../lib/authoring/DocumentScope';
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
+import { useDraftAutosave } from '../../../lib/authoring/useDraftAutosave';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { LibraryLinkStatus, LibraryRowActions } from '../../../components/admin/LibraryRowControls';
@@ -62,12 +65,16 @@ export default function ListeningAdminModule({
   const [results, setResults] = useState<any[] | null>(null);
   const [resultsTitle, setResultsTitle] = useState('');
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle');
-  const [autosaveTick, setAutosaveTick] = useState(0);
   const [importCandidates, setImportCandidates] = useState<Partial<Record<1 | 2 | 3 | 4 | 5, ListeningSmartImportCandidate>>>({});
   const [resourceAssignments, setResourceAssignments] = useState<ListeningResourceAssignments>(() => createEmptyListeningResourceAssignments());
   const [importStatuses, setImportStatuses] = useState<Partial<Record<1 | 2 | 3 | 4 | 5, ListeningImportTaskStatus>>>({});
   const autosaveInFlight = useRef(false);
   const autosaveBlocked = useRef(false);
+
+  const latestDraftRef = useRef({ document: draft.document, revision: draft.revision });
+  const latestEditingIdRef = useRef(editingId);
+  latestDraftRef.current = { document: draft.document, revision: draft.revision };
+  latestEditingIdRef.current = editingId;
 
   const load = async () => {
     const [setRows, assetRows, capabilityRows] = await Promise.all([
@@ -94,46 +101,50 @@ export default function ListeningAdminModule({
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [draft.dirty]);
 
-  useEffect(() => {
-    if (!editingId || !draft.dirty || busy || autosaveBlocked.current) return;
-    const timer = window.setTimeout(async () => {
-      if (autosaveInFlight.current) {
-        setAutosaveTick(value => value + 1);
-        return;
+  const editorGeneration = useRef(0);
+  const recovery = useAuthoringDraft({
+    scope: 'movers-listening', entity: editingId || 'new', value: draft.document,
+    enabled: Boolean(editingId) || content.title !== '__library__', dirty: draft.dirty, revision: draft.revision,
+    restore: async (record, asCopy, signal) => {
+      const document = record.value;
+      if (!document?.content || document.content.schemaVersion !== 1 || !Array.isArray(document.content.parts)
+        || !['draft', 'public', 'assignment'].includes(document.visibility)) throw new Error('Bản nháp không đúng cấu trúc bộ đề.');
+      await automatic.wait();
+      let revision = 0;
+      if (!asCopy && record.entity !== 'new') {
+        const current = await listeningApi.getAdminSet(token, record.entity);
+        revision = Number(current.draftRevision || 0);
+        if (revision !== record.revision) throw new Error('Bài trên server đã thay đổi. Chọn Khôi phục thành bài mới để giữ cả hai phiên bản.');
       }
-      autosaveInFlight.current = true;
-      const snapshot = draft.document;
-      const baseRevision = draft.revision;
-      setAutosaveStatus('saving');
-      try {
-        const saved = await listeningApi.autosaveSet(
-          token,
-          editingId,
-          snapshot.content,
-          snapshot.visibility,
-          baseRevision
-        );
-        draft.markSaved(snapshot, saved.draftRevision);
-        setValidationErrors(saved.validationErrors || []);
-        setAutosaveStatus('saved');
-      } catch (error: any) {
-        if (error?.status === 409) {
-          autosaveBlocked.current = true;
-          setAutosaveStatus('conflict');
-          setMessage({
-            text: 'Bản nháp đã được sửa ở tab khác. Hãy tải lại bộ đề trước khi tiếp tục để tránh ghi đè dữ liệu.',
-            error: true,
-          });
-        } else {
-          setAutosaveStatus('error');
-        }
-      } finally {
-        autosaveInFlight.current = false;
-        setAutosaveTick(value => value + 1);
-      }
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [editingId, token, busy, draft.document, draft.dirty, draft.revision, draft.markSaved, autosaveTick]);
+      signal.throwIfAborted();
+      ++editorGeneration.current;
+      setEditingId(asCopy || record.entity === 'new' ? '' : record.entity);
+      draft.reset({ content: createDefaultListeningContent(), visibility: 'draft' }, revision);
+      draft.setDocument(asCopy ? { ...document, visibility: 'draft' } : document);
+      autosaveBlocked.current = false; setAutosaveStatus('idle'); setStep(0);
+    },
+  });
+  const automatic = useDraftAutosave(async () => {
+    if (autosaveInFlight.current || autosaveBlocked.current) return;
+    autosaveInFlight.current = true;
+    const snapshot = latestDraftRef.current.document, baseRevision = latestDraftRef.current.revision;
+    const id = latestEditingIdRef.current, generation = editorGeneration.current;
+    setAutosaveStatus('saving');
+    try {
+      const saved = await listeningApi.autosaveSet(token, id, snapshot.content, snapshot.visibility, baseRevision);
+      recovery.markSaved(snapshot);
+      if (generation !== editorGeneration.current) return;
+      latestDraftRef.current.revision = saved.draftRevision;
+      draft.markSaved(snapshot, saved.draftRevision);
+      setValidationErrors(saved.validationErrors || []); setAutosaveStatus('saved');
+    } catch (error: any) {
+      if (generation !== editorGeneration.current) return;
+      if (error?.status === 409) {
+        autosaveBlocked.current = true; setAutosaveStatus('conflict');
+        setMessage({ text: 'Bản nháp đã được sửa ở tab khác. Nháp thiết bị được giữ; mở lại bài hoặc khôi phục thành bài mới để tránh ghi đè.', error: true });
+      } else setAutosaveStatus('error');
+    } finally { autosaveInFlight.current = false; }
+  }, { enabled: Boolean(editingId), dirty: draft.dirty, busy, blocked: autosaveStatus === 'conflict' });
 
   const selectedAssets = useMemo(
     () => new Map(assets.map(asset => [asset.id, asset])),
@@ -171,6 +182,8 @@ export default function ListeningAdminModule({
   };
 
   const startNew = () => {
+    recovery.begin();
+    recovery.persist(); ++editorGeneration.current;
     setEditingId('');
     draft.reset({ content: createDefaultListeningContent(), visibility: 'draft' });
     autosaveBlocked.current = false;
@@ -182,6 +195,7 @@ export default function ListeningAdminModule({
     setStep(0);
   };
   const editSet = async (id: string) => {
+    recovery.persist(); await automatic.wait(); ++editorGeneration.current;
     setBusy(true);
     try {
       const set = await listeningApi.getAdminSet(token, id);
@@ -204,14 +218,16 @@ export default function ListeningAdminModule({
     }
   };
   const save = async () => {
+    await automatic.wait();
     setBusy(true);
     setMessage(null);
     try {
-      const snapshot = draft.document;
-      let saved = editingId
-        ? await listeningApi.updateSet(token, editingId, snapshot.content, snapshot.visibility, draft.revision)
+      const snapshot = latestDraftRef.current.document;
+      const currentId = latestEditingIdRef.current;
+      let saved = currentId
+        ? await listeningApi.updateSet(token, currentId, snapshot.content, snapshot.visibility, latestDraftRef.current.revision)
         : await listeningApi.createSet(token, snapshot.content);
-      if (!editingId && saved.visibility !== snapshot.visibility) {
+      if (!currentId && saved.visibility !== snapshot.visibility) {
         saved = await listeningApi.updateSet(
           token,
           saved.id,
@@ -220,6 +236,10 @@ export default function ListeningAdminModule({
           Number(saved.draftRevision || 0)
         );
       }
+      recovery.markSaved(snapshot, saved.id);
+      recovery.rebind(saved.id, Number(saved.draftRevision || 0));
+      latestEditingIdRef.current = saved.id;
+      latestDraftRef.current.revision = Number(saved.draftRevision || 0);
       setEditingId(saved.id);
       draft.markSaved(snapshot, Number(saved.draftRevision || 0));
       autosaveBlocked.current = false;
@@ -332,11 +352,13 @@ export default function ListeningAdminModule({
   }, [inEditor, onEditorStateChange]);
   const hasImportCandidates = Object.values(importCandidates).some(Boolean);
   const goLibrary = () => {
+    recovery.persist();
     if ((draft.dirty || hasImportCandidates) && !window.confirm(
       hasImportCandidates
         ? 'Có bản Smart Import chưa áp dụng. Nếu quay lại, bản đề xuất này sẽ bị bỏ. Bạn vẫn muốn tiếp tục?'
         : 'Bản nháp còn thay đổi chưa lưu. Bạn vẫn muốn quay lại kho bộ đề?'
     )) return;
+    ++editorGeneration.current;
     setEditingId('');
     draft.reset({
       content: { ...createDefaultListeningContent(), title: '__library__' },
@@ -463,6 +485,7 @@ export default function ListeningAdminModule({
   if (!inEditor) {
     return (
       <div className="space-y-6 animate-fade-in" id="listening-admin-module">
+        <DraftRecovery draft={recovery} />
         {!embedded && <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[.16em] text-sky-600">Listening Studio</p>
@@ -547,7 +570,7 @@ export default function ListeningAdminModule({
       : renderPartEditor(step - 1);
 
   return (
-    <ListeningEditorShell
+    <AuthoringDocumentScope.Provider value={'movers-listening:' + (editingId || 'new')}><ListeningEditorShell
       title={content.title}
       steps={steps}
       step={step}
@@ -559,12 +582,13 @@ export default function ListeningAdminModule({
       message={message}
       onStepChange={setStep}
       onBack={goLibrary}
-      onSave={() => { void save(); }}
+      onSave={() => { void save().catch(() => undefined); }}
       onPublish={() => { void publish(); }}
       onUndo={draft.undo}
       onRedo={draft.redo}
     >
+      <DraftRecovery draft={recovery} />
       {activeView}
-    </ListeningEditorShell>
+    </ListeningEditorShell></AuthoringDocumentScope.Provider>
   );
 }

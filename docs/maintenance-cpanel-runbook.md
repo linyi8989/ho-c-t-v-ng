@@ -1,5 +1,14 @@
 # Vận hành Dung lượng & Dọn dẹp trên cPanel
 
+## Giao diện tinh giản hiện tại — 10/10/2026
+
+- **Tổng quan** chỉ hiển thị: dung lượng/quota và hai khung thư mục ứng dụng/hosting. Mỗi dòng có tên, đường dẫn, chức năng và biểu đồ cột nhỏ bên phải. Hosting hiển thị thư mục cấp đầu (đã gồm con), so hai lượt quét đầy đủ giữ chi tiết; ứng dụng dùng tối đa14 mốc theo ngày có sẵn. Chưa đủ mốc/partial/khác phạm vi không kết luận giảm hoặc đã sạch.
+- **File & Dọn dẹp** có một nút **Quét tất cả**, yêu cầu scanner ứng dụng và collector tài khoản. Hosting cần MAINTENANCE_INVENTORY_EXECUTOR=process và quyền đọc account root. Hai phần báo lỗi riêng; phần khả dụng vẫn chạy. Nếu collector dừng vì budget, cùng nút yêu cầu tiếp tục từ hàng chờ. Đợi lượt worker dừng hẳn trước khi bấm lại; giới hạn I/O/time cũ vẫn giữ.
+- Bảng xử lý chỉ hiện bản thu cần xử lý và media nghi ngờ mồ côi/đang giữ. Các loại khác theo dõi ở biểu đồ. Giữ preview ảnh/audio, giữ/bỏ giữ, cách ly/xóa đúng điều kiện với xác nhận tên; không mở quyền xóa hosting.
+- **Cài đặt tự động** thay tên Chính sách, giữ nguyên hai khung tạm48h và Speaking24h. Chỉ cấp phép cho cron đã cấu hình; không tự bật/đăng ký/chạy cron khi mở trang. Kết quả/điểm chấm được giữ.
+- Bỏ các tab Backup, Nhật ký, Cảnh báo, Tác vụ nền, phạm vi hosting riêng và nút tải/cập nhật báo cáo. API/CLI cũ còn để tương thích; các mô tả lịch sử ở dưới không bổ sung lại nút vào giao diện mới.
+- Không thêm biến môi trường/schema. Deploy đủ dist/server.cjs, dist/client/* và scripts/*.mjs rồi restart Passenger. Sau deploy thử Quét tất cả, đối chiếu cPanel và kiểm tra hai mốc trước khi đọc tăng/giảm. Local PASS không thay nghiệm thu quyền đọc/process/LVE trên host thật.
+
 ## Trạng thái
 Module đã có code V1, V2a (backup local + dọn có duyệt) và engine V3 tắt mặc định, được kiểm thử trên fixture local. Không có cron production được đăng ký bởi task này. Không xóa dữ liệu thật, không push/deploy. Chỉ kích hoạt từng bước sau khi số liệu V1 được đối chiếu trên cPanel. Chuyển trực tiếp R2/Azure và email chưa được triển khai/kết nối; cần chốt dịch vụ, credential và kiểm chứng riêng.
 
@@ -71,12 +80,12 @@ Node 22: scripts/start-maintenance-qa.mjs, sau đó scripts/maintenance-browser-
 - File trong catalog ở root media/asset đã biết có nút Xem ảnh hoặc Nghe trước. Hỗ trợ PNG/JPEG/WebP/GIF tối đa16 MiB và WAV/MP3/OGG/M4A tối đa32 MiB; trình duyệt vẫn cần hỗ trợ codec. SVG/HTML, database, backup và đường dẫn tùy ý không được mở qua endpoint này.
 - POST /api/admin/maintenance/files/:id/preview yêu cầu xác thực super admin; backend kiểm tra lại root/path/stat, symlink/hardlink, chữ ký định dạng và giữ lease khi stream. File đổi sau lần quét phải quét lại. Preview có audit, không xóa/di chuyển file hay đổi dữ liệu học tập.
 - Audio không autoplay; đóng hoặc Esc sẽ dừng phát, hủy request và giải phóng blob URL. Modal có loading/error và trả focus về nút mở.
-- Giữ 30 ngày chỉ thêm bảo vệ trong metadata, file vẫn tại chỗ. Trạng thái/Ngày giữ đến cập nhật ngay; lọc Giữ lại/Tất cả để tìm nếu file rời bộ lọc cũ. Bỏ giữ/hết hạn không tự xóa ngay: vẫn cần điều kiện dọn và xác nhận, hoặc policy+cron đã cấp phép. Speaking không được kéo dài quá24h.
-- Media nghi ngờ chỉ có thao tác giữ và preview vì chưa đủ chứng minh an toàn để xóa trên web. Ý nghĩa9 trạng thái hiển thị trong mục trợ giúp ngay trên bảng.
+- Giữ 30 ngày chỉ thêm bảo vệ trong metadata, file vẫn tại chỗ. Trạng thái/Ngày giữ đến cập nhật ngay; media đang giữ vẫn nằm trong bảng xử lý để có thể Bỏ giữ. Bỏ giữ/hết hạn không tự xóa ngay: vẫn cần điều kiện dọn và xác nhận, hoặc policy+cron đã cấp phép. Speaking không được kéo dài quá24h.
+- Media nghi ngờ chỉ có thao tác giữ và preview vì chưa đủ chứng minh an toàn để xóa trên web. Điều kiện riêng của file nằm trong cột Khả năng dọn / trạng thái.
 
 ## V1 mở rộng: kiểm kê toàn tài khoản hosting — 10/10/2026
 
-Phạm vi mới là kiểm kê, không mở quyền xóa thư mục ngoài dự án. Trong File & Dọn dẹp chọn Thư mục hosting; Quét file ứng dụng là scanner cũ, Quét toàn tài khoản là collector mới. Backup hiển thị thêm các bộ/thành phần đã có ngoài dự án; SQLite Manager cũ vẫn tải/đối chiếu/xóa theo quyền đã duyệt. V2 tải/xóa bộ nhiều file và remote transfer chưa được kích hoạt.
+Phạm vi mới là kiểm kê, không mở quyền xóa thư mục ngoài dự án. Trong File & Dọn dẹp bấm Quét tất cả để yêu cầu cả hai scanner; hosting hiển thị ở Tổng quan và không có thao tác dọn. Engine backup/catalog cũ vẫn giữ API theo quyền đã duyệt, không còn tab riêng. V2 tải/xóa bộ nhiều file và remote transfer chưa được kích hoạt.
 
 Cấu hình root trên host từ resolved config thực tế, đối chiếu ảnh: account /home/qzmivzbj; deploy /home/qzmivzbj/app.msdieu.com; data /home/qzmivzbj/app-data/vhomework. Ảnh không đủ chứng minh host đang dùng đúng các đường dẫn này. Không trỏ account root vào /, ổ đĩa local hoặc thư mục tài khoản khác.
 
@@ -109,12 +118,37 @@ QA: test:hosting-inventory, test:maintenance; start-maintenance-qa.mjs + hosting
 
 Deploy bản build mới cùng5 file hosting-inventory-{store,sources,assessment,core,run}.mjs rồi restart ứng dụng. Pipeline scripts/*.mjs đã bao gồm assessment mới. Không đổi root, DB nghiệp vụ hay cron để có phân loại mới.
 
-Sau refresh, nếu báo cáo cũ khác phạm vi/phiên bản: Hủy quét nếu job đang tạm dừng hoặc interrupted; thao tác này chỉ hủy kiểm kê. Sau đó Quét file ứng dụng, rồi Quét toàn tài khoản. Hai báo cáo phải mới dưới24h và cùng path/bytes/modifiedAt mới nối được nút dọn hiện có. Thay file sau quét vẫn bị API cũ chặn và yêu cầu quét lại.
+Sau reload, bấm Quét tất cả. Job hosting đã dừng cùng scope được yêu cầu tiếp tục; job đã dừng khác scope được hủy metadata kiểm kê cũ rồi tạo lượt mới, không xóa file nguồn. Quyền dọn ứng dụng vẫn kiểm tra path/bytes/modifiedAt và tuổi báo cáo. Thay file sau quét vẫn bị API cũ chặn và yêu cầu quét lại.
 
-Hosting có cột Dự án/dịch vụ liên quan và Khả năng dọn: ready mở Dọn file này/manager backup; review hiện điều kiện còn thiếu; protected nêu lý do; unverified yêu cầu bổ sung nguồn/quét. File ứng dụng có bộ lọc cùng4 nhóm, giữ9 trạng thái chi tiết và preview ảnh/audio.
+Engine/API hosting vẫn có phân loại dự án/dịch vụ và điều kiện dọn để tương thích; giao diện hiện tại chỉ dùng metadata cho biểu đồ, không còn cột/nút xử lý hosting. Bảng ứng dụng lọc theo Bản thu Speaking hoặc Media nghi ngờ mồ côi, giữ điều kiện riêng và preview ảnh/audio.
 
 Local không có nguồn domain/CloudLinux đầy đủ của tài khoản hosting. Tên public_html hoặc domain không chứng minh thuộc dự án khác; cần nguồn cPanel document root/application root. Nodevenv/dependency/recovery/Git và dịch vụ cPanel được bảo vệ; chỉ hiện ứng dụng dùng runtime khi có quan hệ quan sát được. Thư mục dùng chung phải xét từng mục con.
 
 Không dùng nhãn Cần xem xét như phê duyệt xóa. Media nghi ngờ cần kiểm tra riêng bao phủ bản nháp/phiên bản/bài học/kết quả/job. Thư mục backup nhiều file ngoài catalog chưa có tải/xóa cả bộ; V2 verifier/approval vẫn là phần cần triển khai và nghiệm thu. Thao tác Giữ30ngày không chuyển/xóa file và hết hạn không tự cấp xóa.
 
 Bằng chứng local/checklist: docs/hosting-inventory-v1-checklist.md (phần bổ sung); .data/maintenance-qa/cleanup-assessment-*. Không đánh dấu host pilot đạt từ local.
+
+
+## API xuất báo cáo còn giữ để tương thích — bản sửa 10/10/2026
+
+Các nút cập nhật/tải báo cáo đã bỏ khỏi giao diện theo yêu cầu tinh giản. API báo cáo ứng dụng vẫn xuất catalog đã lưu kèm root map; API hosting vẫn xuất mọi entry đã lưu của lần quét hiện tại qua mọi tầng/trang. Đọc báo cáo không khởi chạy quét.
+
+Hosting JSON có scan/coverage/sources/tasks, entries với chủ sở hữu và điều kiện dọn, evidence, backupSets, deltas, applicationReport theo actor, largestTopLevel và cleanupSummary. exportComplete=true chỉ xác nhận file JSON xuất xong; filesystemComplete=false hoặc scopeChanged=true vẫn là báo cáo thiếu/cũ. Tổng4 category chỉ cộng file, không cộng lại thư mục cha/con. BackupSet vẫn chưa có bằng chứng format/restore/off-host và không được cấp xóa chỉ vì xuất hiện trong báo cáo.
+
+GET /api/admin/maintenance/inventory/scans/:id/report yêu cầu super_admin. Chỉ đọc chỉ mục cached theo snapshot,100 mục/batch, giới hạn60s và256 MiB, hủy khi client ngắt; không ZIP, backup mới hay file báo cáo tạm trên host. Mốc không còn chi tiết trả410, chưa quét404; scan partial vẫn xuất và ghi rõ giới hạn. Báo cáo không chứa nội dung env/mail/binary/raw credential.
+
+Không thêm biến môi trường. Deploy đủ dist/server.cjs, dist/client/* và scripts/*.mjs (có hosting-inventory-report.mjs), restart Passenger, tải lại trang. Kiểm tra giao diện có đúng3 tab và một nút Quét tất cả; nếu còn các nút cũ, đối chiếu artifact đang chạy. Khi nghiệm thu API xuất JSON trên host thật, kiểm tra exportComplete, scan.id, entries/included, coverage và nguồn bị thiếu. Local/browser pass không thay kiểm tra proxy/thời gian/LVE thực tế.
+
+Giao diện hiện tại chỉ cung cấp xử lý bản thu đủ điều kiện và media nghi ngờ; policy temp vẫn giữ. API cleanup/backup cũ còn kiểm tra quyền và bằng chứng như trước nhưng không được mở thêm từ dashboard. Cache tài khoản, staging và backup nhiều file ngoài catalog chưa có thao tác dọn. Không có ready không chứng minh host không có rác. File protected có thể là DB/runtime/domain/service; ứng viên review cần verifier theo loại. Giữ30 ngày không di chuyển/xóa và cách ly chưa giảm dung lượng.
+
+Ưu tiên đối chiếu từ ảnh cPanel trước đây (không coi là số liệu hiện tại):
+
+| Vùng | Dung lượng ảnh cũ | Việc cần xác minh trước dọn |
+|---|---:|---|
+| app-data |5.194,89 MB|Mở từng bộ backup/media/database; app.sqlite đang chạy phải được bảo vệ. Backup CLI dùng online snapshot SQLite, mỗi lần thêm một bản đầy đủ; chưa xác minh host đang chạy lịch nào.|
+| .npm |1.708,24 MB|Đối chiếu cache theo runtime npm của tài khoản; cần cơ chế cache riêng, không xóa nodevenv/node_modules.|
+| node_modules-app-backup-20261007-223115 |530,56 MB|Recovery dependency; xác minh liên kết/runtime/deploy/rollback, không cho xóa theo tên backup.|
+| deploy-staging |458,43 MB|Đối chiếu release active/rollback/writer/deploy đang chạy trước đưa vào policy.|
+| nodevenv |938,04 MB|Runtime được bảo vệ; không coi là rác.|
+
+Ảnh app.sqlite801,88 MB không chứng minh toàn phần còn lại của app-data là backup. Phải dùng JSON mới để xác định mức chiếm chỗ và chu kỳ tăng. Không thêm cron/tạo backup mới trên host gần đầy chỉ để thử dọn. V2 BackupSet/cache/staging và V3 giữ gate đã duyệt.

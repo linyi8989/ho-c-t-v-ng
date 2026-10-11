@@ -1,0 +1,100 @@
+.writing-feedback {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: #1e293b;
+}
+.writing-feedback .writing-feedback-frame {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 1rem;
+  background: #fff;
+}
+.writing-feedback h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #0f172a;
+}
+.writing-feedback .writing-feedback-note {
+  margin: .5rem 0 0;
+  line-height: 1.6;
+  color: #475569;
+  font-weight: 600;
+}
+.writing-feedback .writing-feedback-category {
+  margin-top: 1rem;
+}
+.writing-feedback .writing-feedback-category + .writing-feedback-category {
+  padding-top: 1rem;
+  border-top: 1px solid #cbd5e1;
+}
+.writing-feedback h3 {
+  margin: 0 0 .75rem;
+  padding: .5rem .75rem;
+  border-left: 3px solid #93c5fd;
+  border-radius: .5rem;
+  background: #eff6ff;
+  font-size: .9375rem;
+  line-height: 1.5;
+  font-weight: 900;
+  color: #312e81;
+}
+.writing-feedback .writing-correction-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+  line-height: 1.6;
+}
+.writing-feedback .writing-correction-table th,
+.writing-feedback .writing-correction-table td {
+  padding: .65rem .75rem;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.writing-feedback .writing-correction-table th {
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-weight: 900;
+  border-bottom: 1px solid #bfdbfe;
+}
+.writing-feedback [data-writing-correction-row] td {
+  border-bottom: 1px solid #e2e8f0;
+}
+.writing-feedback [data-writing-correction-row] td + td {
+  border-left: 1px solid #e2e8f0;
+  color: #065f46;
+  font-weight: 700;
+}
+.writing-feedback .writing-correction-explanation td,
+.writing-feedback .writing-correction-legacy td {
+  /* Override the global important white table-cell background only in Writing feedback. */
+  background: #fff1f2 !important;
+  border-bottom: 1px solid #e2e8f0;
+  color: #475569;
+}
+.writing-feedback .writing-correction-empty {
+  color: #475569;
+}
+.writing-feedback .writing-revised-essay {
+  background: #f0fdf4;
+  border-color: #a7f3d0;
+}
+.writing-feedback .writing-revised-text {
+  margin: .75rem 0 0;
+  color: #0f172a;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.9;
+  font-weight: 600;
+}
+@media (max-width: 480px) {
+  .writing-feedback .writing-feedback-frame { padding: .75rem; }
+  .writing-feedback .writing-correction-table th,
+  .writing-feedback .writing-correction-table td { padding: .5rem; }
+}

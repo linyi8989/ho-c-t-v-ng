@@ -386,3 +386,16 @@ test('backend grading supports weighted objective items and teacher-reviewed Wri
   assert.equal(finalized.status, 'completed');
   assert.equal(finalized.score, 67);
 });
+
+test('Writing revisions are additive details and cannot replace submitted answers or the original grade', () => {
+  const content = createDefaultExamContent(getExamPaperDefinition('writing', 'writing')!);
+  const question = content.parts[0].questions[0]; const essay = 'He 11 years old.';
+  const grade = gradeExamAttempt(content, { [question.id]: essay });
+  const before = JSON.stringify(grade);
+  const result = applyAiWritingGrade(grade, question.id, { score: 4, sentenceCount: 1, grammarErrors: ['Cần thêm động từ.'], vocabularyErrors: [], feedback: 'Bài viết cần sửa ngữ pháp.', grammarCorrections: [{ original: essay, corrected: 'He is 11 years old.', explanation: 'Thêm động từ.' }], vocabularyCorrections: [], revisedEssay: 'He is 11 years old. He is a kind friend.' });
+  assert.equal(JSON.stringify(grade), before);
+  assert.equal(result.questions[0].userAnswer, essay); assert.equal(result.questions[0].writingScore, 4); assert.equal(result.score, 40); assert.equal(result.questions[0].sentenceCount, 1);
+  assert.equal(result.questions[0].revisedEssay, 'He is 11 years old. He is a kind friend.');
+  const legacy = applyAiWritingGrade(grade, question.id, { score: 4, sentenceCount: 1, grammarErrors: [], vocabularyErrors: [], feedback: 'Bài viết cần sửa.' });
+  assert.equal(legacy.questions[0].revisedEssay, undefined);
+});

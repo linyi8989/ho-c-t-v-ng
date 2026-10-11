@@ -471,6 +471,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         essay,
         minWords: Number(canonical.minWords || 1),
         maxWords: Number(canonical.maxWords || 50),
+        includeRevision: version.content.moduleId === 'writing' && version.content.paperId === 'writing',
         }, {
           onAttempt: async (providerAttempt, maxAttempts) => {
             await withWritingGradeLock(attempt.id, async () => {
@@ -492,7 +493,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
               await batch.commit();
             });
           },
-        }) : { providerId: config.providerId, score: 0, sentenceCount: 0, grammarErrors: [], vocabularyErrors: [], feedback: 'Bài viết để trống nên chưa đáp ứng yêu cầu. Học sinh cần viết nội dung theo đề bài. Điểm Writing là 0/10. Giáo viên có thể chấm tay nếu cần.' };
+        }) : { providerId: config.providerId, score: 0, sentenceCount: 0, grammarErrors: [], vocabularyErrors: [], ...(version.content.moduleId === 'writing' ? { grammarCorrections: [], vocabularyCorrections: [], revisedEssay: '' } : {}), feedback: 'Bài viết để trống nên chưa đáp ứng yêu cầu. Học sinh cần viết nội dung theo đề bài. Điểm Writing là 0/10. Giáo viên có thể chấm tay nếu cần.' };
       if (!output) throw new Error('Nhà cung cấp chấm Writing chưa được cấu hình.');
         return await withWritingGradeLock(attempt.id, async () => {
           const currentAttempt = await loadAttempt(attempt.id);

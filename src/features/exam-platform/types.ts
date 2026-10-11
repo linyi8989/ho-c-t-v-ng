@@ -333,6 +333,12 @@ export interface ExamWritingAnswer {
 export type ExamAnswerValue = ExamQuestionAnswerValue | ExamMatchingConnection[] | ExamScenePlacement | ExamWritingAnswer;
 export type ExamAnswers = Record<string, ExamAnswerValue>;
 
+export interface WritingCorrection {
+  original: string;
+  corrected: string;
+  explanation: string;
+}
+
 export interface ExamQuestionResult {
   questionId: string;
   part: number;
@@ -352,6 +358,9 @@ export interface ExamQuestionResult {
   grammarErrors?: string[];
   vocabularyErrors?: string[];
   aiFeedback?: string;
+  grammarCorrections?: WritingCorrection[];
+  vocabularyCorrections?: WritingCorrection[];
+  revisedEssay?: string;
 }
 
 export interface ExamCompletedAttempt {

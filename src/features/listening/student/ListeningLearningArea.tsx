@@ -488,6 +488,7 @@ export default function ListeningLearningArea({ setId, accessToken = '', onBack 
   return (
     <StudentExamAttemptShell
       rootId="listening-exam-root"
+      background="storybook"
       eyebrow={`${playable.level} · Listening`}
       title={playable.title}
       answered={progress}

@@ -126,6 +126,7 @@ async function main() {
   ]);
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  const downloads=path.join(qaRoot,'downloads');mkdirSync(downloads,{recursive:true});await cdp.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads});
 
   const evaluate = async (expression, userGesture = false) => {
     const result = await cdp.send('Runtime.evaluate', {
@@ -143,7 +144,7 @@ async function main() {
   const waitFor = async expression => {
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) {
-      if (await evaluate(`Boolean(${expression})`)) return;
+      if (await evaluate(`Promise.resolve(${expression}).then(value => Boolean(value))`)) return;
       await delay(100);
     }
     console.log(await evaluate("document.querySelector('#maintenance-media-preview')?.outerHTML || document.body.innerText.slice(-3000)"));
@@ -162,85 +163,33 @@ async function main() {
   };
 
   const screenshot = async name => {
+    await delay(250);
     const result = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
     const filePath = path.join(screenshotDir, `${name}.png`);
     writeFileSync(filePath, Buffer.from(result.data, 'base64'));
     return filePath;
   };
 
+
   const fixture=JSON.parse(fs.readFileSync(path.resolve('.data/maintenance-qa/fixture.json'),'utf8'));
-  assert(path.basename(fixture.root).startsWith('vhomework-maintenance-browser-'),'Only isolated QA fixture is authorized');
-  const sentinelFile=path.join(fixture.root,'node_modules-app-backup-20261007-223115/lib.js');const sentinel=fs.readFileSync(sentinelFile);
+  assert(path.basename(fixture.root).startsWith('vhomework-maintenance-browser-'),'Only isolated QA is used');
   const report={origin,checks:[],screenshots:[]};
   const summary=()=>evaluate("fetch('/api/admin/maintenance/inventory/summary',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json())");
   await waitFor("document.querySelector('#tab-maintenance')");
-  const baseline=(await summary()).latest?.id||null;
-  await evaluate("document.querySelector('#tab-maintenance').click()");await waitFor("document.querySelector('#maintenance-center')");
-  await evaluate("[...document.querySelectorAll('#maintenance-center button')].find(b=>b.textContent==='Thư mục hosting').click()");await waitFor("document.querySelector('#hosting-inventory-scan')?.disabled===false");
-  assert(((await summary()).latest?.id||null)===baseline,'Opening hosting tree never scans');report.checks.push('hosting-page-cached-no-automatic-scan');
-  await evaluate("document.querySelector('#maintenance-scan').click()");
-  await waitFor("fetch('/api/admin/maintenance/summary',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json()).then(d=>d.latest&&!d.scanRunning&&!d.busy)");
-  await evaluate("document.querySelector('#hosting-inventory-scan').click()");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory button')].find(b=>b.textContent==='Tạm dừng')?.disabled===false");
-  await evaluate("[...document.querySelectorAll('.hosting-inventory button')].find(b=>b.textContent==='Tạm dừng').click()");
-  await waitFor("fetch('/api/admin/maintenance/inventory/summary',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json()).then(d=>d.latest?.status==='paused')");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory button')].find(b=>b.textContent==='Tiếp tục')?.disabled===false");
-  await evaluate("[...document.querySelectorAll('.hosting-inventory button')].find(b=>b.textContent==='Tiếp tục').click()");
-  await waitFor("fetch('/api/admin/maintenance/inventory/summary',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json()).then(d=>d.latest?.status==='completed'&&d.latest.filesystemComplete)");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory tbody tr')].some(r=>r.textContent.includes('nodevenv'))");
-  report.checks.push('process-executor-pause-resume-completes');
-  const current=await summary();assert(current.latest.dependencyComplete===false,'Missing hosting adapters remain visible');
-  assert(await evaluate("[...document.querySelectorAll('.hosting-inventory tbody tr')].find(r=>r.textContent.includes('node_modules-app-backup'))?.textContent.includes('Chưa xác minh')"),'Dependency recovery remains unknown');
-  assert(!await evaluate("[...document.querySelectorAll('.hosting-inventory tbody button')].some(b=>/Xóa|Cách ly/.test(b.textContent))"),'Hosting V1 grants no new delete/quarantine actions');
-  report.checks.push('protected-runtime-unknown-recovery-and-no-delete');
-  assert(await evaluate("[...document.querySelectorAll('.hosting-inventory tbody tr')].find(r=>r.textContent.includes('.npm'))?.textContent.includes('Cần xem xét')"),'Cache has review decision');
-  assert(await evaluate("[...document.querySelectorAll('.hosting-inventory tbody tr')].find(r=>r.textContent.includes('nodevenv'))?.textContent.includes('Môi trường Node.js')"),'Runtime association is visible');
-  await evaluate("document.querySelector('.hosting-inventory .maintenance-table').scrollIntoView({block:'center'})");
-  report.screenshots.push(await screenshot('hosting-ownership-desktop'));
-  await evaluate("(()=>{const r=[...document.querySelectorAll('.hosting-inventory tbody tr')].find(r=>r.textContent.includes('nodevenv'));const b=r.querySelector('[data-action=inspect-hosting]');b.focus();b.click();})()");
-  await waitFor("document.querySelector('.hosting-inspector h4')===document.activeElement");
-  assert(await evaluate("document.querySelector('.hosting-inspector').textContent.includes('Nguồn còn thiếu')"),'Inspector explains missing sources');
-  await evaluate("[...document.querySelectorAll('.hosting-inspector button')].find(b=>b.textContent==='Xác minh lại nguồn').click()");
-  await waitFor("document.querySelector('.hosting-inventory').textContent.includes('Đã đọc lại nguồn')");
-  await evaluate("[...document.querySelectorAll('.hosting-inspector button')].find(b=>b.textContent==='Đóng bằng chứng').click()");
-  assert(await evaluate("document.activeElement?.dataset.action==='inspect-hosting'"),'Inspector close restores keyboard focus');report.checks.push('evidence-focus-reverify-and-close');
-  await evaluate("[...document.querySelectorAll('.hosting-inventory tbody button')].find(b=>b.textContent==='listening-media/').click()");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory tbody button')].some(b=>b.textContent==='.tmp-pdf-import/')");
-  await evaluate("[...document.querySelectorAll('.hosting-inventory tbody button')].find(b=>b.textContent==='.tmp-pdf-import/').click()");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory tbody button')].some(b=>b.textContent==='Dọn file này')");
-  assert(await evaluate("document.querySelector('.hosting-inventory tbody').textContent.includes('Có thể dọn có xác nhận')"),'Eligible temporary file is actionable through existing policy');
-  report.screenshots.push(await screenshot('hosting-cleanup-decisions-desktop'));
-  await evaluate("[...document.querySelectorAll('.hosting-inventory tbody button')].find(b=>b.textContent==='Dọn file này').click()");
-  await waitFor("[...document.querySelectorAll('#maintenance-center tbody tr[data-file-id]')].some(r=>r.textContent.includes('11111111-1111-4111-8111-111111111111.png'))");
-  await evaluate("[...document.querySelectorAll('#maintenance-center tbody button')].find(b=>b.textContent==='Xem trước xóa hết hạn').click()");
-  await waitFor("document.querySelector('#maintenance-center dialog').open");
-  assert(await evaluate("document.querySelector('#maintenance-confirm-execute').disabled"),'Cleanup requires typed confirmation');
-  await evaluate("[...document.querySelectorAll('#maintenance-center dialog button')].find(b=>b.textContent==='Hủy').click()");
-  assert(fs.existsSync(path.join(fixture.root,'listening-media/.tmp-pdf-import/11111111-1111-4111-8111-111111111111.png')),'Cancelled preview keeps source');
-  report.checks.push('hosting-eligible-file-opens-existing-cleanup-with-typed-confirmation');
-  await evaluate("[...document.querySelectorAll('#maintenance-center button')].find(b=>b.textContent==='Thư mục hosting').click()");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory tbody button')].some(b=>b.textContent==='paginated/')");
-  await evaluate("[...document.querySelectorAll('.hosting-inventory tbody button')].find(b=>b.textContent==='paginated/').click()");
-  await waitFor("document.querySelector('.hosting-inventory .maintenance-pagination')?.textContent.includes('123 mục')");
-  assert(await evaluate("document.querySelectorAll('.hosting-inventory tbody tr').length===50"),'Tree first page is bounded to 50');
-  await evaluate("[...document.querySelectorAll('.hosting-inventory .maintenance-pagination button')].find(b=>b.textContent==='Trang sau').click()");
-  await waitFor("document.querySelector('.hosting-inventory .maintenance-pagination')?.textContent.includes('2/3')");report.checks.push('recursive-tree-paginates-all-123-entries');
-  await viewport(390,844,true);assert(!await evaluate("document.documentElement.scrollWidth>innerWidth+1"),'Hosting tree fits mobile page');
-  await evaluate("document.querySelector('.hosting-inventory').scrollIntoView({block:'start'})");report.screenshots.push(await screenshot('hosting-tree-mobile'));
-  const contrast=await evaluate("("+function(){const lum=c=>c.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);return [...document.querySelectorAll('#maintenance-center button')].filter(b=>b.offsetWidth).map(b=>{const s=getComputedStyle(b),a=lum(s.color),z=lum(s.backgroundColor);return {label:b.textContent,ratio:(Math.max(a,z)+.05)/(Math.min(a,z)+.05)};});}.toString()+")()");assert(contrast.every(b=>b.ratio>=4.5),'Hosting buttons contrast >=4.5');report.contrast=contrast;
-  await viewport(1440,1000);await evaluate("[...document.querySelectorAll('#maintenance-center nav button')].find(b=>b.textContent==='Backup').click()");
-  await waitFor("[...document.querySelectorAll('.hosting-inventory tbody tr')].some(r=>r.textContent.includes('external-backups'))");
-  await evaluate("(()=>{const r=[...document.querySelectorAll('.hosting-inventory tbody tr')].find(r=>r.textContent.includes('external-backups'));r.querySelector('button').click();})()");
-  await waitFor("document.querySelector('.hosting-inspector')?.textContent.includes('Thành phần được quan sát')");
-  assert(await evaluate("document.querySelector('.hosting-inspector').textContent.includes('release-a')"),'Backup folder exposes its members');report.checks.push('external-backup-folder-members-and-unverified-scope');report.screenshots.push(await screenshot('hosting-backup-desktop'));
-  for(const label of ['Tác vụ nền','Nhật ký','Cảnh báo']){
-    await evaluate("[...document.querySelectorAll('#maintenance-center nav button')].find(b=>b.textContent==="+JSON.stringify(label)+").click()");await waitFor("document.querySelector('.hosting-inventory')");await delay(300);
-    if(label==='Tác vụ nền'){await waitFor("document.querySelector('.hosting-inventory').textContent.includes('Thủ công; chưa đăng ký cron')");assert(await evaluate("document.querySelector('.hosting-inventory').textContent.includes('Chấm Speaking')"),'Registry observes speaking jobs independently');}
-    await viewport(390,844,true);assert(!await evaluate("document.documentElement.scrollWidth>innerWidth+1"),'Hosting tab fits mobile: '+label);
-  }
-  report.checks.push('task-registry-manual-schedule-and-all-tabs-mobile');
-  assert(fs.readFileSync(sentinelFile).equals(sentinel),'Runtime recovery sentinel preserved');
-  report.checks.push('no-host-source-file-deleted');
+  const baseline=(await summary()).latest;assert(baseline?.filesystemComplete,'Run application browser smoke first to create two complete scans');
+  await waitFor("document.querySelector('#tab-maintenance')");await evaluate("document.querySelector('#tab-maintenance').click()");await waitFor("document.querySelector('[aria-label=\"Tăng trưởng thư mục hosting\"] .maintenance-folder-row')");
+  const trends=await evaluate("fetch('/api/admin/maintenance/inventory/trends',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json())");
+  assert(trends.complete&&trends.scopeCompatible,'Hosting charts use a complete current scope');
+  const cache=trends.folders.find(folder=>folder.label==='.npm');assert(cache?.samples.length===2&&cache.bytes>0&&cache.samples.every(s=>s.complete),'Hosting chart has the two retained real directory measurements');
+  const tree=await evaluate("fetch('/api/admin/maintenance/inventory/scans/"+baseline.id+"/tree',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json())");assert(tree.items.find(row=>row.name==='.npm').bytes===cache.bytes,'Chart total matches existing nested tree aggregate');
+  assert(!JSON.stringify(trends).includes('KEEP_PRIVATE_SENTINEL'),'Trend metadata does not expose secret file contents');report.checks.push('read-only-trends-complete-scope-two-measurements-and-no-secrets');
+  assert(await evaluate("[...document.querySelectorAll('#maintenance-center button')].every(b=>b.closest('nav[aria-label=\"Chức năng maintenance\"]'))&&!document.querySelector('.hosting-inspector')&&!document.querySelector('.hosting-breadcrumbs')&&!document.querySelector('.maintenance-scope-tabs')"),'No hosting controls, inspectors or scope tabs');
+  assert(((await summary()).latest?.id)===baseline.id,'Opening folder growth does not start a scan');report.checks.push('hosting-is-display-only-no-scan-or-file-controls');
+  const layout=await evaluate('('+function(){const a=document.querySelector('.maintenance-growth-grid').children[0].getBoundingClientRect(),b=document.querySelector('.maintenance-growth-grid').children[1].getBoundingClientRect(),rows=[...document.querySelectorAll('.maintenance-folder-row')].map(row=>{const r=row.getBoundingClientRect(),chart=row.querySelector('.maintenance-folder-chart').getBoundingClientRect(),desc=row.querySelector('.maintenance-folder-description').getBoundingClientRect();return {inside:chart.right<=r.right+1,separate:desc.right<chart.left,width:chart.width};});return {equal:Math.abs(a.width-b.width)<2,sameTop:Math.abs(a.top-b.top)<2,rows};}.toString()+')()');assert(layout.equal&&layout.sameTop&&layout.rows.every(row=>row.inside&&row.separate),'Desktop panels balance; every mini chart is right of its path');report.layout=layout;report.checks.push('balanced-desktop-folder-rows-with-chart-on-right');
+  await evaluate("(()=>{const el=document.querySelector('[aria-label=\"Tăng trưởng thư mục hosting\"]');el.scrollIntoView({block:'center'});el.scrollTop=0;el.focus({preventScroll:true});})()");await cdp.send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});await cdp.send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});await delay(180);assert(await evaluate("document.querySelector('[aria-label=\"Tăng trưởng thư mục hosting\"]').scrollTop>0"),'Hosting directory list scrolls by keyboard');report.checks.push('hosting-list-bounded-and-keyboard-scrollable');
+  await evaluate("document.activeElement.blur();document.querySelector('.maintenance-growth-grid').scrollIntoView({block:'start'})");report.screenshots.push(await screenshot('hosting-focused-growth-desktop'));
+  await viewport(390,844,true);await evaluate("document.querySelector('[aria-label=\"Tăng trưởng thư mục hosting\"]').closest('section').scrollIntoView({block:'start'})");assert(!await evaluate("document.documentElement.scrollWidth>innerWidth+1"),'Hosting growth fits mobile');assert(await evaluate("[...document.querySelectorAll('.maintenance-folder-row')].every(row=>row.querySelector('.maintenance-folder-chart').getBoundingClientRect().right<=row.getBoundingClientRect().right+1)"),'Mini charts remain inside mobile rows');report.screenshots.push(await screenshot('hosting-focused-growth-mobile'));report.checks.push('mobile-hosting-paths-and-mini-charts-fit');
+  const downloaded=await evaluate("fetch('/api/admin/maintenance/inventory/scans/"+baseline.id+"/report',{headers:{Authorization:'Bearer local-test-auth-bypass'}}).then(r=>r.json())");assert(downloaded.exportComplete&&downloaded.entries.filter(entry=>entry.relative.startsWith('paginated/')).length===123,'Existing full report still covers all123 source files');assert((await summary()).latest.id===baseline.id,'Report reads do not start a scan');report.checks.push('existing-full-report-api-preserves-123-file-coverage');
   fs.writeFileSync(path.resolve('.data/maintenance-qa/hosting-browser-report.json'),JSON.stringify(report,null,2));cdp.close();chrome.kill();console.log(JSON.stringify(report));
 }
-main().catch(error=>{console.error(error.message);chrome.kill();process.exitCode=1;});
+main().catch(error=>{console.error(error);chrome.kill();process.exitCode=1;});

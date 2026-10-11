@@ -20,3 +20,6 @@ export interface HostingEvidence {entry:HostingEntry;edges:HostingEdge[];page:nu
 export interface HostingBackup extends HostingEntry {kind:string;recognition:string;membership:string;formatCheck:string;restoreCheck:string;offHost:string;mayBeWriting:boolean;deleteAllowed:boolean}
 export interface HostingDelta {rel:string;kind:string;before_bytes:number|null;after_bytes:number|null;attribution:string}
 export interface HostingDeltas extends HostingPage<HostingDelta> {comparable:boolean;baseline:string|null}
+export interface StoragePoint {at:string;bytes:number|null;complete:boolean}
+export interface StorageFolderTrend {id:string;label:string;path:string;purpose:string;bytes:number|null;change:number|null;samples:StoragePoint[];note?:string}
+export interface HostingTrends {root:string;at:string|null;complete:boolean;scopeCompatible:boolean;folders:StorageFolderTrend[];total:number;truncated:boolean}

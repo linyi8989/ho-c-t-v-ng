@@ -1,3 +1,4 @@
+import '../../../styles/storybook-background.css';
 import type { CSSProperties, ReactNode } from 'react';
 import { CheckCircle2, ChevronLeft, ChevronRight, Clock3, LoaderCircle, Send, Star } from 'lucide-react';
 
@@ -29,6 +30,7 @@ interface StudentExamAttemptShellProps {
   showBottomNavigation?: boolean;
   rootClassName?: string;
   theme?: 'starter';
+  background?: 'storybook';
   style?: CSSProperties;
   children: ReactNode;
 }
@@ -58,13 +60,22 @@ export default function StudentExamAttemptShell({
   showBottomNavigation = true,
   rootClassName = '',
   theme,
+  background,
   style,
   children,
 }: StudentExamAttemptShellProps) {
   const lastPartIndex = Math.max(0, parts.length - 1);
+  // A teacher-provided image keeps its existing gradient/URL; the scenery layer
+  // supplies the shared illustration when no custom background is configured.
+  const rootStyle: CSSProperties & { '--student-exam-background-image'?: string } = {
+    ...style,
+    ...(background && style?.backgroundImage
+      ? { '--student-exam-background-image': style.backgroundImage }
+      : {}),
+  };
 
   return (
-    <main id={rootId} data-exam-theme={theme} className={`student-exam-shell min-h-screen bg-slate-100 ${rootClassName}`.trim()} style={style}>
+    <main id={rootId} data-exam-theme={theme} data-exam-background={background} className={`student-exam-shell min-h-screen bg-slate-100 ${rootClassName}`.trim()} style={rootStyle}>
       <header className="student-exam-shell-header sticky top-0 z-40 border-b border-slate-200 bg-white/95 py-3 shadow-sm backdrop-blur">
         <div className="student-exam-shell-container mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-3 sm:px-6">
           <div className="student-exam-shell-heading min-w-0">

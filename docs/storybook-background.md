@@ -1,6 +1,6 @@
 # Nền minh họa trên trang dài
 
-`src/styles/storybook-background.css` được nhập từ sáu stylesheet theme. Các root History, từ vựng, ngữ pháp/tự luận, Speaking, IOE/Violympic, Starters đang làm và màn chuyển/tổng kết/kết quả dùng chung một lớp cảnh nền.
+`src/styles/storybook-background.css` được nhập từ sáu stylesheet theme. Các root History, từ vựng, ngữ pháp/tự luận, Speaking, IOE/Violympic, bài thi Starters/Movers/Flyers/KET/PET/FCE/IELTS đang làm và màn chuyển/tổng kết/kết quả dùng chung một lớp cảnh nền. Khung StudentExamAttemptShell cũng nhập stylesheet này trực tiếp để các player luôn có nền khi được tải riêng.
 
 Nguyên nhân cũ: History vẽ ảnh một lần với `100% auto`, mobile giới hạn ảnh ở 680px. Sau độ cao ảnh, danh sách còn tiếp tục nhưng chỉ thấy gradient nền. Ngữ pháp/từ vựng có quy tắc tương tự trên mobile hoặc kéo ảnh bằng `100% 100%` trên desktop. Starters cũng kéo ảnh theo chiều cao bài; Speaking và các màn kết quả dùng `background-attachment: fixed` nhưng đổi sang scroll trên mobile.
 
@@ -11,3 +11,12 @@ Bản đồ đảo `/exams` và các sân chọn bài của bảy cấp vẫn gi
 Kiểm tra: `scripts/storybook-background-browser-smoke.mjs` tái hiện baseline History với 20 lượt; kiểm tra bảy root ở 1440×1000, 1024×768, 390×844, 320×568 và 844×390, tại đầu/giữa/cuối trang. History là component thật với API GET fixture; các root còn lại dùng CSS thật và nội dung dài cô lập. Ảnh chụp lớp nền giữ nguyên pixel ở cạnh khi cuộn (ẩn nội dung con chỉ cho phép so sánh ảnh, không thay chiều cao trang). Modal History và nút vẫn tương tác được. Các bộ browser History, từ vựng, ngữ pháp và kết quả giữ kiểm tra hành vi/tương phản; assertion ảnh nay đọc lớp `::before` đang được vẽ.
 
 Bằng chứng: `.data/storybook-background-verification/browser-report.json`, các screenshot, `source-diff.txt`, `artifact.json` và log `.data/storybook-background-*.log`. Snapshot source `.data/storybook-background-before`; rollback chỉ các thay đổi CSS/kiểm tra này sau khi bảo vệ chỉnh sửa mới, rồi build lại. Không khôi phục database hoặc xóa WAL.
+
+
+## Mở rộng nền cho các cấp thi — 2026-10-11
+
+Các player bật nền bằng `background="storybook"` / `data-exam-background="storybook"`. Nền dùng lại ảnh WebP hiện có (58.426 byte); các bảng câu hỏi, thanh tiêu đề và control của từng cấp vẫn giữ bố cục hiện tại. GenericExamLearningArea bật cho mọi cấp thi, gồm Writing thuộc PET/FCE/IELTS; module Writing độc lập ngoài các cấp này không đổi. Movers Listening và Reading & Writing dùng cùng khung. Màn bắt đầu/kết quả đã có nền qua data-student-journey.
+
+Movers Listening có ảnh nền riêng do giáo viên thiết lập: khung chuyển nguyên backgroundImage (URL và gradient cũ) sang biến `--student-exam-background-image`. Lớp nền dùng các thuộc tính CSS riêng background-color/image/position/size/repeat, vì shorthand background có màu trước một biến chứa nhiều lớp gradient/URL là CSS không hợp lệ. Khi không có ảnh riêng, ảnh Starter là mặc định.
+
+Kiểm tra mở rộng: `node scripts/exam-attempt-background-browser-smoke.mjs` dựng 19 player thật với API fixture tại loopback, kiểm tra 76 trạng thái viewport, chuyển Part/focus/cuộn dài, input và lỗi nộp bài; không ghi database hoặc gọi AI/grader thật. Generator dùng default content của từng paper hiện có. Checklist, artifact và rollback: `docs/exam-attempt-background-all-levels.md`.

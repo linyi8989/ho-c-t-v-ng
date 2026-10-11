@@ -1,3 +1,6 @@
+import { useAuthoringDraft, DraftRecovery } from '../../lib/authoring/useAuthoringDraft';
+import { restoreFields } from '../../lib/authoring/restoreFields';
+import { parseBulkGrammarText, parseBulkRewriteText } from '../../lib/grammarBulkImport';
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Check, X } from 'lucide-react';
 import { VocabSet, VocabItem, VocabImageGenerationProviderId, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
@@ -353,165 +356,6 @@ function parseBulkVocabularyText(input: string): { rows: ParsedBulkVocabularyRow
   return { rows, errors };
 }
 
-function parseBulkGrammarText(input: string): { questions: GrammarQuestion[]; errors: string[]; warnings: string[] } {
-  const questions: GrammarQuestion[] = [];
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const blocks = input
-    .split(/\n\s*\n+/)
-    .map(block => block.trim())
-    .filter(Boolean);
-
-  blocks.forEach((block, blockIndex) => {
-    const lines = block.split(/\r?\n/);
-    const data: Record<string, string> = {};
-    let currentKey = '';
-
-    lines.forEach(rawLine => {
-      const line = rawLine.trim();
-      if (!line) return;
-      const match = line.match(/^(question|a|b|c|d|answer|explanation)\s*:\s*(.*)$/i);
-      if (match) {
-        currentKey = match[1].toUpperCase();
-        data[currentKey] = match[2].trim();
-      } else if (currentKey === 'EXPLANATION') {
-        data.EXPLANATION = `${data.EXPLANATION || ''}\n${line}`.trim();
-      }
-    });
-
-    const unsupportedOption = lines
-      .map(line => line.trim().match(/^([E-Z])\s*:/i)?.[1]?.toUpperCase())
-      .find(Boolean);
-    if (unsupportedOption) {
-      errors.push(`Câu số ${blockIndex + 1} có đáp án ${unsupportedOption}; mỗi câu chỉ được có tối đa 4 đáp án A, B, C, D.`);
-      return;
-    }
-
-    const missing = ['QUESTION', 'A', 'B', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
-    if (missing.length > 0) {
-      errors.push(`Câu số ${blockIndex + 1} không được nhập vì thiếu ${missing.join(', ')}.`);
-      return;
-    }
-
-    const answerKey = data.ANSWER.toUpperCase();
-    if (data.D && !data.C) {
-      errors.push(`Câu số ${blockIndex + 1} có đáp án D nhưng thiếu đáp án C.`);
-      return;
-    }
-
-    const optionKeys = ['A', 'B'];
-    if (data.C) optionKeys.push('C');
-    if (data.D) optionKeys.push('D');
-    if (!optionKeys.includes(answerKey)) {
-      errors.push(`Câu số ${blockIndex + 1} có ANSWER là ${data.ANSWER}, nhưng câu này chỉ có đáp án ${optionKeys.join(', ')}.`);
-      return;
-    }
-
-    const optionValues = optionKeys.map(key => data[key].trim());
-    if (new Set(optionValues.map(value => value.toLowerCase())).size !== optionValues.length) {
-      warnings.push(`Câu số ${blockIndex + 1} có phương án trùng nhau.`);
-    }
-
-    const questionId = `grammar-question-${Date.now()}-${blockIndex}`;
-    const options = optionValues.map((text, index) => ({
-      id: `${questionId}-option-${index + 1}`,
-      text,
-      originalPosition: index + 1
-    }));
-    const correctIndex = optionKeys.indexOf(answerKey);
-
-    questions.push({
-      id: questionId,
-      questionText: data.QUESTION.trim(),
-      options,
-      correctOptionId: options[correctIndex].id,
-      explanation: data.EXPLANATION.trim(),
-      score: 1,
-      position: questions.length + 1
-    });
-  });
-
-  const seenQuestions = new Map<string, number>();
-  questions.forEach((question, index) => {
-    const key = question.questionText.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (seenQuestions.has(key)) {
-      warnings.push(`Câu số ${index + 1} bị trùng nội dung với câu ${seenQuestions.get(key)}.`);
-    } else {
-      seenQuestions.set(key, index + 1);
-    }
-  });
-
-  return { questions, errors, warnings };
-}
-
-function parseBulkRewriteText(input: string): { questions: GrammarQuestion[]; errors: string[]; warnings: string[] } {
-  const questions: GrammarQuestion[] = [];
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const blocks = input
-    .split(/\n\s*\n+/)
-    .map(block => block.trim())
-    .filter(Boolean);
-
-  blocks.forEach((block, blockIndex) => {
-    const lines = block.split(/\r?\n/);
-    const data: Record<string, string> = {};
-    let currentKey = '';
-
-    lines.forEach(rawLine => {
-      const line = rawLine.trim();
-      if (!line) return;
-      const match = line.match(/^(question|answer|accepted(?:_answers)?|alternatives|explanation)\s*:\s*(.*)$/i);
-      if (match) {
-        const parsedKey = match[1].toUpperCase();
-        currentKey = parsedKey === 'ACCEPTED' || parsedKey === 'ACCEPTED_ANSWERS' || parsedKey === 'ALTERNATIVES'
-          ? 'ACCEPTED'
-          : parsedKey;
-        const value = match[2].trim();
-        data[currentKey] = currentKey === 'ACCEPTED' && data[currentKey]
-          ? `${data[currentKey]}\n${value}`.trim()
-          : value;
-      } else if (currentKey === 'QUESTION' || currentKey === 'ANSWER' || currentKey === 'ACCEPTED' || currentKey === 'EXPLANATION') {
-        data[currentKey] = `${data[currentKey] || ''}\n${line}`.trim();
-      }
-    });
-
-    const missing = ['QUESTION', 'ANSWER', 'EXPLANATION'].filter(key => !data[key]);
-    if (missing.length > 0) {
-      errors.push(`Câu số ${blockIndex + 1} không được nhập vì thiếu ${missing.join(', ')}.`);
-      return;
-    }
-
-    questions.push({
-      id: `grammar-rewrite-question-${Date.now()}-${blockIndex}`,
-      questionType: 'rewrite',
-      questionText: data.QUESTION.trim(),
-      options: [],
-      correctOptionId: '',
-      correctAnswer: data.ANSWER.trim(),
-      acceptedAnswers: (data.ACCEPTED || '')
-        .split(/\r?\n/)
-        .map(answer => answer.trim())
-        .filter(Boolean),
-      explanation: data.EXPLANATION.trim(),
-      score: 1,
-      position: questions.length + 1
-    });
-  });
-
-  const seenQuestions = new Map<string, number>();
-  questions.forEach((question, index) => {
-    const key = question.questionText.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (seenQuestions.has(key)) {
-      warnings.push(`Câu số ${index + 1} bị trùng nội dung với câu ${seenQuestions.get(key)}.`);
-    } else {
-      seenQuestions.set(key, index + 1);
-    }
-  });
-
-  return { questions, errors, warnings };
-}
-
 export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent }: AdminDashboardProps) {
   const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -646,6 +490,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [vocabResultsGameDropdownOpen, setVocabResultsGameDropdownOpen] = useState(false);
   const [grammarResultsSet, setGrammarResultsSet] = useState<GrammarSet | null>(null);
   const [grammarResults, setGrammarResults] = useState<any[]>([]);
+
+  const vocabWorking = { editorTitle, editorDescription, editorSubject, editorGrade, editorStatus, editorTags, editorItems, ttsSettings, batchTerms, batchMeanings, batchIpas, batchPartsOfSpeech, batchExamples, batchExampleMeanings, batchVocabularyText };
+  const grammarWorking = { grammarQuestionType, grammarTitle, grammarDescription, grammarGrade, grammarSubject, grammarTopic, grammarVisibility, grammarTags, grammarTimeLimitMinutes, grammarMaxAttempts, grammarShuffleQuestions, grammarShuffleOptions, grammarShowExplanationImmediately, grammarShowReviewAfterSubmit, grammarBulkText, grammarQuestions };
+  const vocabDraft = useAuthoringDraft({ scope: 'vocabulary', entity: editingSetId || 'new', value: vocabWorking, enabled: activeTab === 'editor', restore: (record, asCopy) => {
+    if (!Array.isArray(record.value?.editorItems) || record.value.editorItems.some(item => !item || ['id', 'term', 'meaning', 'ipa', 'pos', 'example', 'exampleMeaning'].some(key => typeof item[key as keyof VocabItem] !== 'string'))) throw new Error('Nháp từ vựng có dòng không hợp lệ.');
+    restoreFields(record.value, vocabWorking, { editorTitle: setEditorTitle, editorDescription: setEditorDescription, editorSubject: setEditorSubject, editorGrade: setEditorGrade, editorStatus: setEditorStatus, editorTags: setEditorTags, editorItems: setEditorItems, ttsSettings: setTtsSettings, batchTerms: setBatchTerms, batchMeanings: setBatchMeanings, batchIpas: setBatchIpas, batchPartsOfSpeech: setBatchPartsOfSpeech, batchExamples: setBatchExamples, batchExampleMeanings: setBatchExampleMeanings, batchVocabularyText: setBatchVocabularyText });
+    setEditingSetId(asCopy || record.entity === 'new' ? null : record.entity); setActiveTab('editor');
+  } });
+  const grammarDraft = useAuthoringDraft({ scope: 'grammar', entity: editingGrammarSetId || 'new', value: grammarWorking, enabled: activeTab === 'grammar-editor', restore: (record, asCopy) => {
+    if (!Array.isArray(record.value?.grammarQuestions) || record.value.grammarQuestions.some(question => !question || typeof question.id !== 'string' || typeof question.questionText !== 'string' || !Array.isArray(question.options) || question.options.some(option => !option || typeof option.id !== 'string' || typeof option.text !== 'string') || question.acceptedAnswers && (!Array.isArray(question.acceptedAnswers) || question.acceptedAnswers.some(answer => typeof answer !== 'string')))) throw new Error('Nháp ngữ pháp có câu không hợp lệ.');
+    restoreFields(record.value, grammarWorking, { grammarQuestionType: setGrammarQuestionType, grammarTitle: setGrammarTitle, grammarDescription: setGrammarDescription, grammarGrade: setGrammarGrade, grammarSubject: setGrammarSubject, grammarTopic: setGrammarTopic, grammarVisibility: setGrammarVisibility, grammarTags: setGrammarTags, grammarTimeLimitMinutes: setGrammarTimeLimitMinutes, grammarMaxAttempts: setGrammarMaxAttempts, grammarShuffleQuestions: setGrammarShuffleQuestions, grammarShuffleOptions: setGrammarShuffleOptions, grammarShowExplanationImmediately: setGrammarShowExplanationImmediately, grammarShowReviewAfterSubmit: setGrammarShowReviewAfterSubmit, grammarBulkText: setGrammarBulkText, grammarQuestions: setGrammarQuestions });
+    setEditingGrammarSetId(asCopy || record.entity === 'new' ? null : record.entity); setActiveTab('grammar-editor');
+  } });
 
   // AI Generation States
   const [aiTopic, setAiTopic] = useState('');
@@ -995,6 +852,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
 
   // --- EDITOR FUNCTIONS ---
   const handleOpenNewEditor = () => {
+    vocabDraft.begin();
     setEditingSetId(null);
     setEditorTitle('');
     setEditorDescription('');
@@ -1013,6 +871,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     setBatchPartsOfSpeech('');
     setBatchExamples('');
     setBatchExampleMeanings('');
+    setBatchVocabularyText('');
     setActiveTab('editor');
   };
 
@@ -1055,6 +914,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleOpenNewGrammarEditor = (questionType: GrammarQuestionType = 'multiple_choice') => {
+    grammarDraft.begin();
     setEditingGrammarSetId(null);
     setGrammarQuestionType(questionType);
     setGrammarTitle('');
@@ -1223,6 +1083,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleSaveGrammarSet = () => {
+    const savedDraft = grammarWorking;
     if (!grammarTitle.trim()) return showNotification('Vui lòng nhập tên bài ngữ pháp.', 'error');
     if (grammarQuestions.length === 0) return showNotification('Bài ngữ pháp cần ít nhất một câu hỏi.', 'error');
 
@@ -1253,6 +1114,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       .then(async res => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.details?.join(' ') || data.error || 'Không lưu được bài ngữ pháp.');
+        if (!savedDraft.grammarBulkText.trim()) grammarDraft.markSaved(savedDraft);
+        grammarDraft.rebind(data.id); setEditingGrammarSetId(data.id);
         showNotification(editingGrammarSetId ? 'Đã cập nhật bài ngữ pháp.' : 'Đã tạo bài ngữ pháp mới.');
         const grammarLink = getGrammarPrivateLink(data);
         if (data.visibility === 'assignment' && grammarLink) {
@@ -2098,6 +1961,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   };
 
   const handleSaveSet = () => {
+    const savedDraft = vocabWorking;
     if (!editorTitle.trim()) {
       showNotification("Hãy điền tên bộ từ vựng.", "error");
       return;
@@ -2130,6 +1994,8 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       body: JSON.stringify(payload)
     })
     .then(data => {
+      if (![savedDraft.batchTerms, savedDraft.batchMeanings, savedDraft.batchIpas, savedDraft.batchPartsOfSpeech, savedDraft.batchExamples, savedDraft.batchExampleMeanings, savedDraft.batchVocabularyText].some(text => text.trim())) vocabDraft.markSaved(savedDraft);
+      vocabDraft.rebind(data.id); setEditingSetId(data.id);
       showNotification("Lưu bộ từ vựng thành công!");
       const savedVisibility = getSetVisibility(data);
       const assignmentUrl = getAssignmentLink(data);
@@ -2769,11 +2635,13 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       activeTab={activeTab}
       user={user}
       grammarQuestionType={grammarQuestionType}
-      onSelectTab={setActiveTab}
+      onSelectTab={tab => tab === 'editor' ? handleOpenNewEditor() : setActiveTab(tab)}
       onOpenNewGrammar={handleOpenNewGrammarEditor}
       overlays={adminOverlays}
     >
       {/* Main Panel Content Area */}
+      {['editor', 'vocab-sets'].includes(activeTab) && <DraftRecovery draft={vocabDraft} />}
+      {['grammar-editor', 'grammar-sets'].includes(activeTab) && <DraftRecovery draft={grammarDraft} />}
 
         {/* ==================================================================== */}
         {/* TAB 1: OVERVIEW DASHBOARD */}

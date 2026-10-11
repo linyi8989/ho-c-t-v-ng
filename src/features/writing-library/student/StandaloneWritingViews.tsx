@@ -8,6 +8,7 @@ import type {
   ExamPartContent,
   ExamPlayableSet,
 } from '../../exam-platform/types';
+import WritingFeedbackPanels from '../shared/WritingFeedbackPanels';
 import { countWritingWords, getFlexibleWritingWordPolicy } from '../writingWordPolicy';
 
 const BLOCKED_EXTERNAL_INSERT_TYPES = new Set([
@@ -152,10 +153,13 @@ export function StandaloneWritingResult({ result, review, playable, answers, rev
             <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-black uppercase text-emerald-700">Số từ</p><p className="mt-1 text-3xl font-black text-emerald-950">{wordCount}</p></div>
           </div>
           <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-5"><h2 className="font-black text-violet-950">Nhận Xét Chung</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-800">{reviewQuestion.aiFeedback || 'Chưa có nhận xét chi tiết.'}</p></div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-rose-200 p-4"><h3 className="font-black text-rose-800">Ngữ pháp cần lưu ý</h3>{reviewQuestion.grammarErrors?.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold text-slate-700">{reviewQuestion.grammarErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="mt-2 text-sm font-semibold text-slate-600">Không phát hiện lỗi nổi bật.</p>}</div>
-            <div className="rounded-2xl border border-amber-200 p-4"><h3 className="font-black text-amber-800">Từ vựng cần lưu ý</h3>{reviewQuestion.vocabularyErrors?.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-semibold text-slate-700">{reviewQuestion.vocabularyErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="mt-2 text-sm font-semibold text-slate-600">Không phát hiện lỗi nổi bật.</p>}</div>
-          </div>
+          <WritingFeedbackPanels
+            grammarCorrections={reviewQuestion.grammarCorrections}
+            vocabularyCorrections={reviewQuestion.vocabularyCorrections}
+            grammarErrors={reviewQuestion.grammarErrors}
+            vocabularyErrors={reviewQuestion.vocabularyErrors}
+            revisedEssay={reviewQuestion.revisedEssay}
+          />
           <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4" open><summary className="cursor-pointer font-black text-slate-900">Bài học sinh đã viết</summary><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-800">{Array.isArray(reviewQuestion.userAnswer) ? reviewQuestion.userAnswer.join(' ') : reviewQuestion.userAnswer || essay || 'Bỏ trống'}</p></details>
         </section>}
       </div>

@@ -470,6 +470,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   if (((moduleId === 'starter' || moduleId === 'flyer') && paperId === 'listening') || fixedListening) return <StudentExamAttemptShell
     rootId="listening-exam-root"
     theme={moduleId === 'starter' ? 'starter' : undefined}
+    background={moduleId !== 'writing' ? 'storybook' : undefined}
     eyebrow={`${definition.level} · ${definition.displayName}`}
     title={playable.title}
     answered={answered}
@@ -495,6 +496,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
   return <StudentExamAttemptShell
     rootId="generic-exam-player"
     theme={moduleId === 'starter' ? 'starter' : undefined}
+    background={moduleId !== 'writing' ? 'storybook' : undefined}
     eyebrow={`${moduleId === 'writing' ? playable.content.level : definition.level} · ${definition.displayName}`}
     title={playable.title}
     answered={answered}

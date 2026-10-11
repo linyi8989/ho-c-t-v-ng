@@ -1,3 +1,5 @@
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
+import { useDocumentScope } from '../../../lib/authoring/DocumentScope';
 import { ClipboardCopy, FileJson, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { ExamPaperDefinition, ExamPaperContent, ExamPartContent } from '../types';
@@ -75,6 +77,8 @@ export function UniversalWholeImportPanel({
   onMessage: (message: { text: string; error?: boolean }) => void;
 }) {
   const [source, setSource] = useState('');
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'universal-json:' + documentScope, entity: 'whole', value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   const [reports, setReports] = useState<UniversalImportReport[]>([]);
   const [copied, setCopied] = useState(false);
   const fixed = fixedStarterStructure(content);
@@ -88,7 +92,7 @@ export function UniversalWholeImportPanel({
       onMessage({ text: 'Đã sao chép prompt Universal JSON v2. ChatGPT sẽ trả một khối JSON có nút Copy; hãy sao chép rồi dán trực tiếp vào ô bên dưới.' });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? 'Đã sao chép prompt' : 'Sao chép prompt gửi ChatGPT'}</button>
-    <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" data-exam-action="import-universal-whole" onClick={() => {
       try {
         const parsed = JSON.parse(stripUniversalExamJsonFence(source));
@@ -130,6 +134,8 @@ export function UniversalPartImportPanel({
   onMessage: (message: { text: string; error?: boolean }) => void;
 }) {
   const [source, setSource] = useState('');
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'universal-json:' + documentScope, entity: 'part-' + partIndex, value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   const [copied, setCopied] = useState(false);
   return <details className="rounded-2xl border border-violet-200 bg-violet-50 p-4" data-universal-part-import={partIndex + 1}>
     <summary className="cursor-pointer text-sm font-black text-violet-900"><FileJson size={16} className="mr-2 inline" />Nhập lại JSON Part {partIndex + 1}</summary>
@@ -141,7 +147,7 @@ export function UniversalPartImportPanel({
       onMessage({ text: `Đã sao chép prompt riêng Part ${partIndex + 1}. ChatGPT sẽ trả một khối JSON có nút Copy và chỉ chứa Part này.` });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? `Đã sao chép prompt Part ${partIndex + 1}` : `Sao chép prompt riêng Part ${partIndex + 1}`}</button>
-    <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" onClick={() => {
       try {
         const parsed = JSON.parse(stripUniversalExamJsonFence(source));

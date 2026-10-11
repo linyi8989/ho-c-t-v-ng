@@ -58,3 +58,38 @@ Yêu cầu mới được triển khai theo mục14 của kế hoạch chính; k
 Kết quả mới nhất thay số19 hosting của lần triển khai đầu:22/22. Fixture100.123 file tạo/100.140 observed, index64.036.864 bytes; ngân sách128MiB. Browser kiểm tra temp ready → đúng file → typed confirmation bắt buộc → Hủy giữ fixture, cache review, runtime protected. Các nhóm media chưa có verifier đầy đủ vẫn chỉ review/preview/hold; BackupSet nhiều file và xóa root mới còn thuộc V2.
 
 Bằng chứng: .data/maintenance-qa/cleanup-assessment-*.log/json; hosting-browser-report.json, browser-report.json; screenshots/hosting-{ownership-desktop,cleanup-decisions-desktop,tree-mobile,backup-desktop}.png. Nguồn trước sửa giữ tại cleanup-assessment-before; diff riêng cleanup-assessment-review.diff. Không xóa dữ liệu người dùng.
+
+
+## Sửa xuất báo cáo — 10/10/2026
+
+- [x] Tái hiện nguyên nhân: nút tải cũ chỉ refresh cache.
+- [x] Cập nhật báo cáo và tải file JSON tách riêng; có báo cáo ứng dụng và toàn hosting.
+- [x] Export mọi entry đã quét qua tất cả tầng/trang, nguồn/evidence/backup membership/deltas và actor catalog.
+- [x] Top20 mục cấp tài khoản và tổng hợp số file/bytes của4 khả năng dọn; không cộng cha/con hai lần.
+- [x] GET super_admin, snapshot read-only, streaming100 mục/batch, giới hạn60s/256 MiB và backpressure/abort; không file tạm trên host.
+- [x] Partial/stale/scopeChanged/thu gọn được ghi rõ; không cấp quyền dọn mới.
+- [x] Regression missing/invalid ID/auth, readonly index, snapshot writer, stream failure/abort/time/bytes và fingerprint.
+- [x] Hosting24/24, maintenance22/22, focused4/4, typecheck/canonical build/compiled auth.
+- [x] Browser11 kiểm tra, tải file thật cả hai loại, đủ123 file phân trang; desktop/mobile/contrast.
+- [x] Fixture100.123 file xuất100.267 entry,103.371.802 bytes, chunk tối đa103.652 bytes.
+- [x] Rà diff/source/artifact;124 manifest SHA/bytes và6 flat worker trong deploy glob.
+- [x] Restart localhost3000 native/tắt seed; cached export200/auth401, không tự resume,58 bảng giữ số dòng; QA3177 dừng.
+- [x] Master plan15/runbook/CODEMAP195 và bằng chứng report-export-*.log/json.
+- [ ] Tải qua host/proxy thật sau deploy bản sửa.
+- [ ] Khả năng dọn nhóm cache/staging/backup nhiều file ngoài catalog còn cần triển khai V2. Chưa giải phóng dung lượng host bằng lần sửa này.
+
+Snapshot trước sửa: .data/maintenance-qa/report-export-before. Các kiểm tra chỉ dùng fixture hoặc GET metadata local; không cleanup user data, đăng ký cron, tạo backup host, deploy, commit hoặc push.
+
+
+## Giao diện theo dõi tăng trưởng tinh giản — 10/10/2026
+
+Yêu cầu mới bỏ giao diện can thiệp hosting và tác vụ nền; các đoạn kiểm thử UI cũ ở trên là lịch sử triển khai. Không thêm quyền dọn host hoặc bật V2/V3.
+
+- [x] Ba tab Tổng quan / File & Dọn dẹp / Cài đặt tự động; Tổng quan chỉ thông tin.
+- [x] Nhãn/đường dẫn/chức năng và cột nhỏ bên phải cho thư mục ứng dụng và hosting; cached readonly/auth/partial/scope/baseline guards.
+- [x] Quét tất cả gọi cả hai scanner; giữ budget, cùng nút tiếp tục hàng chờ, lỗi hosting riêng.
+- [x] Chỉ bản thu và media nghi ngờ trong bảng xử lý; các nhóm còn lại chỉ theo dõi dung lượng. Giữ preview/hold/confirmation/busy guard và cài đặt tự động hiện có.
+- [x]69 unit/integration +19 browser checks, TypeScript/build/native bundle/122 manifest hashes PASS;58 bảng local nguyên số dòng,quick_check=ok; QA dừng.
+- [ ] Nghiệm thu quyền đọc/process/LVE/cPanel trên hosting sau deploy; chưa đánh dấu đạt từ local.
+
+Master plan19 và CODEMAP199 ghi giới hạn2 mốc hosting/14 mốc ứng dụng, bằng chứng focused-* và lượt quét local giữ nguyên hàng chờ. Không xóa dữ liệu thật, push/deploy hoặc bật policy.

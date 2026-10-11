@@ -1,3 +1,4 @@
+import { AuthoringOwner } from '../lib/authoring/DocumentScope';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   onIdTokenChanged,
@@ -15,6 +16,8 @@ import {
   EmailAuthProvider
 } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
+import { installSessionFetch } from '../lib/sessionFetch';
+import { flushAuthoring, installAuthoringLifecycle } from '../lib/authoring/lifecycle';
 import {
   LOCAL_AUTH_BYPASS_TOKEN,
   LOCAL_AUTH_BYPASS_USER,
@@ -88,6 +91,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   ));
   const [phoneConfirmation, setPhoneConfirmation] = useState<ConfirmationResult | null>(null);
   const authLifecycleReadyRef = useRef(LOCAL_AUTH_BYPASS_ENABLED);
+  const profileRequestRef = useRef(0), authEventRef = useRef(0), signingOutRef = useRef(false);
+  useEffect(() => installSessionFetch(() => auth.currentUser), []);
+  useEffect(() => installAuthoringLifecycle(), []);
 
   const syncProfileFromStores = async (
     firebaseUserInstance: FirebaseUser,
@@ -119,18 +125,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     forceRefreshToken = false,
     waitForProfileSync = false
   ) => {
-    const idToken = await withTimeout(
-      firebaseUserInstance.getIdToken(forceRefreshToken),
-      "Timed out while getting Firebase ID token."
-    );
+    const requestId = ++profileRequestRef.current;
+    const current = () => requestId === profileRequestRef.current && auth.currentUser?.uid === firebaseUserInstance.uid && !signingOutRef.current;
+    let idToken: string;
+    try { idToken = await withTimeout(firebaseUserInstance.getIdToken(forceRefreshToken), "Timed out while getting Firebase ID token."); }
+    catch (error) { if (current()) throw error; return; }
+    if (!current()) return;
     setToken(idToken);
     const syncPromise = syncProfileFromStores(firebaseUserInstance, idToken);
     if (waitForProfileSync) {
-      setUser(await syncPromise);
+      try { const profile = await syncPromise; if (current()) setUser(profile); }
+      catch (error) { if (current()) throw error; }
     } else {
-      void syncPromise.then(setUser).catch((err) => {
+      void syncPromise.then(profile => { if (current()) setUser(profile); }).catch((err) => {
         console.error("Backend profile verification failed:", err);
-        setUser(null);
+        if (current() && Number((err as { status?: number })?.status) === 401) setUser(null);
       });
     }
   };
@@ -138,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (LOCAL_AUTH_BYPASS_ENABLED) return;
     const unsubscribe = onIdTokenChanged(auth, async (fUser) => {
+      const eventId = ++authEventRef.current;
       const initialAuthEvent = !authLifecycleReadyRef.current;
       setAuthSessionKnown(true);
       if (initialAuthEvent) setLoading(true);
@@ -154,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setToken(null);
         }
       } catch (err) {
+        if (eventId !== authEventRef.current || signingOutRef.current) return;
         const authRejected = Number((err as { status?: number })?.status) === 401;
         console.error(initialAuthEvent
           ? "Failed to restore authenticated session:"
@@ -180,7 +191,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => { ++profileRequestRef.current; ++authEventRef.current; unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    if (LOCAL_AUTH_BYPASS_ENABLED) return;
+    const refresh = () => {
+      const current = auth.currentUser;
+      if (document.visibilityState === 'hidden' || !current || signingOutRef.current) return;
+      void fetchProfile(current, undefined, false, true).catch(error => {
+        console.warn('Foreground session refresh unavailable:', Number((error as { status?: number })?.status) || 'network');
+      });
+    };
+    window.addEventListener('focus', refresh); window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.removeEventListener('focus', refresh); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', refresh); };
   }, []);
 
   const refreshProfile = async () => {
@@ -195,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const registerWithEmail = async (email: string, pass: string, name: string, phone?: string, otpCode?: string) => {
+    signingOutRef.current = false;
     setLoading(true);
     try {
       let credential;
@@ -245,6 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
+    signingOutRef.current = false;
     setLoading(true);
     try {
       const credential = await signInWithEmailAndPassword(auth, email, pass);
@@ -259,6 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginWithPhonePassword = async (phone: string, pass: string) => {
+    signingOutRef.current = false;
     setLoading(true);
     try {
       const res = await withTimeout(
@@ -286,6 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginWithGoogle = async () => {
+    signingOutRef.current = false;
     setLoading(true);
     try {
       const credential = await signInWithPopup(auth, googleProvider);
@@ -316,6 +345,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const verifyPhoneOtp = async (otp: string) => {
+    signingOutRef.current = false;
     if (!phoneConfirmation) {
       throw new Error("No pending phone verification. Please request OTP first.");
     }
@@ -333,6 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    await Promise.race([flushAuthoring(), new Promise(resolve => setTimeout(resolve, 1500))]);
     if (LOCAL_AUTH_BYPASS_ENABLED) {
       setUser(LOCAL_AUTH_USER);
       setFirebaseUser(null);
@@ -343,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
+      signingOutRef.current = true; ++profileRequestRef.current; ++authEventRef.current;
       await firebaseSignOut(auth);
       setUser(null);
       setFirebaseUser(null);
@@ -350,6 +382,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPhoneConfirmation(null);
     } catch (err) {
       console.error("Sign out error:", err);
+      signingOutRef.current = false;
     } finally {
       setLoading(false);
     }
@@ -371,7 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       refreshProfile
     }}>
-      {children}
+      <AuthoringOwner.Provider value={user?.id || ''}>{children}</AuthoringOwner.Provider>
     </AuthContext.Provider>
   );
 }

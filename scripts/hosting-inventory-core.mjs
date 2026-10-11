@@ -6,6 +6,7 @@ import { MaintenanceError } from './maintenance-core.mjs';
 import { VERSION,metadataStat,hash,within,relativePath,safeParents,alive,budget,openStore,withStore,getScan,scanDTO,entryDTO,audit,counts,finalize } from './hosting-inventory-store.mjs';
 import { classify,collectSources } from './hosting-inventory-sources.mjs';
 import { assessmentContext,assessEntry } from './hosting-inventory-assessment.mjs';
+import { exportHostingReport } from './hosting-inventory-report.mjs';
 const now=()=>new Date().toISOString(),sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const issue=e=>['EACCES','EPERM'].includes(e.code)?'permission_denied':e.code==='ENOENT'?'vanished':e instanceof MaintenanceError?'unsafe_parent':'read_failed';
 const idFor=rel=>hash(rel).slice(0,32);
@@ -132,6 +133,30 @@ export function createHostingInventory(config,options={}) {
       }):null;
       return {enabled:config.enabled,executor:config.executor?'process':'unconfigured',root:config.accountRoot,scope:config.scope,version:VERSION,timezone:config.timezone,readOnly:true,latest:null,scans:[],storage:null,growth:[],audit:[],...result};
     },
+    trends() {
+      const empty={root:config.accountRoot,at:null,complete:false,scopeCompatible:true,folders:[],total:0,truncated:false};
+      if(!config.enabled)return empty;
+      return read(db=>{
+        const latest=db.prepare('SELECT * FROM scans WHERE retained=1 ORDER BY started_at DESC,rowid DESC LIMIT 1').get();
+        if(!latest)return empty;
+        const compatible=latest.scope===config.scope;
+        const baseline=compatible?db.prepare("SELECT * FROM scans WHERE retained=1 AND fs_complete=1 AND status='completed' AND scope=? AND id<>? AND started_at<=? ORDER BY started_at DESC,rowid DESC LIMIT 1").get(latest.scope,latest.id,latest.started_at):null;
+        const rows=db.prepare("SELECT * FROM entries WHERE scan=? AND parent='' AND rel<>'' AND type='directory' ORDER BY bytes DESC,rel LIMIT 1001").all(latest.id);
+        const previous=baseline?db.prepare("SELECT * FROM entries WHERE scan=? AND parent='' AND rel<>'' AND type='directory' ORDER BY bytes DESC,rel LIMIT 1001").all(baseline.id):[];
+        const currentMap=new Map(rows.map(row=>[row.rel,row])),oldMap=new Map(previous.map(row=>[row.rel,row]));
+        const names=[...new Set([...currentMap.keys(),...oldMap.keys()])];
+        const complete=compatible&&Boolean(latest.fs_complete)&&latest.status==='completed';
+        const folders=names.map(rel=>{
+          const current=currentMap.get(rel),old=oldMap.get(rel),entry=describe(db,latest,current||old);
+          const bytes=complete&&!current?.issue&&(current||rows.length<=1000)?(current?.bytes??0):null;
+          const before=baseline&&!old?.issue&&(old||previous.length<=1000)?(old?.bytes??0):null;
+          const samples=[...(baseline?[{at:baseline.finished_at||baseline.started_at,bytes:before,complete:before!==null}]:[]),{at:latest.finished_at||latest.started_at,bytes,complete:bytes!==null}];
+          return {id:entry.id,label:entry.name,path:path.join(config.accountRoot,rel),purpose:entry.role==='Chưa xác định'?entry.association.label:entry.role+' · '+entry.association.label,bytes,change:bytes!==null&&before!==null?bytes-before:null,samples,note:!compatible?'Phạm vi đã đổi; cần quét lại.':!complete?'Lượt quét chưa đủ; chưa tính tăng giảm.':current?.issue||old?.issue?'Có phần chưa đọc; chưa tính tăng giảm.':!baseline?'Chưa có mốc trước cùng phạm vi.':undefined};
+        }).sort((a,b)=>(b.bytes??0)-(a.bytes??0)||a.path.localeCompare(b.path));
+        return {root:config.accountRoot,at:latest.finished_at||latest.started_at,complete,scopeCompatible:compatible,folders:folders.slice(0,1000),total:folders.length,truncated:rows.length>1000||previous.length>1000||folders.length>1000};
+      })||empty;
+    },
+    report(id,write,enrich,applicationReport,options={}) {return exportHostingReport(config,id,write,describe,enrich,applicationReport,options);},
     start(actor,cli=false) {
       if(!config.executor&&!cli&&!options.launch)throw new MaintenanceError(503,'Chưa cấu hình executor. Bật process sau pilot hoặc dùng CLI inventory.');
       if(config.accountRoot===path.parse(config.accountRoot).root)throw new MaintenanceError(403,'Không kiểm kê gốc filesystem/máy chủ. Cần root tài khoản riêng.');
@@ -169,8 +194,11 @@ export function createHostingInventory(config,options={}) {
       const args=[id,parent,'%'+filter+'%',status,status,Math.max(0,Number(query.minBytes)||0)];
       const role=typeof query.role==='string'?query.role.slice(0,100):'';args.push(role,role);
       const where='scan=? AND parent=? AND name LIKE ? AND (?=\'\' OR status=?) AND max(bytes,size)>=? AND (?=\'\' OR role=?)';
-      const n=db.prepare('SELECT COUNT(*) n FROM entries WHERE '+where).get(...args).n;
-      const items=db.prepare('SELECT * FROM entries WHERE '+where+' ORDER BY '+sort+' LIMIT ? OFFSET ?').all(...args,limit,(p-1)*limit).map(e=>describe(db,scan,e));
+      // Filter before COUNT/LIMIT; keep directories available for navigation.
+      const attention=query.status==='attention';
+      const filteredWhere=where+(attention?" AND (type='directory' OR status NOT IN ('protected','active'))":'');
+      const n=db.prepare('SELECT COUNT(*) n FROM entries WHERE '+filteredWhere).get(...args).n;
+      const items=db.prepare('SELECT * FROM entries WHERE '+filteredWhere+' ORDER BY '+sort+' LIMIT ? OFFSET ?').all(...args,limit,(p-1)*limit).map(e=>describe(db,scan,e));
       const crumbs=[{id:idFor(''),name:'Tài khoản',relative:''}];let current='';for(const part of parent.split('/').filter(Boolean)){current=current?current+'/'+part:part;crumbs.push({id:idFor(current),name:part,relative:current});}
       return {items,page:p,pages:Math.max(1,Math.ceil(n/limit)),total:n,breadcrumbs:crumbs,partial:!scan.fs_complete,roles:db.prepare('SELECT DISTINCT role FROM entries WHERE scan=? AND parent=? ORDER BY role').all(id,parent).map(r=>r.role)};
     });},

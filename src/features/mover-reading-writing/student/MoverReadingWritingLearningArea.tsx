@@ -347,6 +347,7 @@ export default function MoverReadingWritingLearningArea({ setId, accessToken = '
   return (
     <StudentExamAttemptShell
       rootId="mover-reading-writing-player"
+      background="storybook"
       eyebrow="A1 Movers · Reading & Writing"
       title={playable.title}
       answered={answeredCount(answers)}

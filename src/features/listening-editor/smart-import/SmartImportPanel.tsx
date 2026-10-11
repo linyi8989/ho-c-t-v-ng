@@ -1,3 +1,5 @@
+import { useDocumentScope } from '../../../lib/authoring/DocumentScope';
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
 import React, { useMemo, useRef, useState } from 'react';
 import { Check, Copy, FileJson, Sparkles, Trash2, X } from 'lucide-react';
 import FileDropPasteInput from '../../listening/shared/FileDropPasteInput';
@@ -79,6 +81,13 @@ export default function SmartImportPanel({
       ? initialPreferredProvider
       : EXTERNAL_PARAMETERS_PROVIDER
   ));
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'listening-import:' + documentScope, entity: 'part-' + part.part, value: { pastedText, externalParameters }, enabled: true, dirty: Boolean(pastedText) || Boolean(externalParameters),
+    restore: record => {
+      if (typeof record.value?.pastedText !== 'string' || typeof record.value?.externalParameters !== 'string') throw new Error('Nháp nội dung nhập không hợp lệ.');
+      setPastedText(record.value.pastedText); setExternalParameters(record.value.externalParameters);
+    },
+  });
   const latestPartRef = useRef(part);
   const latestOnAnalyzedRef = useRef(onAnalyzed);
   const latestOnCandidateChangeRef = useRef(onCandidateChange);
@@ -286,6 +295,7 @@ export default function SmartImportPanel({
 
   return (
     <section className="space-y-4 rounded-2xl border border-violet-200 bg-violet-50/40 p-4" data-listening-smart-import>
+      <DraftRecovery draft={recovery} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[.14em] text-violet-700">Smart Import · Part {part.part}</p>

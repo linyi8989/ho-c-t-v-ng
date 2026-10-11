@@ -345,3 +345,113 @@ Checklist bổ sung:
 - [ ] Pilot trên host thật và nguồn quan hệ domain/runtime/API thực tế. Giữ nguyên gate V2/V3.
 
 Bằng chứng bổ sung: .data/maintenance-qa/cleanup-assessment-{tests,maintenance,focused,lint,build,bundle,browser,legacy-browser}.log; cleanup-assessment-{artifact,localhost}.json; hosting-browser-report.json và screenshots. Fixture100.123 file/100.140 observed, index64.036.864 bytes trong128MiB. Không dọn file hoặc dữ liệu người dùng, không deploy host/commit/push.
+
+
+## 15. Sửa tải báo cáo hosting — 10/10/2026
+
+Chẩn đoán: nút Tải báo cáo hosting chỉ tăng revision để đọc cache; chưa xuất file. Thư mục hosting không có quyền xóa mới; app catalog đã hoàn tất không đồng nghĩa các nhóm cache/staging/BackupSet ngoài catalog có verifier.
+
+Phạm vi: xuất JSON metadata của toàn bộ lần quét còn chi tiết, tất cả tầng/trang; gồm phân loại, điều kiện dọn, nguồn, BackupSet, biến động và catalog ứng dụng theo actor. Snapshot SQLite read-only, đọc theo batch, backpressure/abort/giới hạn thời gian và bytes; không tạo bản sao tạm trên host. Tách Cập nhật báo cáo với Tải báo cáo JSON; nhắc rõ mức hỗ trợ dọn của V1. Không thay schema, policy xóa, executor hoặc gate V2/V3.
+
+- [x] Đối chiếu UI/API/cache và baseline quyền/bridge.
+- [x] Endpoint export super admin, đủ file ngoài trang đang mở; phân biệt scan partial/stale.
+- [x] Export streaming/abort/budget; không nội dung env, credentials hoặc binary.
+- [x] UI tải file thật, loading/error/empty; refresh riêng.
+- [x] Regression đầy đủ/phân trang/quyền/invalid ID/thu gọn/abort và bảo toàn fixture.
+- [x] Browser tải file về máy qua nút thật; desktop/mobile.
+- [x] Maintenance/hosting tests, typecheck/build, rà source/artifact/diff.
+- [x] Cập nhật checklist/runbook/CODEMAP, localhost và ghi rõ chưa kiểm chứng host thật.
+
+Bổ sung cùng lỗi: nút Tải lại báo cáo ứng dụng cũng chỉ refresh. Đổi thành Cập nhật báo cáo ứng dụng và thêm Tải báo cáo ứng dụng để tải JSON catalog cached kèm root map; báo cáo hosting là toàn bộ entries đã lưu, không bị filter/page giới hạn. Hai nguồn được ghi rõ trong file.
+
+Kết quả: hosting24/24, maintenance22/22, focused4/4, typecheck/build, compiled native auth/no-startup-write PASS. Browser11 kiểm tra đạt, tải thật cả hai file JSON;123 mục phân trang có đủ trong file, không tự quét, file eligible vẫn cần typed confirmation. Fixture100.123 file nguồn xuất100.267 metadata entries/103.371.802 bytes; chunk lớn nhất103.652 bytes, dưới giới hạn256 MiB.
+
+Localhost3000 đã restart Node22/native, không seed. Tải báo cáo cũ36894 mục HTTP200/auth401, scan vẫn paused và báo cáo filesystemComplete=false/scopeChanged=true;58 bảng nghiệp vụ giữ nguyên số dòng. Không tự resume/quét hoặc xóa file. QA3177 đã dừng. Chưa deploy/push từ phiên sửa này và chưa kiểm chứng tải qua proxy cPanel thật.
+
+- [ ] Host acceptance: deploy lại server/client/scripts đầy đủ, restart Passenger; tải báo cáo hiện tại trên host, đối chiếu số file/coverage, API nguồn và thư mục lớn.
+- [ ] Dọn cache/staging/BackupSet ngoài catalog: vẫn là phần còn thiếu của V2, cần verifier/policy/thử fixture trước mở thao tác. Giữ nguyên quyền off-host-only sau xác minh và gate V2/V3.
+
+
+## 16. Bố cục gọn và khung cuộn — 10/10/2026
+
+Yêu cầu: gom sáu tab, hai phạm vi và nút cập nhật/tải/quét vào một khu vực điều khiển. Phân tích, bảng file/backup, tác vụ, nhật ký, cảnh báo, chính sách và bằng chứng nằm trong khung có chiều cao theo màn hình; tiêu đề cột cố định khi cuộn, bộ lọc và phân trang ở ngoài danh sách. Chỉ đổi giao diện, giữ nguyên API, dữ liệu, cơ chế xác minh và xác nhận dọn.
+
+- [x] Đọc quy tắc, CSS toàn cục, source liên quan; lưu bản đối chiếu thay đổi có sẵn.
+- [x] Gom điều hướng và thao tác ứng dụng/hosting vào một vùng.
+- [x] Khung cuộn có giới hạn chiều cao, dùng được bằng bàn phím; không kéo dài theo số dòng.
+- [x] Áp dụng cho phân tích và mọi tab, bảng hosting và bằng chứng; giữ bộ lọc/phân trang dễ dùng.
+- [x] Kiểm tra desktop/mobile, cuộn thật, tiêu đề cột, empty/loading/disabled/error/focus và tương phản.
+- [x] Kiểm tra luồng cũ: tải báo cáo, preview, giữ file, backup và xác nhận dọn trên fixture riêng.
+- [x] Typecheck/build, rà diff và cập nhật CODEMAP; mở localhost để người dùng test.
+
+Kết quả: 32 kiểm thử maintenance/SHA/admin đạt; 11 kiểm tra browser ứng dụng và 13 kiểm tra hosting đạt trên fixture riêng. Có cuộn bằng ArrowDown, tiêu đề cột giữ vị trí (offset 1px), phân trang ngoài khung, empty tự co chiều cao, pending/disabled/error, preview ảnh/audio, giữ/bỏ giữ, tải/xác minh SQLite, tải JSON đủ123 file phân trang, focus/contrast. TypeScript, build chuẩn, bundle native/auth/no-startup-write và125 hash/bytes manifest đạt. Local tại http://127.0.0.1:3000 phục vụ source mới,58 bảng giữ nguyên số dòng/quick_check=ok; job inventory cũ vẫn paused, không tự quét. QA3177 đã dừng. Không push/deploy hoặc dọn file người dùng.
+
+Harness cũ Boolean(Promise) bỏ qua chờ API; đã sửa hai smoke script để chờ Promise thật, chờ nút enabled và xác minh process executor QA đã thoát trước resume. Trong QA thao tác resume ngay khi vừa thấy paused có trường hợp snapshot thiếu dữ liệu; khi chờ worker thoát, luồng đạt đủ dữ liệu. Đây là quan sát cần điều tra riêng ở lifecycle executor; không sửa engine trong yêu cầu bố cục và không coi screenshot/phase completed đơn lẻ là bằng chứng đầy đủ. Bằng chứng thử trước/final còn trong các profile QA và .data/maintenance-qa/layout-*.log/json.
+
+- [ ] Theo dõi riêng: tái hiện pause → resume tức thì và kiểm tra claim/worker exit để tránh snapshot thiếu; cần regression của executor trước khi sửa. Các file nguồn fixture vẫn còn nguyên.
+
+Bằng chứng bố cục: .data/maintenance-qa/layout-{before,browser.log,hosting-browser.log,maintenance-tests.log,lint.log,build.log,bundle.log,artifact.json,local-before.json,local-report.json}; browser-report.json, hosting-browser-report.json và screenshots/maintenance-layout-*.png. Localhost tên miền có tiến trình dự án khác trên IPv6; dùng địa chỉ127.0.0.1 ở trên cho đúng ứng dụng này.
+
+
+## 17. Dashboard chung, biểu đồ và bộ lọc mặc định — 10/10/2026
+
+Yêu cầu bổ sung: đưa thông tin chung vào một dashboard; lịch sử dung lượng hiện riêng bằng biểu đồ cột nhỏ; Phân tích thư mục và Phạm vi/phần chưa đọc là hai bảng cân nhau; bỏ khung Ý nghĩa trạng thái và Giữ 30 ngày; mặc định ẩn file được bảo vệ/đang dùng. Giữ các quyết định dọn, backup ngoài host và gate V1/V2/V3 đã duyệt.
+
+- [x] Tab Tổng quan mở mặc định, chứa metric ứng dụng/quota/cách ly, lịch sử và hai bảng phân tích; summary/phạm vi/nguồn hosting cũng nằm tại Tổng quan.
+- [x] Lịch sử dùng tối đa 30 mốc thật từ snapshots, biểu đồ cột cao 116px nằm ngoài khung phân tích; giá trị bằng hover/focus, mốc partial dùng gạch chéo, mobile cuộn ngang nội bộ.
+- [x] Hai bảng rộng bằng nhau, khung cuộn cùng chiều cao trên desktop; xếp dọc trên màn hình nhỏ. Giữ tiêu đề bảng và pagination ngoài vùng cuộn danh sách file.
+- [x] Mỗi tab chức năng chỉ giữ nội dung riêng: file/cleanup, backup, tác vụ/tiến độ, audit, cảnh báo/delta, policy. Chỉ hiển thị nhóm nút quét/báo cáo phù hợp tab trong toolbar chung.
+- [x] Bỏ khung giải thích tổng hợp; giữ tooltip/điều kiện riêng từng file và toàn bộ hold, preview, checksum, exact-name confirmation.
+- [x] Mặc định attention: ứng dụng ẩn protected/used; cây hosting ẩn các mục không phải thư mục có status protected/active. Thư mục giữ để điều hướng. Chọn Tất cả hoặc từng status để xem lại; không xóa/di chuyển dữ liệu.
+- [x] Tree API thêm status=attention ở read query, lọc trước COUNT/LIMIT/OFFSET, đồng bộ số mục/số trang. Query cũ và report đầy đủ không bị lọc; không đổi schema/quyền dọn/API ghi.
+- [x] TypeScript, 57 maintenance/SHA/admin/hosting tests PASS (kể cả fixture lớn), regression lọc link/giữ thư mục sau tinh chỉnh PASS; browser ứng dụng13 + hosting15 PASS, gồm balanced layout, chart keyboard/mobile, ẩn/hiện lại file, tải đủ123 file và bảo vệ xác nhận dọn. Build chuẩn PASS.
+- [x] Bundle cuối native/auth/no-startup-write PASS;125 manifest SHA-256/bytes khớp. Local127.0.0.1:3000 phục vụ dashboard mới,58 bảng giữ nguyên số dòng,quick_check=ok,seed tắt và inventory cũ vẫn paused.
+
+Phạm vi code: MaintenanceDashboard.tsx mới; MaintenancePanel.tsx, HostingInventory.tsx, maintenance.css, read filter trong hosting-inventory-core.mjs và test/browser liên quan. Trạng thái empty được hướng dẫn về đúng tab/nút quét, không gán 0 thành kết luận đã sạch.
+
+Quan sát ngoài phạm vi UI: lượt QA đầu có scanError sau khi ghi được báo cáo; gọi scan lại trong fixture hoàn tất success. Trường hợp pause ngay khi queued tái hiện snapshot completed chỉ có root dù file nguồn còn đủ; smoke cuối chờ tiến độ filesystem và worker thoát trước resume, tải đủ123 file. Không sửa lifecycle executor trong lượt này; hạng mục điều tra tại mục16 vẫn mở, không coi smoke cuối là đã sửa trường hợp pause sớm.
+
+Chứng cứ: .data/maintenance-qa/dashboard-*.log/json; browser-report.json, hosting-browser-report.json; screenshots maintenance-dashboard-{desktop,mobile}.png. Bản source trước lượt ở dashboard-before. Không push/deploy hoặc dọn dữ liệu thật.
+
+Bàn giao cuối: dashboard-artifact.json ghi MaintenancePanel-DAsQD4ny.js; server1640425 bytes/SHA2563a444abb481161fa8f43c7d8c83ce60f6ecc606ac129fdbc0b28b6222814b372. dashboard-local-report.json xác minh page/summary200,không xác thực401,không tự scan. Regression cuối4/4 PASS. Lần khởi động local bị gián đoạn bởi quota của hệ thống duyệt lệnh đã được chạy lại thành công qua cùng cơ chế duyệt theo yêu cầu tiếp tục; không còn blocker công cụ.
+
+
+## 18. Tinh giản tab và nơi thao tác — 10/10/2026
+
+Yêu cầu mới thay thế phần bố cục tương ứng ở mục16–17: bỏ Backup, Nhật ký, Cảnh báo; Tổng quan chỉ hiển thị; các thao tác quét/tải/điều khiển chỉ nằm trong File & Dọn dẹp. Tác vụ nền giữ vai trò theo dõi cấu hình/tiến độ, bỏ nút thao tác trùng. Không dọn dữ liệu thật trong lần sửa giao diện này.
+
+- [x] Đọc source/quy tắc, xác định portal gây lặp nút và lưu baseline ở simplify-before; giữ thay đổi có sẵn.
+- [x] Chỉ còn4 tab: Tổng quan, File & Dọn dẹp, Tác vụ nền, Chính sách. Bỏ UI và state/checksum worker chỉ phục vụ3 tab đã bỏ; API/dữ liệu backup/audit vẫn giữ để tương thích.
+- [x] Tổng quan chỉ có điều hướng tab và thông tin/biểu đồ/phạm vi; không có nút cập nhật, tải, quét, tạm dừng, tiếp tục, hủy.
+- [x] Tác vụ nền chỉ hiển thị cấu hình/lịch/tiến độ/kết quả; thao tác hosting render duy nhất khi File & Dọn dẹp → Thư mục hosting.
+- [x] File ứng dụng giữ quét/tải/cập nhật, bộ lọc, preview ảnh/audio, giữ/bỏ giữ, cách ly/xóa có xác nhận, khu cách ly. Thư mục hosting giữ quét/tải/cập nhật/điều khiển, phân trang/bằng chứng và cầu nối file đủ điều kiện.
+- [x] Bỏ breadcrumb Tài khoản tại gốc; thư mục hiện tại là chữ, các cấp cha là nút. Thử nút Tài khoản từ thư mục con quay về gốc thành công. Bỏ link tới tab Backup đã gỡ.
+- [x] TypeScript PASS;38 kiểm thử maintenance/SHA/admin PASS;14 kiểm tra browser ứng dụng +17 hosting PASS trên fixture riêng. Bao gồm desktop/mobile,31 checks, preview/audio/focus, bộ lọc, cuộn/phân trang, empty/error/disabled, tải JSON thật đủ123 file, pause/resume và xác nhận dọn.
+- [x] Thử Tổng quan/Tác vụ nền cả khi scan paused: không có thao tác và không gửi write request. Dữ liệu có thể đọc từ state đã tải mà không cần request mới; assertion kiểm thử cho phép trường hợp cached này.
+- [x] Canonical build/bundle native/auth/no-startup-write PASS.123 file manifest khớp bytes/SHA256; MaintenancePanel-DAfeaCNS.js. Server hash giữ nguyên3a444abb481161fa8f43c7d8c83ce60f6ecc606ac129fdbc0b28b6222814b372.
+- [x] Local127.0.0.1:3000 phục vụ source mới;58 bảng giữ nguyên số dòng,quick_check=ok, application scan=false và inventory cũ vẫn paused. Không push/deploy/seed/xóa dữ liệu hoặc bật policy.
+- [x] Rà diff/checklist và dừng môi trường QA3177; local3000 tiếp tục phục vụ để người dùng test.
+
+Chứng cứ: .data/maintenance-qa/simplify-{before,lint.log,tests.log,browser.log,hosting-browser.log,build.log,bundle.log,artifact.json,local-report.json}; browser-report.json,hosting-browser-report.json và screenshots. Bài test UI backup/nhật ký/cảnh báo cũ được thay bằng kiểm thử4 tab theo yêu cầu; kiểm thử backend backup/bảo vệ dữ liệu vẫn PASS. Hạng mục lifecycle executor tại mục16 vẫn mở, không được xem là đã sửa bởi lần tinh giản này.
+
+
+## 19. Theo dõi tăng trưởng và dọn đúng nhóm file — 10/10/2026
+
+Yêu cầu mới thay thế bố cục16–18:3 tab Tổng quan / File & Dọn dẹp / Cài đặt tự động. Hosting chỉ theo dõi thư mục ở Tổng quan; không còn cây/bằng chứng/thao tác. Ứng dụng cũng theo dõi tăng giảm theo nhóm/đường dẫn. Bảng xử lý chỉ bản thu và media nghi ngờ mồ côi (kể cả đang giữ để có thể bỏ giữ). Giữ khung cài đặt tự động và gate xác nhận cũ.
+
+- [x] API chỉ đọc tổng hợp thư mục hosting từ2 mốc giữ chi tiết, cùng scope; partial/thiếu mốc không quy thành giảm/0. Không thêm schema/lịch sử ghi mới.
+- [x] Biểu đồ cột nhỏ bên phải mỗi dòng: tên, đường dẫn, chức năng, dung lượng, tăng/giảm; không cộng trùng cha/con hoặc ứng dụng/hosting. Nhóm ứng dụng dùng snapshots đã có.
+- [x] Tổng quan chỉ hiển thị,3 tab, không Tác vụ nền hoặc phạm vi hosting riêng.
+- [x] Một nút Quét tất cả trong File & Dọn dẹp yêu cầu cả hai bộ quét; báo riêng lỗi/partial/host chưa cấu hình, có thể tiếp tục lượt hosting đã dừng bằng cùng nút.
+- [x] Bảng chỉ bản thu và media nghi ngờ; bỏ bộ lọc mở lại mọi thuộc tính. Preview, giữ/bỏ giữ và xác nhận dọn giữ cơ chế cũ; cài đặt tự động không tự bật.
+- [x] Regression tổng hợp/partial/auth/không ghi; kiểm thử UI desktop/mobile/loading/error/empty/focus và quét cả hai phạm vi.
+- [x] TypeScript/build/bundle/manifest, kiểm tra dữ liệu local, rà diff và cập nhật CODEMAP/checklist.
+
+
+Kết quả mục19: TypeScript PASS;69 kiểm thử (41 maintenance/SHA/admin/helper +28 hosting, gồm fixture100.123 file) PASS; browser ứng dụng13 +hosting6 PASS. Kiểm tra nút quét cả hai bộ thật,2 mốc hosting có tăng thực, cached GET/auth/không tạo index khi mở trang, không lộ nội dung secret, partial/scope mismatch/removed folder, bảng chỉ2 nhóm file, cuộn/sticky/keyboard,3 tab mobile, empty/pending/host-unconfigured, ảnh/audio/giữ-bỏ giữ. Xóa một WAV hết hạn chỉ trong fixture QA qua nhập đúng tên: file bị xóa, JSON điểm/lần làm bài giữ nguyên, bản thu đang được dùng còn nguyên. Không xóa dữ liệu người dùng.
+
+Canonical build/bundle production native/auth/no-startup-write PASS;122 manifest file khớp bytes/SHA256. Chunk MaintenancePanel-C5nheTOc.js; server1643619 bytes/SHA2565394e9a43afabd07b6929778d989afef9c03a9a3c3b2451e142294c18a04ed8f. Local127.0.0.1:3000 restart backend mới,58 bảng giữ số dòng,quick_check=ok,GET trends200/auth401. Trong lúc kiểm thử local có lượt quét f57f750f-e2f8-4fa3-9a06-6d7a5e72307d đang chạy; đợi worker tự paused do hết60s rồi mới restart, giữ nguyên job/hàng chờ, không tự resume. Dữ liệu partial có bytes/change=null; không báo giảm giả. QA3177 đã dừng.
+
+Giới hạn giữ đúng nguồn hiện có: hosting chỉ thư mục cấp đầu,2 lượt giữ chi tiết, không lưu thêm lịch sử hằng ngày cho từng thư mục; ứng dụng tối đa14 mốc ngày, snapshot cũ thiếu groups không được biến thành0. Quota là phép đo riêng, không cộng tổng ứng dụng và hosting. Gate/cron/backup ngoài host đã duyệt vẫn giữ; không có tác vụ xóa hosting hay tự kích hoạt policy. Hạng mục lifecycle executor ở mục16 vẫn mở; lần này không kiểm chứng/sửa pause sớm → resume tức thì.
+
+Bằng chứng: .data/maintenance-qa/focused-{before,review.diff,lint.log,maintenance-tests.log,hosting-tests.log,trend-tests.log,browser.log,hosting-browser.log,build.log,bundle.log,artifact.json,local-before.json,local-report.json}; browser-report.json,hosting-browser-report.json; screenshots/*focused*.png. Một lượt browser chờ timeout ở summary sau lượt quét thứ hai, chẩn đoán sau đó service báo complete/no error; lượt chạy cuối có diagnostic và toàn bộ assertion đạt. Không kết luận đã sửa lỗi metadata/lifecycle ngoài phạm vi. Không push/deploy, thay env trên host hoặc bật tự dọn.

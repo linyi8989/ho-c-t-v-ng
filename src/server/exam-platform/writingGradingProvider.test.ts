@@ -164,3 +164,88 @@ test('Writing provider failures become actionable teacher-safe messages', () => 
   assert.doesNotMatch(describeWritingGradingFailure(new Error('unknown'), 'stali:gpt-5.6-sol'), /api.?key|essay/i);
 });
 
+
+const revisionInput = { ...input, includeRevision: true, essay: 'He 11 years old. He is funny and kindness.' };
+const revisionOutput = {
+  score: 5, sentenceCount: 2,
+  feedback: 'Bài viết có ý rõ ràng nhưng cần thêm động từ và sửa từ loại.',
+  grammarCorrections: [{ original: 'He 11 years old.', corrected: 'He is 11 years old.', explanation: 'Thêm động từ “is” khi nói về tuổi.' }],
+  vocabularyCorrections: [{ original: 'kindness', corrected: 'kind', explanation: 'Dùng tính từ “kind” để miêu tả tính cách.' }],
+  revisedEssay: 'He is 11 years old. He is funny and kind.',
+};
+
+test('standalone revision prompt preserves the original grading and limits expansion to learner A2–B1', () => {
+  const prompt = buildWritingGradingPrompt(revisionInput);
+  for (const rule of ['A2–B1', 'Copy original EXACTLY', 'minimal changes', 'modest relevant development', 'Never replace it with an unrelated model essay', 'other unknown personal facts', 'simpler A2 sentences', 'accessible B1', 'ONLY the original student essay', 'preserve paragraphs']) assert(prompt.includes(rule), rule);
+  assert(!buildWritingGradingPrompt(input).includes('COMPARISON AND COMPLETE REVISION'));
+});
+
+test('extended feedback validates exact excerpts and keeps original score, sentence count and revision separately', () => {
+  const result = parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify(revisionOutput), revisionInput);
+  assert.equal(result.score, 5); assert.equal(result.sentenceCount, 2);
+  assert.deepEqual(result.grammarCorrections, revisionOutput.grammarCorrections);
+  assert.deepEqual(result.vocabularyCorrections, revisionOutput.vocabularyCorrections);
+  assert.equal(result.revisedEssay, revisionOutput.revisedEssay);
+  assert.match(result.grammarErrors[0], /He 11 years old/);
+  assert.match(result.grammarErrors[0], /Thêm động từ/);
+});
+
+test('extended correction quotations allow line-wrap differences but preserve case and wording', () => {
+  const wrapped = { ...revisionInput, essay: 'He 11\n years old. He is funny and kindness.' };
+  assert.equal(parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify(revisionOutput), wrapped).grammarCorrections?.length, 1);
+  assert.throws(() => parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify(revisionOutput), { ...revisionInput, essay: 'She is eleven years old.' }), /kết quả sửa Writing không hợp lệ/);
+});
+
+test('malformed extended fields are rejected without inventing an essay or silently dropping corrections', () => {
+  const variants = [
+    { revisedEssay: undefined }, { revisedEssay: '' }, { revisedEssay: { text: 'not a string' } }, { revisedEssay: 'a'.repeat(20_001) },
+    { grammarCorrections: undefined }, { grammarCorrections: 'He...' }, { vocabularyCorrections: null },
+    { grammarCorrections: Array.from({ length: 21 }, () => revisionOutput.grammarCorrections[0]) },
+    { grammarCorrections: [{ ...revisionOutput.grammarCorrections[0], original: 'I like swimming.' }] },
+    { grammarCorrections: [{ ...revisionOutput.grammarCorrections[0], original: '' }] },
+    { grammarCorrections: [{ ...revisionOutput.grammarCorrections[0], corrected: {} }] },
+    { grammarCorrections: [{ ...revisionOutput.grammarCorrections[0], explanation: 'English-only explanation.' }] },
+  ];
+  for (const change of variants) assert.throws(() => parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify({ ...revisionOutput, ...change }), revisionInput));
+});
+
+test('empty error arrays still return a complete revision while old grading outputs stay readable', () => {
+  const clean = parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify({ ...revisionOutput, grammarCorrections: [], vocabularyCorrections: [] }), revisionInput);
+  assert.deepEqual(clean.grammarErrors, []); assert.deepEqual(clean.vocabularyErrors, []); assert(clean.revisedEssay);
+  const legacy = parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify({ score: 8, sentenceCount: 2, feedback: 'Bài viết rõ ràng.', grammarErrors: [], vocabularyErrors: [] }));
+  assert.equal(legacy.revisedEssay, undefined); assert.equal(legacy.grammarCorrections, undefined);
+});
+
+test('missing revision fields receive only one same-provider retry', async () => {
+  let calls = 0;
+  const result = await gradeWritingWithProvider(revisionInput, { staliApiKey: 'test-key', fetchImpl: async (_url, init) => {
+    calls++; const body = JSON.parse(String(init?.body)); assert.equal(body.max_tokens, 6_000);
+    const content = calls === 1 ? { score: 5, sentenceCount: 2, feedback: 'Bài viết cần sửa lỗi.', grammarErrors: [], vocabularyErrors: [] } : revisionOutput;
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+  } });
+  assert.equal(calls, 2); assert.equal(result.revisedEssay, revisionOutput.revisedEssay);
+  assert(isRetryableWritingGradingFailure(new Error('AI trả về kết quả sửa Writing không hợp lệ.')));
+  assert.match(describeWritingGradingFailure(new Error('AI trả về kết quả sửa Writing không hợp lệ.'), 'stali:gpt-5.6-sol'), /không hợp lệ/);
+});
+
+test('DevQuota uses required structured revision fields and the same validated output', async () => {
+  const { DEVQUOTA_PROVIDER_ID } = await import('../listening-smart-import/devQuotaProvider');
+  const result = await gradeWritingWithProvider({ ...revisionInput, providerId: DEVQUOTA_PROVIDER_ID }, { devQuotaApiKey: 'test-key', fetchImpl: async (_url, init) => {
+    const body = JSON.parse(String(init?.body)); const format = body.text.format;
+    assert.equal(format.strict, true); assert.equal(body.max_output_tokens, 6_000);
+    assert.deepEqual([...format.schema.required].sort(), Object.keys(format.schema.properties).sort());
+    assert.equal(format.schema.additionalProperties, false);
+    const pair = format.schema.properties.grammarCorrections.items;
+    assert.deepEqual([...pair.required].sort(), Object.keys(pair.properties).sort()); assert.equal(pair.additionalProperties, false);
+    assert.equal(format.schema.properties.grammarErrors, undefined);
+    return new Response(JSON.stringify({ output_text: JSON.stringify(revisionOutput) }), { status: 200 });
+  } });
+  assert.equal(result.revisedEssay, revisionOutput.revisedEssay); assert.equal(result.score, 5);
+});
+
+test('original excerpts cannot match only part of a different word or contraction', () => {
+  for (const [essay, original] of [['We play games.', 'play game'], ['She is kindness.', 'kind'], ["She's happy.", 'She']]) {
+    const value = { ...revisionOutput, grammarCorrections: [], vocabularyCorrections: [{ original, corrected: 'kind', explanation: 'Sửa cách dùng từ.' }] };
+    assert.throws(() => parseWritingGradeOutput('stali:gpt-5.6-sol', JSON.stringify(value), { includeRevision: true, essay }), /kết quả sửa Writing không hợp lệ/);
+  }
+});

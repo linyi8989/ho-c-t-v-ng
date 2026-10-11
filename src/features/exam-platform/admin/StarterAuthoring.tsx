@@ -1,3 +1,5 @@
+import { DraftRecovery, useAuthoringDraft } from '../../../lib/authoring/useAuthoringDraft';
+import { useDocumentScope } from '../../../lib/authoring/DocumentScope';
 import { CheckCircle2, ClipboardCopy, Crop, FileJson, Image as ImageIcon, LoaderCircle, Music2, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ListeningRegionEditor } from '../../listening/admin/ListeningRegionEditor';
@@ -160,6 +162,8 @@ export function StarterWholeImportPanel({
   onMessage: (message: { text: string; error?: boolean }) => void;
 }) {
   const [source, setSource] = useState('');
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'starter-json:' + documentScope, entity: 'whole', value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   const [reports, setReports] = useState<StarterImportPartReport[]>([]);
   const [promptCopied, setPromptCopied] = useState(false);
   return <details open className="rounded-2xl border border-violet-200 bg-violet-50 p-4" id="starter-whole-json-import">
@@ -172,7 +176,7 @@ export function StarterWholeImportPanel({
       onMessage({ text: 'Đã sao chép prompt JSON tổng. ChatGPT sẽ trả một khối JSON có nút Copy để dán trực tiếp vào ô nhập.' });
       window.setTimeout(() => setPromptCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{promptCopied ? 'Đã sao chép prompt tổng' : 'Sao chép prompt gửi ChatGPT'}</button>
-    <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" data-starter-action="import-whole" onClick={() => {
       try {
         const result = importStarterExamBundle(content, source, definition);
@@ -202,10 +206,12 @@ export function StarterPartImportPanel({
   onMessage: (message: { text: string; error?: boolean }) => void;
 }) {
   const [source, setSource] = useState('');
+  const documentScope = useDocumentScope();
+  const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'starter-json:' + documentScope, entity: 'part-' + partIndex, value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   return <details className="rounded-2xl border border-violet-200 bg-violet-50 p-4" data-starter-part-import={partIndex + 1}>
     <summary className="cursor-pointer text-sm font-black text-violet-900"><FileJson size={16} className="mr-2 inline" />Nhập lại JSON Part {partIndex + 1}</summary>
     <p className="mt-2 text-xs font-semibold text-violet-800">Nhận object <code>section</code> hoặc JSON tổng. Chỉ Part {partIndex + 1} được thay đổi.</p>
-    <div className="mt-3"><JsonSource value={source} onChange={setSource} /></div>
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
     <button type="button" data-starter-action="import-part" onClick={() => {
       try {
         const result = importStarterSinglePart(content, partIndex, source, definition);

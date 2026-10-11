@@ -182,10 +182,10 @@ export default function GrammarEditorPanel({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
-                  <p className="text-xs text-gray-500">
+                  <p id="grammar-bulk-help" className="text-xs text-gray-500">
                     {grammarQuestionType === 'rewrite'
-                      ? 'Mỗi câu gồm QUESTION, ANSWER, EXPLANATION; ACCEPTED là tùy chọn và mỗi đáp án thay thế nằm trên một dòng.'
-                      : 'Mỗi câu gồm QUESTION, A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án và cách nhau bằng dòng trống.'}
+                      ? 'Mỗi câu bắt đầu bằng QUESTION:, gồm ANSWER, EXPLANATION; ACCEPTED là tùy chọn, mỗi đáp án thay thế trên một dòng. Không bắt buộc dòng trống giữa các câu.'
+                      : 'Mỗi câu bắt đầu bằng QUESTION:, gồm A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án. Không bắt buộc dòng trống giữa các câu.'}
                   </p>
                 </div>
                 <button
@@ -203,6 +203,9 @@ export default function GrammarEditorPanel({
                 </button>
               </div>
               <textarea
+                id="grammar-bulk-input"
+                aria-label="Nội dung nhập nhanh câu hỏi ngữ pháp"
+                aria-describedby="grammar-bulk-help"
                 value={grammarBulkText}
                 onChange={e => setGrammarBulkText(e.target.value)}
                 className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"

@@ -9,7 +9,7 @@ import express from 'express';
 import {maintenanceConfig,createMaintenance} from '../../../scripts/maintenance-core.mjs';
 import {inventoryConfig,withStore,getScan,budget,hash,nanosecondsToMilliseconds} from '../../../scripts/hosting-inventory-store.mjs';
 import {createHostingInventory,runInventory} from '../../../scripts/hosting-inventory-core.mjs';
-import {linkApplicationCatalog} from '../../../scripts/hosting-inventory-assessment.mjs';
+import {linkApplicationCatalog,indexApplicationCatalog} from '../../../scripts/hosting-inventory-assessment.mjs';
 import {parsePassenger,parseNodeSelector,parseDomains} from '../../../scripts/hosting-inventory-sources.mjs';
 import {createMaintenanceRouter} from './router';
 const Database=createRequire(import.meta.url)('better-sqlite3');
@@ -49,6 +49,31 @@ test('tree pagination returns every entry, filters do not truncate or count pare
   const names=new Set<string>();for(let p=1;p<=3;p++)for(const row of f.service.tree(id,dir.id,{page:p})!.items)names.add(row.name);assert.equal(names.size,123);assert.equal(dir.bytes,123);
   assert.equal(f.service.tree(id,dir.id,{filter:'item-00'})!.total,10);assert.equal(f.service.tree(id,dir.id,{minBytes:2})!.total,0);
   assert.throws(()=>f.service.tree(id,'../../etc'),/thư mục/);await f.preserved();
+}finally{await f.cleanup();}});
+
+test('attention tree filter hides protected/active files before pagination while retaining directory navigation',async()=>{const f=await fixture();try{
+  for(let i=0;i<123;i++)await f.add('attention/item-'+String(i).padStart(3,'0')+'.bin','x');
+  await f.add('attention/protected-dir/keep.bin','directory navigation');
+  const id=await scan(f),dir=f.service.tree(id)!.items.find(e=>e.name==='attention')!;
+  withStore(f.config,true,db=>{
+    db.prepare("UPDATE entries SET status='protected' WHERE scan=? AND parent='attention' AND name LIKE 'item-0%'").run(id);
+    db.prepare("UPDATE entries SET status='active' WHERE scan=? AND parent='attention' AND name LIKE 'item-10%'").run(id);
+    db.prepare("UPDATE entries SET status='protected' WHERE scan=? AND parent='attention' AND type='directory'").run(id);
+    db.prepare("UPDATE entries SET type='link' WHERE scan=? AND parent='attention' AND name='item-100.bin'").run(id);
+  });
+  const filtered=f.service.tree(id,dir.id,{status:'attention'})!;
+  assert.equal(filtered.total,14);assert.equal(filtered.pages,1);
+  assert.equal(filtered.items.filter(e=>e.type==='file').length,13);
+  assert.ok(filtered.items.some(e=>e.name==='protected-dir'&&e.status==='protected'));
+  assert.ok(filtered.items.filter(e=>e.type==='file').every(e=>!['protected','active'].includes(e.status)));
+  assert.equal(f.service.tree(id,dir.id,{status:'attention',filter:'item-12'})!.total,3);
+  assert.equal(f.service.tree(id,dir.id,{status:'attention',minBytes:100})!.total,0);
+  const all=f.service.tree(id,dir.id,{status:''})!;assert.equal(all.total,124);assert.equal(all.pages,3);
+  assert.equal(f.service.tree(id,dir.id,{status:'protected'})!.total,101);
+  assert.equal(f.service.tree(id,dir.id,{status:'active'})!.total,10);
+  assert.equal(f.service.tree(id,dir.id,{status:"attention' OR 1=1 --"})!.total,124);
+  const navigable=filtered.items.find(e=>e.name==='protected-dir')!;assert.equal(f.service.tree(id,navigable.id,{status:'attention'})!.total,1);
+  await f.preserved();
 }finally{await f.cleanup();}});
 
 test('pause/resume re-visits a partial directory idempotently and cancel never removes source files',async()=>{const f=await fixture();try{
@@ -112,14 +137,48 @@ test('API rejects non-superadmin, arbitrary IDs/controls/deletion; GET has no di
   const app=express();app.use(express.json());app.use('/api/admin/maintenance',createMaintenanceRouter({service:createMaintenance(f.core),inventory:f.service,authenticateUser:(req,res,next)=>{if(!req.headers.authorization)return res.status(401).end();req.user={id:'actor',role:req.headers.authorization==='admin'?'super_admin':'teacher'} as never;next();},requireSuperAdmin:(req,res,next)=>{if(req.user!.role!=='super_admin')return res.status(403).end();next();}}));server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server!.once('listening',resolve));const origin='http://127.0.0.1:'+((server.address() as {port:number}).port);
   const request=(url:string,method='GET',body?:unknown,authorization='admin')=>fetch(origin+'/api/admin/maintenance/inventory'+url,{method,headers:{authorization,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
   assert.equal((await request('/summary','GET',undefined,'')).status,401);assert.equal((await request('/summary','GET',undefined,'teacher')).status,403);assert.equal((await request('/summary')).status,200);await assert.rejects(fs.stat(f.config.file),{code:'ENOENT'});
-  const id=await scan(f);assert.equal((await request('/scans/invalid/tree')).status,400);assert.equal((await request('/scans/'+id+'/delete','POST',{})).status,404);assert.equal((await request('/scans/'+id+'/control','POST',{action:'rm -rf'})).status,400);assert.equal((await request('/scans/'+id+'/tree?parent=../../etc')).status,404);assert.equal((await request('/scans/'+id+'/tree')).status,200);await f.preserved();
+  assert.equal((await request('/scans/'+crypto.randomUUID()+'/report')).status,404);await assert.rejects(fs.stat(f.config.stateRoot),{code:'ENOENT'});
+  for(let i=0;i<123;i++)await f.add('many/bài-'+i+'.bin','x');
+  const id=await scan(f);assert.equal((await request('/scans/invalid/tree')).status,400);
+  const endpoint='/scans/'+id+'/report';assert.equal((await request(endpoint,'GET',undefined,'')).status,401);assert.equal((await request(endpoint,'GET',undefined,'teacher')).status,403);assert.equal((await request('/scans/invalid/report')).status,400);
+  const beforeIndex=digest(await fs.readFile(f.config.file)),beforeSummary=f.service.summary().latest;
+  const response=await request(endpoint+'?filter=nothing&page=1&parent=anything');assert.equal(response.status,200);assert.match(response.headers.get('content-disposition')!,/attachment; filename="hosting-report-/);assert.match(response.headers.get('cache-control')!,/no-store/);assert.match(response.headers.get('content-type')!,/application\/json/);
+  const text=await response.text(),report=JSON.parse(text);assert.equal(report.exportComplete,true);assert.equal(report.scan.filesystemComplete,true);assert.equal(report.entries.filter((entry:{relative:string})=>entry.relative.startsWith('many/')).length,123);assert.equal(report.included.entries,report.entries.length);assert.equal(report.included.evidence,report.evidence.length);assert.ok(report.backupSets.length>0);assert.ok(report.entries.some((entry:{relative:string})=>entry.relative==='many/bài-122.bin'));assert.ok(!text.includes('KEEP_PRIVATE_SENTINEL'));assert.ok(!text.includes('private mail body'));assert.equal(report.applicationReport,null);
+  const categories=Object.values(report.cleanupSummary) as {files:number;logicalBytes:number}[];assert.equal(categories.reduce((n,c)=>n+c.files,0),report.scan.fileCount);assert.equal(categories.reduce((n,c)=>n+c.logicalBytes,0),report.scan.logicalBytes);assert.equal(report.entries.find((entry:{relative:string})=>entry.relative===f.config.dbPath.slice(f.root.length+1).split(path.sep).join('/')).cleanup.category,'protected');
+  assert.equal(digest(await fs.readFile(f.config.file)),beforeIndex);assert.deepEqual(f.service.summary().latest,beforeSummary);
+assert.equal((await request('/scans/'+id+'/delete','POST',{})).status,404);assert.equal((await request('/scans/'+id+'/control','POST',{action:'rm -rf'})).status,400);assert.equal((await request('/scans/'+id+'/tree?parent=../../etc')).status,404);assert.equal((await request('/scans/'+id+'/tree')).status,200);await f.preserved();
 }finally{if(server)await new Promise<void>(resolve=>server!.close(()=>resolve()));await f.cleanup();}});
+
+test('report is a consistent saved snapshot, labels incomplete/stale scope and closes on abort or export limits',async()=>{const f=await fixture();try{
+  for(let i=0;i<130;i++)await f.add('many/file-'+i,'x');const id=await scan(f);
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET fs_complete=0 WHERE id=?').run(id));
+  const changed=createHostingInventory({...f.config,scope:hash('new-scope')},{launch:()=>{}});let text='';await changed.report(id,chunk=>{text+=chunk;});const report=JSON.parse(text);assert.equal(report.scan.filesystemComplete,false);assert.equal(report.scopeChanged,true);assert.ok(report.entries.every((entry:{cleanup:{category:string}})=>entry.cleanup.category==='unverified'));
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET fs_complete=1 WHERE id=?').run(id));
+  let snapshot='';const count=withStore(f.config,false,db=>db.prepare('SELECT COUNT(*) n FROM entries WHERE scan=?').get(id).n);
+  await f.service.report(id,chunk=>{snapshot+=chunk;if(snapshot===chunk)withStore(f.config,true,db=>db.prepare('DELETE FROM entries WHERE scan=? AND rel=?').run(id,'many/file-129'));});assert.equal(JSON.parse(snapshot).included.entries,count,'Concurrent writer cannot mix export sections');assert.equal(withStore(f.config,false,db=>db.prepare('SELECT COUNT(*) n FROM entries WHERE scan=?').get(id).n),count-1);
+  const controller=new AbortController();let calls=0;await assert.rejects(f.service.report(id,chunk=>{calls++;if(chunk.includes('many/file-'))controller.abort();},undefined,null,{signal:controller.signal}),{name:'AbortError'});assert.ok(calls>=3);assert.ok(f.service.tree(id));
+  await assert.rejects(f.service.report(id,()=>{},undefined,null,{maxBytes:20}),/giới hạn/);assert.ok(f.service.tree(id));
+  await assert.rejects(f.service.report(id,()=>{},undefined,null,{maxMs:-1}),/thời gian/);assert.ok(f.service.tree(id));
+  await assert.rejects(f.service.report(id,()=>{throw Error('disconnect');}),/disconnect/);assert.ok(f.service.tree(id));
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET retained=0 WHERE id=?').run(id));await assert.rejects(f.service.report(id,()=>{}),/thu gọn/);await f.preserved();
+}finally{await f.cleanup();}});
+
+test('report uses indexed application fingerprints without granting new folder deletion',async()=>{const f=await fixture();try{
+  const name=crypto.randomUUID()+'.png',relative='app-data/vhomework/listening-media/.tmp-pdf-import/'+name,filePath=await f.add(relative,'temporary');const old=new Date(Date.now()-3*86400000);await fs.utimes(filePath,old,old);
+  const application=createMaintenance(f.core);await application.scan('admin');const id=await scan(f),file=f.service.evidence(id,hash(relative).slice(0,32))!.entry;
+  const summary=await application.summary('admin'),index=indexApplicationCatalog(summary);let text='';await f.service.report(id,chunk=>{text+=chunk;},entry=>linkApplicationCatalog(entry,f.root,summary,index),summary.latest);
+  const report=JSON.parse(text),linked=report.entries.find((entry:{relative:string})=>entry.relative===file.relative);
+  assert.equal(linked.cleanup.category,'ready');assert.equal(linked.cleanup.applicationId,summary.latest!.entries.find(entry=>entry.name===name)!.id);assert.equal(linked.cleanup.deleteAllowed,false);assert.equal(report.cleanupSummary.ready.files,1);assert.equal(report.entries.find((entry:{relative:string})=>entry.relative==='.npm').cleanup.category,'review');assert.deepEqual(report.applicationReport,JSON.parse(JSON.stringify(summary.latest)));
+  const changed={...file,bytes:file.bytes+1};assert.equal(linkApplicationCatalog(changed,f.root,summary,index).cleanup.applicationId,undefined);await f.preserved();
+}finally{await f.cleanup();}});
 
 test('large fixture inventories 100,123 files with pagination and bounded SQLite metadata, preserves baseline',async()=>{const f=await fixture();try{
   // Files are empty; each directory is capped so fixture setup/cleanup and readdir memory remain bounded.
   for(let group=0;group<101;group++){const dir=path.join(f.root,'large-'+group);await fs.mkdir(dir);const count=group===100?123:1000;for(let start=0;start<count;start+=100)await Promise.all(Array.from({length:Math.min(100,count-start)},(_,i)=>fs.writeFile(path.join(dir,'file-'+(start+i)),'')));}
   const id=await scan(f),s=f.service.summary().latest!;assert.equal(s.status,'completed');assert.equal(s.filesystemComplete,true);assert.ok(s.fileCount>=100123);assert.ok(budget(f.config,0).bytes<f.config.budgetBytes);
-  const total=withStore(f.config,false,db=>db.prepare("SELECT count(*) n FROM entries WHERE scan=? AND rel LIKE 'large-%/%'").get(id).n);assert.equal(total,100123);await fs.mkdir(path.resolve('.data/maintenance-qa'),{recursive:true});await fs.writeFile(path.resolve('.data/maintenance-qa/hosting-large-report.json'),JSON.stringify({generatedFiles:100123,observedFiles:s.fileCount,filesystemComplete:s.filesystemComplete,dependencyComplete:s.dependencyComplete,index:budget(f.config,0),mainDatabasePreserved:true,policyGrantsDelete:false},null,2));const dirs=Array.from({length:3},(_,i)=>f.service.tree(id,'',{page:i+1})!.items).flat();assert.equal(dirs.filter(d=>d.name.startsWith('large-')).length,101);await f.preserved();
+  const total=withStore(f.config,false,db=>db.prepare("SELECT count(*) n FROM entries WHERE scan=? AND rel LIKE 'large-%/%'").get(id).n);assert.equal(total,100123);
+  let largestChunk=0,lastChunk='';const exported=await f.service.report(id,chunk=>{largestChunk=Math.max(largestChunk,Buffer.byteLength(chunk));lastChunk=chunk;});assert.ok(exported.included.entries>=100123);assert.ok(largestChunk<1048576);assert.match(lastChunk,/"exportComplete":true/);assert.ok(exported.exportedBytes<256*1048576);
+  await fs.mkdir(path.resolve('.data/maintenance-qa'),{recursive:true});await fs.writeFile(path.resolve('.data/maintenance-qa/report-export-large.json'),JSON.stringify({...exported,largestChunk,sourceFiles:100123,mainDatabasePreserved:true},null,2));await fs.mkdir(path.resolve('.data/maintenance-qa'),{recursive:true});await fs.writeFile(path.resolve('.data/maintenance-qa/hosting-large-report.json'),JSON.stringify({generatedFiles:100123,observedFiles:s.fileCount,filesystemComplete:s.filesystemComplete,dependencyComplete:s.dependencyComplete,index:budget(f.config,0),mainDatabasePreserved:true,policyGrantsDelete:false},null,2));const dirs=Array.from({length:3},(_,i)=>f.service.tree(id,'',{page:i+1})!.items).flat();assert.equal(dirs.filter(d=>d.name.startsWith('large-')).length,101);await f.preserved();
 }finally{await f.cleanup();}});
 test('flat directory progresses across short time windows without repeating throttle for unchanged entries',async()=>{const f=await fixture();try{
   for(let i=0;i<450;i++)await f.add('flat/file-'+i,'x');f.config.batchSize=10;f.config.delayMs=100;f.config.windowMs=1500;const {id}=f.service.start('admin');let result=await runInventory(f.config,id),rounds=1,previous=result.fileCount;
@@ -208,3 +267,31 @@ test('nanosecond conversion preserves milliseconds without loosening matching; o
     changed.control('admin',id,'cancel');assert.equal(changed.summary().latest!.status,'cancelled');assert.ok(changed.start('admin').accepted);await f.preserved();
   }finally{await f.cleanup();}
 });
+
+
+test('folder trends are cached and compare only complete retained scans in the same scope',async()=>{const f=await fixture();try{
+  assert.deepEqual(f.service.trends().folders,[]);await assert.rejects(fs.stat(f.config.stateRoot),{code:'ENOENT'});
+  const first=await scan(f),one=f.service.trends(),cache=one.folders.find(folder=>folder.label==='.npm')!;
+  assert.equal(cache.bytes,5);assert.equal(cache.change,null);assert.equal(cache.samples.length,1);assert.equal(cache.path,path.join(f.root,'.npm'));assert.ok(cache.purpose);
+  await f.add('.npm/_cacache/content/blob','cache has grown');const second=await scan(f);
+  const before=digest(await fs.readFile(f.config.file)),two=f.service.trends(),grown=two.folders.find(folder=>folder.label==='.npm')!;
+  assert.equal(grown.change,10);assert.deepEqual(grown.samples.map(point=>point.bytes),[5,15]);assert.equal(two.complete,true);assert.equal(digest(await fs.readFile(f.config.file)),before);assert.ok(!JSON.stringify(two).includes('KEEP_PRIVATE_SENTINEL'));
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET fs_complete=0 WHERE id=?').run(second));
+  const partial=f.service.trends().folders.find(folder=>folder.label==='.npm')!;assert.equal(partial.bytes,null);assert.equal(partial.change,null);assert.equal(partial.samples.at(-1)!.complete,false);
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET fs_complete=1 WHERE id=?').run(second));
+  const changed=createHostingInventory({...f.config,scope:hash('new-trend-scope')},{launch:()=>{}}).trends();assert.equal(changed.scopeCompatible,false);assert.ok(changed.folders.every(folder=>folder.change===null&&folder.bytes===null));
+  assert.equal(withStore(f.config,false,db=>getScan(db,first).retained),1);await f.preserved();
+}finally{await f.cleanup();}});
+
+test('folder trends count a removed directory as zero only after a complete scan',async()=>{const f=await fixture();try{
+  await scan(f);const target=path.resolve(f.root,'.npm');assert.equal(path.dirname(target),f.root);await fs.rm(target,{recursive:true,force:true});for(const key of Object.keys(f.files))if(key.startsWith('.npm/'))delete f.files[key];
+  const id=await scan(f),gone=f.service.trends().folders.find(folder=>folder.label==='.npm')!;assert.equal(gone.bytes,0);assert.equal(gone.change,-5);
+  withStore(f.config,true,db=>db.prepare('UPDATE scans SET fs_complete=0 WHERE id=?').run(id));assert.equal(f.service.trends().folders.find(folder=>folder.label==='.npm')!.bytes,null);await f.preserved();
+}finally{await f.cleanup();}});
+
+test('folder trends endpoint keeps auth guards and never starts a scan or writes metadata',async()=>{const f=await fixture();let server:ReturnType<express.Express['listen']>|undefined;try{
+  const application=createMaintenance(f.core),app=express();app.use(express.json());app.use('/maintenance',createMaintenanceRouter({service:application,inventory:f.service,authenticateUser:(req,res,next)=>{if(!req.headers.authorization){res.status(401).end();return;}req.user={id:'admin',email:'',role:req.headers.authorization} as typeof req.user;next();},requireSuperAdmin:(req,res,next)=>{if(req.user?.role!=='super_admin'){res.status(403).end();return;}next();}}));
+  server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server!.once('listening',resolve));const address=server.address() as {port:number},url='http://127.0.0.1:'+address.port+'/maintenance/inventory/trends';
+  assert.equal((await fetch(url)).status,401);assert.equal((await fetch(url,{headers:{Authorization:'teacher'}})).status,403);assert.equal((await fetch(url,{headers:{Authorization:'super_admin'}})).status,200);await assert.rejects(fs.stat(f.config.file),{code:'ENOENT'});
+  const id=await scan(f),before=digest(await fs.readFile(f.config.file));const result=await fetch(url,{headers:{Authorization:'super_admin'}});assert.equal(result.status,200);assert.ok((await result.json()).folders.length>0);assert.equal(digest(await fs.readFile(f.config.file)),before);assert.equal(f.service.summary().latest!.id,id);await f.preserved();
+}finally{if(server)await new Promise<void>(resolve=>server!.close(()=>resolve()));await f.cleanup();}});

@@ -1,3 +1,4 @@
+import { tokenVerificationFailure } from './src/server/tokenVerificationFailure';
 import express from "express";
 import { createMaintenance, maintenanceConfig } from "./scripts/maintenance-core.mjs";
 import { createHostingInventory } from "./scripts/hosting-inventory-core.mjs";
@@ -500,10 +501,10 @@ const authenticateUser = async (req: express.Request, res: express.Response, nex
   } catch (error: any) {
     console.error("Token verification failed:", {
       code: String(error?.code || "unknown"),
-      name: String(error?.name || "Error"),
-      message: String(error?.message || "Token verification failed")
+      name: String(error?.name || "Error")
     });
-    return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
+    const failure = tokenVerificationFailure(error);
+    return res.status(failure.status).json({ error: failure.message, code: failure.code });
   }
 
   try {

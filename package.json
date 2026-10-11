@@ -25,7 +25,7 @@
     "test:starter-scene-browser": "node scripts/starter-scene-browser-smoke.mjs",
     "test:identity": "tsx --test src/lib/guestIdentity.test.ts src/components/games/StudentLearningArea.contract.test.ts",
     "test:local-auth": "tsx --test src/lib/localAuthBypass.test.ts",
-    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts src/lib/adminBulkImportPrompts.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts",
+    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts src/lib/grammarBulkImport.test.ts src/lib/adminBulkImportPrompts.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts",
     "test:admin": "tsx --test src/components/admin/AdminShell.contract.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts src/components/admin/vocab-images/VocabImageEditor.contract.test.ts",
     "test:admin-data": "tsx --test src/server/admin-data/adminData.test.ts",
     "test:home": "tsx --test src/features/home/homeSearch.test.ts src/features/home/HomeArchitecture.contract.test.ts src/features/home/VisualTheme.contract.test.ts",
@@ -68,7 +68,8 @@
     "maintenance:storage": "node scripts/maintenance-run.mjs",
     "test:maintenance": "tsx --test src/server/maintenance/maintenance.test.ts src/components/admin/maintenance/sha256.test.ts",
     "test:hosting-inventory": "tsx --test src/server/maintenance/hostingInventory.test.ts",
-    "maintenance:inventory": "node scripts/hosting-inventory-run.mjs"
+    "maintenance:inventory": "node scripts/hosting-inventory-run.mjs",
+    "test:authoring": "tsx --test src/lib/sessionFetch.test.ts src/lib/authoring/draftStorage.test.ts src/lib/authoring/restoreFields.test.ts src/server/tokenVerificationFailure.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

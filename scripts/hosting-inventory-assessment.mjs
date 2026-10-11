@@ -67,10 +67,16 @@ export function assessEntry(context,entry) {
 }
 
 // Only navigation to the original authenticated catalog; cleanup rechecks live state.
-export function linkApplicationCatalog(entry,root,summary) {
+export function indexApplicationCatalog(summary) {
+  const index=new Map();if(!summary?.latest||!fresh(summary.latest.at))return index;
+  const roots=new Map(summary.roots.map(root=>[root.id,path.resolve(root.root)]));
+  for(const entry of summary.latest.entries){const root=roots.get(entry.rootId);if(!root)continue;const absolute=path.resolve(root,entry.relative);const matches=index.get(absolute)||[];matches.push(entry);index.set(absolute,matches);}
+  return index;
+}
+export function linkApplicationCatalog(entry,root,summary,index=indexApplicationCatalog(summary)) {
   if(entry.type!=='file'||entry.cleanup.category==='protected'||!entry.cleanup.current||!summary?.latest||!fresh(summary.latest.at)||!['this_app','unknown'].includes(entry.association.kind)||entry.issue)return entry;
-  const absolute=path.resolve(root,entry.relative),roots=new Map(summary.roots.map(r=>[r.id,path.resolve(r.root)]));
-  const match=summary.latest.entries.find(e=>roots.has(e.rootId)&&path.resolve(roots.get(e.rootId),e.relative)===absolute&&e.bytes===entry.bytes&&e.modifiedAt===entry.modifiedAt);
+  const absolute=path.resolve(root,entry.relative);
+  const match=index.get(absolute)?.find(e=>e.bytes===entry.bytes&&e.modifiedAt===entry.modifiedAt);
   if(!match)return entry;
   const canReview=entry.cleanup.category!=='protected';
   const ready=match.status==='eligible'&&['speaking','temporary','asset'].includes(match.kind)||match.kind==='backup'&&match.verified&&!match.pinned;
