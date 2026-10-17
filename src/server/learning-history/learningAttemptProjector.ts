@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { grammarDisplayMode } from '../../lib/grammarPassages';
 import type {
   LearningAttemptDetailWrite,
   LearningAttemptProjection,
@@ -373,7 +374,7 @@ export function projectGrammarAttempt(
     lessonType: 'grammar_set',
     gameId: 'grammar-practice',
     gameTitleSnapshot: text(
-      grammarSet?.questionType === 'rewrite' ? 'Viết lại câu' : 'Luyện ngữ pháp',
+      grammarAttempt?.displayMode === 'passage_drag_drop' ? 'Kéo thả điền từ' : grammarAttempt?.displayMode === 'reading_comprehension' ? 'Đọc hiểu' : grammarSet?.questionType === 'rewrite' ? 'Viết lại câu' : 'Luyện ngữ pháp',
       240,
     ),
     score: canonicalScore,
@@ -402,10 +403,8 @@ export function projectGrammarAttempt(
     ? createDetail('grammar', attemptId, attempt.clientRunId, completedAt, {
         answerDetails: questions.map((question: any, index: number) => {
           const answer: any = answerByQuestion.get(question?.id);
-          const questionType = question?.questionType === 'rewrite'
-            ? 'rewrite'
-            : 'multiple_choice';
-          const optionSnapshots = Array.isArray(question?.optionsSnapshot)
+          const questionType = question?.questionType === 'rewrite' ? 'rewrite' : question?.questionType === 'bank_select' ? 'bank_select' : 'multiple_choice';
+          const optionSnapshots = questionType === 'bank_select' ? (grammarAttempt.wordBankSnapshot || []) : Array.isArray(question?.optionsSnapshot)
             ? question.optionsSnapshot
             : [];
           const selectedOptionId = text(answer?.selectedOptionId, 200);
@@ -446,7 +445,8 @@ export function projectGrammarAttempt(
           questionIndex: Number(question?.displayPosition || index + 1) - 1,
           attemptQuestionId: text(question?.id, 200),
           questionId: text(question?.questionId, 200),
-          questionType: question?.questionType === 'rewrite' ? 'rewrite' : 'multiple_choice',
+          questionType: question?.questionType === 'rewrite' ? 'rewrite' : question?.questionType === 'bank_select' ? 'bank_select' : 'multiple_choice',
+          ...(question?.blankNumber !== undefined ? { blankNumber: question.blankNumber } : {}),
           questionText: text(question?.questionSnapshot, 4_000),
           explanation: text(question?.explanationSnapshot, 4_000),
           correctOptionId: text(question?.correctOptionId, 200),
@@ -467,6 +467,22 @@ export function projectGrammarAttempt(
         })),
         extraDetails: {
           grammarSetVersion: text(grammarAttempt?.grammarSetVersion, 180),
+          ...(grammarDisplayMode(grammarAttempt.displayMode) !== 'standard' ? {
+            grammarPassageReview: {
+              displayMode: grammarAttempt.displayMode,
+              passageSnapshot: String(grammarAttempt.passageSnapshot || ''),
+              instructionSnapshot: String(grammarAttempt.instructionSnapshot || ''),
+              wordBankSnapshot: (grammarAttempt.wordBankSnapshot || []).map((token: any) => ({ id: token.id, text: token.text })),
+              questions: questions.map((question: any) => ({
+                id: question.id, questionId: question.questionId, questionType: question.questionType,
+                blankNumber: question.blankNumber, questionSnapshot: question.questionSnapshot,
+                explanationSnapshot: question.explanationSnapshot, correctOptionId: question.correctOptionId,
+                scoreSnapshot: question.scoreSnapshot, displayPosition: question.displayPosition,
+                optionOrder: question.optionOrder || [], optionsSnapshot: question.optionsSnapshot || [],
+              })),
+              answers: answers.map((answer: any) => ({ attemptQuestionId: answer.attemptQuestionId, selectedOptionId: answer.selectedOptionId, isCorrect: answer.isCorrect })),
+            },
+          } : {}),
           gradingVersion: text(
             answers.find((answer: any) => answer?.gradingVersion)?.gradingVersion,
             120,

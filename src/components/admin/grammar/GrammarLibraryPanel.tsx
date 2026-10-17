@@ -184,7 +184,7 @@ export default function GrammarLibraryPanel({
                                     ? 'bg-blue-50 text-blue-700'
                                     : 'bg-emerald-50 text-emerald-700'
                                 }`}>
-                                  {set.questionType === 'rewrite' ? 'Tự luận' : 'Trắc nghiệm'}
+                                  {set.displayMode === 'passage_drag_drop' ? 'Kéo thả điền từ' : set.displayMode === 'reading_comprehension' ? 'Đọc hiểu' : set.questionType === 'rewrite' ? 'Tự luận' : 'Trắc nghiệm'}
                                 </span>
                                 {(set.tags || []).slice(0, 3).map((tag, tagIndex) => (
                                   <span key={`${set.id}-tag-${tagIndex}`} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">#{tag}</span>

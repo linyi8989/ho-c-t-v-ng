@@ -133,7 +133,9 @@ export interface Assignment {
 }
 
 export type GrammarVisibility = 'public' | 'assignment' | 'draft';
-export type GrammarQuestionType = 'multiple_choice' | 'rewrite';
+export type GrammarQuestionType = 'multiple_choice' | 'rewrite' | 'bank_select';
+export type GrammarDisplayMode = 'standard' | 'passage_drag_drop' | 'reading_comprehension';
+export interface GrammarWordToken { id: string; text: string }
 
 export interface GrammarOption {
   id: string;
@@ -152,6 +154,7 @@ export interface GrammarQuestion {
   explanation: string;
   score: number;
   position: number;
+  blankNumber?: number;
 }
 
 export interface GrammarSet {
@@ -166,6 +169,10 @@ export interface GrammarSet {
   tags: string[];
   visibility: GrammarVisibility;
   questionType?: GrammarQuestionType;
+  displayMode?: GrammarDisplayMode;
+  instruction?: string;
+  passage?: string;
+  wordBank?: GrammarWordToken[];
   status?: 'draft' | 'public' | 'private' | 'archived';
   shareToken?: string;
   assignmentSlug?: string;
@@ -200,6 +207,7 @@ export interface GrammarAttemptQuestion {
   correctOptionId?: string;
   correctAnswerSnapshot?: string;
   acceptedAnswersSnapshot?: string[];
+  blankNumber?: number;
 }
 
 export interface GrammarAttemptAnswer {
@@ -244,6 +252,13 @@ export interface GrammarAttempt {
   submissionStatus?: 'pending' | 'completed';
   questions: GrammarAttemptQuestion[];
   answers: GrammarAttemptAnswer[];
+  displayMode?: GrammarDisplayMode;
+  passageSnapshot?: string;
+  instructionSnapshot?: string;
+  wordBankSnapshot?: GrammarWordToken[];
+  answersRevision?: number;
+  lastAnswerMutationId?: string;
+  answerFeedback?: Record<string, { isCorrect: boolean; correctOptionId?: string; explanation?: string; scoreAwarded?: number }>;
 }
 
 export interface GameSession {

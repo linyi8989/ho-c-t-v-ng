@@ -11,6 +11,10 @@ import {
   storeGuestAccessCredential
 } from '../../lib/guestIdentity';
 import { ClientLearningRun, createClientLearningRun } from '../../lib/learningRuns';
+import { grammarDisplayMode } from '../../lib/grammarPassages';
+import { readGrammarPassageRun, storeGrammarPassageRun } from '../../lib/grammarPassageRecovery';
+import GrammarPassageRun from './GrammarPassageRun';
+import GrammarPassageView from './GrammarPassageView';
 import './GrammarLearningTheme.css';
 
 interface GrammarLearningAreaProps {
@@ -280,7 +284,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     return () => startAttemptAbortRef.current?.abort();
   }, []);
 
-  const startAttempt = async () => {
+  const startAttempt = async (fresh = false) => {
     if (!nameSubmitted || !studentName.trim()) {
       setError('Vui lòng nhập tên học sinh để luyện ngữ pháp.');
       return;
@@ -296,7 +300,8 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
     setError('');
     setReview(null);
     try {
-      const run = createClientLearningRun();
+      const stored = !fresh && LAZY_SESSION_V3_ENABLED ? readGrammarPassageRun(user?.id || guestId, grammarSet.id) : null;
+      const run = stored?.run || createClientLearningRun();
       clientRunRef.current = run;
       const endpoint = LAZY_SESSION_V3_ENABLED
         ? `/api/grammar-sets/${grammarSet.id}/attempts/prepare`
@@ -313,13 +318,17 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
           ...(LAZY_SESSION_V3_ENABLED ? {
             clientRunId: run.clientRunId,
             runSecret: run.runSecret,
-            startedAt: run.startedAt
+            startedAt: run.startedAt,
+            ...(stored ? { resume: true, grammarSetVersion: stored.grammarSetVersion, attemptToken: run.runSecret } : {})
           } : {})
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không bắt đầu được bài luyện.');
       storeAttemptToken(data.id, data.attemptToken);
+      if (fresh && grammarDisplayMode(data.displayMode) === 'standard') storeGrammarPassageRun(user?.id || guestId, grammarSet.id, null);
+      if (grammarDisplayMode(data.displayMode) !== 'standard' && LAZY_SESSION_V3_ENABLED) storeGrammarPassageRun(user?.id || guestId, grammarSet.id, { run, grammarSetVersion: data.grammarSetVersion || '' });
+      if (data.status === 'completed') { setReview(data); setAttempt(null); storeGrammarPassageRun(user?.id || guestId, grammarSet.id, null); return; }
       setAttempt(data);
       setCurrentIndex(0);
       setSelectedOptions({});
@@ -600,17 +609,20 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
               </div>
             </div>
             <button
-              onClick={startAttempt}
+              onClick={() => void startAttempt()}
               disabled={loading}
               id="grammar-start-btn"
               className="grammar-button grammar-button-primary w-full"
             >
-              {loading ? 'Đang tạo lượt làm...' : 'Bắt đầu làm bài'}
+              {loading ? 'Đang mở lượt làm...' : readGrammarPassageRun(user?.id || guestId, grammarSet.id) ? 'Tiếp tục bài đang làm' : 'Bắt đầu làm bài'}
             </button>
+            {readGrammarPassageRun(user?.id || guestId, grammarSet.id) && <button type="button" disabled={loading} onClick={() => void startAttempt(true)} className="grammar-button grammar-button-secondary w-full">Bắt đầu lượt mới</button>}
           </div>
         )}
 
-        {attempt && currentQuestion && (
+        {attempt && grammarDisplayMode(attempt.displayMode) !== 'standard' && <GrammarPassageRun key={attempt.id} attempt={attempt} run={clientRunRef.current} lazy={LAZY_SESSION_V3_ENABLED} guestId={guestId} studentName={studentName.trim()} shareToken={accessToken} fetcher={grammarFetch} onAttempt={updated => { storeAttemptToken(updated.id, updated.attemptToken); setAttempt(updated); }} onComplete={completed => { storeGrammarPassageRun(user?.id || guestId, grammarSet.id, null); setAttempt(null); setReview(completed); void loadAttempts(true); }} />}
+
+        {attempt && currentQuestion && grammarDisplayMode(attempt.displayMode) === 'standard' && (
           <div className="grammar-panel grammar-attempt bg-white rounded-3xl border border-gray-200 shadow-sm p-6 space-y-5">
             <div className="grammar-progress flex items-center justify-between gap-3" aria-live="polite">
               <span className="grammar-question-counter text-sm font-black text-gray-700">Câu {currentIndex + 1}/{attempt.questions.length}</span>
@@ -746,7 +758,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 <p className="text-xs font-bold text-gray-500">Đúng {review.correctCount} - Sai {review.wrongCount} - Bỏ trống {review.unansweredCount}</p>
               </div>
             </div>
-            <div className="space-y-4">
+            {grammarDisplayMode(review.displayMode) !== 'standard' ? <GrammarPassageView attempt={review} selected={Object.fromEntries(review.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review /> : <div className="space-y-4">
               {review.questions.map((question, index) => {
                 const answer = review.answers.find(item => item.attemptQuestionId === question.id);
                 const isRewrite = question.questionType === 'rewrite' || grammarSet.questionType === 'rewrite';
@@ -802,7 +814,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                   </div>
                 );
               })}
-            </div>
+            </div>}
             <button id="grammar-review-back-btn" onClick={() => setReview(null)} className="grammar-button grammar-button-secondary w-full">
               Quay lại danh sách
             </button>

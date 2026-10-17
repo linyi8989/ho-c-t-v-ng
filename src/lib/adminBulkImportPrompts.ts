@@ -1,3 +1,5 @@
+import { grammarPassageTemplate } from './grammarPassageImport';
+
 export interface AdminBulkImportPromptContext {
   title?: string;
   description?: string;
@@ -5,6 +7,28 @@ export interface AdminBulkImportPromptContext {
   subject?: string;
   topic?: string;
   tags?: string | string[];
+}
+
+function copyableOutputRule(format: 'text' | 'json') {
+  return `Kết quả trả về phải đặt toàn bộ trong đúng một khung mã Markdown (mở bằng \`\`\`${format} và đóng bằng \`\`\`) để ChatGPT hiển thị nút Copy; bên trong chỉ chứa dữ liệu đúng định dạng để sao chép và dán trực tiếp vào khung soạn đề, không có nội dung bên ngoài khung.`;
+}
+
+export function buildPassageGrammarBulkImportPrompt(mode: 'passage_drag_drop' | 'reading_comprehension', context: AdminBulkImportPromptContext = {}) {
+  return [
+    mode === 'passage_drag_drop' ? 'Tạo hoặc trích xuất bài điền từ kéo thả trong đoạn văn.' : 'Tạo hoặc trích xuất bài đọc hiểu trắc nghiệm.',
+    contextBlock(context),
+    'Nếu tôi gửi ảnh hoặc văn bản, hãy giữ đầy đủ nội dung bài, xuống đoạn, câu hỏi và các lựa chọn. Nếu yêu cầu tạo mới, làm theo ngữ cảnh.',
+    'Chỉ trả một đối tượng JSON hợp lệ, format grammar-passage-v1 như mẫu. Không lời dẫn, không ID kỹ thuật.',
+    copyableOutputRule('json'),
+    'Không khóa số lượng câu, ô trống hay lựa chọn theo mẫu. Có bao nhiêu dữ liệu thì trả đầy đủ bấy nhiêu; mỗi câu có thể có số lựa chọn khác nhau.',
+    'instruction là hướng dẫn tiếng Anh; passage là đoạn văn đầy đủ (xuống dòng bằng \\n); explanation giải thích bằng tiếng Việt.',
+    mode === 'passage_drag_drop'
+      ? 'Đánh dấu ô trong passage bằng [[1]], [[2]]… Mỗi số xuất hiện đúng một lần. wordBank là mảng từ/cụm từ, có thể thêm 1–2 từ nhiễu khi phù hợp, không bắt buộc. Mỗi thẻ dùng một lần: cần hai lần cùng một từ thì lặp từ đó trong wordBank. answers có một mục cho mỗi ô: blank là số ô, answer là nguyên văn một từ trong wordBank, explanation là lời giải. Không thêm câu trắc nghiệm riêng.'
+      : 'questions là mảng câu hỏi. Mỗi câu có question, options (mảng ít nhất hai lựa chọn khác nhau), answer (vị trí đáp án đúng tính từ 1) và explanation. Không giới hạn ở A/B/C/D hoặc ba lựa chọn.',
+    'Không đoán đáp án còn thiếu trong nguồn. Nếu không xác định được, báo thiếu dữ kiện để giáo viên bổ sung; không trả dữ liệu hoàn chỉnh giả tạo.',
+    'Mẫu cấu trúc (số lượng trong mẫu chỉ để minh họa):',
+    grammarPassageTemplate(mode),
+  ].join('\n\n');
 }
 
 function clean(value: unknown, maxLength = 1_000) {
@@ -29,7 +53,8 @@ function contextBlock(context: AdminBulkImportPromptContext) {
 const rawOutputRules = [
   'Chỉ trả về dữ liệu để dán trực tiếp vào ô nhập nhanh.',
   'Không viết lời mở đầu, kết luận, nhận xét hoặc hướng dẫn.',
-  'Không dùng Markdown, khối code, dấu ``` hoặc JSON.',
+  copyableOutputRule('text'),
+  'Không chuyển dữ liệu thành JSON hoặc bảng Markdown.',
   'Không thêm tiêu đề, số thứ tự, bullet hoặc ID kỹ thuật.',
 ].join('\n- ');
 
@@ -48,7 +73,7 @@ export function buildVocabularyBulkImportPrompt(context: AdminBulkImportPromptCo
     '- Không được dùng ký tự | bên trong bất kỳ cột dữ liệu nào.',
     '- Không để trống cột nào và không thêm ví dụ câu.',
     'Ví dụ cấu trúc duy nhất: traffic | giao thông | /ˈtræfɪk/ | noun',
-    'BẮT ĐẦU TRẢ VỀ DỮ LIỆU THÔ NGAY, KHÔNG THÊM BẤT KỲ NỘI DUNG NÀO KHÁC.',
+    'CHỈ TRẢ VỀ MỘT KHUNG MÃ CHỨA DỮ LIỆU THEO ĐÚNG MẪU, KHÔNG THÊM NỘI DUNG BÊN NGOÀI KHUNG.',
   ].join('\n\n');
 }
 
@@ -67,7 +92,7 @@ export function buildMultipleChoiceGrammarBulkImportPrompt(context: AdminBulkImp
     '- Các lựa chọn trong cùng một câu phải khác nhau và chỉ có một đáp án đúng.',
     '- EXPLANATION nằm trên một dòng, giải thích vì sao đáp án đúng.',
     '- Giữa hai câu có đúng một dòng trống; không có dòng trống bên trong một câu.',
-    'BẮT ĐẦU TRẢ VỀ DỮ LIỆU THÔ NGAY, KHÔNG THÊM BẤT KỲ NỘI DUNG NÀO KHÁC.',
+    'CHỈ TRẢ VỀ MỘT KHUNG MÃ CHỨA DỮ LIỆU THEO ĐÚNG MẪU, KHÔNG THÊM NỘI DUNG BÊN NGOÀI KHUNG.',
   ].join('\n\n');
 }
 
@@ -87,6 +112,6 @@ export function buildRewriteGrammarBulkImportPrompt(context: AdminBulkImportProm
     '- ANSWER và mỗi ACCEPTED phải là nội dung có thể dán trực tiếp để hệ thống so khớp.',
     '- EXPLANATION nằm trên một dòng.',
     '- Giữa hai câu có đúng một dòng trống; không có dòng trống bên trong một câu.',
-    'BẮT ĐẦU TRẢ VỀ DỮ LIỆU THÔ NGAY, KHÔNG THÊM BẤT KỲ NỘI DUNG NÀO KHÁC.',
+    'CHỈ TRẢ VỀ MỘT KHUNG MÃ CHỨA DỮ LIỆU THEO ĐÚNG MẪU, KHÔNG THÊM NỘI DUNG BÊN NGOÀI KHUNG.',
   ].join('\n\n');
 }

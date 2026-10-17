@@ -54,6 +54,7 @@ export type AdminGrammarSetSummary = {
   shareToken?: string;
   assignmentSlug?: string;
   questionType?: string;
+  displayMode?: string;
   timeLimitMinutes: number;
   maxAttempts: number;
   shuffleQuestions: boolean;

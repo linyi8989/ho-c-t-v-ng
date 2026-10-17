@@ -25,7 +25,7 @@
     "test:starter-scene-browser": "node scripts/starter-scene-browser-smoke.mjs",
     "test:identity": "tsx --test src/lib/guestIdentity.test.ts src/components/games/StudentLearningArea.contract.test.ts",
     "test:local-auth": "tsx --test src/lib/localAuthBypass.test.ts",
-    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts src/lib/grammarBulkImport.test.ts src/lib/adminBulkImportPrompts.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts",
+    "test:grammar": "tsx --test src/lib/grammarAnswers.test.ts src/lib/grammarBulkImport.test.ts src/lib/grammarPassages.test.ts src/lib/adminBulkImportPrompts.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts",
     "test:admin": "tsx --test src/components/admin/AdminShell.contract.test.ts src/components/admin/AdminBulkImportPrompts.contract.test.ts src/components/admin/vocab-images/VocabImageEditor.contract.test.ts",
     "test:admin-data": "tsx --test src/server/admin-data/adminData.test.ts",
     "test:home": "tsx --test src/features/home/homeSearch.test.ts src/features/home/HomeArchitecture.contract.test.ts src/features/home/VisualTheme.contract.test.ts",

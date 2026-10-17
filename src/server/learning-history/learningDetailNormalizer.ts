@@ -56,6 +56,7 @@ function stripReviewSecrets(value: unknown): unknown {
     'visualreviewsnapshot',
     'competitionreview',
     'speakingreview',
+    'grammarpassagereview',
     'listeningreviewtranscripts',
   ]);
   const safe: Record<string, unknown> = {};

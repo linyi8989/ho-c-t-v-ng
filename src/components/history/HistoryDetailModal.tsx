@@ -1,4 +1,6 @@
 import React, { useEffect, useRef } from 'react';
+import GrammarPassageView from '../grammar/GrammarPassageView';
+import { isGrammarPassageReview } from '../../lib/grammarPassages';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -390,6 +392,8 @@ export default function HistoryDetailModal({
     ? response.detail.warnings.filter(warning => typeof warning === 'string')
     : [];
   const extraDetails = response?.detail?.extraDetails;
+  const grammarCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).grammarPassageReview : undefined;
+  const grammarReview = attempt.sourceType === 'grammar' && isGrammarPassageReview(grammarCandidate) ? grammarCandidate : null;
   const speakingCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).speakingReview : undefined;
   const speakingReview = attempt.sourceType === 'speaking' && isSpeakingReview(speakingCandidate) ? speakingCandidate : null;
   const competitionCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
@@ -501,6 +505,8 @@ export default function HistoryDetailModal({
             </div>
           ) : detailStatus !== 'available' || !response?.detail ? (
             <DetailStatusMessage status={detailStatus} />
+          ) : grammarReview ? (
+            <GrammarPassageView attempt={grammarReview} selected={Object.fromEntries(grammarReview.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review />
           ) : speakingReview ? (
             <SpeakingReview attempt={speakingReview} />
           ) : competitionReview ? (

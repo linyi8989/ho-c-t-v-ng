@@ -149,6 +149,8 @@ import { createGrammarLibraryService } from "./src/server/grammar/service.js";
 import { createGrammarLibraryRouter } from "./src/server/grammar/router.js";
 import { createGrammarAttemptRepository } from "./src/server/grammar-attempts/repository.js";
 import { createGrammarAttemptService } from "./src/server/grammar-attempts/service.js";
+import { normalizePassageExercise, passageAttemptSnapshot } from "./src/server/grammar/passageExercises.js";
+import { grammarDisplayMode } from "./src/lib/grammarPassages.js";
 import { createGrammarAttemptRouter } from "./src/server/grammar-attempts/router.js";
 import { createVocabularyRunRepository } from "./src/server/vocabulary-runs/repository.js";
 import { createVocabularyRunService } from "./src/server/vocabulary-runs/service.js";
@@ -3817,7 +3819,7 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
   const grammarSetVersion = getGrammarSetVersion(set);
   const isAssignment = getGrammarVisibility(set) === "assignment";
   const questionSeed = `${clientRunId}:${set.id}:${grammarSetVersion}:questions`;
-  const questions = set.shuffleQuestions
+  const questions = set.shuffleQuestions && grammarDisplayMode(set.displayMode) === "standard"
     ? deterministicShuffle(set.questions || [], questionSeed)
     : [...(set.questions || [])];
   const attemptQuestions = questions.map((question: any, index: number) => {
@@ -3836,7 +3838,8 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
       explanationSnapshot: question.explanation,
       scoreSnapshot: question.score,
       optionsSnapshot: options,
-      correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+      correctOptionId: questionType !== "rewrite" ? question.correctOptionId : "",
+      ...(question.blankNumber !== undefined ? { blankNumber: question.blankNumber } : {}),
       correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
       acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers)
         ? [...question.acceptedAnswers]
@@ -3851,6 +3854,8 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     grammarSetId: set.id,
     grammarSetTitle: set.title,
     grammarSetVersion,
+    ...passageAttemptSnapshot(set, bank => deterministicShuffle(bank, `${clientRunId}:${set.id}:${grammarSetVersion}:bank`)),
+    ...(grammarDisplayMode(set.displayMode) !== "standard" ? { ownerType: actor.isGuest ? "guest" : "user", ownerKey: `${actor.isGuest ? "guest" : "user"}:${actor.id}` } : {}),
     assignmentId: isAssignment ? safeText(set.id, 160) : "",
     assignmentVerified: isAssignment,
     assignmentTitle: isAssignment ? safeText(set.title, 300) : "",
@@ -3948,10 +3953,10 @@ function buildGrammarAnswerFeedback(attempt: any, set: any, answer: any) {
   };
 }
 
-type GrammarQuestionType = "multiple_choice" | "rewrite";
+type GrammarQuestionType = "multiple_choice" | "rewrite" | "bank_select";
 
 function getGrammarQuestionType(value: any, fallback: GrammarQuestionType = "multiple_choice"): GrammarQuestionType {
-  return value === "rewrite" ? "rewrite" : fallback;
+  return value === "rewrite" || value === "bank_select" ? value : fallback;
 }
 
 function normalizeAcceptedGrammarAnswers(value: any, correctAnswer: string) {
@@ -4044,16 +4049,20 @@ function validateGrammarQuestion(question: any, index: number) {
 
 function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any) {
   const now = new Date().toISOString();
-  const questionType = getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType));
-  const questions = (Array.isArray(payload.questions) ? payload.questions : [])
+  if (payload.displayMode !== undefined && !["standard", "passage_drag_drop", "reading_comprehension"].includes(payload.displayMode)) throw createHttpError(400, "Dạng bài ngữ pháp không hợp lệ.");
+  const passageExercise = normalizePassageExercise(payload, makeId);
+  const questionType = passageExercise?.questionType || (existing.questionType === "bank_select" && payload.questionType === "multiple_choice"
+    ? "multiple_choice" : getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType)));
+  if (!passageExercise && questionType === "bank_select") throw createHttpError(400, "Kéo thả cần dạng passage_drag_drop.");
+  const questions = passageExercise?.questions || (Array.isArray(payload.questions) ? payload.questions : [])
     .map((question: any, index: number) => normalizeGrammarQuestion(question, index, questionType))
     .sort((a: any, b: any) => a.position - b.position)
     .map((question: any, index: number) => ({ ...question, position: index + 1 }));
 
-  const errors = questions.flatMap(validateGrammarQuestion);
+  const errors = passageExercise ? [] : questions.flatMap(validateGrammarQuestion);
   const duplicateQuestions = new Map<string, number>();
   questions.forEach((question: any, index: number) => {
-    const key = normalizePersonName(question.questionText);
+    const key = passageExercise ? "" : normalizePersonName(question.questionText);
     if (!key) return;
     if (duplicateQuestions.has(key)) {
       errors.push(`Câu ${index + 1}: nội dung câu hỏi trùng với câu ${duplicateQuestions.get(key)}.`);
@@ -4096,6 +4105,13 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     updatedAt: now,
     questions
   };
+  if (passageExercise) {
+    Object.assign(normalized, passageExercise, { shuffleQuestions: false });
+    if (passageExercise.displayMode === "passage_drag_drop") normalized.showExplanationImmediately = false;
+  } else {
+    normalized.displayMode = "standard";
+    delete normalized.passage; delete normalized.instruction; delete normalized.wordBank;
+  }
 
   if (visibility === "assignment") {
     const token = existing.shareToken || existing.assignmentSlug || createShareToken();
@@ -4133,13 +4149,15 @@ function sanitizeGrammarSetForStudent(set: any) {
         originalPosition: option.originalPosition
       })),
       score: question.score,
-      position: question.position
+      position: question.position,
+      ...(question.blankNumber !== undefined ? { blankNumber: question.blankNumber } : {})
     }))
   };
 }
 
 function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptToken = "") {
   const { attemptTokenHash, sessionTokenHash, ...safeAttempt } = attempt;
+  if (grammarDisplayMode(attempt.displayMode) !== "standard") { delete safeAttempt.ownerKey; delete safeAttempt.ownerType; }
   const sanitizedAttempt: any = {
     ...safeAttempt,
     questions: (attempt.questions || []).map((question: any) => {
@@ -4158,6 +4176,7 @@ function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptT
             }))
           : []
       };
+      if (question.blankNumber !== undefined) safeQuestion.blankNumber = question.blankNumber;
 
       if (includeReview) {
         safeQuestion.explanationSnapshot = question.explanationSnapshot;

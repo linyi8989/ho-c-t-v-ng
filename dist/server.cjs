@@ -37,11 +37,11 @@ function tableExists(db, name) {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 }
 function fileNameFromPublicUrl(value, publicPrefix) {
-  const text8 = String(value || "").trim();
+  const text9 = String(value || "").trim();
   const marker = `${publicPrefix}/`;
-  const markerIndex = text8.indexOf(marker);
+  const markerIndex = text9.indexOf(marker);
   if (markerIndex < 0) return "";
-  const withoutQuery = text8.slice(markerIndex + marker.length).split(/[?#]/, 1)[0];
+  const withoutQuery = text9.slice(markerIndex + marker.length).split(/[?#]/, 1)[0];
   try {
     const decoded = decodeURIComponent(withoutQuery);
     return import_node_path2.default.basename(decoded) === decoded ? decoded : "";
@@ -287,12 +287,12 @@ async function privateDir(directory) {
   if (process.platform !== "win32") await import_promises.default.chmod(directory, 448);
 }
 async function atomicJson(file, value) {
-  const text8 = JSON.stringify(value);
-  if (Buffer.byteLength(text8) > MAX_STATE_BYTES) fail(507, "Metadata v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n; d\u1EEBng \u0111\u1EC3 b\u1EA3o v\u1EC7 dung l\u01B0\u1EE3ng.");
+  const text9 = JSON.stringify(value);
+  if (Buffer.byteLength(text9) > MAX_STATE_BYTES) fail(507, "Metadata v\u01B0\u1EE3t gi\u1EDBi h\u1EA1n; d\u1EEBng \u0111\u1EC3 b\u1EA3o v\u1EC7 dung l\u01B0\u1EE3ng.");
   const temporary = file + "." + import_node_crypto.default.randomUUID() + ".tmp";
   const handle = await import_promises.default.open(temporary, "wx", 384);
   try {
-    await handle.writeFile(text8);
+    await handle.writeFile(text9);
     await handle.sync();
   } finally {
     await handle.close();
@@ -335,15 +335,15 @@ function previewFormat(entry) {
   return match ? { type: match[0], mime: match[1], maxBytes: (match[0] === "image" ? 16 : 32) * 1024 * 1024 } : null;
 }
 function matchesMediaSignature(bytes, mime) {
-  const text8 = (start2, end) => bytes.toString("ascii", start2, end);
+  const text9 = (start2, end) => bytes.toString("ascii", start2, end);
   if (mime === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   if (mime === "image/jpeg") return bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  if (mime === "image/gif") return ["GIF87a", "GIF89a"].includes(text8(0, 6));
-  if (mime === "image/webp") return text8(0, 4) === "RIFF" && text8(8, 12) === "WEBP";
-  if (mime === "audio/wav") return text8(0, 4) === "RIFF" && text8(8, 12) === "WAVE";
-  if (mime === "audio/mpeg") return text8(0, 3) === "ID3" || bytes[0] === 255 && (bytes[1] & 224) === 224 && (bytes[1] & 6) !== 0;
-  if (mime === "audio/ogg") return text8(0, 4) === "OggS";
-  if (mime === "audio/mp4") return text8(4, 8) === "ftyp" && bytes.length >= 12;
+  if (mime === "image/gif") return ["GIF87a", "GIF89a"].includes(text9(0, 6));
+  if (mime === "image/webp") return text9(0, 4) === "RIFF" && text9(8, 12) === "WEBP";
+  if (mime === "audio/wav") return text9(0, 4) === "RIFF" && text9(8, 12) === "WAVE";
+  if (mime === "audio/mpeg") return text9(0, 3) === "ID3" || bytes[0] === 255 && (bytes[1] & 224) === 224 && (bytes[1] & 6) !== 0;
+  if (mime === "audio/ogg") return text9(0, 4) === "OggS";
+  if (mime === "audio/mp4") return text9(4, 8) === "ftyp" && bytes.length >= 12;
   return false;
 }
 function presentedEntry(state, entry) {
@@ -1267,11 +1267,11 @@ async function readConfigFile(file, max = 131072) {
     await handle.close();
   }
 }
-function parsePassenger(text8, root) {
+function parsePassenger(text9, root) {
   const edges = [];
-  const appMatch = text8.match(/^\s*PassengerAppRoot\s+(?:"([^"\r\n]+)"|([^\s#]+))\s*(?:#.*)?$/im);
+  const appMatch = text9.match(/^\s*PassengerAppRoot\s+(?:"([^"\r\n]+)"|([^\s#]+))\s*(?:#.*)?$/im);
   const configuredRoot = appMatch && cleanPath(appMatch[1] || appMatch[2]) ? import_node_path5.default.resolve(root, appMatch[1] || appMatch[2]) : root;
-  for (const line of text8.split(/\r?\n/)) {
+  for (const line of text9.split(/\r?\n/)) {
     const match = line.match(/^\s*(PassengerAppRoot|PassengerNodejs|PassengerStartupFile)\s+(?:"([^"\r\n]+)"|([^\s#]+))\s*(?:#.*)?$/i);
     if (!match) continue;
     const value = cleanPath(match[2] || match[3]);
@@ -1389,8 +1389,8 @@ async function collectSources(config, adapters = {}) {
       }
     }
     try {
-      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, "app.js"), 32768);
-      for (const m of text8.matchAll(/(?:require\(|(?:from|import)\s+)['"](\.\.?\/[^'"\r\n]{1,256})['"]/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, "app.js"), to: import_node_path5.default.resolve(config.deployRoot, m[1]), relation: "startup_import", reason: "Import t\u0129nh \u0111\u01B0\u1EE3c nh\u1EADn di\u1EC7n; kh\xF4ng th\u1EF1c thi file." });
+      const text9 = await readConfigFile(import_node_path5.default.join(config.deployRoot, "app.js"), 32768);
+      for (const m of text9.matchAll(/(?:require\(|(?:from|import)\s+)['"](\.\.?\/[^'"\r\n]{1,256})['"]/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, "app.js"), to: import_node_path5.default.resolve(config.deployRoot, m[1]), relation: "startup_import", reason: "Import t\u0129nh \u0111\u01B0\u1EE3c nh\u1EADn di\u1EC7n; kh\xF4ng th\u1EF1c thi file." });
     } catch (e) {
       if (e.code !== "ENOENT") errors++;
     }
@@ -1400,20 +1400,20 @@ async function collectSources(config, adapters = {}) {
     const found = [];
     let errors = 0;
     try {
-      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".cpanel.yml"));
-      for (const m of text8.matchAll(/DEPLOYPATH\s*=\s*["']?(\/[a-zA-Z0-9_./-]+)/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, ".cpanel.yml"), to: m[1], relation: "configured_deploy_target", reason: "C\u1EA5u h\xECnh pipeline; ch\u01B0a ch\u1EE9ng minh \u0111\xE3 tri\u1EC3n khai." });
+      const text9 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".cpanel.yml"));
+      for (const m of text9.matchAll(/DEPLOYPATH\s*=\s*["']?(\/[a-zA-Z0-9_./-]+)/g)) found.push({ from: import_node_path5.default.join(config.deployRoot, ".cpanel.yml"), to: m[1], relation: "configured_deploy_target", reason: "C\u1EA5u h\xECnh pipeline; ch\u01B0a ch\u1EE9ng minh \u0111\xE3 tri\u1EC3n khai." });
     } catch (e) {
       if (e.code !== "ENOENT") errors++;
     }
     try {
-      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".git", "HEAD"), 1024);
-      if (/^(?:ref: refs\/[a-zA-Z0-9_./-]+|[a-f0-9]{40,64})\s*$/.test(text8)) found.push({ from: config.deployRoot, to: import_node_path5.default.join(config.deployRoot, ".git"), relation: "git_metadata", reason: "Repository metadata t\u1ED3n t\u1EA1i; kh\xF4ng ch\u1EA1y Git/hook, kh\xF4ng thu remote credential." });
+      const text9 = await readConfigFile(import_node_path5.default.join(config.deployRoot, ".git", "HEAD"), 1024);
+      if (/^(?:ref: refs\/[a-zA-Z0-9_./-]+|[a-f0-9]{40,64})\s*$/.test(text9)) found.push({ from: config.deployRoot, to: import_node_path5.default.join(config.deployRoot, ".git"), relation: "git_metadata", reason: "Repository metadata t\u1ED3n t\u1EA1i; kh\xF4ng ch\u1EA1y Git/hook, kh\xF4ng thu remote credential." });
     } catch (e) {
       if (e.code !== "ENOENT") errors++;
     }
     for (const file of ["release-manifest.json", "dist/client/release-manifest.json"]) try {
-      const text8 = await readConfigFile(import_node_path5.default.join(config.deployRoot, file));
-      const value = JSON.parse(text8);
+      const text9 = await readConfigFile(import_node_path5.default.join(config.deployRoot, file));
+      const value = JSON.parse(text9);
       if (value && typeof value === "object") found.push({ from: import_node_path5.default.join(config.deployRoot, file), to: config.deployRoot, relation: "release_manifest", reason: "Manifest t\u1ED3n t\u1EA1i; cleanup asset v\u1EABn theo verifier c\u0169." });
     } catch (e) {
       if (e.code !== "ENOENT") errors++;
@@ -7289,12 +7289,12 @@ function descriptor(part2) {
 }
 function remapChoiceOptions(question, labels) {
   const selected = question.options.find((option) => question.correctOptionIds.includes(option.id));
-  const options2 = labels.map((text8, index) => {
-    const existing = question.options.find((option) => normalized(option.label) === normalized(text8) || normalized(option.text) === normalized(text8)) || question.options[index];
+  const options2 = labels.map((text9, index) => {
+    const existing = question.options.find((option) => normalized(option.label) === normalized(text9) || normalized(option.text) === normalized(text9)) || question.options[index];
     return {
       id: existing?.id || makeId("flyer-rw-option"),
-      label: labels.length === 2 ? text8.toUpperCase() : String.fromCharCode(65 + index),
-      text: text8,
+      label: labels.length === 2 ? text9.toUpperCase() : String.fromCharCode(65 + index),
+      text: text9,
       ...existing?.imageAssetId ? { imageAssetId: existing.imageAssetId } : {},
       ...existing?.imageUrl ? { imageUrl: existing.imageUrl } : {}
     };
@@ -7891,10 +7891,10 @@ function defaultChoiceTexts(part2) {
   return ["Option A", "Option B", "Option C", "Option D"];
 }
 function placeholderQuestion4(part2, number2) {
-  const options2 = defaultChoiceTexts(part2).map((text8, index) => ({
+  const options2 = defaultChoiceTexts(part2).map((text9, index) => ({
     id: makeId4(`pet-reading-p${part2}-option`),
-    label: part2 === 3 ? text8.toUpperCase() : String.fromCharCode(65 + index),
-    text: text8
+    label: part2 === 3 ? text9.toUpperCase() : String.fromCharCode(65 + index),
+    text: text9
   }));
   return {
     id: makeId4(`pet-reading-p${part2}-question`),
@@ -8031,12 +8031,12 @@ function choiceOptions(question) {
   });
 }
 function yesNoOptions(question) {
-  return ["Yes", "No"].map((text8, index) => {
+  return ["Yes", "No"].map((text9, index) => {
     const existing = question?.options[index];
     return {
       id: existing?.id || makeId5("pet-listening-option"),
-      label: text8,
-      text: text8
+      label: text9,
+      text: text9
     };
   });
 }
@@ -8392,10 +8392,10 @@ function defaultChoiceTexts2(part2) {
   return Array.from({ length: 4 }, (_, index) => `Option ${String.fromCharCode(65 + index)}`);
 }
 function placeholderQuestion6(part2, number2) {
-  const options2 = defaultChoiceTexts2(part2).map((text8, index) => ({
+  const options2 = defaultChoiceTexts2(part2).map((text9, index) => ({
     id: makeId7(`fce-reading-p${part2}-option`),
     label: String.fromCharCode(65 + index),
-    text: text8
+    text: text9
   }));
   return {
     id: makeId7(`fce-reading-p${part2}-question`),
@@ -10587,6 +10587,7 @@ function stripReviewSecrets(value) {
     "visualreviewsnapshot",
     "competitionreview",
     "speakingreview",
+    "grammarpassagereview",
     "listeningreviewtranscripts"
   ]);
   const safe = {};
@@ -11417,8 +11418,8 @@ var PART1_SOL_PROVIDER_IDS = /* @__PURE__ */ new Set([
   "stali:gpt-5.6-sol",
   "devquota:gpt-5.6-sol"
 ]);
-function parseJson3(text8) {
-  const trimmed = text8.trim();
+function parseJson3(text9) {
+  const trimmed = text9.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u.");
   try {
     return JSON.parse(trimmed);
@@ -12637,11 +12638,11 @@ function normalizeData(part2, raw, currentPart, warnings) {
   if (part2 === 4) return normalizePart42(raw, warnings);
   return normalizePart52(raw, currentPart, warnings);
 }
-function localFallback(part2, text8) {
-  const rows = localNumberedLines(text8);
+function localFallback(part2, text9) {
+  const rows = localNumberedLines(text9);
   if (part2 === 2) return { questions: [], answers: rows.map((row) => ({ questionNumber: row.questionNumber, answer: row.value })) };
   if (part2 === 3) {
-    const lines = text8.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = text9.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const explicit = lines.flatMap((line) => {
       const match = line.match(/^(left|right)\s*([1-3])\s*[:=\-]\s*(.+)$/i);
       return match ? [{ side: match[1].toLowerCase(), row: Number(match[2]), answerLabel: match[3].trim() }] : [];
@@ -12990,8 +12991,8 @@ Return each complete Movers Listening Test that is visibly supported. For every 
 - Keep tests ordered by testNumber and pages in reading order.
 
 Return JSON only using the supplied schema.`.trim();
-function parseJson4(text8) {
-  const trimmed = text8.trim();
+function parseJson4(text9) {
+  const trimmed = text9.trim();
   if (!trimmed) throw new Error("AI kh\xF4ng tr\u1EA3 v\u1EC1 d\u1EEF li\u1EC7u manifest.");
   try {
     return JSON.parse(trimmed);
@@ -16381,7 +16382,7 @@ var CHATGPT_COPYABLE_JSON_OUTPUT_INSTRUCTION = [
   "- To\xE0n b\u1ED9 c\xE2u tr\u1EA3 l\u1EDDi ph\u1EA3i n\u1EB1m trong \u0111\xFAng M\u1ED8T kh\u1ED1i m\xE3 Markdown c\xF3 nh\xE3n json: m\u1EDF b\u1EB1ng ```json v\xE0 \u0111\xF3ng b\u1EB1ng ```.",
   "- Kh\xF4ng vi\u1EBFt ti\xEAu \u0111\u1EC1, l\u1EDDi d\u1EABn, nh\u1EADn x\xE9t ho\u1EB7c b\u1EA5t k\u1EF3 k\xFD t\u1EF1 n\xE0o b\xEAn ngo\xE0i kh\u1ED1i m\xE3.",
   "- B\xEAn trong kh\u1ED1i m\xE3 ch\u1EC9 ch\u1EE9a \u0111\xFAng m\u1ED9t JSON object h\u1EE3p l\u1EC7 theo schema \u0111\xE3 y\xEAu c\u1EA7u; kh\xF4ng th\xEAm comment v\xE0 kh\xF4ng d\xF9ng d\u1EA5u ph\u1EA9y th\u1EEBa.",
-  "- C\xE1ch tr\xECnh b\xE0y n\xE0y \u0111\u1EC3 ChatGPT hi\u1EC7n n\xFAt Copy; n\u1ED9i dung \u0111\u01B0\u1EE3c sao ch\xE9p ph\u1EA3i c\xF3 th\u1EC3 d\xE1n tr\u1EF1c ti\u1EBFp v\xE0o \xF4 nh\u1EADp JSON c\u1EE7a Kho \u0111\u1EC1 luy\u1EC7n thi."
+  "- K\u1EBFt qu\u1EA3 tr\u1EA3 v\u1EC1 ph\u1EA3i \u0111\u1EB7t trong khung m\xE3 c\xF3 n\xFAt Copy c\u1EE7a ChatGPT \u0111\u1EC3 thu\u1EADn ti\u1EC7n sao ch\xE9p d\u1EEF li\u1EC7u v\xE0 d\xE1n tr\u1EF1c ti\u1EBFp v\xE0o \xF4 nh\u1EADp JSON c\u1EE7a Kho \u0111\u1EC1 luy\u1EC7n thi; kh\xF4ng t\u1EA1o n\xFAt Copy b\u1EB1ng HTML ho\u1EB7c ch\xE8n n\xFAt v\xE0o d\u1EEF li\u1EC7u JSON."
 ].join("\n");
 
 // src/features/mover-reading-writing/smart-import/contracts.ts
@@ -17810,10 +17811,10 @@ async function generateWithDevQuotaVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text8 = extractDevQuotaResponseText(data);
-  if (!text8) throw new Error("DevQuota response did not include text output.");
+  const text9 = extractDevQuotaResponseText(data);
+  if (!text9) throw new Error("DevQuota response did not include text output.");
   return {
-    text: text8,
+    text: text9,
     provider: DEVQUOTA_PROVIDER_ID,
     model: DEVQUOTA_MODEL
   };
@@ -17943,10 +17944,10 @@ async function generateWithStaliVision(input) {
     throw error;
   }
   const data = await response.json();
-  const text8 = extractStaliChatCompletionText(data);
-  if (!text8) throw new Error("Stali response did not include text output.");
+  const text9 = extractStaliChatCompletionText(data);
+  if (!text9) throw new Error("Stali response did not include text output.");
   return {
-    text: text8,
+    text: text9,
     provider: definition.id,
     model: definition.model
   };
@@ -18053,7 +18054,7 @@ function assertVietnameseExplanation(value, fieldLabel) {
   }
 }
 function hasSourceExcerpt(essay, excerpt) {
-  const normalize = (text8) => text8.replace(/\s+/g, " ").trim();
+  const normalize = (text9) => text9.replace(/\s+/g, " ").trim();
   const source = normalize(essay), quote = normalize(excerpt);
   const word = /[\p{L}\p{N}_'’]/u;
   let offset = source.indexOf(quote);
@@ -19645,6 +19646,66 @@ function isLocalServerAuthBypassAllowed(input) {
 
 // src/server/learning-history/learningAttemptProjector.ts
 var import_node_crypto13 = __toESM(require("node:crypto"), 1);
+
+// src/lib/grammarPassages.ts
+var GRAMMAR_PASSAGE_MAX_LENGTH = 1e5;
+function grammarDisplayMode(value) {
+  return value === "passage_drag_drop" || value === "reading_comprehension" ? value : "standard";
+}
+var grammarTokenText = (value) => String(value ?? "").normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+function grammarPassageSegments(passage) {
+  const segments = [];
+  let offset = 0;
+  for (const match of passage.matchAll(/\[\[(\d+)\]\]/g)) {
+    if (match.index > offset) segments.push({ text: passage.slice(offset, match.index) });
+    segments.push({ text: match[0], blankNumber: Number(match[1]) });
+    offset = match.index + match[0].length;
+  }
+  if (offset < passage.length) segments.push({ text: passage.slice(offset) });
+  return segments;
+}
+function validateGrammarPassage(set) {
+  const mode = grammarDisplayMode(set.displayMode);
+  if (mode === "standard") return [];
+  const errors = [];
+  if (typeof set.passage !== "string" || !set.passage.trim()) errors.push("Thi\u1EBFu \u0111o\u1EA1n v\u0103n.");
+  else if (set.passage.length > GRAMMAR_PASSAGE_MAX_LENGTH) errors.push("\u0110o\u1EA1n v\u0103n v\u01B0\u1EE3t qu\xE1 100.000 k\xFD t\u1EF1; d\u1EEF li\u1EC7u ch\u01B0a \u0111\u01B0\u1EE3c l\u01B0u.");
+  if (typeof set.instruction === "string" && set.instruction.length > 4e3) errors.push("H\u01B0\u1EDBng d\u1EABn v\u01B0\u1EE3t qu\xE1 4.000 k\xFD t\u1EF1.");
+  if (!set.questions.length) errors.push("B\xE0i c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t c\xE2u h\u1ECFi ho\u1EB7c \xF4 tr\u1ED1ng.");
+  const questionIds = set.questions.map((q) => q.id);
+  if (new Set(questionIds).size !== questionIds.length) errors.push("C\xE2u h\u1ECFi b\u1ECB tr\xF9ng ID.");
+  if (mode === "reading_comprehension") {
+    set.questions.forEach((question, index) => {
+      const prefix = `C\xE2u ${index + 1}: `;
+      if (!question.questionText?.trim()) errors.push(prefix + "thi\u1EBFu n\u1ED9i dung.");
+      if (!question.explanation?.trim()) errors.push(prefix + "thi\u1EBFu gi\u1EA3i th\xEDch.");
+      if (question.options.length < 2) errors.push(prefix + "c\u1EA7n \xEDt nh\u1EA5t hai l\u1EF1a ch\u1ECDn.");
+      if (question.options.some((option) => !option.text?.trim() || option.text.length > 1e3)) errors.push(prefix + "l\u1EF1a ch\u1ECDn tr\u1ED1ng ho\u1EB7c v\u01B0\u1EE3t qu\xE1 1.000 k\xFD t\u1EF1.");
+      if (new Set(question.options.map((option) => option.id)).size !== question.options.length) errors.push(prefix + "l\u1EF1a ch\u1ECDn tr\xF9ng ID.");
+      if (new Set(question.options.map((option) => grammarTokenText(option.text))).size !== question.options.length) errors.push(prefix + "l\u1EF1a ch\u1ECDn tr\xF9ng n\u1ED9i dung.");
+      if (!question.options.some((option) => option.id === question.correctOptionId)) errors.push(prefix + "\u0111\xE1p \xE1n \u0111\xFAng kh\xF4ng h\u1EE3p l\u1EC7.");
+    });
+    return errors;
+  }
+  const passage = typeof set.passage === "string" ? set.passage : "";
+  const markers = grammarPassageSegments(passage).filter((segment) => segment.blankNumber !== void 0).map((segment) => segment.blankNumber);
+  if (!markers.length || markers.some((number2) => !Number.isSafeInteger(number2) || number2 < 1)) errors.push("\u0110o\u1EA1n v\u0103n c\u1EA7n marker \xF4 tr\u1ED1ng h\u1EE3p l\u1EC7, v\xED d\u1EE5 [[1]].");
+  if (new Set(markers).size !== markers.length) errors.push("M\u1ED7i s\u1ED1 \xF4 tr\u1ED1ng ch\u1EC9 \u0111\u01B0\u1EE3c xu\u1EA5t hi\u1EC7n m\u1ED9t l\u1EA7n trong \u0111o\u1EA1n v\u0103n.");
+  if (passage.replace(/\[\[\d+\]\]/g, "").includes("[[") || passage.replace(/\[\[\d+\]\]/g, "").includes("]]")) errors.push("Marker \xF4 tr\u1ED1ng sai \u0111\u1ECBnh d\u1EA1ng.");
+  const numbers = set.questions.map((question) => question.blankNumber);
+  if (numbers.length !== markers.length || new Set(numbers).size !== numbers.length || markers.some((number2) => !numbers.includes(number2))) errors.push("Danh s\xE1ch \u0111\xE1p \xE1n ph\u1EA3i kh\u1EDBp \u0111\u1EA7y \u0111\u1EE7 c\xE1c \xF4 tr\u1ED1ng trong \u0111o\u1EA1n v\u0103n.");
+  const bank = set.wordBank || [];
+  if (bank.length < markers.length) errors.push("Ng\xE2n h\xE0ng t\u1EEB c\u1EA7n \u0111\u1EE7 th\u1EBB \u0111\u1EC3 \u0111i\u1EC1n c\xE1c \xF4; c\xF3 th\u1EC3 th\xEAm t\u1EEB nhi\u1EC5u.");
+  if (bank.some((token) => !token.id || !token.text?.trim() || token.text.length > 1e3) || new Set(bank.map((token) => token.id)).size !== bank.length) errors.push("Ng\xE2n h\xE0ng t\u1EEB c\xF3 th\u1EBB tr\u1ED1ng, qu\xE1 d\xE0i ho\u1EB7c tr\xF9ng ID.");
+  if (new Set(set.questions.map((question) => question.correctOptionId)).size !== set.questions.length) errors.push("M\u1ED7i th\u1EBB \u0111\xE1p \xE1n \u0111\xFAng ch\u1EC9 \u0111\u01B0\u1EE3c g\xE1n cho m\u1ED9t \xF4 tr\u1ED1ng.");
+  set.questions.forEach((question) => {
+    if (!bank.some((token) => token.id === question.correctOptionId)) errors.push(`\xD4 ${question.blankNumber}: \u0111\xE1p \xE1n kh\xF4ng c\xF3 trong ng\xE2n h\xE0ng t\u1EEB.`);
+    if (!question.explanation?.trim()) errors.push(`\xD4 ${question.blankNumber}: thi\u1EBFu gi\u1EA3i th\xEDch.`);
+  });
+  return errors;
+}
+
+// src/server/learning-history/learningAttemptProjector.ts
 var HISTORY_SCHEMA_VERSION = 1;
 var DEFAULT_DETAIL_RETENTION_DAYS = 30;
 var BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -19937,7 +19998,7 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options2 = {}) {
     lessonType: "grammar_set",
     gameId: "grammar-practice",
     gameTitleSnapshot: text6(
-      grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
+      grammarAttempt?.displayMode === "passage_drag_drop" ? "K\xE9o th\u1EA3 \u0111i\u1EC1n t\u1EEB" : grammarAttempt?.displayMode === "reading_comprehension" ? "\u0110\u1ECDc hi\u1EC3u" : grammarSet?.questionType === "rewrite" ? "Vi\u1EBFt l\u1EA1i c\xE2u" : "Luy\u1EC7n ng\u1EEF ph\xE1p",
       240
     ),
     score: canonicalScore,
@@ -19964,8 +20025,8 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options2 = {}) {
   const detail = includeDetail && completedAt ? createDetail("grammar", attemptId, attempt.clientRunId, completedAt, {
     answerDetails: questions.map((question, index) => {
       const answer = answerByQuestion.get(question?.id);
-      const questionType = question?.questionType === "rewrite" ? "rewrite" : "multiple_choice";
-      const optionSnapshots = Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : [];
+      const questionType = question?.questionType === "rewrite" ? "rewrite" : question?.questionType === "bank_select" ? "bank_select" : "multiple_choice";
+      const optionSnapshots = questionType === "bank_select" ? grammarAttempt.wordBankSnapshot || [] : Array.isArray(question?.optionsSnapshot) ? question.optionsSnapshot : [];
       const selectedOptionId = text6(answer?.selectedOptionId, 200);
       const correctOptionId = text6(question?.correctOptionId || answer?.correctOptionId, 200);
       const selectedOption2 = optionSnapshots.find(
@@ -19998,7 +20059,8 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options2 = {}) {
       questionIndex: Number(question?.displayPosition || index + 1) - 1,
       attemptQuestionId: text6(question?.id, 200),
       questionId: text6(question?.questionId, 200),
-      questionType: question?.questionType === "rewrite" ? "rewrite" : "multiple_choice",
+      questionType: question?.questionType === "rewrite" ? "rewrite" : question?.questionType === "bank_select" ? "bank_select" : "multiple_choice",
+      ...question?.blankNumber !== void 0 ? { blankNumber: question.blankNumber } : {},
       questionText: text6(question?.questionSnapshot, 4e3),
       explanation: text6(question?.explanationSnapshot, 4e3),
       correctOptionId: text6(question?.correctOptionId, 200),
@@ -20015,6 +20077,28 @@ function projectGrammarAttempt(grammarAttempt, grammarSet = {}, options2 = {}) {
     })),
     extraDetails: {
       grammarSetVersion: text6(grammarAttempt?.grammarSetVersion, 180),
+      ...grammarDisplayMode(grammarAttempt.displayMode) !== "standard" ? {
+        grammarPassageReview: {
+          displayMode: grammarAttempt.displayMode,
+          passageSnapshot: String(grammarAttempt.passageSnapshot || ""),
+          instructionSnapshot: String(grammarAttempt.instructionSnapshot || ""),
+          wordBankSnapshot: (grammarAttempt.wordBankSnapshot || []).map((token) => ({ id: token.id, text: token.text })),
+          questions: questions.map((question) => ({
+            id: question.id,
+            questionId: question.questionId,
+            questionType: question.questionType,
+            blankNumber: question.blankNumber,
+            questionSnapshot: question.questionSnapshot,
+            explanationSnapshot: question.explanationSnapshot,
+            correctOptionId: question.correctOptionId,
+            scoreSnapshot: question.scoreSnapshot,
+            displayPosition: question.displayPosition,
+            optionOrder: question.optionOrder || [],
+            optionsSnapshot: question.optionsSnapshot || []
+          })),
+          answers: answers.map((answer) => ({ attemptQuestionId: answer.attemptQuestionId, selectedOptionId: answer.selectedOptionId, isCorrect: answer.isCorrect }))
+        }
+      } : {},
       gradingVersion: text6(
         answers.find((answer) => answer?.gradingVersion)?.gradingVersion,
         120
@@ -20109,10 +20193,10 @@ function assertSafeYupVoxAudioUrl(value) {
 async function generateYupVoxAudioUrl(options2) {
   const apiKey = String(options2.apiKey || "").trim();
   const voiceId = String(options2.voiceId || "").trim();
-  const text8 = String(options2.text || "").trim();
+  const text9 = String(options2.text || "").trim();
   if (!apiKey) throw new Error("YUPVOX_API_KEY is not configured.");
   if (!voiceId) throw new Error("Missing YupVox voiceId.");
-  if (!text8) throw new Error("Missing YupVox TTS text.");
+  if (!text9) throw new Error("Missing YupVox TTS text.");
   const baseUrl = normalizeYupVoxBaseUrl(options2.baseUrl);
   const maxPollAttempts = clampInteger(options2.maxPollAttempts, DEFAULT_MAX_POLL_ATTEMPTS, 1, 120);
   const pollIntervalMs = clampInteger(options2.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, 250, 1e4);
@@ -20124,7 +20208,7 @@ async function generateYupVoxAudioUrl(options2) {
   const createResponse = await options2.fetchImpl(`${baseUrl}/v1/tts`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ voiceId, text: text8 })
+    body: JSON.stringify({ voiceId, text: text9 })
   });
   const createPayload = await readJsonResponse(createResponse);
   if (!createResponse.ok) {
@@ -20163,9 +20247,9 @@ var sdk = __toESM(require("microsoft-cognitiveservices-speech-sdk"), 1);
 // src/server/tts/readingInput.ts
 function normalizeReadingTtsInput(value) {
   if (typeof value !== "string") throw Object.assign(new Error("Reading TTS text must be a string."), { status: 400 });
-  const text8 = value.normalize("NFKC").trim().replace(/\s+/g, " ");
-  if (!text8 || text8.length > 6e3) throw Object.assign(new Error("Reading TTS text must contain 1\u20136000 characters."), { status: 400 });
-  return { text: text8, warnings: [] };
+  const text9 = value.normalize("NFKC").trim().replace(/\s+/g, " ");
+  if (!text9 || text9.length > 6e3) throw Object.assign(new Error("Reading TTS text must contain 1\u20136000 characters."), { status: 400 });
+  return { text: text9, warnings: [] };
 }
 
 // src/server/tts/azureReadingProvider.ts
@@ -20194,8 +20278,8 @@ function readingTtsCapability(env, bConfigured) {
     return { provider: "azure", configured: false, reason: error instanceof Error ? error.message : "Ch\u01B0a c\u1EA5u h\xECnh Azure TTS." };
   }
 }
-async function generateAzureReadingAudio(text8, settings, env, options2 = {}) {
-  const input = normalizeReadingTtsInput(text8), credentials = azureCredentials(env);
+async function generateAzureReadingAudio(text9, settings, env, options2 = {}) {
+  const input = normalizeReadingTtsInput(text9), credentials = azureCredentials(env);
   const expected = azureReadingSettings(env, settings.lang);
   if (settings.provider !== "azure" || settings.voice !== expected.voice || settings.speed !== 1) throw ttsError(400, "INVALID_TTS_SETTINGS", "C\u1EA5u h\xECnh audio m\u1EABu Azure kh\xF4ng h\u1EE3p l\u1EC7.");
   let synthesizer;
@@ -21814,6 +21898,7 @@ function toGrammarSummary(record3) {
     ...record3?.shareToken ? { shareToken: String(record3.shareToken) } : {},
     ...record3?.assignmentSlug ? { assignmentSlug: String(record3.assignmentSlug) } : {},
     ...record3?.questionType ? { questionType: String(record3.questionType) } : {},
+    ...record3?.displayMode ? { displayMode: String(record3.displayMode) } : {},
     timeLimitMinutes: Number(record3?.timeLimitMinutes || 0),
     maxAttempts: Math.max(1, Number(record3?.maxAttempts || 1)),
     shuffleQuestions: record3?.shuffleQuestions !== false,
@@ -21876,6 +21961,7 @@ function sqliteGrammarSummary(row) {
     ...row.share_token ? { shareToken: String(row.share_token) } : {},
     ...row.assignment_slug ? { assignmentSlug: String(row.assignment_slug) } : {},
     ...row.question_type ? { questionType: String(row.question_type) } : {},
+    ...row.display_mode ? { displayMode: String(row.display_mode) } : {},
     timeLimitMinutes: Number(row.time_limit_minutes || 0),
     maxAttempts: Math.max(1, Number(row.max_attempts || 1)),
     shuffleQuestions: Boolean(row.shuffle_questions),
@@ -21918,6 +22004,7 @@ var GRAMMAR_SUMMARY_SQL = `
     COALESCE(json_extract(data_json, '$.shareToken'), '') AS share_token,
     COALESCE(json_extract(data_json, '$.assignmentSlug'), '') AS assignment_slug,
     COALESCE(json_extract(data_json, '$.questionType'), '') AS question_type,
+    COALESCE(json_extract(data_json, '$.displayMode'), '') AS display_mode,
     COALESCE(json_extract(data_json, '$.timeLimitMinutes'), 0) AS time_limit_minutes,
     COALESCE(json_extract(data_json, '$.maxAttempts'), 1) AS max_attempts,
     COALESCE(json_extract(data_json, '$.shuffleQuestions'), 1) AS shuffle_questions,
@@ -23073,8 +23160,8 @@ var ALLOWED_PARTS_OF_SPEECH = [
 function httpError4(status, message) {
   return Object.assign(new Error(message), { status });
 }
-function parseAiJson(text8) {
-  const trimmed = String(text8 || "").trim();
+function parseAiJson(text9) {
+  const trimmed = String(text9 || "").trim();
   if (!trimmed) throw new Error("AI returned empty text.");
   try {
     return JSON.parse(trimmed);
@@ -23085,18 +23172,18 @@ function parseAiJson(text8) {
   }
 }
 function normalizePartOfSpeech(value) {
-  const text8 = String(value || "").trim().toLowerCase();
-  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text8);
+  const text9 = String(value || "").trim().toLowerCase();
+  const match = ALLOWED_PARTS_OF_SPEECH.find((pos) => pos.toLowerCase() === text9);
   if (match) return match;
-  if (text8.includes("pronoun")) return "Pronoun";
-  if (text8.includes("adjective")) return "Adjective";
-  if (text8.includes("adverb")) return "Adverb";
-  if (text8.includes("preposition")) return "Preposition";
-  if (text8.includes("conjunction")) return "Conjunction";
-  if (text8.includes("interjection")) return "Interjection";
-  if (text8.includes("article")) return "Article";
-  if (text8.includes("determiner")) return "Determiner";
-  if (text8.includes("verb")) return "Verb";
+  if (text9.includes("pronoun")) return "Pronoun";
+  if (text9.includes("adjective")) return "Adjective";
+  if (text9.includes("adverb")) return "Adverb";
+  if (text9.includes("preposition")) return "Preposition";
+  if (text9.includes("conjunction")) return "Conjunction";
+  if (text9.includes("interjection")) return "Interjection";
+  if (text9.includes("article")) return "Article";
+  if (text9.includes("determiner")) return "Determiner";
+  if (text9.includes("verb")) return "Verb";
   return "Noun";
 }
 function normalizeForExampleCheck(value) {
@@ -23730,10 +23817,10 @@ function ttsHttpError(status, message) {
 function createTtsService(options2) {
   const preview = async (payload) => {
     const settings = options2.normalizeSettings(payload?.settings || payload || {});
-    const text8 = String(payload?.text || "apple").trim();
+    const text9 = String(payload?.text || "apple").trim();
     const force = Boolean(payload?.force);
-    if (!text8) throw ttsHttpError(400, "Missing preview text.");
-    const result = await options2.generateCachedAudio(text8, settings, force);
+    if (!text9) throw ttsHttpError(400, "Missing preview text.");
+    const result = await options2.generateCachedAudio(text9, settings, force);
     return {
       audioUrl: result.audioUrl,
       audioHash: result.audioHash,
@@ -23748,11 +23835,11 @@ function createTtsService(options2) {
     const rawItems = Array.isArray(payload?.items) ? payload.items.slice(0, 200) : [];
     if (rawItems.length === 0) throw ttsHttpError(400, "Missing TTS items.");
     const prepared = rawItems.map((item, index) => {
-      const text8 = String(item?.text || item?.term || "").trim();
-      const sanitized = options2.sanitizeInput(text8);
+      const text9 = String(item?.text || item?.term || "").trim();
+      const sanitized = options2.sanitizeInput(text9);
       return {
         id: String(item?.id || `item-${index + 1}`),
-        text: text8,
+        text: text9,
         sanitized,
         audioHash: sanitized.text ? options2.createAudioHash(sanitized.text, settings) : ""
       };
@@ -23824,11 +23911,11 @@ function createTtsService(options2) {
   };
   return {
     async previewReading(payload) {
-      const text8 = String(payload?.text || "").trim();
-      if (!text8 || text8.length > 6e3) throw ttsHttpError(400, "Reading preview requires 1\u20136000 characters.");
+      const text9 = String(payload?.text || "").trim();
+      if (!text9 || text9.length > 6e3) throw ttsHttpError(400, "Reading preview requires 1\u20136000 characters.");
       if (!options2.generateReadingAudio) throw ttsHttpError(503, "Reading TTS is not configured.");
       const settings = (options2.normalizeReadingSettings || options2.normalizeSettings)(payload?.settings || {});
-      return options2.generateReadingAudio(text8, settings, false);
+      return options2.generateReadingAudio(text9, settings, false);
     },
     batchPreview,
     listVoices: (query) => options2.voiceProvider.listVoices(query),
@@ -24092,12 +24179,129 @@ function createGrammarAttemptRepository(options2) {
   };
 }
 
+// src/server/grammar/passageExercises.ts
+var import_node_crypto18 = require("node:crypto");
+var fail3 = (status, message) => {
+  throw Object.assign(new Error(message), { status });
+};
+function text7(value, max, label) {
+  if (typeof value !== "string" || value.length > max) return fail3(400, `${label}: c\u1EA7n v\u0103n b\u1EA3n kh\xF4ng qu\xE1 ${max} k\xFD t\u1EF1.`);
+  return value.normalize("NFKC").trim();
+}
+function normalizePassageExercise(payload, makeId9) {
+  const mode = grammarDisplayMode(payload.displayMode);
+  if (mode === "standard") return null;
+  const bankMode = mode === "passage_drag_drop";
+  const passage = text7(payload.passage, 1e5, "\u0110o\u1EA1n v\u0103n");
+  const instruction = text7(payload.instruction ?? "", 4e3, "H\u01B0\u1EDBng d\u1EABn");
+  if (!Array.isArray(payload.questions)) return fail3(400, "C\u1EA7n danh s\xE1ch c\xE2u h\u1ECFi.");
+  const wordBank = bankMode && Array.isArray(payload.wordBank) ? payload.wordBank.map((token) => ({
+    id: typeof token?.id === "string" && token.id.length > 0 && token.id.length <= 200 ? token.id : makeId9("grammar-token"),
+    text: text7(token?.text, 1e3, "Th\u1EBB t\u1EEB")
+  })) : [];
+  const questions = payload.questions.map((question, index) => {
+    if (!question || typeof question !== "object") return fail3(400, `C\xE2u ${index + 1}: kh\xF4ng h\u1EE3p l\u1EC7.`);
+    const id2 = typeof question.id === "string" && question.id.length > 0 && question.id.length <= 200 ? question.id : makeId9("grammar-question");
+    const options2 = !bankMode && Array.isArray(question.options) ? question.options.map((option, i) => ({
+      id: typeof option?.id === "string" && option.id.length > 0 && option.id.length <= 200 ? option.id : makeId9("grammar-option"),
+      text: text7(option?.text, 1e3, `C\xE2u ${index + 1}, l\u1EF1a ch\u1ECDn ${i + 1}`),
+      originalPosition: i + 1
+    })) : [];
+    const score2 = Number(question.score ?? 1);
+    if (!Number.isFinite(score2) || score2 < 1) return fail3(400, `C\xE2u ${index + 1}: \u0111i\u1EC3m kh\xF4ng h\u1EE3p l\u1EC7.`);
+    return {
+      id: id2,
+      questionType: bankMode ? "bank_select" : "multiple_choice",
+      questionText: bankMode ? `\xD4 tr\u1ED1ng ${question.blankNumber}` : text7(question.questionText, 4e3, `C\xE2u ${index + 1}`),
+      options: options2,
+      correctOptionId: typeof question.correctOptionId === "string" ? question.correctOptionId : "",
+      explanation: text7(question.explanation, 6e3, `Gi\u1EA3i th\xEDch c\xE2u ${index + 1}`),
+      score: score2,
+      position: index + 1,
+      ...bankMode ? { blankNumber: question.blankNumber } : {}
+    };
+  });
+  const errors = validateGrammarPassage({ displayMode: mode, passage, instruction, wordBank, questions });
+  if (errors.length) throw Object.assign(new Error(errors.join(" ")), { status: 400, details: errors });
+  return { displayMode: mode, questionType: bankMode ? "bank_select" : "multiple_choice", passage, instruction, wordBank, questions };
+}
+function passageAttemptSnapshot(set, shuffleBank = (bank) => bank) {
+  const displayMode = grammarDisplayMode(set.displayMode);
+  if (displayMode === "standard") return {};
+  const bank = (set.wordBank || []).map((token) => ({ id: token.id, text: token.text }));
+  return {
+    displayMode,
+    passageSnapshot: String(set.passage || ""),
+    instructionSnapshot: String(set.instruction || ""),
+    wordBankSnapshot: displayMode === "passage_drag_drop" && set.shuffleOptions ? shuffleBank(bank) : bank,
+    answersRevision: 0
+  };
+}
+function updateBankAnswers(attempt, payload, timestamp) {
+  if (attempt.status === "completed") return fail3(400, "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n.");
+  if (!payload.bankAnswers || typeof payload.bankAnswers !== "object" || Array.isArray(payload.bankAnswers)) return fail3(400, "C\u1EA7n danh s\xE1ch v\u1ECB tr\xED th\u1EBB t\u1EEB.");
+  if (typeof payload.mutationId !== "string" || !/^[\w-]{8,120}$/.test(payload.mutationId)) return fail3(400, "M\xE3 l\u01B0u \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7.");
+  const bank = new Map((attempt.wordBankSnapshot || []).map((token) => [token.id, token]));
+  const questionMap = new Map(attempt.questions.map((question) => [question.id, question]));
+  const used = /* @__PURE__ */ new Set();
+  const answers = Object.entries(payload.bankAnswers).map(([id2, tokenId]) => {
+    const question = questionMap.get(id2);
+    if (!question || typeof tokenId !== "string" || !bank.has(tokenId)) return fail3(400, "\xD4 tr\u1ED1ng ho\u1EB7c th\u1EBB t\u1EEB kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (used.has(tokenId)) return fail3(400, "M\u1ED7i th\u1EBB t\u1EEB ch\u1EC9 \u0111\u01B0\u1EE3c s\u1EED d\u1EE5ng m\u1ED9t l\u1EA7n.");
+    used.add(tokenId);
+    const isCorrect = bank.has(question.correctOptionId || "") && grammarTokenText(bank.get(tokenId).text) === grammarTokenText(bank.get(question.correctOptionId).text);
+    return {
+      id: `grammar-bank-answer-${(0, import_node_crypto18.createHash)("sha256").update(`${attempt.id}:${id2}`).digest("hex").slice(0, 32)}`,
+      attemptQuestionId: id2,
+      questionId: question.questionId,
+      selectedOptionId: tokenId,
+      correctOptionId: question.correctOptionId,
+      isCorrect,
+      scoreAwarded: isCorrect ? question.scoreSnapshot : 0,
+      answeredAt: timestamp
+    };
+  });
+  if (attempt.lastAnswerMutationId === payload.mutationId) {
+    const current = new Map(attempt.answers.map((answer) => [answer.attemptQuestionId, answer.selectedOptionId]));
+    if (answers.length !== current.size || answers.some((answer) => current.get(answer.attemptQuestionId) !== answer.selectedOptionId)) return fail3(409, "M\xE3 l\u01B0u \u0111\xE3 \u0111\u01B0\u1EE3c d\xF9ng cho \u0111\xE1p \xE1n kh\xE1c.");
+    return attempt;
+  }
+  if (!Number.isSafeInteger(payload.answersRevision) || payload.answersRevision !== (attempt.answersRevision || 0)) return fail3(409, "\u0110\xE1p \xE1n \u0111\xE3 thay \u0111\u1ED5i \u1EDF l\u01B0\u1EE3t l\u01B0u kh\xE1c. H\xE3y t\u1EA3i l\u1EA1i \u0111\u1EC3 ti\u1EBFp t\u1EE5c.");
+  if (attempt.status === "prepared" && !answers.length) return fail3(400, "H\xE3y \u0111i\u1EC1n \xEDt nh\u1EA5t m\u1ED9t \xF4 \u0111\u1EC3 b\u1EAFt \u0111\u1EA7u.");
+  return { ...attempt, status: "in_progress", answers, answersRevision: (attempt.answersRevision || 0) + 1, lastAnswerMutationId: payload.mutationId };
+}
+function grammarReviewEnabled(attempt, set) {
+  return grammarDisplayMode(attempt.displayMode) === "standard" ? Boolean(set?.showReviewAfterSubmit) : attempt.reviewPolicySnapshot?.showReviewAfterSubmit === true;
+}
+
 // src/server/grammar-attempts/service.ts
 function grammarAttemptHttpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 function createGrammarAttemptService(options2) {
   const now2 = options2.now || (() => /* @__PURE__ */ new Date());
+  const feedbackSet = (attempt, set) => grammarDisplayMode(attempt.displayMode) === "standard" ? set : { ...set, showExplanationImmediately: attempt.reviewPolicySnapshot?.showExplanationImmediately === true };
+  const answerQueues = /* @__PURE__ */ new Map();
+  const withAttemptLock = async (id2, action) => {
+    const previous = answerQueues.get(id2) || Promise.resolve();
+    const current = previous.catch(() => void 0).then(action);
+    answerQueues.set(id2, current);
+    try {
+      return await current;
+    } finally {
+      if (answerQueues.get(id2) === current) answerQueues.delete(id2);
+    }
+  };
+  const saveBank = async (attempt, set, payload, token = "") => {
+    const updated = updateBankAnswers(attempt, payload, now2().toISOString());
+    if (updated !== attempt) {
+      const timestamp = now2().toISOString();
+      Object.assign(updated, { lastSavedAt: timestamp, updatedAt: timestamp });
+      if (attempt.status === "prepared") Object.assign(updated, { activatedAt: timestamp });
+      await options2.repository.saveAttempt(updated, set, false);
+    }
+    return { body: { attempt: options2.sanitizeAttempt(updated, false, token), feedback: null } };
+  };
   const actorOrThrow = async (request, message, timing) => {
     const actor = await options2.getActor(request);
     timing?.mark("identity");
@@ -24133,6 +24337,19 @@ function createGrammarAttemptService(options2) {
     if (!options2.canOpenSet(set, actor, request)) {
       throw grammarAttemptHttpError(403, "Ban khong co quyen lam bai nay.");
     }
+    if (request.body?.resume === true) {
+      const id2 = options2.deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
+      const existing = await options2.repository.getAttempt(id2);
+      if (existing && grammarDisplayMode(existing.displayMode) !== "standard") {
+        if (!options2.canAccessAttempt(existing, actor, set, request)) throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n ti\u1EBFp t\u1EE5c l\u01B0\u1EE3t l\xE0m n\xE0y.");
+        const body = options2.sanitizeAttempt(existing, existing.status === "completed" && grammarReviewEnabled(existing, set), credentials.runSecret);
+        if (existing.displayMode === "reading_comprehension" && existing.status !== "completed" && existing.reviewPolicySnapshot?.showExplanationImmediately) {
+          body.answerFeedback = Object.fromEntries((existing.answers || []).map((answer) => [answer.attemptQuestionId, options2.buildAnswerFeedback(existing, { ...set, showExplanationImmediately: true }, answer)]));
+        }
+        return { body };
+      }
+      if (!existing && grammarDisplayMode(set.displayMode) !== "standard" && request.body?.grammarSetVersion && request.body.grammarSetVersion !== options2.getSetVersion(set)) throw grammarAttemptHttpError(409, "B\xE0i \u0111\xE3 c\u1EADp nh\u1EADt. H\xE3y b\u1EAFt \u0111\u1EA7u l\u01B0\u1EE3t m\u1EDBi.");
+    }
     await assertAttemptLimit(set, actor, timing, true);
     const prepared = options2.buildPreparedAttempt(
       set,
@@ -24153,63 +24370,73 @@ function createGrammarAttemptService(options2) {
       throw grammarAttemptHttpError(403, "Ban khong co quyen lam bai nay.");
     }
     const attemptId = options2.deterministicRunDocumentId("grammar-attempt-v2", [actor.id, set.id, credentials.clientRunId]);
-    const existingAttempt = await options2.repository.getAttempt(attemptId);
-    timing?.mark("idempotency_lookup");
-    if (existingAttempt) {
-      if (!options2.canAccessAttempt(existingAttempt, actor, set, request)) {
-        throw grammarAttemptHttpError(403, "Ban khong co quyen tiep tuc luot lam bai nay.");
-      }
-      const existingAnswer = (existingAttempt.answers || []).find((item) => item.attemptQuestionId === payload.attemptQuestionId);
-      if (existingAnswer) {
-        const feedback3 = options2.buildAnswerFeedback(existingAttempt, set, existingAnswer);
+    return withAttemptLock(attemptId, async () => {
+      const existingAttempt = await options2.repository.getAttempt(attemptId);
+      timing?.mark("idempotency_lookup");
+      if (existingAttempt) {
+        if (!options2.canAccessAttempt(existingAttempt, actor, set, request)) {
+          throw grammarAttemptHttpError(403, "Ban khong co quyen tiep tuc luot lam bai nay.");
+        }
+        if (existingAttempt.displayMode === "passage_drag_drop") {
+          if (existingAttempt.status === "completed") return { body: { attempt: options2.sanitizeAttempt(existingAttempt, grammarReviewEnabled(existingAttempt, set), credentials.runSecret), alreadyCompleted: true } };
+          return saveBank(existingAttempt, set, payload, credentials.runSecret);
+        }
+        if (existingAttempt.displayMode === "reading_comprehension" && existingAttempt.status === "completed") {
+          return { body: { attempt: options2.sanitizeAttempt(existingAttempt, grammarReviewEnabled(existingAttempt, set), credentials.runSecret), alreadyCompleted: true } };
+        }
+        const existingAnswer = (existingAttempt.answers || []).find((item) => item.attemptQuestionId === payload.attemptQuestionId);
+        if (existingAnswer) {
+          const feedback3 = options2.buildAnswerFeedback(existingAttempt, feedbackSet(existingAttempt, set), existingAnswer);
+          return { body: {
+            attempt: options2.sanitizeAttempt(existingAttempt, false, credentials.runSecret),
+            answer: options2.sanitizeAnswer(existingAnswer, Boolean(feedback3)),
+            feedback: feedback3,
+            alreadyActivated: true
+          } };
+        }
+        if (existingAttempt.status === "completed") {
+          return { body: {
+            attempt: options2.sanitizeAttempt(existingAttempt, grammarReviewEnabled(existingAttempt, set), credentials.runSecret),
+            alreadyCompleted: true
+          } };
+        }
+        const { answer: answer2, feedback: feedback2 } = options2.buildAttemptAnswer(existingAttempt, feedbackSet(existingAttempt, set), payload);
+        const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
+        const updatedAt = now2().toISOString();
+        const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
+        await options2.repository.saveAttempt(updatedAttempt, set, false);
+        timing?.mark("persist");
         return { body: {
-          attempt: options2.sanitizeAttempt(existingAttempt, false, credentials.runSecret),
-          answer: options2.sanitizeAnswer(existingAnswer, Boolean(feedback3)),
-          feedback: feedback3,
+          attempt: options2.sanitizeAttempt(updatedAttempt, false, credentials.runSecret),
+          answer: options2.sanitizeAnswer(answer2, Boolean(feedback2)),
+          feedback: feedback2,
           alreadyActivated: true
         } };
       }
-      if (existingAttempt.status === "completed") {
-        return { body: {
-          attempt: options2.sanitizeAttempt(existingAttempt, Boolean(set.showReviewAfterSubmit), credentials.runSecret),
-          alreadyCompleted: true
-        } };
+      if (options2.safeText(payload.grammarSetVersion, 160) !== options2.getSetVersion(set)) {
+        throw grammarAttemptHttpError(409, "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi.");
       }
-      const { answer: answer2, feedback: feedback2 } = options2.buildAttemptAnswer(existingAttempt, set, payload);
-      const answers = [...(existingAttempt.answers || []).filter((item) => item.attemptQuestionId !== answer2.attemptQuestionId), answer2];
-      const updatedAt = now2().toISOString();
-      const updatedAttempt = { ...existingAttempt, status: "in_progress", answers, lastSavedAt: updatedAt, updatedAt };
-      await options2.repository.saveAttempt(updatedAttempt, set, false);
+      await assertAttemptLimit(set, actor, timing, true);
+      const prepared = options2.buildPreparedAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
+      if (prepared.displayMode === "passage_drag_drop") return saveBank(prepared, set, payload, credentials.runSecret);
+      const { answer, feedback } = options2.buildAttemptAnswer(prepared, set, payload);
+      const timestamp = now2().toISOString();
+      const activated = {
+        ...prepared,
+        status: "in_progress",
+        activatedAt: timestamp,
+        lastSavedAt: timestamp,
+        updatedAt: timestamp,
+        answers: [answer]
+      };
+      await options2.repository.saveAttempt(activated, set, false);
       timing?.mark("persist");
-      return { body: {
-        attempt: options2.sanitizeAttempt(updatedAttempt, false, credentials.runSecret),
-        answer: options2.sanitizeAnswer(answer2, Boolean(feedback2)),
-        feedback: feedback2,
-        alreadyActivated: true
+      return { status: 201, body: {
+        attempt: options2.sanitizeAttempt(activated, false, credentials.runSecret),
+        answer: options2.sanitizeAnswer(answer, Boolean(feedback)),
+        feedback
       } };
-    }
-    if (options2.safeText(payload.grammarSetVersion, 160) !== options2.getSetVersion(set)) {
-      throw grammarAttemptHttpError(409, "Bai da duoc cap nhat. Hay bat dau lai de nhan noi dung moi.");
-    }
-    await assertAttemptLimit(set, actor, timing, true);
-    const prepared = options2.buildPreparedAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
-    const { answer, feedback } = options2.buildAttemptAnswer(prepared, set, payload);
-    const timestamp = now2().toISOString();
-    const activated = {
-      ...prepared,
-      status: "in_progress",
-      activatedAt: timestamp,
-      lastSavedAt: timestamp,
-      updatedAt: timestamp,
-      answers: [answer]
-    };
-    await options2.repository.saveAttempt(activated, set, false);
-    timing?.mark("persist");
-    return { status: 201, body: {
-      attempt: options2.sanitizeAttempt(activated, false, credentials.runSecret),
-      answer: options2.sanitizeAnswer(answer, Boolean(feedback)),
-      feedback
-    } };
+    });
   };
   const createAttempt = async (request, timing) => {
     const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
@@ -24219,7 +24446,7 @@ function createGrammarAttemptService(options2) {
     }
     await assertAttemptLimit(set, actor, timing);
     const timestamp = now2().toISOString();
-    const questions = set.shuffleQuestions ? options2.fisherYates(set.questions || []) : [...set.questions || []];
+    const questions = set.shuffleQuestions && grammarDisplayMode(set.displayMode) === "standard" ? options2.fisherYates(set.questions || []) : [...set.questions || []];
     const attemptQuestions = questions.map((question, index) => {
       const questionType = options2.getQuestionType(question.questionType, options2.getQuestionType(set.questionType));
       const choices = questionType === "multiple_choice" && set.shuffleOptions ? options2.fisherYates(question.options || []) : [...question.options || []];
@@ -24233,7 +24460,8 @@ function createGrammarAttemptService(options2) {
         explanationSnapshot: question.explanation,
         scoreSnapshot: question.score,
         optionsSnapshot: choices,
-        correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+        correctOptionId: questionType !== "rewrite" ? question.correctOptionId : "",
+        ...question.blankNumber !== void 0 ? { blankNumber: question.blankNumber } : {},
         correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
         acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
       };
@@ -24245,6 +24473,8 @@ function createGrammarAttemptService(options2) {
       id: attemptId,
       grammarSetId: set.id,
       grammarSetTitle: set.title,
+      ...passageAttemptSnapshot(set, options2.fisherYates),
+      ...grammarDisplayMode(set.displayMode) !== "standard" ? { ownerType: actor.isGuest ? "guest" : "user", ownerKey: `${actor.isGuest ? "guest" : "user"}:${actor.id}` } : {},
       assignmentId: request.body?.assignmentId || "",
       userId: actor.id,
       studentId: actor.id,
@@ -24274,7 +24504,7 @@ function createGrammarAttemptService(options2) {
     timing?.mark("persist");
     return { status: 201, body: options2.sanitizeAttempt(attempt, false, attemptToken) };
   };
-  const saveAnswer = async (request, timing) => {
+  const saveAnswerInternal = async (request, timing) => {
     const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
     const attempt = await attemptOrThrow(request.params.attemptId, timing);
     const set = await setOrThrow(attempt.grammarSetId, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.", timing);
@@ -24282,8 +24512,13 @@ function createGrammarAttemptService(options2) {
       throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n s\u1EEDa l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
     }
     if (attempt.status === "completed") throw grammarAttemptHttpError(400, "B\xE0i \u0111\xE3 n\u1ED9p, kh\xF4ng th\u1EC3 thay \u0111\u1ED5i \u0111\xE1p \xE1n.");
+    if (attempt.displayMode === "passage_drag_drop") return saveBank(attempt, set, request.body || {});
     const attemptQuestion = (attempt.questions || []).find((question) => question.id === request.body?.attemptQuestionId);
     if (!attemptQuestion) throw grammarAttemptHttpError(400, "C\xE2u h\u1ECFi kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (attempt.displayMode === "reading_comprehension" && attempt.reviewPolicySnapshot?.showExplanationImmediately) {
+      const savedAnswer = (attempt.answers || []).find((answer2) => answer2.attemptQuestionId === attemptQuestion.id);
+      if (savedAnswer) return { body: { answer: options2.sanitizeAnswer(savedAnswer, true), feedback: options2.buildAnswerFeedback(attempt, { ...set, showExplanationImmediately: true }, savedAnswer) } };
+    }
     const questionType = options2.getQuestionType(attemptQuestion.questionType, options2.getQuestionType(set?.questionType));
     const selectedOptionId = questionType === "multiple_choice" ? String(request.body?.selectedOptionId || "") : "";
     const textAnswer = questionType === "rewrite" ? options2.safeText(request.body?.textAnswer, 4e3) : "";
@@ -24317,7 +24552,8 @@ function createGrammarAttemptService(options2) {
     const updatedAttempt = { ...attempt, answers, lastSavedAt: updatedAt, updatedAt };
     await options2.repository.saveAttempt(updatedAttempt, set, false);
     timing?.mark("persist");
-    const feedback = set?.showExplanationImmediately ? {
+    const immediateFeedback = grammarDisplayMode(attempt.displayMode) === "standard" ? set?.showExplanationImmediately : attempt.reviewPolicySnapshot?.showExplanationImmediately;
+    const feedback = immediateFeedback ? {
       isCorrect,
       correctOptionId: questionType === "multiple_choice" ? attemptQuestion.correctOptionId : "",
       correctAnswer: questionType === "rewrite" ? attemptQuestion.correctAnswerSnapshot : "",
@@ -24326,7 +24562,7 @@ function createGrammarAttemptService(options2) {
     } : null;
     return { body: { answer: options2.sanitizeAnswer(answer, Boolean(feedback)), feedback } };
   };
-  const submitAttempt = async (request, timing) => {
+  const submitAttemptInternal = async (request, timing) => {
     const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.", timing);
     const attempt = await attemptOrThrow(request.params.attemptId, timing);
     const set = await setOrThrow(attempt.grammarSetId, "B\xE0i ng\u1EEF ph\xE1p kh\xF4ng t\u1ED3n t\u1EA1i.", timing);
@@ -24334,7 +24570,7 @@ function createGrammarAttemptService(options2) {
       throw grammarAttemptHttpError(403, "B\u1EA1n kh\xF4ng c\xF3 quy\u1EC1n n\u1ED9p l\u01B0\u1EE3t l\xE0m b\xE0i n\xE0y.");
     }
     if (attempt.status === "completed") {
-      return { body: { ...options2.sanitizeAttempt(attempt, Boolean(set?.showReviewAfterSubmit)), alreadyCompleted: true } };
+      return { body: { ...options2.sanitizeAttempt(attempt, grammarReviewEnabled(attempt, set)), alreadyCompleted: true } };
     }
     const answerMap = new Map((attempt.answers || []).map((answer) => [answer.attemptQuestionId, answer]));
     let score2 = 0;
@@ -24368,7 +24604,7 @@ function createGrammarAttemptService(options2) {
     await options2.repository.saveCompletedAttempt(updatedAttempt, set, event);
     options2.clearLeaderboardCache();
     timing?.mark("persist");
-    return { body: options2.sanitizeAttempt(updatedAttempt, Boolean(set?.showReviewAfterSubmit)) };
+    return { body: options2.sanitizeAttempt(updatedAttempt, grammarReviewEnabled(updatedAttempt, set)) };
   };
   const reviewAttempt = async (request) => {
     const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 luy\u1EC7n ng\u1EEF ph\xE1p.");
@@ -24381,7 +24617,7 @@ function createGrammarAttemptService(options2) {
       throw grammarAttemptHttpError(403, "Ch\u1EC9 \u0111\u01B0\u1EE3c xem l\u1EA1i sau khi n\u1ED9p b\xE0i.");
     }
     const staffReview = !actor.isGuest && (actor.role === "super_admin" || options2.canManageSet(actor, set));
-    return { body: options2.sanitizeAttempt(attempt, staffReview || Boolean(set?.showReviewAfterSubmit)) };
+    return { body: options2.sanitizeAttempt(attempt, staffReview || grammarReviewEnabled(attempt, set)) };
   };
   const listMyAttempts = async (request) => {
     const actor = await actorOrThrow(request, "Vui l\xF2ng nh\u1EADp t\xEAn h\u1ECDc sinh \u0111\u1EC3 xem l\u1ECBch s\u1EED l\xE0m b\xE0i.");
@@ -24390,11 +24626,13 @@ function createGrammarAttemptService(options2) {
     const attempts = await options2.repository.listAttemptsForActor(request.params.id, actorField, actor.id);
     const list3 = attempts.map((attempt) => options2.sanitizeAttempt(
       attempt,
-      !actor.isGuest && attempt.status === "completed" && Boolean(set?.showReviewAfterSubmit)
+      !actor.isGuest && attempt.status === "completed" && grammarReviewEnabled(attempt, set)
     ));
     list3.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     return { body: list3 };
   };
+  const saveAnswer = (request, timing) => withAttemptLock(String(request.params.attemptId), () => saveAnswerInternal(request, timing));
+  const submitAttempt = (request, timing) => withAttemptLock(String(request.params.attemptId), () => submitAttemptInternal(request, timing));
   return { activateAttempt, createAttempt, listMyAttempts, prepareAttempt, reviewAttempt, saveAnswer, submitAttempt };
 }
 
@@ -25591,7 +25829,7 @@ function createAccountRouter(options2) {
 var import_express24 = __toESM(require("express"), 1);
 
 // src/server/ioe-violympic/practice.ts
-var import_node_crypto20 = __toESM(require("node:crypto"), 1);
+var import_node_crypto21 = __toESM(require("node:crypto"), 1);
 
 // src/shared/competition/answer.ts
 var DEFAULT_ENGLISH_TEXT_NORMALIZATION = {
@@ -25621,83 +25859,83 @@ var CompetitionError = class extends Error {
     this.code = code;
   }
 };
-var fail3 = (message) => {
+var fail4 = (message) => {
   throw new CompetitionError(400, "INVALID_QUESTION", message);
 };
 function record2(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return fail3("C\u1EA7n m\u1ED9t \u0111\u1ED1i t\u01B0\u1EE3ng JSON.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fail4("C\u1EA7n m\u1ED9t \u0111\u1ED1i t\u01B0\u1EE3ng JSON.");
   return value;
 }
-function text7(value, max = 2e4, required2 = false, field = "N\u1ED9i dung") {
+function text8(value, max = 2e4, required2 = false, field = "N\u1ED9i dung") {
   if (value === void 0 || value === null) value = "";
-  if (typeof value !== "string" && typeof value !== "number") return fail3(`${field} ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.`);
+  if (typeof value !== "string" && typeof value !== "number") return fail4(`${field} ph\u1EA3i l\xE0 ch\u1EEF ho\u1EB7c s\u1ED1.`);
   const result = String(value).normalize("NFC").trim();
-  if (required2 && !result) return fail3(`${field} \u0111ang tr\u1ED1ng.`);
-  if (result.length > max) return fail3(`${field} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
-  if (/\u0000/.test(result)) return fail3(`${field} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
+  if (required2 && !result) return fail4(`${field} \u0111ang tr\u1ED1ng.`);
+  if (result.length > max) return fail4(`${field} v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  if (/\u0000/.test(result)) return fail4(`${field} ch\u1EE9a k\xFD t\u1EF1 kh\xF4ng h\u1EE3p l\u1EC7.`);
   return result;
 }
 function parseScope(value) {
   const row = record2(value);
-  if (!isSubject(row.subject)) return fail3("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (!isSubject(row.subject)) return fail4("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
   const grade = Number(row.grade), level = row.level;
-  if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail3("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
-  if (level !== "practice" && level !== "school" && level !== "district" && level !== "province" && level !== "national") return fail3("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
-  if (!levelsFor(row.subject).includes(level)) return fail3("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
+  if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail4("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
+  if (level !== "practice" && level !== "school" && level !== "district" && level !== "province" && level !== "national") return fail4("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
+  if (!levelsFor(row.subject).includes(level)) return fail4("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
   return { subject: row.subject, grade, level };
 }
 function parseQuestionFilters(value) {
   const row = record2(value), filters = {};
   if (row.subject !== void 0 && row.subject !== "") {
-    if (!isSubject(row.subject)) return fail3("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
+    if (!isSubject(row.subject)) return fail4("M\xF4n h\u1ECDc kh\xF4ng h\u1EE3p l\u1EC7.");
     filters.subject = row.subject;
   }
   if (row.grade !== void 0 && row.grade !== "") {
-    const grade = Number(text7(row.grade, 10, true));
-    if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail3("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
+    const grade = Number(text8(row.grade, 10, true));
+    if (!Number.isInteger(grade) || grade < 1 || grade > 9) return fail4("L\u1EDBp ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 9.");
     filters.grade = grade;
   }
   if (row.level !== void 0 && row.level !== "") {
-    const level = text7(row.level, 20, true);
-    if (!Object.hasOwn(LEVEL_LABELS, level)) return fail3("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
+    const level = text8(row.level, 20, true);
+    if (!Object.hasOwn(LEVEL_LABELS, level)) return fail4("C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
     filters.level = level;
-    if (filters.subject && !levelsFor(filters.subject).includes(filters.level)) return fail3("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
+    if (filters.subject && !levelsFor(filters.subject).includes(filters.level)) return fail4("C\u1EA5p n\xE0y kh\xF4ng h\u1ED7 tr\u1EE3 m\xF4n h\u1ECDc \u0111\xE3 ch\u1ECDn.");
   }
   return filters;
 }
 function normalizeMedia(value) {
   if (value === void 0) return [];
-  if (!Array.isArray(value) || value.length > 4) return fail3("M\u1ED7i v\u1ECB tr\xED c\xF3 t\u1ED1i \u0111a 4 media.");
+  if (!Array.isArray(value) || value.length > 4) return fail4("M\u1ED7i v\u1ECB tr\xED c\xF3 t\u1ED1i \u0111a 4 media.");
   return value.map((item) => {
     const row = record2(item);
-    if (row.kind !== "image" && row.kind !== "audio") return fail3("Lo\u1EA1i media kh\xF4ng h\u1EE3p l\u1EC7.");
-    const url = text7(row.url, 2048, true);
-    if (!/^\/(?:listening-media|vocab-images|audio)\/[A-Za-z0-9._/-]+$/.test(url) || url.includes("..")) return fail3("Media ph\u1EA3i d\xF9ng d\u1ECBch v\u1EE5 l\u01B0u tr\u1EEF c\u1EE7a B.");
+    if (row.kind !== "image" && row.kind !== "audio") return fail4("Lo\u1EA1i media kh\xF4ng h\u1EE3p l\u1EC7.");
+    const url = text8(row.url, 2048, true);
+    if (!/^\/(?:listening-media|vocab-images|audio)\/[A-Za-z0-9._/-]+$/.test(url) || url.includes("..")) return fail4("Media ph\u1EA3i d\xF9ng d\u1ECBch v\u1EE5 l\u01B0u tr\u1EEF c\u1EE7a B.");
     const rate = row.playbackRate === void 0 ? 1 : Number(row.playbackRate);
-    if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) return fail3("T\u1ED1c \u0111\u1ED9 audio kh\xF4ng h\u1EE3p l\u1EC7.");
-    return { kind: row.kind, url, ...row.assetId ? { assetId: text7(row.assetId, 160, true) } : {}, playbackRate: rate };
+    if (!Number.isFinite(rate) || rate < 0.5 || rate > 2) return fail4("T\u1ED1c \u0111\u1ED9 audio kh\xF4ng h\u1EE3p l\u1EC7.");
+    return { kind: row.kind, url, ...row.assetId ? { assetId: text8(row.assetId, 160, true) } : {}, playbackRate: rate };
   });
 }
 function options(value, prefix = "option") {
   if (value === void 0) return [];
-  if (!Array.isArray(value) || value.length > 26) return fail3("Ph\u01B0\u01A1ng \xE1n ph\u1EA3i l\xE0 m\u1EA3ng, t\u1ED1i \u0111a 26.");
+  if (!Array.isArray(value) || value.length > 26) return fail4("Ph\u01B0\u01A1ng \xE1n ph\u1EA3i l\xE0 m\u1EA3ng, t\u1ED1i \u0111a 26.");
   return value.map((item, i) => {
     const row = typeof item === "string" || typeof item === "number" ? { text: item } : record2(item);
-    const body = text7(row.text ?? row.content ?? "", 8e3).replace(/^[A-Z][.)]\s+/, "");
+    const body = text8(row.text ?? row.content ?? "", 8e3).replace(/^[A-Z][.)]\s+/, "");
     const attached = normalizeMedia(row.media);
-    if (!body && !attached.length) return fail3(`Ph\u01B0\u01A1ng \xE1n ${i + 1} tr\u1ED1ng.`);
+    if (!body && !attached.length) return fail4(`Ph\u01B0\u01A1ng \xE1n ${i + 1} tr\u1ED1ng.`);
     return { id: `${prefix}-${i + 1}`, label: String.fromCharCode(65 + i), text: body, media: attached };
   });
 }
 function reference(value, opts) {
-  const target = text7(value, 160, true);
+  const target = text8(value, 160, true);
   const match = opts.find((o) => o.id === target || o.label === target.toUpperCase() || o.text === target);
-  if (!match) return fail3("\u0110\xE1p \xE1n kh\xF4ng kh\u1EDBp ph\u01B0\u01A1ng \xE1n.");
+  if (!match) return fail4("\u0110\xE1p \xE1n kh\xF4ng kh\u1EDBp ph\u01B0\u01A1ng \xE1n.");
   return match.id;
 }
 function numeric(value, kind) {
-  const result = text7(value, 120, true);
-  if (!(kind === "integer" ? /^[+-]?\d+$/ : /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/).test(result)) return fail3("\u0110\xE1p \xE1n s\u1ED1 kh\xF4ng h\u1EE3p l\u1EC7.");
+  const result = text8(value, 120, true);
+  if (!(kind === "integer" ? /^[+-]?\d+$/ : /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/).test(result)) return fail4("\u0110\xE1p \xE1n s\u1ED1 kh\xF4ng h\u1EE3p l\u1EC7.");
   return result;
 }
 function normalizeQuestion5(value, scope) {
@@ -25709,59 +25947,59 @@ function normalizeQuestion5(value, scope) {
   let interaction = "text-entry";
   let pairs;
   if (kind === "single-choice") {
-    if (opts.length < 2) return fail3("Tr\u1EAFc nghi\u1EC7m c\u1EA7n \xEDt nh\u1EA5t 2 ph\u01B0\u01A1ng \xE1n.");
+    if (opts.length < 2) return fail4("Tr\u1EAFc nghi\u1EC7m c\u1EA7n \xEDt nh\u1EA5t 2 ph\u01B0\u01A1ng \xE1n.");
     answerSpec = { kind, correctOptionId: reference(spec?.correctOptionId ?? row.answer ?? row.correctAnswer, opts) };
     interaction = "choice";
   } else if (kind === "text") {
     const values = spec?.acceptedAnswers ?? row.acceptedAnswers ?? [row.answer ?? row.correctAnswer];
-    if (!Array.isArray(values) || !values.length || values.length > 20) return fail3("C\u1EA7n \u0111\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn.");
-    answerSpec = { kind, acceptedAnswers: values.map((v) => text7(v, 2e3, true, "\u0110\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn")), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
+    if (!Array.isArray(values) || !values.length || values.length > 20) return fail4("C\u1EA7n \u0111\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn.");
+    answerSpec = { kind, acceptedAnswers: values.map((v) => text8(v, 2e3, true, "\u0110\xE1p \xE1n tr\u1EA3 l\u1EDDi ng\u1EAFn")), normalization: usesEnglishContent(scope.subject) ? { ...DEFAULT_ENGLISH_TEXT_NORMALIZATION } : { ...DEFAULT_VIETNAMESE_TEXT_NORMALIZATION } };
   } else if (kind === "integer") {
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), allowLeadingPlus: true };
   } else if (kind === "decimal") {
     const tolerance = spec?.tolerance === void 0 ? void 0 : numeric(spec.tolerance, "decimal");
-    if (tolerance && Number(tolerance) < 0) return fail3("Sai s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c \xE2m.");
+    if (tolerance && Number(tolerance) < 0) return fail4("Sai s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c \xE2m.");
     answerSpec = { kind, value: numeric(spec?.value ?? row.answer, kind), acceptCommaDecimal: true, ...tolerance ? { tolerance } : {} };
   } else if (kind === "fraction") {
     const numerator = numeric(spec?.numerator, "integer"), denominator = numeric(spec?.denominator, "integer");
-    if (BigInt(denominator) === 0n) return fail3("M\u1EABu s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c b\u1EB1ng 0.");
+    if (BigInt(denominator) === 0n) return fail4("M\u1EABu s\u1ED1 kh\xF4ng \u0111\u01B0\u1EE3c b\u1EB1ng 0.");
     answerSpec = { kind, numerator, denominator, acceptEquivalent: spec?.acceptEquivalent !== false };
   } else if (kind === "numeric-with-unit") {
-    if (!Array.isArray(spec?.acceptedUnits) || !spec.acceptedUnits.length || spec.acceptedUnits.length > 20) return fail3("C\u1EA7n \u0111\u01A1n v\u1ECB \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.");
-    answerSpec = { kind, value: numeric(spec.value, "decimal"), acceptedUnits: spec.acceptedUnits.map((v) => text7(v, 60, true)) };
+    if (!Array.isArray(spec?.acceptedUnits) || !spec.acceptedUnits.length || spec.acceptedUnits.length > 20) return fail4("C\u1EA7n \u0111\u01A1n v\u1ECB \u0111\u01B0\u1EE3c ch\u1EA5p nh\u1EADn.");
+    answerSpec = { kind, value: numeric(spec.value, "decimal"), acceptedUnits: spec.acceptedUnits.map((v) => text8(v, 60, true)) };
   } else if (kind === "ordering") {
-    if (opts.length < 2 || !Array.isArray(spec?.orderedTokenIds) || spec.orderedTokenIds.length !== opts.length) return fail3("S\u1EAFp x\u1EBFp c\u1EA7n \u0111\u1EE7 th\u1EE9 t\u1EF1 cho m\u1ECDi th\u1EBB.");
+    if (opts.length < 2 || !Array.isArray(spec?.orderedTokenIds) || spec.orderedTokenIds.length !== opts.length) return fail4("S\u1EAFp x\u1EBFp c\u1EA7n \u0111\u1EE7 th\u1EE9 t\u1EF1 cho m\u1ECDi th\u1EBB.");
     const ids = spec.orderedTokenIds.map((v) => reference(v, opts));
-    if (new Set(ids).size !== opts.length) return fail3("Th\u1EE9 t\u1EF1 ch\u1EE9a th\u1EBB tr\xF9ng.");
+    if (new Set(ids).size !== opts.length) return fail4("Th\u1EE9 t\u1EF1 ch\u1EE9a th\u1EBB tr\xF9ng.");
     answerSpec = { kind, orderedTokenIds: ids };
     interaction = "ordering";
   } else if (kind === "matching") {
     const pairRow = record2(row.pairs), left = options(pairRow.left, "left"), right = options(pairRow.right, "right");
-    if (left.length < 2 || left.length !== right.length) return fail3("N\u1ED1i c\u1EB7p c\u1EA7n hai c\u1ED9t c\xF9ng s\u1ED1 ph\u1EA7n t\u1EED.");
+    if (left.length < 2 || left.length !== right.length) return fail4("N\u1ED1i c\u1EB7p c\u1EA7n hai c\u1ED9t c\xF9ng s\u1ED1 ph\u1EA7n t\u1EED.");
     const matches = record2(spec?.correctPairMatches), entries = Object.entries(matches);
-    if (entries.length !== left.length) return fail3("Thi\u1EBFu \u0111\xE1p \xE1n n\u1ED1i c\u1EB7p.");
+    if (entries.length !== left.length) return fail4("Thi\u1EBFu \u0111\xE1p \xE1n n\u1ED1i c\u1EB7p.");
     const mapped = Object.fromEntries(entries.map(([l, r]) => [reference(l, left), reference(r, right)]));
-    if (new Set(Object.values(mapped)).size !== right.length || Object.keys(mapped).length !== left.length) return fail3("\u0110\xE1p \xE1n n\u1ED1i c\u1EB7p ph\u1EA3i m\u1ED9t-m\u1ED9t.");
+    if (new Set(Object.values(mapped)).size !== right.length || Object.keys(mapped).length !== left.length) return fail4("\u0110\xE1p \xE1n n\u1ED1i c\u1EB7p ph\u1EA3i m\u1ED9t-m\u1ED9t.");
     answerSpec = { kind, correctPairMatches: mapped };
     interaction = "matching";
     pairs = { left, right };
-  } else return fail3("D\u1EA1ng \u0111\xE1p \xE1n ch\u01B0a \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3 \u1EDF lu\u1ED3ng \u0111\u1EA7u ti\xEAn.");
-  const prompt = text7(content.prompt ?? row.question ?? row.text, 2e4, true);
+  } else return fail4("D\u1EA1ng \u0111\xE1p \xE1n ch\u01B0a \u0111\u01B0\u1EE3c h\u1ED7 tr\u1EE3 \u1EDF lu\u1ED3ng \u0111\u1EA7u ti\xEAn.");
+  const prompt = text8(content.prompt ?? row.question ?? row.text, 2e4, true);
   const difficulty = row.difficulty === void 0 ? 2 : Number(row.difficulty);
-  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail3("\u0110\u1ED9 kh\xF3 ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 5.");
-  const domain = text7(row.domain ?? "vocabulary", 80, true);
-  if (scope.subject === "english" && !["vocabulary", "grammar", "reading", "listening"].includes(domain)) return fail3("Nh\xF3m IOE kh\xF4ng h\u1EE3p l\u1EC7.");
-  const feedback = splitTeacherFeedback(text7(row.explanation ?? (row.feedback ? record2(row.feedback).explanation : ""), 2e4, false, "Gi\u1EA3i th\xEDch"), text7(row.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn"));
-  const teacherNote = text7(feedback.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn");
+  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return fail4("\u0110\u1ED9 kh\xF3 ph\u1EA3i t\u1EEB 1 \u0111\u1EBFn 5.");
+  const domain = text8(row.domain ?? "vocabulary", 80, true);
+  if (scope.subject === "english" && !["vocabulary", "grammar", "reading", "listening"].includes(domain)) return fail4("Nh\xF3m IOE kh\xF4ng h\u1EE3p l\u1EC7.");
+  const feedback = splitTeacherFeedback(text8(row.explanation ?? (row.feedback ? record2(row.feedback).explanation : ""), 2e4, false, "Gi\u1EA3i th\xEDch"), text8(row.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn"));
+  const teacherNote = text8(feedback.teacherNote, 5e3, false, "Ghi ch\xFA cho gi\xE1o vi\xEAn");
   return {
     ...scope,
     id: "",
     ownerId: "",
     revision: 0,
-    title: text7(content.title, 500),
+    title: text8(content.title, 500),
     prompt,
-    passage: text7(content.passage),
-    sourceNumber: text7(row.sourceNumber, 100),
+    passage: text8(content.passage),
+    sourceNumber: text8(row.sourceNumber, 100),
     options: opts,
     media: normalizeMedia(content.media),
     answerSpec,
@@ -25820,10 +26058,10 @@ function buildImportPrompt(scope) {
 }
 
 // src/server/ioe-violympic/repository.ts
-var import_node_crypto19 = __toESM(require("node:crypto"), 1);
+var import_node_crypto20 = __toESM(require("node:crypto"), 1);
 
 // src/server/ioe-violympic/selection.ts
-var import_node_crypto18 = __toESM(require("node:crypto"), 1);
+var import_node_crypto19 = __toESM(require("node:crypto"), 1);
 function allocate(total, weights) {
   const sum = Object.values(weights).reduce((a, b) => a + b, 0);
   const rows = Object.entries(weights).map(([key2, w]) => ({ key: key2, count: Math.floor(total * w / sum), remainder: total * w / sum % 1 }));
@@ -25851,7 +26089,7 @@ function blueprint(scope) {
 }
 function fingerprint2(q) {
   const normalize = (v) => v.normalize("NFKC").toLocaleLowerCase("vi").replace(/\s+/g, " ").trim();
-  return import_node_crypto18.default.createHash("sha256").update(JSON.stringify([
+  return import_node_crypto19.default.createHash("sha256").update(JSON.stringify([
     q.subject,
     q.grade,
     q.level,
@@ -25866,7 +26104,7 @@ function fingerprint2(q) {
 function shuffle(items) {
   const result = [...items];
   for (let i = result.length - 1; i > 0; i--) {
-    const j = import_node_crypto18.default.randomInt(i + 1);
+    const j = import_node_crypto19.default.randomInt(i + 1);
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -25965,7 +26203,7 @@ function registerMedia(db, resourceId, type, questions, now2) {
   const attached = questions.flatMap((q) => [...q.media, ...q.options.flatMap((o) => o.media), ...q.pairs ? [...q.pairs.left, ...q.pairs.right].flatMap((o) => o.media) : []]);
   const unique3 = new Map(attached.map((m) => [m.url, m]));
   unique3.forEach((m) => {
-    const id2 = import_node_crypto19.default.createHash("sha256").update(`${resourceId}:${m.url}`).digest("hex");
+    const id2 = import_node_crypto20.default.createHash("sha256").update(`${resourceId}:${m.url}`).digest("hex");
     const data = { id: id2, assetId: m.assetId || "", url: m.url, resourceId, resourceType: type, createdAt: now2 };
     db.run("INSERT OR IGNORE INTO competition_asset_usages(id,asset_id,url,resource_id,resource_type,created_at,data_json) VALUES (?,?,?,?,?,?,?)", [id2, m.assetId || null, m.url, resourceId, type, now2, JSON.stringify(data)]);
   });
@@ -26031,7 +26269,7 @@ function snapshotBank(db, scope, now2) {
     title: info.title,
     source: "bank",
     ownerId: "competition-shared-bank",
-    versionId: import_node_crypto19.default.randomUUID(),
+    versionId: import_node_crypto20.default.randomUUID(),
     visibility: "public",
     status: "published",
     total: b.total,
@@ -26081,8 +26319,8 @@ async function saveQuestions(actor, scope, rows, requestId) {
     }
   });
   await validateMediaOwnership(actor, normalized7);
-  const hash3 = import_node_crypto19.default.createHash("sha256").update(JSON.stringify([scope, rows])).digest("hex");
-  const importId = import_node_crypto19.default.createHash("sha256").update(`${actor.id}:${requestId}`).digest("hex");
+  const hash3 = import_node_crypto20.default.createHash("sha256").update(JSON.stringify([scope, rows])).digest("hex");
+  const importId = import_node_crypto20.default.createHash("sha256").update(`${actor.id}:${requestId}`).digest("hex");
   return transaction2((db) => {
     const existing = db.one("SELECT payload_hash,data_json FROM competition_imports WHERE id=?", [importId]);
     if (existing) {
@@ -26091,7 +26329,7 @@ async function saveQuestions(actor, scope, rows, requestId) {
     }
     const now2 = (/* @__PURE__ */ new Date()).toISOString(), ids = [];
     for (const q of normalized7) {
-      const id2 = import_node_crypto19.default.randomUUID(), question = { ...q, id: id2, ownerId: actor.id, revision: 1 };
+      const id2 = import_node_crypto20.default.randomUUID(), question = { ...q, id: id2, ownerId: actor.id, revision: 1 };
       db.run("INSERT INTO competition_questions(id,owner_id,subject,grade,level,revision,fingerprint,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, 1, fingerprint2(q), now2, now2, JSON.stringify(question)]);
       db.run("INSERT INTO competition_question_versions(id,question_id,revision,created_at,data_json) VALUES (?,?,?,?,?)", [`${id2}:1`, id2, 1, now2, JSON.stringify(question)]);
       registerMedia(db, `${id2}:1`, "question-version", [question], now2);
@@ -26133,8 +26371,8 @@ async function archiveQuestions(actor, ids) {
 async function createPaper(actor, scope, title, visibility) {
   return transaction2((db) => {
     const b = blueprint(scope), selection = selectQuestions(bankPool(db, actor, scope), b);
-    const now2 = (/* @__PURE__ */ new Date()).toISOString(), id2 = import_node_crypto19.default.randomUUID(), versionId = import_node_crypto19.default.randomUUID();
-    const paper2 = { ...scope, id: id2, ownerId: actor.id, title: text7(title, 300, true), versionId, visibility, status: "published", total: b.total, durationMinutes: b.durationMinutes, createdAt: now2, blueprint: b, relaxed: selection.relaxed, warnings: selection.warnings };
+    const now2 = (/* @__PURE__ */ new Date()).toISOString(), id2 = import_node_crypto20.default.randomUUID(), versionId = import_node_crypto20.default.randomUUID();
+    const paper2 = { ...scope, id: id2, ownerId: actor.id, title: text8(title, 300, true), versionId, visibility, status: "published", total: b.total, durationMinutes: b.durationMinutes, createdAt: now2, blueprint: b, relaxed: selection.relaxed, warnings: selection.warnings };
     db.run("INSERT INTO competition_papers(id,owner_id,subject,grade,level,status,visibility,created_at,updated_at,data_json) VALUES (?,?,?,?,?,?,?,?,?,?)", [id2, actor.id, scope.subject, scope.grade, scope.level, "published", visibility, now2, now2, JSON.stringify(paper2)]);
     db.run("INSERT INTO competition_paper_versions(id,paper_id,created_at,data_json) VALUES (?,?,?,?)", [versionId, id2, now2, JSON.stringify({ paper: paper2, questions: selection.questions })]);
     registerMedia(db, versionId, "paper-version", selection.questions, now2);
@@ -26287,7 +26525,7 @@ function snapshotMistakes(db, ownerKey, scope, now2) {
     title: info.title,
     source: "mistakes",
     ownerId: "competition-private-practice",
-    versionId: import_node_crypto20.default.randomUUID(),
+    versionId: import_node_crypto21.default.randomUUID(),
     visibility: "assignment",
     status: "published",
     total: questions.length,
@@ -26307,7 +26545,7 @@ function snapshotMistakes(db, ownerKey, scope, now2) {
 }
 
 // src/server/ioe-violympic/engine.ts
-var import_node_crypto21 = __toESM(require("node:crypto"), 1);
+var import_node_crypto22 = __toESM(require("node:crypto"), 1);
 
 // src/server/ioe-violympic/graderRegistry.ts
 var CORRECT = { isCorrect: true, scoreRatio: 1 };
@@ -26529,7 +26767,7 @@ function validateAnswers(value, questions) {
       continue;
     }
     if (expected === "selectedOptionId") {
-      const selected = text7(answer.selectedOptionId, 160);
+      const selected = text8(answer.selectedOptionId, 160);
       if (selected && !q.options.some((o) => o.id === selected)) throw new CompetitionError(400, "INVALID_ANSWERS", "Ph\u01B0\u01A1ng \xE1n kh\xF4ng thu\u1ED9c c\xE2u h\u1ECFi.");
       output[id2] = { selectedOptionId: selected };
     } else if (expected === "orderedTokenIds") {
@@ -26540,7 +26778,7 @@ function validateAnswers(value, questions) {
       const pairs = record2(answer.pairMatches), entries = Object.entries(pairs);
       if (entries.length > (q.pairs?.left.length || 0) || entries.some(([l, r]) => typeof r !== "string" || !q.pairs?.left.some((o) => o.id === l) || !q.pairs?.right.some((o) => o.id === r)) || new Set(Object.values(pairs)).size !== entries.length) throw new CompetitionError(400, "INVALID_ANSWERS", "C\u1EB7p n\u1ED1i kh\xF4ng h\u1EE3p l\u1EC7.");
       output[id2] = { pairMatches: Object.fromEntries(entries.map(([l, r]) => [l, String(r)])) };
-    } else output[id2] = { textAnswer: text7(answer.textAnswer, 2e3) };
+    } else output[id2] = { textAnswer: text8(answer.textAnswer, 2e3) };
   }
   return output;
 }
@@ -26548,13 +26786,13 @@ function createCompetitionEngine(secret, clock = Date.now) {
   if (secret.length < 24) throw new Error("Competition ticket requires the configured B signing secret.");
   const nowIso5 = () => new Date(clock()).toISOString();
   const ticket = (a) => {
-    const payload = Buffer.from(JSON.stringify({ id: a.id, owner: import_node_crypto21.default.createHash("sha256").update(a.ownerKey).digest("hex"), version: a.paper.versionId, v: 1 })).toString("base64url");
-    return `${payload}.${import_node_crypto21.default.createHmac("sha256", secret).update(payload).digest("base64url")}`;
+    const payload = Buffer.from(JSON.stringify({ id: a.id, owner: import_node_crypto22.default.createHash("sha256").update(a.ownerKey).digest("hex"), version: a.paper.versionId, v: 1 })).toString("base64url");
+    return `${payload}.${import_node_crypto22.default.createHmac("sha256", secret).update(payload).digest("base64url")}`;
   };
   const verify = (value, a) => {
     if (typeof value !== "string" || value.length > 1e3) return false;
     const actual = Buffer.from(value), expected = Buffer.from(ticket(a));
-    return actual.length === expected.length && import_node_crypto21.default.timingSafeEqual(actual, expected);
+    return actual.length === expected.length && import_node_crypto22.default.timingSafeEqual(actual, expected);
   };
   const load = (db, id2, actor, signed) => {
     const row = db.one("SELECT data_json FROM competition_attempts WHERE id=? AND owner_key=?", [id2, actor.ownerKey]);
@@ -26629,7 +26867,7 @@ function createCompetitionEngine(secret, clock = Date.now) {
       if (a2.paper.id !== paperId || (a2.assignmentId || "") !== (context.assignmentId || "")) throw new CompetitionError(409, "RUN_CONFLICT", "M\xE3 l\u01B0\u1EE3t l\xE0m \u0111\xE3 d\xF9ng cho b\xE0i kh\xE1c.");
       return session(expire(db, a2));
     }
-    const id2 = import_node_crypto21.default.randomUUID(), createdAt = nowIso5();
+    const id2 = import_node_crypto22.default.randomUUID(), createdAt = nowIso5();
     const scope = bankScope(paperId), mistakes = mistakeScope(paperId);
     let paper2, questions;
     if (mistakes) {
@@ -26764,9 +27002,9 @@ function createCompetitionRouter(options2) {
   router.post("/admin/prompt", handle(async (req, res) => res.json({ prompt: buildImportPrompt(parseScope(req.body)) })));
   router.get("/admin/inventory", handle(async (req, res) => res.json(await inventory(staff(req)))));
   router.get("/admin/overview", handle(async (req, res) => res.json(await overview(staff(req)))));
-  router.get("/admin/questions", handle(async (req, res) => res.json(await listBank(staff(req), parseQuestionFilters(req.query), text7(req.query.search, 300), integer4(req.query.page, 1, 1e5, 1)))));
+  router.get("/admin/questions", handle(async (req, res) => res.json(await listBank(staff(req), parseQuestionFilters(req.query), text8(req.query.search, 300), integer4(req.query.page, 1, 1e5, 1)))));
   router.post("/admin/questions", handle(async (req, res) => {
-    const body = record2(req.body), requestId = text7(body.requestId, 160, true);
+    const body = record2(req.body), requestId = text8(body.requestId, 160, true);
     if (!/^[A-Za-z0-9._:-]{8,160}$/.test(requestId) || !Array.isArray(body.questions)) throw new CompetitionError(400, "INVALID_INPUT", "M\xE3 l\u01B0u ho\u1EB7c danh s\xE1ch c\xE2u kh\xF4ng h\u1EE3p l\u1EC7.");
     res.status(201).json(await saveQuestions(staff(req), parseScope(body), body.questions, requestId));
   }));
@@ -26779,7 +27017,7 @@ function createCompetitionRouter(options2) {
   router.get("/admin/papers", handle(async (req, res) => res.json(await listPapers(staff(req)))));
   router.post("/admin/papers", handle(async (req, res) => {
     if (req.body.visibility !== "public" && req.body.visibility !== "assignment") throw new CompetitionError(400, "INVALID_INPUT", "Ch\u1ECDn c\xF4ng khai ho\u1EB7c giao l\u1EDBp.");
-    res.status(201).json(await createPaper(staff(req), parseScope(req.body), text7(req.body.title, 300, true), req.body.visibility));
+    res.status(201).json(await createPaper(staff(req), parseScope(req.body), text8(req.body.title, 300, true), req.body.visibility));
   }));
   router.delete("/admin/papers/:id", handle(async (req, res) => {
     if (bankScope(req.params.id) || mistakeScope(req.params.id)) throw new CompetitionError(400, "BANK_SCOPE_MANAGED", "Nh\xF3m c\xE2u \u0111\u01B0\u1EE3c qu\u1EA3n l\xFD t\u1EEB ng\xE2n h\xE0ng ho\u1EB7c l\u1ECBch s\u1EED h\u1ECDc sinh.");
@@ -26788,7 +27026,7 @@ function createCompetitionRouter(options2) {
     res.json({ archived: true });
   }));
   router.get("/admin/results", handle(async (req, res) => {
-    const actor = staff(req), paperId = text7(req.query.paperId, 160);
+    const actor = staff(req), paperId = text8(req.query.paperId, 160);
     if (paperId) requireOwned(await getPaper(paperId), actor);
     const where = actor.role === "super_admin" ? "" : "AND p.owner_id=?";
     const params = actor.role === "super_admin" ? [] : [actor.id];
@@ -26805,11 +27043,11 @@ function createCompetitionRouter(options2) {
     }
     if (req.query.grade !== void 0 && req.query.grade !== "") filters.grade = integer4(req.query.grade, 1, 9);
     if (req.query.level !== void 0 && req.query.level !== "") {
-      const level = text7(req.query.level, 40);
+      const level = text8(req.query.level, 40);
       if (!Object.entries(LEVEL_LABELS).some(([id2]) => id2 === level)) throw new CompetitionError(400, "INVALID_INPUT", "C\u1EA5p kh\xF4ng h\u1EE3p l\u1EC7.");
       filters.level = level;
     }
-    filters.paperId = text7(req.query.paperId, 160);
+    filters.paperId = text8(req.query.paperId, 160);
     if (filters.paperId) requireOwned(await getPaper(filters.paperId), actor);
     res.json(await listResults2(actor, filters, integer4(req.query.page, 1, 1e7, 1)));
   }));
@@ -26834,9 +27072,9 @@ function createCompetitionRouter(options2) {
     return {};
   }
   router.post("/attempts/prepare", handle(async (req, res) => {
-    const actor = await resolveLearningHistoryActor(req), paperId = text7(req.body.paperId, 160, true), clientRunId = text7(req.body.clientRunId, 160, true);
+    const actor = await resolveLearningHistoryActor(req), paperId = text8(req.body.paperId, 160, true), clientRunId = text8(req.body.clientRunId, 160, true);
     if (!/^[A-Za-z0-9._:-]{8,160}$/.test(clientRunId)) throw new CompetitionError(400, "INVALID_RUN", "M\xE3 l\u01B0\u1EE3t l\xE0m kh\xF4ng h\u1EE3p l\u1EC7.");
-    const scope = bankScope(paperId), mistakes = mistakeScope(paperId), access = text7(req.body.access, 300);
+    const scope = bankScope(paperId), mistakes = mistakeScope(paperId), access = text8(req.body.access, 300);
     let context = {};
     if (scope || mistakes) {
       if (access) throw new CompetitionError(400, "INVALID_CONTEXT", "Luy\u1EC7n t\u1EEB ng\xE2n h\xE0ng kh\xF4ng d\xF9ng link giao \u0111\u1EC1 c\u1ED1 \u0111\u1ECBnh.");
@@ -26846,18 +27084,18 @@ function createCompetitionRouter(options2) {
       context = await accessContext(req, paper2, access);
     }
     const profile = actor.kind === "guest" ? await options2.db.collection("guest_profiles").doc(actor.id).get() : void 0;
-    const studentName = actor.kind === "user" ? text7(actor.userProfile?.name, 120, true) : text7(profile?.data()?.displayName || profile?.data()?.name, 120, true);
+    const studentName = actor.kind === "user" ? text8(actor.userProfile?.name, 120, true) : text8(profile?.data()?.displayName || profile?.data()?.name, 120, true);
     res.status(201).json(await engine.prepare(actor, studentName, paperId, clientRunId, context));
   }));
-  router.get("/attempts/:id", handle(async (req, res) => res.json(await engine.resume(await resolveLearningHistoryActor(req), req.params.id, text7(req.headers["x-attempt-ticket"], 1e3, true)))));
-  router.post("/attempts/:id/activate", handle(async (req, res) => res.json(await engine.activate(await resolveLearningHistoryActor(req), req.params.id, text7(req.headers["x-attempt-ticket"], 1e3, true)))));
+  router.get("/attempts/:id", handle(async (req, res) => res.json(await engine.resume(await resolveLearningHistoryActor(req), req.params.id, text8(req.headers["x-attempt-ticket"], 1e3, true)))));
+  router.post("/attempts/:id/activate", handle(async (req, res) => res.json(await engine.activate(await resolveLearningHistoryActor(req), req.params.id, text8(req.headers["x-attempt-ticket"], 1e3, true)))));
   router.put("/attempts/:id/answers", handle(async (req, res) => {
-    const saved = await engine.save(await resolveLearningHistoryActor(req), req.params.id, text7(req.headers["x-attempt-ticket"], 1e3, true), integer4(req.body.revision, 0, 1e7), req.body.answers);
+    const saved = await engine.save(await resolveLearningHistoryActor(req), req.params.id, text8(req.headers["x-attempt-ticket"], 1e3, true), integer4(req.body.revision, 0, 1e7), req.body.answers);
     const { questions: _questions, ...update } = saved;
     res.json(update);
   }));
-  router.post("/attempts/:id/submit", handle(async (req, res) => res.json(await engine.submit(await resolveLearningHistoryActor(req), req.params.id, text7(req.headers["x-attempt-ticket"], 1e3, true), integer4(req.body.revision, 0, 1e7), req.body.answers))));
-  router.get("/attempts/:id/review", handle(async (req, res) => res.json(await engine.review(await resolveLearningHistoryActor(req), req.params.id, text7(req.headers["x-attempt-ticket"], 1e3, true)))));
+  router.post("/attempts/:id/submit", handle(async (req, res) => res.json(await engine.submit(await resolveLearningHistoryActor(req), req.params.id, text8(req.headers["x-attempt-ticket"], 1e3, true), integer4(req.body.revision, 0, 1e7), req.body.answers))));
+  router.get("/attempts/:id/review", handle(async (req, res) => res.json(await engine.review(await resolveLearningHistoryActor(req), req.params.id, text8(req.headers["x-attempt-ticket"], 1e3, true)))));
   if (options2.enabled) {
     let running = false;
     const reconcile = async () => {
@@ -26883,7 +27121,7 @@ function createCompetitionRouter(options2) {
 var import_express25 = __toESM(require("express"), 1);
 
 // src/server/speaking/providers.ts
-var import_node_crypto22 = __toESM(require("node:crypto"), 1);
+var import_node_crypto23 = __toESM(require("node:crypto"), 1);
 
 // src/server/speaking/azureSession.ts
 function cancellationError(sdk2, code) {
@@ -27130,8 +27368,8 @@ function createProviders(env = process.env) {
     async assess(input) {
       if (!speechsuper.configured) throw new SpeakingError(503, "PROVIDER_NOT_CONFIGURED", "Ch\u01B0a c\u1EA5u h\xECnh SpeechSuper.");
       if (input.durationSeconds > 180) throw new SpeakingError(422, "PROVIDER_DURATION", "SpeechSuper h\u1ED7 tr\u1EE3 t\u1ED1i \u0111a 180 gi\xE2y.");
-      const started = Date.now(), timestamp = String(started), userId = import_node_crypto22.default.randomUUID(), appKey = env.SPEECHSUPER_APP_KEY, secret = env.SPEECHSUPER_SECRET_KEY;
-      const sha = (s) => import_node_crypto22.default.createHash("sha1").update(s).digest("hex");
+      const started = Date.now(), timestamp = String(started), userId = import_node_crypto23.default.randomUUID(), appKey = env.SPEECHSUPER_APP_KEY, secret = env.SPEECHSUPER_SECRET_KEY;
+      const sha = (s) => import_node_crypto23.default.createHash("sha1").update(s).digest("hex");
       const coreType = input.lesson.kind === "word" ? "word.eval.promax" : input.lesson.kind === "passage" ? "para.eval" : "sent.eval.promax";
       const params = {
         connect: { cmd: "connect", param: { sdk: { version: 16777472, source: 9, protocol: 2 }, app: { applicationId: appKey, timestamp, sig: sha(appKey + timestamp + secret) } } },
@@ -27141,7 +27379,7 @@ function createProviders(env = process.env) {
           request: {
             coreType,
             refText: input.lesson.referenceText,
-            tokenId: import_node_crypto22.default.randomUUID(),
+            tokenId: import_node_crypto23.default.randomUUID(),
             dict_type: "IPA88",
             dict_dialect: input.lesson.locale === "en-US" ? "en_us" : "en_br",
             scale: 100,
@@ -27171,7 +27409,7 @@ function createProviders(env = process.env) {
 }
 
 // src/server/speaking/service.ts
-var import_node_crypto23 = __toESM(require("node:crypto"), 1);
+var import_node_crypto24 = __toESM(require("node:crypto"), 1);
 var import_promises7 = __toESM(require("node:fs/promises"), 1);
 var import_node_path15 = __toESM(require("node:path"), 1);
 
@@ -27242,7 +27480,7 @@ function createSpeakingService(options2) {
     if (!/^[0-9a-f-]{36}$/.test(id2)) throw notFound2();
     return import_node_path15.default.join(options2.audioDir, `${id2}.wav`);
   };
-  const ticket = (a) => import_node_crypto23.default.createHmac("sha256", options2.secret).update(`${a.id}|${a.ownerKey}|${a.lesson.versionId}`).digest("base64url");
+  const ticket = (a) => import_node_crypto24.default.createHmac("sha256", options2.secret).update(`${a.id}|${a.ownerKey}|${a.lesson.versionId}`).digest("base64url");
   const view = (raw, includeTicket = false) => {
     const a = raw;
     const { ownerKey: _o, audioHash: _h, audioExpiresAt: _e, ...v } = a;
@@ -27259,7 +27497,7 @@ function createSpeakingService(options2) {
     else if (a.ownerKey !== actor.ownerKey) throw notFound2();
     if (signed !== void 0) {
       const expected = Buffer.from(ticket(a)), given = Buffer.from(signed);
-      if (given.length !== expected.length || !import_node_crypto23.default.timingSafeEqual(given, expected)) throw new SpeakingError(403, "INVALID_TICKET", "L\u01B0\u1EE3t \u0111\u1ECDc ch\u01B0a \u0111\u01B0\u1EE3c x\xE1c minh.");
+      if (given.length !== expected.length || !import_node_crypto24.default.timingSafeEqual(given, expected)) throw new SpeakingError(403, "INVALID_TICKET", "L\u01B0\u1EE3t \u0111\u1ECDc ch\u01B0a \u0111\u01B0\u1EE3c x\xE1c minh.");
     }
     return a;
   }
@@ -27298,14 +27536,14 @@ function createSpeakingService(options2) {
       if (session?.status === "completed") throw new SpeakingError(409, "SESSION_COMPLETED", "B\u1ED9 \u0111\xE3 ho\xE0n th\xE0nh. H\xE3y m\u1EDF l\u01B0\u1EE3t luy\u1EC7n m\u1EDBi.");
       const now2 = (/* @__PURE__ */ new Date()).toISOString(), count = db.one("SELECT COUNT(*) n FROM speaking_attempts WHERE owner_key=? AND created_at>=?", [actor.ownerKey, now2.slice(0, 10)]);
       if ((count?.n || 0) >= dailyLimit) throw new SpeakingError(429, "DAILY_LIMIT", `B\u1EA1n \u0111\xE3 d\xF9ng ${dailyLimit} l\u01B0\u1EE3t \u0111\u1ECDc h\xF4m nay. C\xF3 th\u1EC3 ti\u1EBFp t\u1EE5c b\u1ED9 v\xE0o ng\xE0y sau.`);
-      const a = { id: import_node_crypto23.default.randomUUID(), ownerKey: actor.ownerKey, lesson: snapshot, status: "prepared", createdAt: now2, completedAt: null, durationSeconds: null, assessment: null, feedback: null, feedbackState: "disabled", error: "", ...selection ? { sessionId: selection.sessionId, itemId: selection.itemId, itemNumber } : {} };
+      const a = { id: import_node_crypto24.default.randomUUID(), ownerKey: actor.ownerKey, lesson: snapshot, status: "prepared", createdAt: now2, completedAt: null, durationSeconds: null, assessment: null, feedback: null, feedbackState: "disabled", error: "", ...selection ? { sessionId: selection.sessionId, itemId: selection.itemId, itemNumber } : {} };
       const values = [a.id, actor.ownerKey, lessonId, snapshot.versionId, clientRunId, a.status, studentName, actor.kind === "user" ? actor.id : null, actor.kind === "guest" ? actor.id : null, context.classId || null, context.className || "", now2, JSON.stringify(a), selection?.sessionId || null, selection?.itemId || null];
       db.run(`INSERT INTO speaking_attempts(id,owner_key,lesson_id,version_id,client_run_id,status,student_name,user_id,guest_id,class_id,class_name,created_at,data_json,session_id,item_id) VALUES (${values.map(() => "?").join(",")})`, values);
       return view(a, true);
     });
   }
   async function upload(actor, id2, signed, wav) {
-    const initial = await access(actor, id2, signed), hash3 = import_node_crypto23.default.createHash("sha256").update(wav).digest("hex");
+    const initial = await access(actor, id2, signed), hash3 = import_node_crypto24.default.createHash("sha256").update(wav).digest("hex");
     if (initial.audioHash) {
       if (initial.audioHash !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c. H\xE3y t\u1EA1o l\u01B0\u1EE3t \u0111\u1ECDc m\u1EDBi.");
       return view(initial, true);
@@ -27315,14 +27553,14 @@ function createSpeakingService(options2) {
     if (!provider2.configured) throw new SpeakingError(503, "PROVIDER_NOT_CONFIGURED", "Gi\xE1o vi\xEAn ch\u01B0a c\u1EA5u h\xECnh d\u1ECBch v\u1EE5 ch\u1EA5m gi\u1ECDng.");
     const quality = inspectWav(wav, Math.min(initial.lesson.maxSeconds, provider2.maxSeconds));
     await import_promises7.default.mkdir(options2.audioDir, { recursive: true });
-    const temporary = `${file(id2)}.${import_node_crypto23.default.randomUUID()}.tmp`;
+    const temporary = `${file(id2)}.${import_node_crypto24.default.randomUUID()}.tmp`;
     try {
       await import_promises7.default.writeFile(temporary, wav, { flag: "wx", mode: 384 });
       try {
         await import_promises7.default.link(temporary, file(id2));
       } catch (e) {
         if (e.code !== "EEXIST") throw e;
-        if (import_node_crypto23.default.createHash("sha256").update(await import_promises7.default.readFile(file(id2))).digest("hex") !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c.");
+        if (import_node_crypto24.default.createHash("sha256").update(await import_promises7.default.readFile(file(id2))).digest("hex") !== hash3) throw new SpeakingError(409, "AUDIO_CONFLICT", "L\u01B0\u1EE3t n\xE0y \u0111\xE3 nh\u1EADn b\u1EA3n thu kh\xE1c.");
       }
     } finally {
       await import_promises7.default.unlink(temporary).catch(() => {
@@ -27380,7 +27618,7 @@ function createSpeakingService(options2) {
       }
       const j = db.one("SELECT id,attempt_id,kind FROM speaking_jobs WHERE status IN ('queued','waiting') ORDER BY created_at,id LIMIT 1");
       if (!j) return void 0;
-      const lease = import_node_crypto23.default.randomUUID();
+      const lease = import_node_crypto24.default.randomUUID();
       db.run("UPDATE speaking_jobs SET status='running',lease_token=?,lease_until=?,tries=tries+1,updated_at=? WHERE id=? AND status IN ('queued','waiting')", [lease, Date.now() + 48e4, (/* @__PURE__ */ new Date()).toISOString(), j.id]);
       const a = decode(db.one("SELECT data_json FROM speaking_attempts WHERE id=?", [j.attempt_id]));
       if (j.kind === "assessment") {
@@ -27395,7 +27633,7 @@ function createSpeakingService(options2) {
     try {
       if (!job.attempt.audioExpiresAt || job.attempt.audioExpiresAt <= (/* @__PURE__ */ new Date()).toISOString() || Date.now() - (await import_promises7.default.stat(file(job.attempt.id))).mtimeMs >= 864e5) throw new SpeakingError(410, "AUDIO_EXPIRED", "B\u1EA3n thu \u0111\xE3 h\u1EBFt th\u1EDDi h\u1EA1n ch\u1EA5m l\u1EA1i. H\xE3y t\u1EA1o l\u01B0\u1EE3t m\u1EDBi.");
       const wav = await import_promises7.default.readFile(file(job.attempt.id));
-      if (import_node_crypto23.default.createHash("sha256").update(wav).digest("hex") !== job.attempt.audioHash) throw new SpeakingError(422, "AUDIO_INTEGRITY", "B\u1EA3n thu l\u01B0u tr\u1EEF kh\xF4ng c\xF2n nguy\xEAn v\u1EB9n.");
+      if (import_node_crypto24.default.createHash("sha256").update(wav).digest("hex") !== job.attempt.audioHash) throw new SpeakingError(422, "AUDIO_INTEGRITY", "B\u1EA3n thu l\u01B0u tr\u1EEF kh\xF4ng c\xF2n nguy\xEAn v\u1EB9n.");
       if (job.kind === "assessment") {
         assessment = await options2.providers[job.attempt.lesson.provider].assess({ lesson: job.attempt.lesson, wav, durationSeconds: job.attempt.durationSeconds });
         if (assessment.provider !== job.attempt.lesson.provider || assessment.schemaVersion !== 1 || !Number.isFinite(assessment.score) || assessment.score < 0 || assessment.score > 100) throw new SpeakingError(502, "PROVIDER_RESPONSE", "K\u1EBFt qu\u1EA3 d\u1ECBch v\u1EE5 kh\xF4ng kh\u1EDBp c\u1EA5u h\xECnh l\u01B0\u1EE3t \u0111\u1ECDc.");
@@ -28999,35 +29237,35 @@ var TTS_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.TTS_CONCURRENC
 var ttsQueue = [];
 var ttsInFlight = /* @__PURE__ */ new Map();
 var isProcessingTtsQueue = false;
-function normalizeTtsText(text8) {
-  return text8.normalize("NFKC").trim().replace(/\s+/g, " ");
+function normalizeTtsText(text9) {
+  return text9.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
 function sanitizeTtsInput(input) {
   const warnings = [];
-  let text8 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
-  if (!text8) return { text: "", warnings };
-  const lines = text8.split("\n").map((line) => line.trim()).filter(Boolean);
+  let text9 = String(input || "").normalize("NFKC").replace(/\r\n?/g, "\n").trim();
+  if (!text9) return { text: "", warnings };
+  const lines = text9.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length > 1) {
     warnings.push("Only the first non-empty line was used for TTS.");
-    text8 = lines[0];
+    text9 = lines[0];
   }
-  const dashSplit = text8.split(/\s+[–—-]\s+/);
+  const dashSplit = text9.split(/\s+[–—-]\s+/);
   if (dashSplit.length > 1) {
     warnings.push("Text after the separator was removed before TTS.");
-    text8 = dashSplit[0];
+    text9 = dashSplit[0];
   }
-  const beforeNotes = text8;
-  text8 = text8.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
-  if (text8 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
-  const beforeIpa = text8;
-  text8 = text8.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
-  if (text8 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
-  text8 = normalizeTtsText(text8).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
-  if (text8.length > 120) {
+  const beforeNotes = text9;
+  text9 = text9.replace(/\s*[\(\[\{][^\)\]\}]{1,80}[\)\]\}]\s*$/g, "").trim();
+  if (text9 !== beforeNotes) warnings.push("Trailing note text was removed before TTS.");
+  const beforeIpa = text9;
+  text9 = text9.replace(/\s+\/[^/]{1,80}\/\s*$/g, "").trim();
+  if (text9 !== beforeIpa) warnings.push("Trailing IPA text was removed before TTS.");
+  text9 = normalizeTtsText(text9).replace(/^[\s"'“”‘’.,;:!?]+|[\s"'“”‘’.,;:!?]+$/g, "").trim();
+  if (text9.length > 120) {
     warnings.push("TTS text was shortened to 120 characters.");
-    text8 = text8.slice(0, 120).trim();
+    text9 = text9.slice(0, 120).trim();
   }
-  return { text: text8, warnings };
+  return { text: text9, warnings };
 }
 function normalizeTtsSettings(settings = {}) {
   const provider2 = String(settings.provider || DEFAULT_TTS_PROVIDER).trim().toLowerCase();
@@ -29045,8 +29283,8 @@ function normalizeTtsSettings(settings = {}) {
     speed
   };
 }
-function createAudioHash(text8, settings) {
-  const normalizedText = normalizeTtsText(text8);
+function createAudioHash(text9, settings) {
+  const normalizedText = normalizeTtsText(text9);
   const generationSpeed = settings.provider === "yupvox" ? DEFAULT_TTS_SPEED : settings.speed;
   return import_crypto4.default.createHash("sha256").update(`${settings.provider}|${settings.lang}|${settings.voice}|${generationSpeed}|${normalizedText}`).digest("hex");
 }
@@ -29146,11 +29384,11 @@ async function runWithConcurrency(items, limit, worker) {
   }));
   return results;
 }
-async function requestAi33TtsTask(text8, settings, fileName) {
+async function requestAi33TtsTask(text9, settings, fileName) {
   const apiKey = getAi33ApiKey();
   if (!apiKey) throw new Error("AI33_API_KEY/TTS_API_KEY is not configured.");
   const form = new FormData();
-  form.set("text", text8);
+  form.set("text", text9);
   form.set("voice_id", settings.voice);
   form.set("speed", String(settings.speed));
   form.set("with_transcript", "false");
@@ -29189,13 +29427,13 @@ async function pollAi33AudioUrl(taskId) {
   }
   throw new Error("TTS task timed out before audio was ready.");
 }
-async function requestTtsProviderAudioUrl(text8, settings, fileName) {
+async function requestTtsProviderAudioUrl(text9, settings, fileName) {
   if (settings.provider === "yupvox") {
     const audioUrl = await generateYupVoxAudioUrl({
       apiKey: getYupVoxApiKey(),
       baseUrl: process.env.YUPVOX_BASE_URL,
       voiceId: settings.voice,
-      text: text8,
+      text: text9,
       maxPollAttempts: Number(process.env.YUPVOX_TTS_POLL_ATTEMPTS || 40),
       pollIntervalMs: Number(process.env.YUPVOX_TTS_POLL_INTERVAL_MS || 1500),
       fetchImpl: fetchWithTimeout,
@@ -29203,7 +29441,7 @@ async function requestTtsProviderAudioUrl(text8, settings, fileName) {
     });
     return { audioUrl, validateAudioUrl: assertSafeYupVoxAudioUrl };
   }
-  const taskId = await requestAi33TtsTask(text8, settings, fileName);
+  const taskId = await requestAi33TtsTask(text9, settings, fileName);
   return { audioUrl: await pollAi33AudioUrl(taskId) };
 }
 async function downloadAudioToCache(sourceUrl, targetPath, validateAudioUrl) {
@@ -29630,11 +29868,11 @@ async function generateWithOpenAI(prompt) {
     throw error;
   }
   const data = await response.json();
-  const text8 = extractOpenAIText(data);
-  if (!text8) {
+  const text9 = extractOpenAIText(data);
+  if (!text9) {
     throw new Error("OpenAI response did not include text output.");
   }
-  return text8;
+  return text9;
 }
 async function generateAiVisionJson(prompt, images, options2, signal) {
   const errors = [];
@@ -29710,10 +29948,10 @@ async function generateAiText(prompt, geminiConfig) {
     errors.push("Gemini: GEMINI_API_KEY is not configured.");
   }
   try {
-    const text8 = await generateWithOpenAI(prompt);
-    if (text8) {
+    const text9 = await generateWithOpenAI(prompt);
+    if (text9) {
       return {
-        text: text8.trim(),
+        text: text9.trim(),
         provider: "openai",
         errors
       };
@@ -29848,7 +30086,7 @@ var ttsService = createTtsService({
   sanitizeInput: sanitizeTtsInput,
   createAudioHash,
   generateCachedAudio: generateCachedTtsAudio,
-  generateReadingAudio: (text8, settings, force) => generateCachedTtsAudio(text8, settings, force, "reading"),
+  generateReadingAudio: (text9, settings, force) => generateCachedTtsAudio(text9, settings, force, "reading"),
   runWithConcurrency: (items, limit, worker) => runWithConcurrency(items, limit, worker),
   concurrency: TTS_CONCURRENCY,
   voiceProvider: ttsVoiceProvider
@@ -30795,7 +31033,7 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
   const grammarSetVersion = getGrammarSetVersion(set);
   const isAssignment = getGrammarVisibility(set) === "assignment";
   const questionSeed = `${clientRunId}:${set.id}:${grammarSetVersion}:questions`;
-  const questions = set.shuffleQuestions ? deterministicShuffle(set.questions || [], questionSeed) : [...set.questions || []];
+  const questions = set.shuffleQuestions && grammarDisplayMode(set.displayMode) === "standard" ? deterministicShuffle(set.questions || [], questionSeed) : [...set.questions || []];
   const attemptQuestions = questions.map((question, index) => {
     const questionType = getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType));
     const optionSeed = `${clientRunId}:${question.id}:${grammarSetVersion}:options`;
@@ -30810,7 +31048,8 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
       explanationSnapshot: question.explanation,
       scoreSnapshot: question.score,
       optionsSnapshot: options2,
-      correctOptionId: questionType === "multiple_choice" ? question.correctOptionId : "",
+      correctOptionId: questionType !== "rewrite" ? question.correctOptionId : "",
+      ...question.blankNumber !== void 0 ? { blankNumber: question.blankNumber } : {},
       correctAnswerSnapshot: questionType === "rewrite" ? question.correctAnswer : "",
       acceptedAnswersSnapshot: questionType === "rewrite" && Array.isArray(question.acceptedAnswers) ? [...question.acceptedAnswers] : []
     };
@@ -30823,6 +31062,8 @@ function buildPreparedGrammarAttempt(set, actor, payload, clientRunId, runSecret
     grammarSetId: set.id,
     grammarSetTitle: set.title,
     grammarSetVersion,
+    ...passageAttemptSnapshot(set, (bank) => deterministicShuffle(bank, `${clientRunId}:${set.id}:${grammarSetVersion}:bank`)),
+    ...grammarDisplayMode(set.displayMode) !== "standard" ? { ownerType: actor.isGuest ? "guest" : "user", ownerKey: `${actor.isGuest ? "guest" : "user"}:${actor.id}` } : {},
     assignmentId: isAssignment ? safeText2(set.id, 160) : "",
     assignmentVerified: isAssignment,
     assignmentTitle: isAssignment ? safeText2(set.title, 300) : "",
@@ -30913,7 +31154,7 @@ function buildGrammarAnswerFeedback(attempt, set, answer) {
   };
 }
 function getGrammarQuestionType(value, fallback = "multiple_choice") {
-  return value === "rewrite" ? "rewrite" : fallback;
+  return value === "rewrite" || value === "bank_select" ? value : fallback;
 }
 function normalizeAcceptedGrammarAnswers(value, correctAnswer) {
   const source = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\r?\n/) : [];
@@ -30990,12 +31231,15 @@ function validateGrammarQuestion(question, index) {
 }
 function normalizeGrammarSetForSave(payload, existing = {}, user) {
   const now2 = (/* @__PURE__ */ new Date()).toISOString();
-  const questionType = getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType));
-  const questions = (Array.isArray(payload.questions) ? payload.questions : []).map((question, index) => normalizeGrammarQuestion(question, index, questionType)).sort((a, b) => a.position - b.position).map((question, index) => ({ ...question, position: index + 1 }));
-  const errors = questions.flatMap(validateGrammarQuestion);
+  if (payload.displayMode !== void 0 && !["standard", "passage_drag_drop", "reading_comprehension"].includes(payload.displayMode)) throw createHttpError2(400, "D\u1EA1ng b\xE0i ng\u1EEF ph\xE1p kh\xF4ng h\u1EE3p l\u1EC7.");
+  const passageExercise = normalizePassageExercise(payload, makeId8);
+  const questionType = passageExercise?.questionType || (existing.questionType === "bank_select" && payload.questionType === "multiple_choice" ? "multiple_choice" : getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType)));
+  if (!passageExercise && questionType === "bank_select") throw createHttpError2(400, "K\xE9o th\u1EA3 c\u1EA7n d\u1EA1ng passage_drag_drop.");
+  const questions = passageExercise?.questions || (Array.isArray(payload.questions) ? payload.questions : []).map((question, index) => normalizeGrammarQuestion(question, index, questionType)).sort((a, b) => a.position - b.position).map((question, index) => ({ ...question, position: index + 1 }));
+  const errors = passageExercise ? [] : questions.flatMap(validateGrammarQuestion);
   const duplicateQuestions = /* @__PURE__ */ new Map();
   questions.forEach((question, index) => {
-    const key2 = normalizePersonName(question.questionText);
+    const key2 = passageExercise ? "" : normalizePersonName(question.questionText);
     if (!key2) return;
     if (duplicateQuestions.has(key2)) {
       errors.push(`C\xE2u ${index + 1}: n\u1ED9i dung c\xE2u h\u1ECFi tr\xF9ng v\u1EDBi c\xE2u ${duplicateQuestions.get(key2)}.`);
@@ -31036,6 +31280,15 @@ function normalizeGrammarSetForSave(payload, existing = {}, user) {
     updatedAt: now2,
     questions
   };
+  if (passageExercise) {
+    Object.assign(normalized7, passageExercise, { shuffleQuestions: false });
+    if (passageExercise.displayMode === "passage_drag_drop") normalized7.showExplanationImmediately = false;
+  } else {
+    normalized7.displayMode = "standard";
+    delete normalized7.passage;
+    delete normalized7.instruction;
+    delete normalized7.wordBank;
+  }
   if (visibility === "assignment") {
     const token = existing.shareToken || existing.assignmentSlug || createShareToken();
     normalized7.shareToken = String(token).replace(/^grammar-/, "");
@@ -31068,12 +31321,17 @@ function sanitizeGrammarSetForStudent(set) {
         originalPosition: option.originalPosition
       })),
       score: question.score,
-      position: question.position
+      position: question.position,
+      ...question.blankNumber !== void 0 ? { blankNumber: question.blankNumber } : {}
     }))
   };
 }
 function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken = "") {
   const { attemptTokenHash, sessionTokenHash, ...safeAttempt } = attempt;
+  if (grammarDisplayMode(attempt.displayMode) !== "standard") {
+    delete safeAttempt.ownerKey;
+    delete safeAttempt.ownerType;
+  }
   const sanitizedAttempt2 = {
     ...safeAttempt,
     questions: (attempt.questions || []).map((question) => {
@@ -31090,6 +31348,7 @@ function sanitizeAttemptForStudent(attempt, includeReview = false, attemptToken 
           originalPosition: option.originalPosition
         })) : []
       };
+      if (question.blankNumber !== void 0) safeQuestion.blankNumber = question.blankNumber;
       if (includeReview) {
         safeQuestion.explanationSnapshot = question.explanationSnapshot;
         safeQuestion.correctOptionId = question.correctOptionId;
