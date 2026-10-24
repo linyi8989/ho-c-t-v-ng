@@ -150,6 +150,7 @@ import { createGrammarLibraryRouter } from "./src/server/grammar/router.js";
 import { createGrammarAttemptRepository } from "./src/server/grammar-attempts/repository.js";
 import { createGrammarAttemptService } from "./src/server/grammar-attempts/service.js";
 import { normalizePassageExercise, passageAttemptSnapshot } from "./src/server/grammar/passageExercises.js";
+import { mixedAttemptSnapshot, normalizeMixedExercise, sanitizeMixedAttemptMetadata, sanitizeMixedSetMetadata } from "./src/server/grammar/mixedExercises.js";
 import { grammarDisplayMode } from "./src/lib/grammarPassages.js";
 import { createGrammarAttemptRouter } from "./src/server/grammar-attempts/router.js";
 import { createVocabularyRunRepository } from "./src/server/vocabulary-runs/repository.js";
@@ -3831,6 +3832,7 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     return {
       id: deterministicRunDocumentId("grammar-attempt-question", [clientRunId, set.id, question.id]),
       questionId: question.id,
+      ...(set.displayMode === "mixed" ? { blockId: question.blockId } : {}),
       questionType,
       displayPosition: index + 1,
       optionOrder: options.map((option: any) => option.id),
@@ -3855,6 +3857,7 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     grammarSetTitle: set.title,
     grammarSetVersion,
     ...passageAttemptSnapshot(set, bank => deterministicShuffle(bank, `${clientRunId}:${set.id}:${grammarSetVersion}:bank`)),
+    ...mixedAttemptSnapshot(set, (bank, blockId) => deterministicShuffle(bank, `${clientRunId}:${set.id}:${grammarSetVersion}:${blockId}:bank`)),
     ...(grammarDisplayMode(set.displayMode) !== "standard" ? { ownerType: actor.isGuest ? "guest" : "user", ownerKey: `${actor.isGuest ? "guest" : "user"}:${actor.id}` } : {}),
     assignmentId: isAssignment ? safeText(set.id, 160) : "",
     assignmentVerified: isAssignment,
@@ -3881,7 +3884,7 @@ function buildPreparedGrammarAttempt(set: any, actor: any, payload: any, clientR
     answers: [],
     reviewPolicySnapshot: {
       showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
-      showExplanationImmediately: Boolean(set.showExplanationImmediately),
+      showExplanationImmediately: Boolean(set.showExplanationImmediately) && !(set.displayMode === "mixed" && (set.blocks || []).some((block: any) => block.type === "passage_drag_drop")),
       policyVersion: 1,
       capturedAt: now
     },
@@ -4049,20 +4052,21 @@ function validateGrammarQuestion(question: any, index: number) {
 
 function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any) {
   const now = new Date().toISOString();
-  if (payload.displayMode !== undefined && !["standard", "passage_drag_drop", "reading_comprehension"].includes(payload.displayMode)) throw createHttpError(400, "Dạng bài ngữ pháp không hợp lệ.");
-  const passageExercise = normalizePassageExercise(payload, makeId);
-  const questionType = passageExercise?.questionType || (existing.questionType === "bank_select" && payload.questionType === "multiple_choice"
+  if (payload.displayMode !== undefined && !["standard", "passage_drag_drop", "reading_comprehension", "mixed"].includes(payload.displayMode)) throw createHttpError(400, "Dạng bài ngữ pháp không hợp lệ.");
+  const mixedExercise = normalizeMixedExercise(payload, makeId);
+  const passageExercise = mixedExercise ? null : normalizePassageExercise(payload, makeId);
+  const questionType = mixedExercise?.questionType || passageExercise?.questionType || (existing.questionType === "bank_select" && payload.questionType === "multiple_choice"
     ? "multiple_choice" : getGrammarQuestionType(payload.questionType, getGrammarQuestionType(existing.questionType)));
   if (!passageExercise && questionType === "bank_select") throw createHttpError(400, "Kéo thả cần dạng passage_drag_drop.");
-  const questions = passageExercise?.questions || (Array.isArray(payload.questions) ? payload.questions : [])
+  const questions = mixedExercise?.questions || passageExercise?.questions || (Array.isArray(payload.questions) ? payload.questions : [])
     .map((question: any, index: number) => normalizeGrammarQuestion(question, index, questionType))
     .sort((a: any, b: any) => a.position - b.position)
     .map((question: any, index: number) => ({ ...question, position: index + 1 }));
 
-  const errors = passageExercise ? [] : questions.flatMap(validateGrammarQuestion);
+  const errors = mixedExercise || passageExercise ? [] : questions.flatMap(validateGrammarQuestion);
   const duplicateQuestions = new Map<string, number>();
   questions.forEach((question: any, index: number) => {
-    const key = passageExercise ? "" : normalizePersonName(question.questionText);
+    const key = mixedExercise || passageExercise ? "" : normalizePersonName(question.questionText);
     if (!key) return;
     if (duplicateQuestions.has(key)) {
       errors.push(`Câu ${index + 1}: nội dung câu hỏi trùng với câu ${duplicateQuestions.get(key)}.`);
@@ -4105,12 +4109,17 @@ function normalizeGrammarSetForSave(payload: any, existing: any = {}, user: any)
     updatedAt: now,
     questions
   };
-  if (passageExercise) {
+  if (mixedExercise) {
+    Object.assign(normalized, mixedExercise);
+    delete normalized.passage; delete normalized.instruction; delete normalized.wordBank;
+  } else if (passageExercise) {
     Object.assign(normalized, passageExercise, { shuffleQuestions: false });
+    delete normalized.blocks; delete normalized.contentVersion;
     if (passageExercise.displayMode === "passage_drag_drop") normalized.showExplanationImmediately = false;
   } else {
     normalized.displayMode = "standard";
     delete normalized.passage; delete normalized.instruction; delete normalized.wordBank;
+    delete normalized.blocks; delete normalized.contentVersion;
   }
 
   if (visibility === "assignment") {
@@ -4138,9 +4147,10 @@ function canViewGrammarSet(user: any, set: any) {
 
 function sanitizeGrammarSetForStudent(set: any) {
   return {
-    ...set,
+    ...(set.displayMode === "mixed" ? sanitizeMixedSetMetadata(set) : set),
     questions: (set.questions || []).map((question: any) => ({
       id: question.id,
+      ...(set.displayMode === "mixed" ? { blockId: question.blockId } : {}),
       questionType: getGrammarQuestionType(question.questionType, getGrammarQuestionType(set.questionType)),
       questionText: question.questionText,
       options: (question.options || []).map((option: any) => ({
@@ -4159,11 +4169,12 @@ function sanitizeAttemptForStudent(attempt: any, includeReview = false, attemptT
   const { attemptTokenHash, sessionTokenHash, ...safeAttempt } = attempt;
   if (grammarDisplayMode(attempt.displayMode) !== "standard") { delete safeAttempt.ownerKey; delete safeAttempt.ownerType; }
   const sanitizedAttempt: any = {
-    ...safeAttempt,
+    ...(attempt.displayMode === "mixed" ? sanitizeMixedAttemptMetadata(attempt) : safeAttempt),
     questions: (attempt.questions || []).map((question: any) => {
       const safeQuestion: any = {
         id: question.id,
         questionId: question.questionId,
+        ...(attempt.displayMode === "mixed" ? { blockId: question.blockId } : {}),
         questionType: getGrammarQuestionType(question.questionType),
         displayPosition: question.displayPosition,
         questionSnapshot: question.questionSnapshot,

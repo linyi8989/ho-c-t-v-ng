@@ -162,6 +162,13 @@ export interface ExamGeometryHint {
   status: 'suggested' | 'confirmed' | 'rejected';
 }
 
+/** Public presentation only; the three answer choices and private grading keys stay unchanged. */
+export interface ExamQuestionImageLayout {
+  kind: 'shared' | 'options';
+  /** Labels of the choices which own separate pictures. Missing labels mean A/B/C. */
+  optionLabels?: string[];
+}
+
 export interface ExamQuestion {
   id: string;
   number: number;
@@ -170,6 +177,8 @@ export interface ExamQuestion {
   context?: string;
   imageAssetId?: string;
   imageUrl?: string;
+  /** Optional KET Listening picture layout, independent of printed question number. */
+  imageLayout?: ExamQuestionImageLayout;
   /** Optional second public picture used by paired-image spelling rows. */
   secondaryImageAssetId?: string;
   secondaryImageUrl?: string;

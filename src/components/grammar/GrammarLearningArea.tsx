@@ -15,6 +15,7 @@ import { grammarDisplayMode } from '../../lib/grammarPassages';
 import { readGrammarPassageRun, storeGrammarPassageRun } from '../../lib/grammarPassageRecovery';
 import GrammarPassageRun from './GrammarPassageRun';
 import GrammarPassageView from './GrammarPassageView';
+import GrammarMixedView from './GrammarMixedView';
 import './GrammarLearningTheme.css';
 
 interface GrammarLearningAreaProps {
@@ -758,7 +759,7 @@ export default function GrammarLearningArea({ grammarSet, accessToken, onBack }:
                 <p className="text-xs font-bold text-gray-500">Đúng {review.correctCount} - Sai {review.wrongCount} - Bỏ trống {review.unansweredCount}</p>
               </div>
             </div>
-            {grammarDisplayMode(review.displayMode) !== 'standard' ? <GrammarPassageView attempt={review} selected={Object.fromEntries(review.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review /> : <div className="space-y-4">
+            {review.displayMode === 'mixed' ? <GrammarMixedView attempt={{ ...review, displayMode: 'mixed', contentVersion: 2, blocksSnapshot: review.blocksSnapshot || [] }} selected={Object.fromEntries(review.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review /> : grammarDisplayMode(review.displayMode) !== 'standard' ? <GrammarPassageView attempt={review} selected={Object.fromEntries(review.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review /> : <div className="space-y-4">
               {review.questions.map((question, index) => {
                 const answer = review.answers.find(item => item.attemptQuestionId === question.id);
                 const isRewrite = question.questionType === 'rewrite' || grammarSet.questionType === 'rewrite';

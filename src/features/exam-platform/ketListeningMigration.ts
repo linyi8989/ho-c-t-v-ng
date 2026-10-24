@@ -4,6 +4,7 @@ import type {
   ExamPaperContent,
   ExamPartContent,
   ExamQuestion,
+  ExamQuestionImageLayout,
 } from './types';
 import { EXAM_CONTENT_SCHEMA_VERSION } from './types';
 
@@ -16,11 +17,27 @@ export const KET_LISTENING_VARIANTS = [
   'image-form-fields',
   'image-form-fields',
 ] as const;
-export const KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS = [1, 2, 4, 5] as const;
-export const KET_LISTENING_MANUAL_DISPLAY_NUMBER = 3;
 
 const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const normalized = (value: unknown) => String(value ?? '').trim().normalize('NFKC').toLocaleLowerCase('en');
+
+/** Legacy layouts are inferred from stored media, never from a fixed question number. */
+export function getKetListeningImageLayout(question: Pick<ExamQuestion, 'imageLayout' | 'imageAssetId' | 'imageUrl' | 'options'>): ExamQuestionImageLayout {
+  if (question.imageLayout?.kind === 'shared') return { kind: 'shared' };
+  if (question.imageLayout?.kind === 'options') {
+    const labels = Array.isArray(question.imageLayout.optionLabels)
+      ? question.imageLayout.optionLabels.filter((label: unknown): label is string => typeof label === 'string').map(label => label.trim().toUpperCase()).filter(label => /^[ABC]$/.test(label))
+      : undefined;
+    return { kind: 'options', optionLabels: labels?.length ? ['A', 'B', 'C'].filter(label => labels.includes(label)) : ['A', 'B', 'C'] };
+  }
+  if (question.imageAssetId || question.imageUrl) return { kind: 'shared' };
+  const optionLabels = question.options.flatMap((option, index) => {
+    const label = String(option.label || String.fromCharCode(65 + index)).trim().toUpperCase();
+    return (option.imageAssetId || option.imageUrl) && /^[ABC]$/.test(label) ? [label] : [];
+  });
+  if (optionLabels.length) return { kind: 'options', optionLabels: [...new Set(optionLabels)] };
+  return { kind: 'options', optionLabels: ['A', 'B', 'C'] };
+}
 
 function descriptor(part: number): ExamInteractionDescriptor {
   if (part === 1) return { family: 'choice', subtype: 'single', variant: 'image-options', schemaVersion: 1, importReadiness: 'needs-assets' };
@@ -31,7 +48,8 @@ function descriptor(part: number): ExamInteractionDescriptor {
 
 function threeOptions(question?: ExamQuestion): ExamOption[] {
   return ['A', 'B', 'C'].map((label, index) => {
-    const existing = question?.options[index];
+    const existing = question?.options.find(option => normalized(option.label) === normalized(label))
+      || (question?.options[index] && !question.options[index].label ? question.options[index] : undefined);
     return {
       id: existing?.id || makeId('ket-listening-option'),
       label,
@@ -73,10 +91,7 @@ function placeholderQuestion(part: number, number: number): ExamQuestion {
 
 function normalizeChoice(question: ExamQuestion, number: number, displayNumber: number): ExamQuestion {
   const selected = question.options.find(option => question.correctOptionIds.includes(option.id));
-  const sharedQuestionImage = displayNumber === KET_LISTENING_MANUAL_DISPLAY_NUMBER;
-  const options = threeOptions(question).map(option => sharedQuestionImage
-    ? { ...option, imageAssetId: undefined, imageUrl: undefined }
-    : option);
+  const options = threeOptions(question);
   const selectedOption = selected
     ? options.find(option => normalized(option.label) === normalized(selected.label) || normalized(option.text) === normalized(selected.text))
     : undefined;

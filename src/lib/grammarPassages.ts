@@ -13,7 +13,7 @@ export function isGrammarPassageReview(value: unknown): value is GrammarPassageP
     && Array.isArray(data.wordBankSnapshot) && data.wordBankSnapshot.every(token => token && typeof token.id === 'string' && typeof token.text === 'string');
 }
 export function grammarDisplayMode(value: unknown): GrammarDisplayMode {
-  return value === 'passage_drag_drop' || value === 'reading_comprehension' ? value : 'standard';
+  return value === 'passage_drag_drop' || value === 'reading_comprehension' || value === 'mixed' ? value : 'standard';
 }
 export function grammarOptionLabel(index: number): string {
   let label = '';
@@ -39,7 +39,7 @@ export function validateGrammarPassage(set: {
   wordBank?: GrammarWordToken[]; questions: GrammarQuestion[];
 }): string[] {
   const mode = grammarDisplayMode(set.displayMode);
-  if (mode === 'standard') return [];
+  if (mode === 'standard' || mode === 'mixed') return [];
   const errors: string[] = [];
   if (typeof set.passage !== 'string' || !set.passage.trim()) errors.push('Thiếu đoạn văn.');
   else if (set.passage.length > GRAMMAR_PASSAGE_MAX_LENGTH) errors.push('Đoạn văn vượt quá 100.000 ký tự; dữ liệu chưa được lưu.');

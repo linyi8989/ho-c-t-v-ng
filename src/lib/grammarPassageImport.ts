@@ -1,7 +1,7 @@
 import type { GrammarDisplayMode, GrammarQuestion, GrammarWordToken } from '../types';
 import { GRAMMAR_PASSAGE_FORMAT, grammarPassageSegments, grammarTokenText, validateGrammarPassage } from './grammarPassages';
 
-type PassageMode = Exclude<GrammarDisplayMode, 'standard'>;
+type PassageMode = Extract<GrammarDisplayMode, 'passage_drag_drop' | 'reading_comprehension'>;
 export interface GrammarPassageImportResult {
   passage: string; instruction: string; wordBank: GrammarWordToken[];
   questions: GrammarQuestion[]; errors: string[]; warnings: string[];

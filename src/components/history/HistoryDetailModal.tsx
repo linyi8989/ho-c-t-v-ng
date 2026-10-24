@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import GrammarPassageView from '../grammar/GrammarPassageView';
+import GrammarMixedView from '../grammar/GrammarMixedView';
+import { isGrammarMixedReview } from '../../lib/grammarBlocks';
 import { isGrammarPassageReview } from '../../lib/grammarPassages';
 import {
   AlertTriangle,
@@ -394,6 +396,8 @@ export default function HistoryDetailModal({
   const extraDetails = response?.detail?.extraDetails;
   const grammarCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).grammarPassageReview : undefined;
   const grammarReview = attempt.sourceType === 'grammar' && isGrammarPassageReview(grammarCandidate) ? grammarCandidate : null;
+  const grammarMixedCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).grammarMixedReview : undefined;
+  const grammarMixedReview = attempt.sourceType === 'grammar' && isGrammarMixedReview(grammarMixedCandidate) ? grammarMixedCandidate : null;
   const speakingCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails) ? (extraDetails as Record<string, unknown>).speakingReview : undefined;
   const speakingReview = attempt.sourceType === 'speaking' && isSpeakingReview(speakingCandidate) ? speakingCandidate : null;
   const competitionCandidate = extraDetails && typeof extraDetails === 'object' && !Array.isArray(extraDetails)
@@ -505,6 +509,8 @@ export default function HistoryDetailModal({
             </div>
           ) : detailStatus !== 'available' || !response?.detail ? (
             <DetailStatusMessage status={detailStatus} />
+          ) : grammarMixedReview ? (
+            <GrammarMixedView attempt={grammarMixedReview} selected={Object.fromEntries(grammarMixedReview.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review />
           ) : grammarReview ? (
             <GrammarPassageView attempt={grammarReview} selected={Object.fromEntries(grammarReview.answers.filter(answer => answer.selectedOptionId).map(answer => [answer.attemptQuestionId, answer.selectedOptionId!]))} review />
           ) : speakingReview ? (

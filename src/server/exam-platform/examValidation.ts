@@ -21,7 +21,7 @@ import {
 } from '../../features/exam-platform/ketReadingWritingMigration.js';
 import {
   isFixedKetListeningContent,
-  KET_LISTENING_MANUAL_DISPLAY_NUMBER,
+  getKetListeningImageLayout,
   KET_LISTENING_VARIANTS,
   normalizeFixedKetListeningContent,
 } from '../../features/exam-platform/ketListeningMigration.js';
@@ -639,12 +639,40 @@ function validateKetListeningPart(part: ExamPartContent, partIndex: number, erro
   const unit = examPartUnits(part)[0] || part;
   if (!part.questions.length) errors.push(`${label}: phải có ít nhất một câu chấm điểm.`);
   if (examPartUnits(part).length !== 1 || unit.interaction?.variant !== KET_LISTENING_VARIANTS[partIndex]) errors.push(`${label}: dạng bài không đúng cấu trúc KET Listening 5 Part.`);
+  if (number === 1 || number === 3) {
+    const example = unit.examples?.[0];
+    if (example?.options !== undefined && (!Array.isArray(example.options) || example.options.length !== 3
+      || example.options.map(option => text(option?.label, 20).toUpperCase()).sort().join('|') !== 'A|B|C'
+      || example.options.some(option => !text(option?.text, 1_000) && !text(option?.imageAssetId, 180))
+      || !/^[ABC]$/i.test(text(example.answer, 10)))) {
+      errors.push(`${label}: example có lựa chọn phải đủ nội dung A/B/C và một nhãn đáp án đúng.`);
+    }
+  }
   if (number === 1) {
     if ((unit.examples || []).length !== 1) errors.push(`${label}: phải có đúng một example không chấm điểm.`);
     if (unit.questions.some(question => question.type !== 'single-choice' || question.options.length !== 3 || question.correctOptionIds.length !== 1)) errors.push(`${label}: mỗi câu phải có đúng ba lựa chọn A/B/C và một đáp án đúng.`);
-    const sharedQuestion = unit.questions.find(question => Number(question.displayNumber) === KET_LISTENING_MANUAL_DISPLAY_NUMBER);
-    if (sharedQuestion && !text(sharedQuestion.imageAssetId, 180)) errors.push(`${label}: câu in số 3 phải có đúng một ảnh chung do giáo viên tải/dán riêng.`);
-    if (unit.questions.some(question => Number(question.displayNumber) !== KET_LISTENING_MANUAL_DISPLAY_NUMBER && question.options.some(option => !text(option.imageAssetId, 180)))) errors.push(`${label}: các câu ngoài câu 3 phải có đủ ba ảnh A/B/C; đề chuẩn cần 12 ảnh crop cho câu 1, 2, 4 và 5.`);
+    unit.questions.forEach((question, index) => {
+      const questionLabel = `${label}, câu ${question.displayNumber || index + 1}`;
+      if (question.imageLayout !== undefined) {
+        const layout = record(question.imageLayout);
+        const labels = layout.optionLabels;
+        const valid = Object.keys(layout).every(key => key === 'kind' || key === 'optionLabels')
+          && (layout.kind === 'shared' ? labels === undefined : layout.kind === 'options'
+            && (labels === undefined || Array.isArray(labels) && labels.length >= 1 && labels.length <= 3
+              && labels.every(value => typeof value === 'string' && /^[ABC]$/.test(value))
+              && new Set(labels).size === labels.length));
+        if (!valid) {
+          errors.push(`${questionLabel}: bố cục ảnh không hợp lệ; chọn ảnh chung hoặc các nhãn ảnh A/B/C riêng.`);
+          return;
+        }
+      }
+      const layout = getKetListeningImageLayout(question);
+      if (layout.kind === 'shared') {
+        if (!text(question.imageAssetId, 180)) errors.push(`${questionLabel}: chưa có ảnh chung.`);
+      } else if (layout.optionLabels?.some(optionLabel => !question.options.some(option => option.label === optionLabel && text(option.imageAssetId, 180)))) {
+        errors.push(`${questionLabel}: chưa có đủ ảnh cho các lựa chọn ${layout.optionLabels.join('/')}.`);
+      }
+    });
   }
   if (number === 2) {
     if (!text(unit.imageAssetId, 180)) errors.push(`${label}: phải tải một ảnh đề hiển thị bên trái.`);
@@ -1158,6 +1186,20 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         delete safe.modelAnswer;
         delete safe.writingGrading;
         delete safe.interactionSourceNodeId;
+        if (isFixedKetListeningContent(content) && part.part === 1) {
+          const layout = getKetListeningImageLayout(question);
+          if (layout.kind === 'options') {
+            delete safe.imageAssetId;
+            delete safe.imageUrl;
+          }
+          safe.options = safe.options.map((option: ExamQuestion['options'][number]) => {
+            if (layout.kind === 'options' && layout.optionLabels?.includes(option.label)) return option;
+            const { imageAssetId: _asset, imageUrl: _url, ...publicOption } = option;
+            return publicOption;
+          });
+          // Keep the inferred layout explicit after removing dormant media.
+          safe.imageLayout = layout;
+        }
         if (matchingQuestionIds.has(question.id)) safe.prompt = `Đường nối ${questionIndex + 1}`;
         if (question.type !== 'long-writing') delete safe.rubric;
         return safe;
@@ -1176,8 +1218,7 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
       }
       if (isFixedKetListeningContent(content) && part.part === 1) {
         // Part 1's page image is authoring-only crop material. Students receive
-        // only the derived A/B/C option assets, including the three manual
-        // assets for printed question 3.
+        // only the active shared/option assets selected for each question.
         delete safePart.imageAssetId;
         delete safePart.imageUrl;
       }

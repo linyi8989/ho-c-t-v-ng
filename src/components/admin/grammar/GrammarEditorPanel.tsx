@@ -1,12 +1,14 @@
 import type React from 'react';
 import { Check, Copy } from 'lucide-react';
-import type { GrammarDisplayMode, GrammarQuestion, GrammarQuestionType, GrammarWordToken } from '../../../types';
+import type { GrammarBlock, GrammarDisplayMode, GrammarQuestion, GrammarQuestionType, GrammarWordToken } from '../../../types';
 import { grammarPassageTemplate } from '../../../lib/grammarPassageImport';
+import { grammarMixedTemplate } from '../../../lib/grammarMixedImport';
 import { grammarOptionLabel } from '../../../lib/grammarPassages';
 import GrammarPassageEditor from './GrammarPassageEditor';
+import GrammarMixedEditor from './GrammarMixedEditor';
 
 type GrammarVisibility = 'public' | 'assignment' | 'draft';
-type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | 'grammar-passage-drag-drop' | 'grammar-reading-comprehension' | null;
+type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | 'grammar-passage-drag-drop' | 'grammar-reading-comprehension' | 'grammar-mixed' | null;
 
 export interface GrammarEditorController {
   editingGrammarSetId: string | null;
@@ -15,6 +17,9 @@ export interface GrammarEditorController {
   grammarPassage: string;
   grammarInstruction: string;
   grammarWordBank: GrammarWordToken[];
+  grammarBlocks: GrammarBlock[];
+  updateGrammarMixedContent: (blocks: GrammarBlock[], questions: GrammarQuestion[]) => void;
+  handleConvertGrammarToMixed: () => void;
   changeGrammarDisplayMode: (mode: GrammarDisplayMode) => void;
   setGrammarPassage: (value: string) => void;
   setGrammarInstruction: (value: string) => void;
@@ -53,7 +58,7 @@ export interface GrammarEditorController {
   setGrammarQuestions: React.Dispatch<React.SetStateAction<GrammarQuestion[]>>;
   handleSaveGrammarSet: () => void;
   handleCopyBulkImportPrompt: (kind: Exclude<CopiedBulkPrompt, null>) => Promise<void>;
-  handleParseGrammarBulk: () => void;
+  handleParseGrammarBulk: (append?: boolean) => void;
   handleAddGrammarQuestion: () => void;
   handleDuplicateGrammarQuestion: (question: GrammarQuestion) => void;
   updateGrammarQuestion: (id: string, patch: Partial<GrammarQuestion>) => void;
@@ -69,6 +74,7 @@ export default function GrammarEditorPanel({
     editingGrammarSetId,
     grammarQuestionType,
     grammarDisplayMode, grammarPassage, grammarInstruction, grammarWordBank,
+    grammarBlocks, updateGrammarMixedContent, handleConvertGrammarToMixed,
     changeGrammarDisplayMode, setGrammarPassage, setGrammarInstruction, setGrammarWordBank,
     grammarTitle,
     grammarDescription,
@@ -111,9 +117,11 @@ export default function GrammarEditorPanel({
     updateGrammarOption,
   } = controller;
   const bankMode = grammarDisplayMode === 'passage_drag_drop';
-  const passageMode = grammarDisplayMode !== 'standard';
+  const mixedMode = grammarDisplayMode === 'mixed';
+  const mixedHasBank = mixedMode && grammarBlocks.some(block => block.type === 'passage_drag_drop');
+  const passageMode = grammarDisplayMode === 'passage_drag_drop' || grammarDisplayMode === 'reading_comprehension';
   const legacyPromptKind = grammarQuestionType === 'rewrite' ? 'grammar-rewrite' : 'grammar-multiple-choice';
-  const promptKind = bankMode ? 'grammar-passage-drag-drop' : grammarDisplayMode === 'reading_comprehension' ? 'grammar-reading-comprehension' : legacyPromptKind;
+  const promptKind = mixedMode ? 'grammar-mixed' : bankMode ? 'grammar-passage-drag-drop' : grammarDisplayMode === 'reading_comprehension' ? 'grammar-reading-comprehension' : legacyPromptKind;
 
   return (
           <div className="space-y-6 animate-fade-in" id="grammar-editor-tab-content">
@@ -127,16 +135,16 @@ export default function GrammarEditorPanel({
                 <p className="text-gray-500 text-sm">
                   {grammarQuestionType === 'rewrite'
                     ? 'Tạo bài ngữ pháp với câu trả lời dạng văn bản và chấm điểm tự động sau khi chuẩn hóa.'
-                    : 'Tạo bài trắc nghiệm ngữ pháp với đáp án đúng theo optionId ổn định.'}
+                    : mixedMode ? 'Kết hợp trắc nghiệm, kéo thả và đọc hiểu trong một bài, dùng chung một đường link.' : 'Soạn nội dung bài ngữ pháp và xem trước cách hiển thị cho học sinh.'}
                 </p>
               </div>
-              <button onClick={handleSaveGrammarSet} className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-md">
+              <button type="button" id="grammar-save-btn" onClick={handleSaveGrammarSet} className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black shadow-md">
                 {grammarQuestionType === 'rewrite' ? 'Lưu bài tự luận' : 'Lưu bài ngữ pháp'}
               </button>
             </div>
 
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {grammarQuestionType !== 'rewrite' && <label className="lg:col-span-3 text-xs font-black uppercase text-gray-500 space-y-2"><span>Dạng bài</span><select id="grammar-display-mode" value={grammarDisplayMode} onChange={e => changeGrammarDisplayMode(e.target.value as GrammarDisplayMode)} className="w-full rounded-2xl border border-gray-200 p-3 text-sm text-gray-900"><option value="standard">Trắc nghiệm thường</option><option value="reading_comprehension">Đọc hiểu — bài đọc trên, câu hỏi dưới</option><option value="passage_drag_drop">Kéo thả điền từ — ngân hàng từ trên, đoạn văn dưới</option></select></label>}
+              {grammarQuestionType !== 'rewrite' && !mixedMode && <><label className="lg:col-span-3 text-xs font-black uppercase text-gray-500 space-y-2"><span>Dạng bài</span><select id="grammar-display-mode" value={grammarDisplayMode} onChange={e => changeGrammarDisplayMode(e.target.value as GrammarDisplayMode)} className="w-full rounded-2xl border border-gray-200 p-3 text-sm text-gray-900"><option value="standard">Trắc nghiệm thường</option><option value="reading_comprehension">Đọc hiểu — bài đọc trên, câu hỏi dưới</option><option value="passage_drag_drop">Kéo thả điền từ — ngân hàng từ trên, đoạn văn dưới</option></select></label><div className="lg:col-span-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 space-y-2"><p className="text-sm text-blue-900">Thêm các dạng khác vào cùng bộ này và hiển thị toàn bài trên một trang.</p><button type="button" id="grammar-convert-mixed" onClick={handleConvertGrammarToMixed} className="rounded-xl border border-blue-300 bg-white px-4 py-2 text-sm font-bold text-blue-900">Thêm dạng bài vào bộ này</button></div></>}
               <label className="lg:col-span-2 text-xs font-black uppercase text-gray-500 space-y-2">
                 <span>Tên bài ngữ pháp</span>
                 <input value={grammarTitle} onChange={e => setGrammarTitle(e.target.value)} className="w-full p-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-900" placeholder="Ví dụ: Present Simple - Unit 1" />
@@ -181,11 +189,11 @@ export default function GrammarEditorPanel({
               </label>
               <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-3">
                 {[
-                  ...(!passageMode ? [['Trộn câu hỏi', grammarShuffleQuestions, setGrammarShuffleQuestions]] : []),
+                  ...(!passageMode && !mixedMode ? [['Trộn câu hỏi', grammarShuffleQuestions, setGrammarShuffleQuestions]] : []),
                   ...(grammarQuestionType !== 'rewrite'
-                    ? [[bankMode ? 'Trộn ngân hàng từ' : 'Trộn đáp án', grammarShuffleOptions, setGrammarShuffleOptions]]
+                    ? [[mixedMode ? 'Trộn đáp án / ngân hàng từ' : bankMode ? 'Trộn ngân hàng từ' : 'Trộn đáp án', grammarShuffleOptions, setGrammarShuffleOptions]]
                     : []),
-                  ...(!bankMode ? [['Giải thích sau từng câu', grammarShowExplanationImmediately, setGrammarShowExplanationImmediately]] : []),
+                  ...(!bankMode && !mixedHasBank ? [['Giải thích sau từng câu', grammarShowExplanationImmediately, setGrammarShowExplanationImmediately]] : []),
                   ['Xem giải thích sau khi nộp', grammarShowReviewAfterSubmit, setGrammarShowReviewAfterSubmit]
                 ].map(([label, checked, setter]: any) => (
                   <label key={label} className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-3 text-xs font-black text-gray-700">
@@ -194,6 +202,7 @@ export default function GrammarEditorPanel({
                   </label>
                 ))}
               </div>
+              {mixedHasBank && <p className="lg:col-span-3 text-sm text-blue-900">Bài có kéo thả: đáp án được lưu trong lúc làm; kết quả và giải thích hiển thị sau khi nộp theo cài đặt của bài.</p>}
             </div>
 
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
@@ -201,7 +210,7 @@ export default function GrammarEditorPanel({
                 <div>
                   <h3 className="font-black text-gray-900">Nhập nhanh nhiều câu hỏi</h3>
                   <p id="grammar-bulk-help" className="text-xs text-gray-500">
-                    {passageMode ? 'Dán đầy đủ JSON từ hướng dẫn bên cạnh. Số câu hỏi, lựa chọn và từ nhiễu theo dữ liệu nhập. Dữ liệu lỗi không thay đổi nội dung đang soạn.' : grammarQuestionType === 'rewrite'
+                    {mixedMode ? 'Dán JSON nhiều nhóm theo thứ tự hiển thị; cũng nhận JSON đoạn văn và mẫu QUESTION trắc nghiệm cũ. Có thể nhập cả bài hoặc thêm các nhóm vào cuối bài. Dữ liệu lỗi không thay đổi nội dung đang soạn.' : passageMode ? 'Dán đầy đủ JSON từ hướng dẫn bên cạnh. Số câu hỏi, lựa chọn và từ nhiễu theo dữ liệu nhập. Dữ liệu lỗi không thay đổi nội dung đang soạn.' : grammarQuestionType === 'rewrite'
                       ? 'Mỗi câu bắt đầu bằng QUESTION:, gồm ANSWER, EXPLANATION; ACCEPTED là tùy chọn, mỗi đáp án thay thế trên một dòng. Không bắt buộc dòng trống giữa các câu.'
                       : 'Mỗi câu bắt đầu bằng QUESTION:, gồm A, B, ANSWER, EXPLANATION; C và D là tùy chọn. Mỗi câu có từ 2 đến 4 đáp án. Không bắt buộc dòng trống giữa các câu.'}
                   </p>
@@ -217,7 +226,7 @@ export default function GrammarEditorPanel({
                     : <Copy size={15} aria-hidden="true" />}
                   {copiedBulkPrompt === promptKind
                     ? 'Đã sao chép'
-                    : bankMode ? 'Sao chép hướng dẫn kéo thả cho ChatGPT' : grammarDisplayMode === 'reading_comprehension' ? 'Sao chép hướng dẫn đọc hiểu cho ChatGPT' : grammarQuestionType === 'rewrite' ? 'Sao chép prompt tự luận' : 'Sao chép prompt trắc nghiệm'}
+                    : mixedMode ? 'Sao chép prompt nhiều dạng cho ChatGPT' : bankMode ? 'Sao chép hướng dẫn kéo thả cho ChatGPT' : grammarDisplayMode === 'reading_comprehension' ? 'Sao chép hướng dẫn đọc hiểu cho ChatGPT' : grammarQuestionType === 'rewrite' ? 'Sao chép prompt tự luận' : 'Sao chép prompt trắc nghiệm'}
                 </button>
               </div>
               <textarea
@@ -227,18 +236,19 @@ export default function GrammarEditorPanel({
                 value={grammarBulkText}
                 onChange={e => setGrammarBulkText(e.target.value)}
                 className="w-full min-h-64 p-4 rounded-2xl border border-gray-200 bg-gray-50 text-sm font-mono text-gray-800"
-                placeholder={passageMode ? grammarPassageTemplate(grammarDisplayMode) : grammarQuestionType === 'rewrite'
+                placeholder={mixedMode ? grammarMixedTemplate() : passageMode ? grammarPassageTemplate(grammarDisplayMode) : grammarQuestionType === 'rewrite'
                   ? `QUESTION: Viết dạng đầy đủ của: It's Monday.\nANSWER: It is Monday.\nACCEPTED: It's Monday.\nEXPLANATION: It's là dạng viết tắt của It is.\n\nQUESTION: Hoàn thành câu: She _____ a teacher.\nANSWER: is\nEXPLANATION: Chủ ngữ She đi với động từ to be là is.`
                   : `QUESTION: She is a teacher, _____?\nA: is she\nB: isn't she\nANSWER: B\nEXPLANATION: Câu khẳng định dùng đuôi phủ định.\n\nQUESTION: They _____ football every Sunday.\nA: plays\nB: play\nC: playing\nANSWER: B\nEXPLANATION: Chủ ngữ They dùng động từ nguyên mẫu play.`}
               />
-              <button onClick={handleParseGrammarBulk} className="w-full py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
-                Ghép dữ liệu vào bảng câu hỏi
-              </button>
+              <div className="flex flex-wrap gap-3"><button type="button" id="grammar-import-replace" onClick={() => handleParseGrammarBulk()} className="flex-1 py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black">
+                {mixedMode ? 'Nhập toàn bộ bài' : 'Ghép dữ liệu vào bảng câu hỏi'}
+              </button>{mixedMode && <button type="button" id="grammar-import-append" onClick={() => handleParseGrammarBulk(true)} className="flex-1 rounded-2xl border border-blue-300 bg-blue-50 px-4 py-3 font-black text-blue-900">Thêm các nhóm vào cuối bài</button>}</div>
             </div>
 
             {passageMode && <GrammarPassageEditor mode={grammarDisplayMode} passage={grammarPassage} instruction={grammarInstruction} bank={grammarWordBank} questions={grammarQuestions} onPassage={setGrammarPassage} onInstruction={setGrammarInstruction} onBank={setGrammarWordBank} />}
+            {mixedMode && <GrammarMixedEditor blocks={grammarBlocks} questions={grammarQuestions} onChange={updateGrammarMixedContent} />}
 
-            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
+            {!mixedMode && <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-black text-gray-900">Bảng câu hỏi ({grammarQuestions.length})</h3>
                 <button onClick={handleAddGrammarQuestion} className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">Thêm câu</button>
@@ -297,7 +307,7 @@ export default function GrammarEditorPanel({
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
   );
 }

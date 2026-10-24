@@ -9,6 +9,7 @@ import type {
   ExamPartBlock,
   ExamPartContent,
   ExamQuestion,
+  ExamQuestionImageLayout,
   ExamQuestionType,
 } from './types';
 import { EXAM_CONTENT_SCHEMA_VERSION } from './types';
@@ -107,19 +108,39 @@ function trustedAnswerSource(block: Row, question: Row) {
   return source === 'official-answer-key' || source === 'teacher-supplied';
 }
 
-function parseOptions(rawQuestion: Row, currentQuestion?: ExamQuestion): ExamOption[] {
+function parseOptions(rawQuestion: Row, currentQuestion?: ExamQuestion, preserveLabels = false): ExamOption[] {
   const rawOptions = Array.isArray(rawQuestion.options) ? rawQuestion.options : [];
   return rawOptions.slice(0, 30).map((value: unknown, index: number) => {
     const option = typeof value === 'string' ? { text: value } : row(value);
-    const previous = currentQuestion?.options[index];
+    const label = cleanText(option.label || String.fromCharCode(65 + index), 12);
+    const previous = preserveLabels
+      ? currentQuestion?.options.find(item => normalized(item.label) === normalized(label))
+        || (currentQuestion?.options[index] && !currentQuestion.options[index].label ? currentQuestion.options[index] : undefined)
+      : currentQuestion?.options[index];
     return {
       id: previous?.id || identifier('option'),
-      label: cleanText(option.label || String.fromCharCode(65 + index), 12),
+      label,
       text: cleanText(option.text ?? option.label, 4_000),
       ...(previous?.imageAssetId ? { imageAssetId: previous.imageAssetId } : {}),
       ...(previous?.imageUrl ? { imageUrl: previous.imageUrl } : {}),
     };
   });
+}
+
+function parseQuestionImageLayout(value: unknown): ExamQuestionImageLayout | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('imageLayout phải là object shared hoặc options.');
+  const source = value as Record<string, unknown>;
+  if (Object.keys(source).some(key => key !== 'kind' && key !== 'optionLabels') || !['shared', 'options'].includes(String(source.kind))) throw new Error('imageLayout chỉ nhận kind shared/options và optionLabels.');
+  if (source.kind === 'shared') {
+    if (source.optionLabels !== undefined) throw new Error('imageLayout shared không có optionLabels.');
+    return { kind: 'shared' };
+  }
+  if (source.optionLabels === undefined) return { kind: 'options', optionLabels: ['A', 'B', 'C'] };
+  if (!Array.isArray(source.optionLabels) || source.optionLabels.length < 1 || source.optionLabels.length > 3 || source.optionLabels.some(label => typeof label !== 'string' || !/^[ABC]$/i.test(label.trim()))) throw new Error('imageLayout.optionLabels cần từ 1 đến 3 nhãn A/B/C có ảnh.');
+  const optionLabels = (source.optionLabels as string[]).map(label => label.trim().toUpperCase());
+  if (new Set(optionLabels).size !== optionLabels.length) throw new Error('imageLayout.optionLabels không được lặp nhãn.');
+  return { kind: 'options', optionLabels };
 }
 
 function geometryRegion(value: unknown, scaleX: number, scaleY: number): ExamInteractionRegion | null {
@@ -227,7 +248,7 @@ function matchingLayout(blockValue: Row, interaction: ExamInteractionDescriptor,
   };
 }
 
-function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[]) {
+function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[], ketListeningPictures = false) {
   const rawQuestions = rawBlockQuestions(blockValue);
   if (!rawQuestions || !rawQuestions.length) throw new Error(`Block ${blockIndex + 1} phải có mảng questions không rỗng.`);
   if (rawQuestions.length > MAX_QUESTIONS_PER_BLOCK) throw new Error(`Block ${blockIndex + 1} vượt quá ${MAX_QUESTIONS_PER_BLOCK} câu.`);
@@ -242,7 +263,8 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
         ? currentPart?.questions[questionIndex]
         : undefined;
     const type = questionType(interaction, rawQuestion.type);
-    const options = parseOptions(rawQuestion, currentQuestion);
+    const options = parseOptions(rawQuestion, currentQuestion, ketListeningPictures);
+    const imageLayout = ketListeningPictures ? parseQuestionImageLayout(rawQuestion.imageLayout) || currentQuestion?.imageLayout : undefined;
     const answerKey = row(rawQuestion.answerKey);
     const trusted = trustedAnswerSource(blockValue, rawQuestion);
     const refs = [
@@ -268,6 +290,7 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
       ...(cleanText(rawQuestion.context, 8_000) ? { context: cleanText(rawQuestion.context, 8_000) } : {}),
       ...(currentQuestion?.imageAssetId ? { imageAssetId: currentQuestion.imageAssetId } : {}),
       ...(currentQuestion?.imageUrl ? { imageUrl: currentQuestion.imageUrl } : {}),
+      ...(imageLayout ? { imageLayout } : {}),
       ...(currentQuestion?.secondaryImageAssetId ? { secondaryImageAssetId: currentQuestion.secondaryImageAssetId } : {}),
       ...(currentQuestion?.secondaryImageUrl ? { secondaryImageUrl: currentQuestion.secondaryImageUrl } : {}),
       options,
@@ -375,7 +398,7 @@ function connectMatchingAnswers(blockValue: Row, questions: ExamQuestion[], layo
   });
 }
 
-function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number): { part: ExamPartContent; report: UniversalImportReport } {
+function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number, ketListeningPictures = false): { part: ExamPartContent; report: UniversalImportReport } {
   const source = row(partValue);
   const partNumber = Number(source.partNumber ?? source.part ?? partIndex + 1);
   if (partNumber !== partIndex + 1) throw new Error(`Part ở vị trí ${partIndex + 1} phải có partNumber=${partIndex + 1}.`);
@@ -389,7 +412,7 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
     const blockNumber = Number(blockSource.blockNumber ?? blockIndex + 1);
     if (blockNumber !== blockIndex + 1) throw new Error(`Part ${partNumber}, block ở vị trí ${blockIndex + 1} phải có blockNumber=${blockIndex + 1}.`);
     const interaction = interactionDescriptor(blockSource.interaction);
-    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings);
+    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings, ketListeningPictures);
     blockQuestions = applySceneQuestionContract(blockSource, interaction, blockQuestions, current, blockIndex, warnings);
     const geometryHints = parseGeometryHints(blockSource.geometryHints, blockQuestions, warnings);
     const layout = matchingLayout(blockSource, interaction, blockQuestions, geometryHints, warnings);
@@ -422,7 +445,7 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
               ...(previousOption?.imageAssetId ? { imageAssetId: previousOption.imageAssetId } : {}),
               ...(previousOption?.imageUrl ? { imageUrl: previousOption.imageUrl } : {}),
             };
-          }).filter(option => option.label && option.text)
+          }).filter(option => option.label && (option.text || option.imageAssetId))
         : [];
       return {
         prompt: cleanText(example.prompt, 2_000),
@@ -697,7 +720,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   if (fixedPetListening && rawParts.length !== 4) throw new Error('PET Listening phải có đúng 4 Part.');
   if (fixedPetWriting && rawParts.length !== 3) throw new Error('PET Writing phải có đúng 3 Part.');
   if (fixedFceReading && rawParts.length !== 3) throw new Error('FCE Reading phải có đúng 3 Part.');
-  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber));
+  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber, fixedKetListening && index === 0));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedPetWriting && built.some((item, index) => item.part.questions.length !== [5, 1, 1][index])) throw new Error('PET Writing yêu cầu số câu theo Part là 5–1–1.');
@@ -751,7 +774,7 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
   }
   if (!partValue) throw new Error(`JSON không có Part ${partIndex + 1}.`);
   let questionNumber = currentContent.parts.slice(0, partIndex).reduce((sum, part) => sum + part.questions.length, 0);
-  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber);
+  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber, isFixedKetListeningContent(currentContent) && partIndex === 0);
   if (currentContent.moduleId === 'flyer' && currentContent.paperId === 'listening') {
     if (built.part.questions.length !== 5) throw new Error(`Flyers Listening Part ${partIndex + 1} phải có đúng 5 câu chấm điểm.`);
     return { ...built, part: normalizeFlyerListeningPart(built.part, currentContent.parts[partIndex]) };

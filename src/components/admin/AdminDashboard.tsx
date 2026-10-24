@@ -2,8 +2,10 @@ import { useAuthoringDraft, DraftRecovery } from '../../lib/authoring/useAuthori
 import { restoreFields } from '../../lib/authoring/restoreFields';
 import { parseBulkGrammarText, parseBulkRewriteText } from '../../lib/grammarBulkImport';
 import { parseGrammarPassageImport } from '../../lib/grammarPassageImport';
+import { parseGrammarMixedImport } from '../../lib/grammarMixedImport';
+import { convertLegacyGrammarToBlocks, validateGrammarBlocks } from '../../lib/grammarBlocks';
 import { grammarDisplayMode as resolveGrammarDisplayMode, validateGrammarPassage } from '../../lib/grammarPassages';
-import type { GrammarDisplayMode, GrammarWordToken } from '../../types';
+import type { GrammarBlock, GrammarDisplayMode, GrammarWordToken } from '../../types';
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Check, X } from 'lucide-react';
 import { VocabSet, VocabItem, VocabImageGenerationProviderId, Class, ClassMember, Assignment, GameSession, TtsSettings, GrammarSet, GrammarQuestion, GrammarQuestionType } from '../../types';
@@ -22,6 +24,7 @@ import {
   buildRewriteGrammarBulkImportPrompt,
   buildVocabularyBulkImportPrompt,
   buildPassageGrammarBulkImportPrompt,
+  buildMixedGrammarBulkImportPrompt,
 } from '../../lib/adminBulkImportPrompts';
 import {
   VocabImageGenerateDialog,
@@ -58,7 +61,7 @@ interface AdminDashboardProps {
 }
 
 type VocabVisibility = 'public' | 'assignment' | 'draft';
-type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | 'grammar-passage-drag-drop' | 'grammar-reading-comprehension' | null;
+type CopiedBulkPrompt = 'vocabulary' | 'grammar-multiple-choice' | 'grammar-rewrite' | 'grammar-passage-drag-drop' | 'grammar-reading-comprehension' | 'grammar-mixed' | null;
 
 interface AdminPageResponse<T> {
   items: T[];
@@ -472,6 +475,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [editingGrammarSetId, setEditingGrammarSetId] = useState<string | null>(null);
   const [grammarQuestionType, setGrammarQuestionType] = useState<GrammarQuestionType>('multiple_choice');
   const [grammarDisplayMode, setGrammarDisplayMode] = useState<GrammarDisplayMode>('standard');
+  const [grammarBlocks, setGrammarBlocks] = useState<GrammarBlock[]>([]);
   const [grammarPassage, setGrammarPassage] = useState('');
   const [grammarInstruction, setGrammarInstruction] = useState('');
   const [grammarWordBank, setGrammarWordBank] = useState<GrammarWordToken[]>([]);
@@ -500,7 +504,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   const [grammarResults, setGrammarResults] = useState<any[]>([]);
 
   const vocabWorking = { editorTitle, editorDescription, editorSubject, editorGrade, editorStatus, editorTags, editorItems, ttsSettings, batchTerms, batchMeanings, batchIpas, batchPartsOfSpeech, batchExamples, batchExampleMeanings, batchVocabularyText };
-  const grammarWorking = { grammarDisplayMode, grammarPassage, grammarInstruction, grammarWordBank, grammarQuestionType, grammarTitle, grammarDescription, grammarGrade, grammarSubject, grammarTopic, grammarVisibility, grammarTags, grammarTimeLimitMinutes, grammarMaxAttempts, grammarShuffleQuestions, grammarShuffleOptions, grammarShowExplanationImmediately, grammarShowReviewAfterSubmit, grammarBulkText, grammarQuestions };
+  const grammarWorking = { grammarDisplayMode, grammarBlocks, grammarPassage, grammarInstruction, grammarWordBank, grammarQuestionType, grammarTitle, grammarDescription, grammarGrade, grammarSubject, grammarTopic, grammarVisibility, grammarTags, grammarTimeLimitMinutes, grammarMaxAttempts, grammarShuffleQuestions, grammarShuffleOptions, grammarShowExplanationImmediately, grammarShowReviewAfterSubmit, grammarBulkText, grammarQuestions };
   const vocabDraft = useAuthoringDraft({ scope: 'vocabulary', entity: editingSetId || 'new', value: vocabWorking, enabled: activeTab === 'editor', restore: (record, asCopy) => {
     if (!Array.isArray(record.value?.editorItems) || record.value.editorItems.some(item => !item || ['id', 'term', 'meaning', 'ipa', 'pos', 'example', 'exampleMeaning'].some(key => typeof item[key as keyof VocabItem] !== 'string'))) throw new Error('Nháp từ vựng có dòng không hợp lệ.');
     restoreFields(record.value, vocabWorking, { editorTitle: setEditorTitle, editorDescription: setEditorDescription, editorSubject: setEditorSubject, editorGrade: setEditorGrade, editorStatus: setEditorStatus, editorTags: setEditorTags, editorItems: setEditorItems, ttsSettings: setTtsSettings, batchTerms: setBatchTerms, batchMeanings: setBatchMeanings, batchIpas: setBatchIpas, batchPartsOfSpeech: setBatchPartsOfSpeech, batchExamples: setBatchExamples, batchExampleMeanings: setBatchExampleMeanings, batchVocabularyText: setBatchVocabularyText });
@@ -508,9 +512,14 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
   } });
   const grammarDraft = useAuthoringDraft({ scope: 'grammar', entity: editingGrammarSetId || 'new', value: grammarWorking, enabled: activeTab === 'grammar-editor', restore: (record, asCopy) => {
     if (!Array.isArray(record.value?.grammarQuestions) || record.value.grammarQuestions.some(question => !question || typeof question.id !== 'string' || typeof question.questionText !== 'string' || !Array.isArray(question.options) || question.options.some(option => !option || typeof option.id !== 'string' || typeof option.text !== 'string') || question.acceptedAnswers && (!Array.isArray(question.acceptedAnswers) || question.acceptedAnswers.some(answer => typeof answer !== 'string')))) throw new Error('Nháp ngữ pháp có câu không hợp lệ.');
-    const restored = { grammarDisplayMode: 'standard', grammarPassage: '', grammarInstruction: '', grammarWordBank: [], ...record.value };
-    if (!['standard', 'reading_comprehension', 'passage_drag_drop'].includes(String(restored.grammarDisplayMode)) || !Array.isArray(restored.grammarWordBank) || restored.grammarWordBank.some((token: GrammarWordToken) => !token || typeof token.id !== 'string' || typeof token.text !== 'string')) throw new Error('Nháp đoạn văn không hợp lệ.');
-    restoreFields(restored, grammarWorking, { grammarDisplayMode: setGrammarDisplayMode, grammarPassage: setGrammarPassage, grammarInstruction: setGrammarInstruction, grammarWordBank: setGrammarWordBank, grammarQuestionType: setGrammarQuestionType, grammarTitle: setGrammarTitle, grammarDescription: setGrammarDescription, grammarGrade: setGrammarGrade, grammarSubject: setGrammarSubject, grammarTopic: setGrammarTopic, grammarVisibility: setGrammarVisibility, grammarTags: setGrammarTags, grammarTimeLimitMinutes: setGrammarTimeLimitMinutes, grammarMaxAttempts: setGrammarMaxAttempts, grammarShuffleQuestions: setGrammarShuffleQuestions, grammarShuffleOptions: setGrammarShuffleOptions, grammarShowExplanationImmediately: setGrammarShowExplanationImmediately, grammarShowReviewAfterSubmit: setGrammarShowReviewAfterSubmit, grammarBulkText: setGrammarBulkText, grammarQuestions: setGrammarQuestions });
+    const restored = { grammarDisplayMode: 'standard', grammarBlocks: [], grammarPassage: '', grammarInstruction: '', grammarWordBank: [], ...record.value };
+    if (!['standard', 'reading_comprehension', 'passage_drag_drop', 'mixed'].includes(String(restored.grammarDisplayMode)) || !Array.isArray(restored.grammarWordBank) || restored.grammarWordBank.some((token: GrammarWordToken) => !token || typeof token.id !== 'string' || typeof token.text !== 'string')) throw new Error('Nháp đoạn văn không hợp lệ.');
+    if (!Array.isArray(restored.grammarBlocks)) throw new Error('Nháp bài kết hợp không hợp lệ.');
+    for (const block of restored.grammarBlocks as GrammarBlock[]) {
+      if (!block || typeof block.id !== 'string' || !['multiple_choice', 'passage_drag_drop', 'reading_comprehension'].includes(block.type) || typeof block.title !== 'string' || typeof block.instruction !== 'string' || !Array.isArray(block.questionIds) || block.questionIds.some(id => typeof id !== 'string') || block.passage !== undefined && typeof block.passage !== 'string') throw new Error('Nháp bài kết hợp không hợp lệ.');
+      if (block.wordBank !== undefined && (!Array.isArray(block.wordBank) || block.wordBank.some(token => !token || typeof token.id !== 'string' || typeof token.text !== 'string'))) throw new Error('Nháp ngân hàng từ không hợp lệ.');
+    }
+    restoreFields(restored, grammarWorking, { grammarDisplayMode: setGrammarDisplayMode, grammarBlocks: setGrammarBlocks, grammarPassage: setGrammarPassage, grammarInstruction: setGrammarInstruction, grammarWordBank: setGrammarWordBank, grammarQuestionType: setGrammarQuestionType, grammarTitle: setGrammarTitle, grammarDescription: setGrammarDescription, grammarGrade: setGrammarGrade, grammarSubject: setGrammarSubject, grammarTopic: setGrammarTopic, grammarVisibility: setGrammarVisibility, grammarTags: setGrammarTags, grammarTimeLimitMinutes: setGrammarTimeLimitMinutes, grammarMaxAttempts: setGrammarMaxAttempts, grammarShuffleQuestions: setGrammarShuffleQuestions, grammarShuffleOptions: setGrammarShuffleOptions, grammarShowExplanationImmediately: setGrammarShowExplanationImmediately, grammarShowReviewAfterSubmit: setGrammarShowReviewAfterSubmit, grammarBulkText: setGrammarBulkText, grammarQuestions: setGrammarQuestions });
     setEditingGrammarSetId(asCopy || record.entity === 'new' ? null : record.entity); setActiveTab('grammar-editor');
   } });
 
@@ -911,7 +920,9 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
             topic: grammarTopic,
             tags: grammarTags,
           });
-    const selectedPrompt = kind === 'grammar-passage-drag-drop' || kind === 'grammar-reading-comprehension'
+    const selectedPrompt = kind === 'grammar-mixed'
+      ? buildMixedGrammarBulkImportPrompt({ title: grammarTitle, description: grammarDescription, grade: grammarGrade, subject: grammarSubject, topic: grammarTopic, tags: grammarTags })
+      : kind === 'grammar-passage-drag-drop' || kind === 'grammar-reading-comprehension'
       ? buildPassageGrammarBulkImportPrompt(kind === 'grammar-passage-drag-drop' ? 'passage_drag_drop' : 'reading_comprehension', { title: grammarTitle, description: grammarDescription, grade: grammarGrade, subject: grammarSubject, topic: grammarTopic, tags: grammarTags })
       : prompt;
     const result = await copyAdminPromptToClipboard(selectedPrompt);
@@ -930,7 +941,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     grammarDraft.begin();
     setEditingGrammarSetId(null);
     setGrammarQuestionType(questionType);
-    setGrammarDisplayMode('standard'); setGrammarPassage(''); setGrammarInstruction(''); setGrammarWordBank([]);
+    setGrammarDisplayMode(questionType === 'rewrite' ? 'standard' : 'mixed'); setGrammarBlocks([]); setGrammarPassage(''); setGrammarInstruction(''); setGrammarWordBank([]);
     setGrammarTitle('');
     setGrammarDescription('');
     setGrammarGrade('Lớp 3');
@@ -955,6 +966,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       setEditingGrammarSetId(set.id);
       setGrammarQuestionType(set.questionType || 'multiple_choice');
       setGrammarDisplayMode(resolveGrammarDisplayMode(set.displayMode)); setGrammarPassage(set.passage || ''); setGrammarInstruction(set.instruction || ''); setGrammarWordBank(set.wordBank || []);
+      setGrammarBlocks(set.blocks || []);
       setGrammarTitle(set.title);
       setGrammarDescription(set.description);
       setGrammarGrade(set.gradeLevel);
@@ -986,8 +998,19 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     }
   };
 
-  const handleParseGrammarBulk = () => {
-    if (grammarDisplayMode !== 'standard') {
+  const handleParseGrammarBulk = (append = false) => {
+    if (grammarDisplayMode === 'mixed') {
+      const parsed = parseGrammarMixedImport(grammarBulkText);
+      if (parsed.errors.length) return showNotification(parsed.errors.join(' '), 'error');
+      if (!append && (grammarBlocks.length || grammarQuestions.length) && !window.confirm('Thay toàn bộ các nhóm và câu hỏi hiện tại bằng dữ liệu vừa nhập?')) return;
+      const blocks = append ? [...grammarBlocks, ...parsed.blocks] : parsed.blocks;
+      const questions = append ? [...grammarQuestions, ...parsed.questions] : parsed.questions;
+      setGrammarBlocks(blocks); setGrammarQuestions(questions.map((question, index) => ({ ...question, position: index + 1 })));
+      setGrammarShuffleQuestions(false);
+      if (blocks.some(block => block.type === 'passage_drag_drop')) setGrammarShowExplanationImmediately(false);
+      return showNotification(`Đã ${append ? 'thêm' : 'nhập'} ${parsed.blocks.length} nhóm với ${parsed.questions.length} câu hỏi. Hãy xem lại trước khi lưu.`);
+    }
+    if (grammarDisplayMode === 'passage_drag_drop' || grammarDisplayMode === 'reading_comprehension') {
       const parsed = parseGrammarPassageImport(grammarBulkText, grammarDisplayMode);
       if (parsed.errors.length) return showNotification(parsed.errors.join(' '), 'error');
       if ((grammarQuestions.length || grammarPassage.trim()) && !window.confirm('Thay nội dung đoạn văn, ngân hàng từ và câu hỏi hiện tại bằng dữ liệu vừa nhập?')) return;
@@ -1014,6 +1037,16 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       ...parsed.warnings
     ].join(' ');
     showNotification(message, parsed.errors.length ? 'error' : 'success');
+  };
+
+  const handleConvertGrammarToMixed = () => {
+    if (grammarQuestionType === 'rewrite' || grammarDisplayMode === 'mixed') return;
+    const converted = convertLegacyGrammarToBlocks({ displayMode: grammarDisplayMode, passage: grammarPassage, instruction: grammarInstruction, wordBank: grammarWordBank, questions: grammarQuestions });
+    setGrammarDisplayMode('mixed'); setGrammarQuestionType('multiple_choice');
+    setGrammarBlocks(converted.blocks); setGrammarQuestions(converted.questions);
+    setGrammarPassage(''); setGrammarInstruction(''); setGrammarWordBank([]);
+    setGrammarShuffleQuestions(false);
+    if (converted.blocks.some(block => block.type === 'passage_drag_drop')) setGrammarShowExplanationImmediately(false);
   };
 
   const updateGrammarQuestion = (questionId: string, patch: Partial<GrammarQuestion>) => {
@@ -1122,12 +1155,15 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
     const savedDraft = grammarWorking;
     if (!grammarTitle.trim()) return showNotification('Vui lòng nhập tên bài ngữ pháp.', 'error');
     if (grammarQuestions.length === 0) return showNotification('Bài ngữ pháp cần ít nhất một câu hỏi.', 'error');
-    const passageErrors = validateGrammarPassage({ displayMode: grammarDisplayMode, passage: grammarPassage, instruction: grammarInstruction, wordBank: grammarWordBank, questions: grammarQuestions });
+    const passageErrors = grammarDisplayMode === 'mixed'
+      ? validateGrammarBlocks({ blocks: grammarBlocks, questions: grammarQuestions })
+      : validateGrammarPassage({ displayMode: grammarDisplayMode, passage: grammarPassage, instruction: grammarInstruction, wordBank: grammarWordBank, questions: grammarQuestions });
     if (passageErrors.length) return showNotification(passageErrors.join(' '), 'error');
 
     const payload = {
       questionType: grammarQuestionType,
       displayMode: grammarDisplayMode, passage: grammarPassage, instruction: grammarInstruction, wordBank: grammarWordBank,
+      ...(grammarDisplayMode === 'mixed' ? { contentVersion: 2, blocks: grammarBlocks } : {}),
       title: grammarTitle,
       description: grammarDescription,
       gradeLevel: grammarGrade,
@@ -1139,7 +1175,7 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
       maxAttempts: grammarMaxAttempts,
       shuffleQuestions: grammarDisplayMode === 'standard' && grammarShuffleQuestions,
       shuffleOptions: grammarQuestionType !== 'rewrite' ? grammarShuffleOptions : false,
-      showExplanationImmediately: grammarDisplayMode !== 'passage_drag_drop' && grammarShowExplanationImmediately,
+      showExplanationImmediately: grammarDisplayMode !== 'passage_drag_drop' && !(grammarDisplayMode === 'mixed' && grammarBlocks.some(block => block.type === 'passage_drag_drop')) && grammarShowExplanationImmediately,
       showReviewAfterSubmit: grammarShowReviewAfterSubmit,
       questions: grammarQuestions.map((question, index) => ({ ...question, position: index + 1 }))
     };
@@ -2861,12 +2897,18 @@ export default function AdminDashboard({ onViewAsStudent, onViewGrammarAsStudent
               editingGrammarSetId,
               grammarQuestionType,
               grammarDisplayMode, grammarPassage, grammarInstruction, grammarWordBank,
+              grammarBlocks,
+              updateGrammarMixedContent: (blocks, questions) => {
+                setGrammarBlocks(blocks); setGrammarQuestions(questions); setGrammarShuffleQuestions(false);
+                if (blocks.some(block => block.type === 'passage_drag_drop')) setGrammarShowExplanationImmediately(false);
+              },
+              handleConvertGrammarToMixed,
               setGrammarPassage, setGrammarInstruction, setGrammarWordBank,
               changeGrammarDisplayMode: (mode) => {
                 if (mode === grammarDisplayMode) return;
                 if ((grammarQuestions.length || grammarBulkText.trim() || grammarPassage.trim()) && !window.confirm('Đổi dạng bài sẽ tạo nội dung mới trong form này. Tiếp tục?')) return;
                 setGrammarDisplayMode(mode); setGrammarQuestionType(mode === 'passage_drag_drop' ? 'bank_select' : 'multiple_choice');
-                setGrammarQuestions([]); setGrammarBulkText(''); setGrammarPassage(''); setGrammarInstruction(''); setGrammarWordBank([]);
+                setGrammarQuestions([]); setGrammarBlocks([]); setGrammarBulkText(''); setGrammarPassage(''); setGrammarInstruction(''); setGrammarWordBank([]);
                 setGrammarShuffleQuestions(false); setGrammarShowExplanationImmediately(false);
               },
               grammarTitle,

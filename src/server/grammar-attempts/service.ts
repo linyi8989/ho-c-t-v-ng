@@ -1,5 +1,6 @@
 import { grammarDisplayMode } from '../../lib/grammarPassages';
 import { grammarReviewEnabled, passageAttemptSnapshot, updateBankAnswers } from '../grammar/passageExercises';
+import { mixedAttemptSnapshot, updateMixedAnswers } from '../grammar/mixedExercises';
 
 interface GrammarAttemptServiceOptions {
   repository: ReturnType<typeof import('./repository.js').createGrammarAttemptRepository>;
@@ -60,6 +61,29 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
     }
     return { body: { attempt: options.sanitizeAttempt(updated, false, token), feedback: null } };
   };
+  const saveMixed = async (attempt: any, set: any, payload: any, token = '') => {
+    const result = updateMixedAnswers(attempt, payload, now().toISOString(), answerPayload => {
+      const locked = attempt.reviewPolicySnapshot?.showExplanationImmediately
+        ? (attempt.answers || []).find((answer: any) => answer.attemptQuestionId === answerPayload.attemptQuestionId)
+        : null;
+      if (locked) return { answer: locked, feedback: options.buildAnswerFeedback(attempt, feedbackSet(attempt, set), locked) };
+      return options.buildAttemptAnswer(attempt, feedbackSet(attempt, set), answerPayload);
+    });
+    if (result.attempt !== attempt) {
+      const timestamp = now().toISOString();
+      Object.assign(result.attempt, { lastSavedAt: timestamp, updatedAt: timestamp });
+      if (attempt.status === 'prepared') Object.assign(result.attempt, { activatedAt: timestamp });
+      await options.repository.saveAttempt(result.attempt, set, false);
+    }
+    const feedback = result.answer
+      ? options.buildAnswerFeedback(result.attempt, feedbackSet(result.attempt, set), result.answer)
+      : null;
+    return { body: {
+      attempt: options.sanitizeAttempt(result.attempt, false, token),
+      ...(result.answer ? { answer: options.sanitizeAnswer(result.answer, Boolean(feedback)) } : {}),
+      feedback,
+    } };
+  };
   const actorOrThrow = async (request: any, message: string, timing?: TimingLike) => {
     const actor = await options.getActor(request);
     timing?.mark('identity');
@@ -104,7 +128,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       if (existing && grammarDisplayMode(existing.displayMode) !== 'standard') {
         if (!options.canAccessAttempt(existing, actor, set, request)) throw grammarAttemptHttpError(403, 'Bạn không có quyền tiếp tục lượt làm này.');
         const body = options.sanitizeAttempt(existing, existing.status === 'completed' && grammarReviewEnabled(existing, set), credentials.runSecret);
-        if (existing.displayMode === 'reading_comprehension' && existing.status !== 'completed' && existing.reviewPolicySnapshot?.showExplanationImmediately) {
+        if ((existing.displayMode === 'reading_comprehension' || existing.displayMode === 'mixed') && existing.status !== 'completed' && existing.reviewPolicySnapshot?.showExplanationImmediately) {
           body.answerFeedback = Object.fromEntries((existing.answers || []).map((answer: any) => [answer.attemptQuestionId, options.buildAnswerFeedback(existing, { ...set, showExplanationImmediately: true }, answer)]));
         }
         return { body };
@@ -134,6 +158,10 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       if (existingAttempt) {
         if (!options.canAccessAttempt(existingAttempt, actor, set, request)) {
           throw grammarAttemptHttpError(403, 'Ban khong co quyen tiep tuc luot lam bai nay.');
+        }
+        if (existingAttempt.displayMode === 'mixed') {
+          if (existingAttempt.status === 'completed') return { body: { attempt: options.sanitizeAttempt(existingAttempt, grammarReviewEnabled(existingAttempt, set), credentials.runSecret), alreadyCompleted: true } };
+          return saveMixed(existingAttempt, set, payload, credentials.runSecret);
         }
         if (existingAttempt.displayMode === 'passage_drag_drop') {
           if (existingAttempt.status === 'completed') return { body: { attempt: options.sanitizeAttempt(existingAttempt, grammarReviewEnabled(existingAttempt, set), credentials.runSecret), alreadyCompleted: true } };
@@ -176,6 +204,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       }
       await assertAttemptLimit(set, actor, timing, true);
       const prepared = options.buildPreparedAttempt(set, actor, payload, credentials.clientRunId, credentials.runSecret);
+      if (prepared.displayMode === 'mixed') return saveMixed(prepared, set, payload, credentials.runSecret);
       if (prepared.displayMode === 'passage_drag_drop') return saveBank(prepared, set, payload, credentials.runSecret);
       const { answer, feedback } = options.buildAttemptAnswer(prepared, set, payload);
       const timestamp = now().toISOString();
@@ -210,6 +239,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       return {
         id: options.makeId(`grammar-attempt-question-${index + 1}`),
         questionId: question.id,
+        ...(set.displayMode === 'mixed' ? { blockId: question.blockId } : {}),
         questionType,
         displayPosition: index + 1,
         optionOrder: choices.map((choice: any) => choice.id),
@@ -230,6 +260,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
     const attempt = {
       id: attemptId, grammarSetId: set.id, grammarSetTitle: set.title,
       ...passageAttemptSnapshot(set, options.fisherYates),
+      ...mixedAttemptSnapshot(set, options.fisherYates),
       ...(grammarDisplayMode(set.displayMode) !== 'standard' ? { ownerType: actor.isGuest ? 'guest' : 'user', ownerKey: `${actor.isGuest ? 'guest' : 'user'}:${actor.id}` } : {}),
       assignmentId: request.body?.assignmentId || '', userId: actor.id,
       studentId: actor.id, guestId: actor.isGuest ? actor.id : '', studentName: actor.name,
@@ -241,7 +272,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       startedAt: timestamp, createdAt: timestamp, questions: attemptQuestions, answers: [],
       reviewPolicySnapshot: {
         showReviewAfterSubmit: set.showReviewAfterSubmit !== false,
-        showExplanationImmediately: Boolean(set.showExplanationImmediately),
+        showExplanationImmediately: Boolean(set.showExplanationImmediately) && !(set.displayMode === 'mixed' && (set.blocks || []).some((block: any) => block.type === 'passage_drag_drop')),
         policyVersion: 1, capturedAt: timestamp,
       },
       attemptTokenHash: attemptToken ? options.hashSessionToken(attemptToken) : '',
@@ -259,6 +290,7 @@ export function createGrammarAttemptService(options: GrammarAttemptServiceOption
       throw grammarAttemptHttpError(403, 'Bạn không có quyền sửa lượt làm bài này.');
     }
     if (attempt.status === 'completed') throw grammarAttemptHttpError(400, 'Bài đã nộp, không thể thay đổi đáp án.');
+    if (attempt.displayMode === 'mixed') return saveMixed(attempt, set, request.body || {});
     if (attempt.displayMode === 'passage_drag_drop') return saveBank(attempt, set, request.body || {});
     const attemptQuestion = (attempt.questions || []).find((question: any) => question.id === request.body?.attemptQuestionId);
     if (!attemptQuestion) throw grammarAttemptHttpError(400, 'Câu hỏi không hợp lệ.');

@@ -9,7 +9,7 @@ function text(value: unknown, max: number, label: string): string {
 }
 export function normalizePassageExercise(payload: Record<string, any>, makeId: (prefix: string) => string) {
   const mode = grammarDisplayMode(payload.displayMode);
-  if (mode === 'standard') return null;
+  if (mode !== 'passage_drag_drop' && mode !== 'reading_comprehension') return null;
   const bankMode = mode === 'passage_drag_drop';
   const passage = text(payload.passage, 100_000, 'Đoạn văn');
   const instruction = text(payload.instruction ?? '', 4000, 'Hướng dẫn');
@@ -42,7 +42,7 @@ export function normalizePassageExercise(payload: Record<string, any>, makeId: (
 
 export function passageAttemptSnapshot(set: Record<string, any>, shuffleBank: (bank: GrammarWordToken[]) => GrammarWordToken[] = bank => bank) {
   const displayMode = grammarDisplayMode(set.displayMode);
-  if (displayMode === 'standard') return {};
+  if (displayMode !== 'passage_drag_drop' && displayMode !== 'reading_comprehension') return {};
   const bank: GrammarWordToken[] = (set.wordBank || []).map((token: GrammarWordToken) => ({ id: token.id, text: token.text }));
   return {
     displayMode, passageSnapshot: String(set.passage || ''), instructionSnapshot: String(set.instruction || ''),

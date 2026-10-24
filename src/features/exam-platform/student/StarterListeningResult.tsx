@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, CircleMinus, Eye, Home, Loader
 import { useMemo, useState } from 'react';
 import type { ExamAnswers, ExamAttemptReview, ExamCompletedAttempt, ExamInteractionRegion, ExamPartContent, ExamPlayableSet, ExamQuestionResult, ExamScenePlacement } from '../types';
 import { examPartUnits } from '../examStructure';
+import { getKetListeningImageLayout } from '../ketListeningMigration';
 import { starterColourValue } from '../starterImport';
 import { readExamMatchingConnections, starterMatchingModel, starterMatchingResponseKey } from '../starterMatching';
 import ExamImageViewer from './ExamImageViewer';
@@ -78,18 +79,19 @@ function MatchingResults({ part, results, answers }: { part: ExamPartContent; re
   </div>;
 }
 
-function ImageOptionResults({ part, results, showSource = true, displayImageUrl }: { part: ExamPartContent; results: ExamQuestionResult[]; showSource?: boolean; displayImageUrl?: string }) {
+function ImageOptionResults({ part, results, showSource = true, displayImageUrl, ketImageLayout = false }: { part: ExamPartContent; results: ExamQuestionResult[]; showSource?: boolean; displayImageUrl?: string; ketImageLayout?: boolean }) {
   const unit = examPartUnits(part)[0] || part;
   return <div className="space-y-4">{displayImageUrl && <ExamImageViewer src={displayImageUrl} alt="Ảnh hiển thị của Part" profile="illustration" className="border border-slate-200/80 bg-white p-1" />}{showSource && part.imageUrl && <ExamImageViewer src={part.imageUrl} alt="Minh họa Part 3" profile="illustration" className="border border-slate-200/80 bg-white p-1" />}<div className="grid gap-4 xl:grid-cols-2">{unit.questions.map((question, questionIndex) => {
     const result = results.find(item => item.questionId === question.id);
     const state = stateOf(result);
     const user = normalized(answerText(result?.userAnswer));
     const correct = normalized(answerText(result?.correctAnswer));
-    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div>{question.imageUrl && <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || questionIndex + 1}`} maxHeight="min(38vh, 340px)" className="mb-3 border border-slate-200/80 bg-white p-1" />}<div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
+    const imageLayout = ketImageLayout ? getKetListeningImageLayout(question) : undefined;
+    return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-start justify-between gap-3"><h3 className="font-black text-slate-900">{question.displayNumber || questionIndex + 1}. {question.prompt}</h3><span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black ${stateClasses(state)}`}><StateIcon state={state} size={16} />{stateLabel(state)}</span></div>{question.imageUrl && (!imageLayout || imageLayout.kind === 'shared') && <ExamImageViewer src={question.imageUrl} alt={`Ảnh chung câu ${question.displayNumber || questionIndex + 1}`} maxHeight="min(38vh, 340px)" className="mb-3 border border-slate-200/80 bg-white p-1" />}<div className="grid grid-cols-3 gap-2 sm:gap-3">{question.options.slice(0, 3).map((option, optionIndex) => {
       const optionValues = [normalized(option.label), normalized(option.text)];
       const selected = optionValues.includes(user);
       const right = optionValues.includes(correct);
-      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl ? <img src={option.imageUrl} alt={option.text} className="listening-image-option mx-auto h-[clamp(88px,11dvh,112px)] w-full max-w-28 object-contain" /> : <div className="flex min-h-20 items-center justify-center px-2 text-center text-sm font-bold text-slate-900">{option.text}</div>}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
+      return <div key={option.id} className={`relative rounded-xl border-4 bg-white p-2 ${right ? 'border-emerald-500' : selected ? 'border-rose-500' : 'border-slate-200'}`}>{option.imageUrl && (!imageLayout || imageLayout.kind === 'options' && imageLayout.optionLabels?.includes(option.label)) ? <img src={option.imageUrl} alt={option.text} className="listening-image-option mx-auto h-[clamp(88px,11dvh,112px)] w-full max-w-28 object-contain" /> : <div className="flex min-h-20 items-center justify-center px-2 text-center text-sm font-bold text-slate-900">{option.text}</div>}<div className="mt-1 flex items-center justify-center gap-1 text-xs font-black"><span className="rounded-full bg-slate-800 px-2 py-1 text-white">{option.label || String.fromCharCode(65 + optionIndex)}</span>{selected && !right && <XCircle size={18} className="text-rose-600" />}{right && <CheckCircle2 size={18} className="text-emerald-600" />}</div></div>;
     })}</div></article>;
   })}</div></div>;
 }
@@ -258,7 +260,7 @@ function DetailedReview({ playable, review, answers, onBack }: { playable: ExamP
                   : <PetYesNoResults part={part} results={results} />
               : ketListening
               ? part.part === 1
-                ? <ImageOptionResults part={part} results={results} showSource={false} />
+                ? <ImageOptionResults part={part} results={results} showSource={false} ketImageLayout />
                 : part.part === 2
                   ? <FlyerLetterResults part={part} results={results} singleImage />
                   : part.part === 3

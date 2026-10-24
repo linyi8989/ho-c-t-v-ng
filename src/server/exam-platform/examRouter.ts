@@ -252,6 +252,9 @@ function collectAssetFields(content: ExamPaperContent) {
     (owner.examples || []).forEach((example, index) => {
       add(example.imageAssetId, 'image', `example-${index + 1}`, 'example-image', url => { example.imageUrl = url; });
       add(example.secondaryImageAssetId, 'image', `example-${index + 1}`, 'example-secondary-image', url => { example.secondaryImageUrl = url; });
+      (example.options || []).forEach((option, optionIndex) => {
+        add(option.imageAssetId, 'image', `example-${index + 1}-option-${optionIndex + 1}`, 'example-option-image', url => { option.imageUrl = url; });
+      });
     });
     (owner.readingScenes || []).forEach(scene => add(scene.imageAssetId, 'image', scene.id, 'reading-scene-image', url => { scene.imageUrl = url; }));
   };
@@ -285,6 +288,9 @@ async function resolveContentAssets(db: any, raw: ExamPaperContent, user: any) {
     (owner.examples || []).forEach((example, index) => {
       requireAssetIdForUrl(example.imageAssetId, example.imageUrl, `${label}, example ${index + 1}`);
       requireAssetIdForUrl(example.secondaryImageAssetId, example.secondaryImageUrl, `${label}, ảnh phụ example ${index + 1}`);
+      (example.options || []).forEach((option, optionIndex) => {
+        requireAssetIdForUrl(option.imageAssetId, option.imageUrl, `${label}, example ${index + 1}, lựa chọn ${option.label || optionIndex + 1}`);
+      });
     });
     (owner.readingScenes || []).forEach((scene, index) => requireAssetIdForUrl(scene.imageAssetId, scene.imageUrl, `${label}, reading scene ${index + 1}`));
   };

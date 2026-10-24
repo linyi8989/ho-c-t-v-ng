@@ -36,7 +36,7 @@ const intersectionOverUnion = (left: SmartImportCrop, right: SmartImportCrop) =>
  * This deliberately ignores AI coordinates: AI reads text/order, while pixels
  * decide the exact inner crop edge.
  */
-export function detectPart4FramesFromPixels(source: PixelSource): Part4DetectedFrame[] {
+export function detectPart4FramesFromPixels(source: PixelSource, options: { allowWideFrames?: boolean } = {}): Part4DetectedFrame[] {
   const { width, height, data } = source;
   if (width < 40 || height < 40 || data.length < width * height * 4) return [];
   const size = width * height;
@@ -130,10 +130,10 @@ export function detectPart4FramesFromPixels(source: PixelSource): Part4DetectedF
     if (
       boxWidth < minimumWidth
       || boxHeight < minimumHeight
-      || boxWidth > width * 0.36
+      || boxWidth > width * (options.allowWideFrames ? 0.96 : 0.36)
       || boxHeight > height * 0.62
       || aspect < 0.52
-      || aspect > 2.1
+      || aspect > (options.allowWideFrames ? 10 : 2.1)
     ) continue;
 
     const band = Math.max(1, Math.round(Math.min(boxWidth, boxHeight) * 0.018));
@@ -226,6 +226,6 @@ export async function loadPart4FramePixelSource(imageUrl: string, maximumDimensi
   return context.getImageData(0, 0, width, height);
 }
 
-export async function detectPart4Frames(imageUrl: string) {
-  return detectPart4FramesFromPixels(await loadPart4FramePixelSource(imageUrl));
+export async function detectPart4Frames(imageUrl: string, options: { allowWideFrames?: boolean } = {}) {
+  return detectPart4FramesFromPixels(await loadPart4FramePixelSource(imageUrl), options);
 }

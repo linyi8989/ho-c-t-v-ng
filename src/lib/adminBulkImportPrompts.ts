@@ -1,4 +1,5 @@
 import { grammarPassageTemplate } from './grammarPassageImport';
+import { grammarMixedTemplate } from './grammarMixedImport';
 
 export interface AdminBulkImportPromptContext {
   title?: string;
@@ -11,6 +12,23 @@ export interface AdminBulkImportPromptContext {
 
 function copyableOutputRule(format: 'text' | 'json') {
   return `Kết quả trả về phải đặt toàn bộ trong đúng một khung mã Markdown (mở bằng \`\`\`${format} và đóng bằng \`\`\`) để ChatGPT hiển thị nút Copy; bên trong chỉ chứa dữ liệu đúng định dạng để sao chép và dán trực tiếp vào khung soạn đề, không có nội dung bên ngoài khung.`;
+}
+
+export function buildMixedGrammarBulkImportPrompt(context: AdminBulkImportPromptContext = {}) {
+  return [
+    'Tạo hoặc trích xuất một bài ngữ pháp có nhiều dạng bài hiển thị nối tiếp trên cùng một trang.',
+    contextBlock(context),
+    'Nếu tôi gửi ảnh hoặc văn bản, giữ đầy đủ nội dung, đoạn văn, câu hỏi và lựa chọn theo đúng thứ tự trong nguồn. Khi yêu cầu tạo mới, làm theo ngữ cảnh.',
+    copyableOutputRule('json'),
+    'Trả một đối tượng JSON theo mẫu bên dưới. Không tạo ID kỹ thuật; ứng dụng tự tạo ID. blocks là danh sách các nhóm nội dung theo đúng thứ tự hiển thị.',
+    'Mỗi nhóm có type tường minh: multiple_choice (trắc nghiệm độc lập), passage_drag_drop (kéo thả từ vào đoạn văn), hoặc reading_comprehension (bài đọc phía trên, các câu hỏi phía dưới). title là tiêu đề tùy chọn, instruction là hướng dẫn tiếng Anh. Không dùng phần tự luận trong định dạng này.',
+    'Không bắt buộc đủ ba dạng, không giới hạn số nhóm hay thứ tự các dạng. Có thể lặp lại cùng một dạng nhiều lần, mỗi đoạn đọc và ngân hàng từ thuộc riêng nhóm của nó. Không đặt số câu hỏi, số lựa chọn, số ô trống theo mẫu; giữ toàn bộ dữ liệu nhận được.',
+    'Nhóm multiple_choice và reading_comprehension có questions: mỗi câu gồm question, options (mảng ít nhất hai văn bản khác nhau), answer (vị trí đáp án đúng tính từ 1), explanation (giải thích tiếng Việt). Nhóm đọc hiểu có thêm passage là toàn bộ bài đọc, giữ xuống đoạn bằng \\n.',
+    'Nhóm passage_drag_drop có passage chứa marker [[1]], [[2]]… mỗi số xuất hiện đúng một lần trong nhóm; wordBank là danh sách từ/cụm từ, có thể thêm 1–2 từ nhiễu khi phù hợp, không bắt buộc. answers có một mục cho mỗi marker gồm blank (số ô trong nhóm), answer (nguyên văn thẻ đúng trong wordBank), explanation (tiếng Việt). Mỗi thẻ dùng một lần: nếu cùng một từ được dùng hai lần, lặp từ đó trong wordBank. Số ô có thể bắt đầu lại từ 1 ở nhóm kéo thả khác.',
+    'Không đoán đáp án hoặc nội dung bị thiếu trong nguồn. Khi không đủ dữ kiện, báo phần cần bổ sung thay vì tự điền dữ liệu hoàn chỉnh giả tạo.',
+    'Mẫu cấu trúc (số lượng và thứ tự trong mẫu chỉ để minh họa):',
+    grammarMixedTemplate(),
+  ].join('\n\n');
 }
 
 export function buildPassageGrammarBulkImportPrompt(mode: 'passage_drag_drop' | 'reading_comprehension', context: AdminBulkImportPromptContext = {}) {

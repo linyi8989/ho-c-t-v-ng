@@ -1116,7 +1116,7 @@ test('KET Reading & Writing Part 3 and result controls meet WCAG AA text contras
   }
 });
 
-test('KET Listening keeps five flexible Part types, special Part 1 crops and the shared listening review shell', () => {
+test('KET Listening keeps five flexible Part types, data-driven Part 1 crops and the shared listening review shell', () => {
   for (const contract of [
     "KET_LISTENING_TEMPLATE_VERSION = 'ket-listening-5-v1'",
     'KET_LISTENING_DEFAULT_COUNTS = [5, 5, 5, 5, 5]',
@@ -1128,20 +1128,22 @@ test('KET Listening keeps five flexible Part types, special Part 1 crops and the
   ]) assert.ok(ketListeningMigrationSource.includes(contract), `KET Listening migration is missing: ${contract}`);
   for (const contract of [
     'id="ket-listening-authoring"',
-    'crop-part1-1245',
-    'KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS',
-    'KET_LISTENING_MANUAL_DISPLAY_NUMBER',
+    'getKetListeningImageLayout',
+    'detectCropPlan',
+    'applyBatchPlan',
     'groupKetListeningPart1OptionCrops',
     'FlyerPart3Editor',
     'singleImage',
     'pasteImages',
     'data-ket-listening-count-controls',
-    'Ảnh chung của câu 3',
+    'Crop ảnh chung',
   ]) assert.ok(ketListeningAuthoringSource.includes(contract), `KET Listening authoring is missing: ${contract}`);
-  assert.match(ketListeningCropSource, /filter\(row => row\.frames\.length === 3\)/);
+  assert.match(ketListeningCropSource, /expectedCounts/);
+  assert.doesNotMatch(ketListeningAuthoringSource + ketListeningMigrationSource, /KET_LISTENING_(?:AUTOCROP_DISPLAY_NUMBERS|MANUAL_DISPLAY_NUMBER)/);
   for (const contract of [
     'id="ket-listening-player"',
-    'StarterImageOptionsView',
+    'getKetListeningImageLayout',
+    'data-ket-example-option',
     'FlyerLetterMatchingView',
     'data-ket-listening-part1-shared-image',
     'data-ket-listening-dialogue-choices',
@@ -1150,7 +1152,7 @@ test('KET Listening keeps five flexible Part types, special Part 1 crops and the
   ]) assert.ok(ketListeningPlayerSource.includes(contract), `KET Listening player is missing: ${contract}`);
   assert.doesNotMatch(ketListeningPlayerSource, /data-ket-listening-part3-prompt/);
   assert.match(universalPromptSource, /Part 4 listening - Question 16–20\./);
-  assert.match(universalPromptSource, /content\.passage CHỈ chứa nội dung biểu mẫu/);
+  assert.match(universalPromptSource, /content\.passage CHỈ chứa tiêu đề của biểu mẫu/);
   assert.match(genericPlayerSource, /isFixedKetListeningContent\(playable\.content\)/);
   assert.match(genericPlayerSource, /ketListening=\{ketListening\}/);
   assert.match(starterResultSource, /ket-listening-5-v1/);

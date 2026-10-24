@@ -118,6 +118,29 @@ function correctAnswers(content: ExamPaperContent): ExamAnswers {
   ])));
 }
 
+function ketListeningExampleContent() {
+  const content = createDefaultExamContent(getExamPaperDefinition('ket', 'listening')!);
+  content.title = 'KET Listening example media';
+  content.parts.forEach(part => {
+    part.audioAssetId = 'ket-example-audio';
+    if (part.part === 2) part.imageAssetId = 'exam-image-1';
+    if (part.part === 4 || part.part === 5) part.passage = 'Complete these printed form fields. Example: name Alex.';
+    if (part.part <= 3) part.examples = [{ prompt: 'Which picture is correct?', answer: part.part === 2 ? 'A' : 'B',
+      options: ['A', 'B', 'C'].map(label => ({ label, text: `Example ${label}`, ...(part.part === 1 ? { imageAssetId: `ket-example-${label}` } : {}) })),
+    }];
+    part.questions.forEach((question, index) => {
+      question.prompt = `Question ${index + 1}`;
+      if (part.part === 1) {
+        question.imageAssetId = 'exam-image-1';
+        question.options.forEach(option => { option.imageAssetId = 'exam-image-1'; });
+      }
+      if (part.part === 1 || part.part === 3) question.correctOptionIds = [question.options[0].id];
+      else question.acceptedAnswers = [part.part === 2 ? 'A' : 'answer'];
+    });
+  });
+  return content;
+}
+
 async function waitForAttempt(url: string, headers: Record<string, string>, predicate: (attempt: any) => boolean) {
   let latest: any;
   for (let index = 0; index < 100; index += 1) {
@@ -192,6 +215,67 @@ test('generic exam API preserves immutable publish, private grading and manual W
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   });
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/exam-platform`;
+
+  await t.test('KET example option images resolve, enforce asset ownership and remain referenced after publish', async () => {
+    for (const [id, kind, ownerId, status] of [
+      ['ket-example-A', 'image', teacher.id, 'active'],
+      ['ket-example-B', 'image', teacher.id, 'active'],
+      ['ket-example-C', 'image', teacher.id, 'active'],
+      ['ket-example-audio', 'audio', teacher.id, 'active'],
+      ['ket-example-other-owner', 'image', otherTeacher.id, 'active'],
+      ['ket-example-archived', 'image', teacher.id, 'archived'],
+    ]) await db.collection('listening_assets').doc(id).set({
+      id, kind, ownerId, status, name: `${id}.png`, url: `/listening-media/${id}.png`,
+      mimeType: kind === 'audio' ? 'audio/mpeg' : 'image/png', size: 128, storageKey: `${id}.png`,
+      createdAt: assetTimestamp, updatedAt: assetTimestamp,
+    });
+    const endpoint = `${baseUrl}/admin/modules/ket/papers/listening/sets`;
+    for (const placement of ['part', 'block'] as const) {
+      for (const [assetId, imageUrl, expectedStatus] of [
+        ['ket-example-other-owner', undefined, 403],
+        ['ket-example-archived', undefined, 400],
+        ['ket-example-audio', undefined, 400],
+        ['ket-example-missing', undefined, 400],
+        [undefined, '/listening-media/unowned-example.png', 400],
+      ] as const) {
+        const invalid = ketListeningExampleContent();
+        const part = invalid.parts[0];
+        const example = part.examples![0];
+        Object.assign(example.options![0], { imageAssetId: assetId, imageUrl });
+        if (placement === 'block') {
+          part.blocks = [{ id: 'ket-example-block', block: 1, title: 'Pictures', instruction: '',
+            interaction: part.interaction!, questionIds: part.questions.map(question => question.id), examples: [example],
+          }];
+          part.examples = undefined;
+        }
+        const rejected = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: invalid }) });
+        const rejectedBody = await rejected.json();
+        assert.equal(rejected.status, expectedStatus, `${placement}: ${JSON.stringify(rejectedBody)}`);
+      }
+    }
+    const content = ketListeningExampleContent();
+    const create = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+    const createdExample = await create.json() as any;
+    assert.equal(create.status, 201, JSON.stringify(createdExample));
+    assert.deepEqual(createdExample.validationErrors, []);
+    assert.deepEqual(createdExample.draftContent.parts[0].examples[0].options.map((option: any) => option.imageUrl),
+      ['A', 'B', 'C'].map(label => `/listening-media/ket-example-${label}.png`));
+    const visible = await fetch(`${endpoint}/${createdExample.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, visibility: 'public', baseRevision: createdExample.draftRevision }) });
+    assert.equal(visible.status, 200, JSON.stringify(await visible.clone().json()));
+    const publishedResponse = await fetch(`${endpoint}/${createdExample.id}/publish`, { method: 'POST' });
+    const publishedExample = await publishedResponse.json() as any;
+    assert.equal(publishedResponse.status, 200, JSON.stringify(publishedExample));
+    const playableExampleResponse = await fetch(`${baseUrl}/modules/ket/papers/listening/sets/${createdExample.id}`);
+    const playableExample = await playableExampleResponse.json() as any;
+    assert.equal(playableExampleResponse.status, 200, JSON.stringify(playableExample));
+    assert.equal(playableExample.content.parts[0].examples[0].answer, 'B');
+    assert.deepEqual(playableExample.content.parts[0].examples[0].options.map((option: any) => option.imageUrl),
+      ['A', 'B', 'C'].map(label => `/listening-media/ket-example-${label}.png`));
+    for (const label of ['A', 'B', 'C']) {
+      const references = await db.collection('exam_asset_usages').where('assetId', '==', `ket-example-${label}`).get();
+      assert.ok(references.docs.some((document: any) => document.data().versionId === publishedExample.version.id && document.data().role === 'example-option-image'));
+    }
+  });
 
   const objectiveContent = completeContent('starter', 'reading-writing');
   objectiveContent.parts[0].imageAssetId = 'exam-image-1';

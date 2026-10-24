@@ -14,8 +14,9 @@ interface Props {
   feedback?: Record<string, PassageFeedback>;
   disabled?: boolean;
   review?: boolean;
+  questionNumberOffset?: number;
 }
-export default function GrammarPassageView({ attempt, selected, onChoice, onBankChange, feedback = {}, disabled = false, review = false }: Props) {
+export default function GrammarPassageView({ attempt, selected, onChoice, onBankChange, feedback = {}, disabled = false, review = false, questionNumberOffset }: Props) {
   const [activeToken, setActiveToken] = useState('');
   const [draggingToken, setDraggingToken] = useState('');
   const bank = attempt.wordBankSnapshot || [];
@@ -54,13 +55,14 @@ export default function GrammarPassageView({ attempt, selected, onChoice, onBank
         if (segment.blankNumber === undefined) return <span key={`text-${index}`}>{segment.text}</span>;
         const question = questionsByBlank.get(segment.blankNumber);
         if (!question) return <span key={`missing-${index}`}>{segment.text}</span>;
+        const displayNumber = questionNumberOffset === undefined ? segment.blankNumber : questionNumberOffset + attempt.questions.indexOf(question) + 1;
         const tokenId = selected[question.id];
         const answer = answersByQuestion.get(question.id);
         const correct = question.correctOptionId ? labels.get(question.correctOptionId) : '';
         const state = review && correct ? !tokenId ? 'unanswered' : answer?.isCorrect ? 'correct' : 'incorrect' : tokenId ? 'filled' : 'empty';
         return <span key={question.id} className="grammar-blank-wrap" data-answer-state={state}>
-          <span className="grammar-blank-number">({segment.blankNumber})</span>
-          <button type="button" className="grammar-inline-blank" data-blank-number={segment.blankNumber} data-token-selected={tokenId && activeToken === tokenId ? 'true' : undefined} data-eligible={activeToken || draggingToken ? 'true' : undefined} disabled={disabled || review} draggable={Boolean(tokenId) && !disabled && !review} aria-label={`Ô ${segment.blankNumber}${tokenId ? `: ${labels.get(tokenId)}` : ': chưa điền'}`} aria-pressed={Boolean(tokenId && activeToken === tokenId)} onDragStart={event => tokenId && handleTokenDrag(event, tokenId)} onDragEnd={() => setDraggingToken('')} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }} onDrop={event => { event.preventDefault(); assign(question.id, event.dataTransfer.getData('text/grammar-token')); }} onClick={() => {
+          <span className="grammar-blank-number">({displayNumber})</span>
+          <button type="button" className="grammar-inline-blank" data-blank-number={segment.blankNumber} data-token-selected={tokenId && activeToken === tokenId ? 'true' : undefined} data-eligible={activeToken || draggingToken ? 'true' : undefined} disabled={disabled || review} draggable={Boolean(tokenId) && !disabled && !review} aria-label={`Ô ${displayNumber}${tokenId ? `: ${labels.get(tokenId)}` : ': chưa điền'}`} aria-pressed={Boolean(tokenId && activeToken === tokenId)} onDragStart={event => tokenId && handleTokenDrag(event, tokenId)} onDragEnd={() => setDraggingToken('')} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }} onDrop={event => { event.preventDefault(); assign(question.id, event.dataTransfer.getData('text/grammar-token')); }} onClick={() => {
             if (activeToken && activeToken !== tokenId) assign(question.id, activeToken);
             else if (tokenId) setActiveToken(current => current === tokenId ? '' : tokenId);
           }} onKeyDown={event => { if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); clear(question.id); } if (event.key === 'Escape') setActiveToken(''); }}>
@@ -69,14 +71,14 @@ export default function GrammarPassageView({ attempt, selected, onChoice, onBank
           {review && correct && <span className="grammar-blank-result">{state === 'correct' ? '✓' : `✗ ${correct}`}</span>}
         </span>;
       })}</div>
-      {review && attempt.questions.some(question => question.explanationSnapshot) && <div className="grammar-passage-explanations">{attempt.questions.map(question => question.explanationSnapshot && <p key={question.id}><strong>{question.blankNumber}:</strong> {question.explanationSnapshot}</p>)}</div>}
+      {review && attempt.questions.some(question => question.explanationSnapshot) && <div className="grammar-passage-explanations">{attempt.questions.map((question, index) => question.explanationSnapshot && <p key={question.id}><strong>{questionNumberOffset === undefined ? question.blankNumber : questionNumberOffset + index + 1}:</strong> {question.explanationSnapshot}</p>)}</div>}
     </> : <>
-      <section className="grammar-reading-passage" aria-label="Bài đọc">{attempt.passageSnapshot}</section>
+      {attempt.passageSnapshot && <section className="grammar-reading-passage" aria-label="Bài đọc">{attempt.passageSnapshot}</section>}
       <div className="grammar-reading-questions" aria-label="Câu hỏi đọc hiểu">{attempt.questions.map((question, index) => {
         const savedFeedback = feedback[question.id];
         const correctId = review ? question.correctOptionId : savedFeedback?.correctOptionId;
         return <fieldset key={question.id} className="grammar-reading-question">
-          <legend><span>{index + 1}.</span> {question.questionSnapshot}</legend>
+          <legend><span>{(questionNumberOffset || 0) + index + 1}.</span> {question.questionSnapshot}</legend>
           <div className="grammar-reading-options">{question.optionsSnapshot.map((option, optionIndex) => {
             const isSelected = selected[question.id] === option.id;
             const state = correctId === option.id ? 'correct' : isSelected && correctId ? 'incorrect' : isSelected ? 'selected' : 'idle';

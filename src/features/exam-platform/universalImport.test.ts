@@ -404,7 +404,7 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
   assert.equal(imported.templateVersion, 'ket-listening-5-v1');
   assert.deepEqual(imported.parts.map(part => part.questions.length), [4, 6, 3, 4, 7]);
   assert.equal(imported.parts[0].questions[2].imageAssetId, 'ket-p1-q3-shared');
-  assert.equal(imported.parts[0].questions[2].options[1].imageAssetId, undefined);
+  assert.equal(imported.parts[0].questions[2].options[1].imageAssetId, 'ket-p1-q3-2');
   assert.equal(imported.parts[1].imageAssetId, 'ket-p2-left');
   assert.equal(imported.parts[1].readingScenes?.[0].imageAssetId, 'ket-p2-middle');
   assert.equal(imported.parts[4].questions[0].answerPrefix, '98');
@@ -419,17 +419,17 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
 
   const prompt = buildUniversalExamImportPrompt(current);
   assert.match(prompt, /KET\) Listening/);
-  assert.match(prompt, /1, 2, 4, 5/);
-  assert.match(prompt, /Câu in số 3/);
+  assert.match(prompt, /imageLayout/);
+  assert.match(prompt, /Không khóa theo số câu 3/);
   assert.match(prompt, /answerSuffix/);
   assert.match(prompt, /98 ___ Road/);
   assert.match(prompt, /số câu KHÔNG bị khóa/);
   assert.match(prompt, /Part 2: dùng đúng một ảnh đặt bên trái/);
   assert.match(prompt, /Part 4 listening - Question 16–20\./);
-  assert.match(prompt, /content\.passage CHỈ chứa nội dung biểu mẫu/);
+  assert.match(prompt, /content\.passage CHỈ chứa tiêu đề của biểu mẫu/);
 });
 
-test('KET Listening Part 1 crop grouping ignores the single combined frame for printed question 3', () => {
+test('KET Listening Part 1 crop grouping includes shared images at their data-defined position', () => {
   const row = (y: number) => [0.08, 0.38, 0.68].map((x, index) => ({ crop: { x, y, width: .2, height: .08 }, score: .99 - index * .01 }));
   const detected = [
     ...row(.04), // printed example
@@ -439,12 +439,13 @@ test('KET Listening Part 1 crop grouping ignores the single combined frame for p
     ...row(.68), // question 4
     ...row(.84), // question 5
   ];
-  const grouped = groupKetListeningPart1OptionCrops(detected);
+  const grouped = groupKetListeningPart1OptionCrops(detected, [3, 3, 1, 3, 3], 3);
   assert.equal(grouped.detectedPrintedExample, true);
-  assert.equal(grouped.questionGroups.length, 4);
+  assert.equal(grouped.questionGroups.length, 5);
   assert.deepEqual(grouped.questionGroups.map(group => group.map(crop => crop.y)), [
     [.2, .2, .2],
     [.36, .36, .36],
+    [.52],
     [.68, .68, .68],
     [.84, .84, .84],
   ]);

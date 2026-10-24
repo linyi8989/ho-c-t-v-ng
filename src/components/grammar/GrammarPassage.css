@@ -33,3 +33,7 @@
   :is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-passage-exercise .grammar-reading-options { margin-left: 0; }
   :is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-passage-exercise .grammar-word-bank { gap: 7px; padding-inline: 0; }
 }
+:is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-mixed-exercise { display: grid; gap: 28px; min-width: 0; }
+:is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-mixed-block { min-width: 0; border-bottom: 1px solid #cbd5e1; padding-bottom: 24px; }
+:is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-mixed-block:last-child { border-bottom: 0; padding-bottom: 0; }
+:is(#grammar-learning-root, #grammar-passage-preview, #student-history-page) .grammar-mixed-block-title { color: #173c75; font-size: 19px; font-weight: 800; margin: 0 0 16px; }

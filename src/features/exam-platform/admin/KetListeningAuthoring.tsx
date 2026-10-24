@@ -8,10 +8,7 @@ import { detectPart4Frames } from '../../listening-editor/smart-import/part4Fram
 import VisualCropEditor from '../../listening-editor/smart-import/VisualCropEditor';
 import type { SmartImportCrop } from '../../listening-editor/smart-import/types';
 import { groupKetListeningPart1OptionCrops } from '../ketListeningCrops';
-import {
-  KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS,
-  KET_LISTENING_MANUAL_DISPLAY_NUMBER,
-} from '../ketListeningMigration';
+import { getKetListeningImageLayout } from '../ketListeningMigration';
 import type { ExamDisplayExample, ExamOption, ExamPartContent, ExamQuestion } from '../types';
 import { FlyerPart3Editor } from './FlyerListeningAuthoring';
 
@@ -85,11 +82,34 @@ function ImagePicker({ label, value, assets, token, onAssets, onChange, compact 
   />;
 }
 
-function ExampleEditor({ examples, onChange }: { examples: ExamDisplayExample[]; onChange: (examples: ExamDisplayExample[]) => void }) {
+function ExampleEditor({ examples, onChange, imageTools }: { examples: ExamDisplayExample[]; onChange: (examples: ExamDisplayExample[]) => void; imageTools?: Pick<Props, 'token' | 'assets' | 'onAssets'> }) {
+  const latestExamples = useRef(examples);
+  latestExamples.current = examples;
   const example = examples[0] || { prompt: '', answer: '' };
-  return <section className="grid gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 md:grid-cols-2" data-ket-listening-example-editor>
-    <label className="text-xs font-black text-indigo-950">Example không chấm điểm<input value={example.prompt} onChange={event => onChange([{ ...example, prompt: event.target.value }])} className={`mt-1 ${fieldClass}`} /></label>
-    <label className="text-xs font-black text-indigo-950">Đáp án in sẵn<input value={example.answer} onChange={event => onChange([{ ...example, answer: event.target.value }])} className={`mt-1 ${fieldClass}`} /></label>
+  const exampleChoices = (value: ExamDisplayExample) => ['A', 'B', 'C'].map(label => {
+    const option = value.options?.find(item => item.label.toUpperCase() === label);
+    return { ...option, label, text: option?.text || '' };
+  });
+  const options = exampleChoices(example);
+  const update = (patch: Partial<ExamDisplayExample>) => {
+    const current = latestExamples.current[0] || { prompt: '', answer: '' };
+    onChange([{ ...current, ...patch }, ...latestExamples.current.slice(1)]);
+  };
+  const updateOption = (index: number, patch: Partial<NonNullable<ExamDisplayExample['options']>[number]>) => {
+    const current = latestExamples.current[0] || { prompt: '', answer: '' };
+    const currentOptions = exampleChoices(current);
+    update({ options: currentOptions.map((option, optionIndex) => optionIndex === index ? { ...option, ...patch } : option) });
+  };
+  const selected = (option: typeof options[number]) => example.answer.trim().toLocaleUpperCase() === option.label || Boolean(option.text.trim() && example.answer.trim().toLocaleLowerCase() === option.text.trim().toLocaleLowerCase());
+  return <section className="space-y-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4" data-ket-listening-example-editor>
+    <div className="grid gap-3 md:grid-cols-2"><label className="text-xs font-black text-indigo-950">Example không chấm điểm<input value={example.prompt} onChange={event => update({ prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>
+    <label className="text-xs font-black text-indigo-950">Đáp án in sẵn<input value={example.answer} onChange={event => update({ answer: event.target.value })} className={`mt-1 ${fieldClass}`} placeholder="A, B hoặc C" /></label></div>
+    {imageTools && <ImagePicker label="Ảnh chung của example (tùy chọn)" value={example.imageAssetId} {...imageTools} onChange={asset => update({ imageAssetId: asset?.id, imageUrl: asset?.url })} />}
+    <div className="grid gap-3 md:grid-cols-3">{options.map((option, index) => <div key={option.label} className={`rounded-xl border p-3 ${selected(option) ? 'border-emerald-500 bg-emerald-50' : 'border-indigo-200 bg-white'}`} data-example-answer={selected(option) ? 'correct' : undefined}>
+      <label className="flex items-center gap-2 text-xs font-black text-slate-900"><input type="radio" name={`ket-example-${imageTools ? 'image' : 'text'}`} checked={selected(option)} onChange={() => update({ answer: option.label })} />Lựa chọn {option.label}{selected(option) ? ' · Đáp án example' : ''}</label>
+      <input className={`mt-2 ${fieldClass}`} aria-label={`Nội dung example ${option.label}`} value={option.text} onChange={event => updateOption(index, { text: event.target.value })} />
+      {imageTools && <div className="mt-2"><ImagePicker compact label={`Ảnh example ${option.label} (tùy chọn)`} value={option.imageAssetId} {...imageTools} onChange={asset => updateOption(index, { imageAssetId: asset?.id, imageUrl: asset?.url })} /></div>}
+    </div>)}</div>
   </section>;
 }
 
@@ -102,147 +122,183 @@ function AcceptedAnswers({ question, onChange }: { question: ExamQuestion; onCha
 }
 
 function PartOne({ token, part, assets, onAssets, onChange }: Props) {
-  const [selection, setSelection] = useState<{ questionIndex: number; optionIndex: number } | null>(null);
+  type Target = { questionId: string; optionId?: string };
+  type BatchPlan = { sourceAssetId: string; sourceUrl: string; fingerprint: string; groups: SmartImportCrop[][]; detectedPrintedExample: boolean };
+  const [selection, setSelection] = useState<Target | null>(null);
   const [crop, setCrop] = useState<SmartImportCrop>({ x: 0, y: 0, width: 1, height: 1 });
   const [cropping, setCropping] = useState(false);
   const [batchCropping, setBatchCropping] = useState(false);
   const [batchNotice, setBatchNotice] = useState('');
+  const [batchPlan, setBatchPlan] = useState<BatchPlan | null>(null);
+  const [allowExample, setAllowExample] = useState(Boolean(part.examples?.length));
+  const [exampleImageCount, setExampleImageCount] = useState(() => {
+    const example = part.examples?.[0];
+    const count = example?.options?.filter(option => option.imageAssetId || option.imageUrl).length || 0;
+    return count || (example?.imageAssetId || example?.imageUrl ? 1 : 3);
+  });
   const latestPartRef = useRef(part);
   latestPartRef.current = part;
-  const selectedQuestion = selection ? part.questions[selection.questionIndex] : undefined;
-  const selectedOption = selection ? selectedQuestion?.options[selection.optionIndex] : undefined;
-  const isSharedImageQuestion = (question: ExamQuestion) => (question.displayNumber || 0) === KET_LISTENING_MANUAL_DISPLAY_NUMBER;
-  const visibleImageCount = part.questions.reduce((total, question) => total + (isSharedImageQuestion(question)
-    ? Number(Boolean(question.imageAssetId && question.imageUrl))
-    : question.options.filter(option => option.imageAssetId && option.imageUrl).length), 0);
-  const expectedImageCount = part.questions.reduce((total, question) => total + (isSharedImageQuestion(question) ? 1 : 3), 0);
-
-  const updateQuestion = (questionIndex: number, question: ExamQuestion) => onChange({
-    ...part,
-    questions: part.questions.map((item, index) => index === questionIndex ? question : item),
-  });
-  const attachOptionAsset = (questionIndex: number, optionIndex: number, asset?: ListeningAsset) => {
-    const question = part.questions[questionIndex];
-    if (!question) return;
-    if (asset) onAssets(asset);
-    updateQuestion(questionIndex, {
-      ...question,
-      options: question.options.map((option, index) => index === optionIndex
-        ? { ...option, imageAssetId: asset?.id, imageUrl: asset?.url }
-        : option),
-    });
+  const fingerprint = (value: ExamPartContent) => JSON.stringify(value);
+  const selectedQuestion = part.questions.find(question => question.id === selection?.questionId);
+  const selectedOption = selectedQuestion?.options.find(option => option.id === selection?.optionId);
+  const selectedLayout = selectedQuestion ? getKetListeningImageLayout(selectedQuestion) : undefined;
+  const selectionActive = Boolean(selectedQuestion && (selection?.optionId
+    ? selectedLayout?.kind === 'options' && selectedOption && selectedLayout.optionLabels?.includes(selectedOption.label)
+    : selectedLayout?.kind === 'shared'));
+  const imageCount = (question: ExamQuestion) => {
+    const layout = getKetListeningImageLayout(question);
+    return layout.kind === 'shared' ? 1 : layout.optionLabels?.length || 0;
   };
-  const attachQuestionAsset = (questionIndex: number, asset?: ListeningAsset) => {
-    const question = part.questions[questionIndex];
+  const expectedImageCount = part.questions.reduce((total, question) => total + imageCount(question), 0);
+  const visibleImageCount = part.questions.reduce((total, question) => {
+    const layout = getKetListeningImageLayout(question);
+    return total + (layout.kind === 'shared' ? Number(Boolean(question.imageAssetId && question.imageUrl))
+      : question.options.filter(option => layout.optionLabels?.includes(option.label) && option.imageAssetId && option.imageUrl).length);
+  }, 0);
+  const updateQuestion = (questionId: string, patch: Partial<ExamQuestion>) => {
+    const current = latestPartRef.current;
+    onChange({ ...current, questions: current.questions.map(question => question.id === questionId ? { ...question, ...patch } : question) });
+  };
+  const attachAsset = (target: Target, asset?: ListeningAsset) => {
+    const current = latestPartRef.current;
+    const question = current.questions.find(item => item.id === target.questionId);
     if (!question) return;
     if (asset) onAssets(asset);
-    updateQuestion(questionIndex, { ...question, imageAssetId: asset?.id, imageUrl: asset?.url });
+    const patch = target.optionId
+      ? { options: question.options.map(option => option.id === target.optionId ? { ...option, imageAssetId: asset?.id, imageUrl: asset?.url } : option) }
+      : { imageAssetId: asset?.id, imageUrl: asset?.url };
+    updateQuestion(target.questionId, { ...patch, imageLayout: getKetListeningImageLayout(question) });
+  };
+  const checkSnapshot = (snapshot: string) => {
+    if (fingerprint(latestPartRef.current) !== snapshot) throw new Error('Nội dung, thứ tự câu, bố cục hoặc ảnh nguồn đã đổi trong lúc xử lý. Chưa gán ảnh; hãy dò hoặc crop lại trên bản đang soạn.');
   };
   const applyCrop = async () => {
-    if (!selection || !part.imageAssetId || !part.imageUrl || !selectedOption) return;
-    const currentSelection = { ...selection };
-    setCropping(true);
-    try {
-      const file = await cropListeningImage(part.imageUrl, crop, `ket-listening-part1-q${currentSelection.questionIndex + 1}-${selectedOption.label}.png`);
-      const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: part.imageAssetId, crop });
-      attachOptionAsset(currentSelection.questionIndex, currentSelection.optionIndex, asset);
-    } catch (reason: any) {
-      window.alert(reason?.message || 'Không thể tạo ảnh crop cho lựa chọn này.');
-    } finally {
-      setCropping(false);
-    }
-  };
-  const cropFourPrintedQuestions = async () => {
+    if (!selection || !part.imageAssetId || !part.imageUrl || !selectionActive || cropping || batchCropping) return;
+    const target = { ...selection };
+    const snapshot = fingerprint(part);
     const sourceAssetId = part.imageAssetId;
     const sourceUrl = part.imageUrl;
-    if (!sourceAssetId || !sourceUrl) return;
-    setBatchCropping(true);
-    setBatchNotice('Đang dò các khung A/B/C của câu 1, 2, 4 và 5…');
+    const selectedCrop = { ...crop };
+    setCropping(true); setBatchNotice('');
     try {
-      const detected = await detectPart4Frames(sourceUrl);
-      const grouped = groupKetListeningPart1OptionCrops(detected);
-      if (grouped.questionGroups.length !== 4 || grouped.questionGroups.some(group => group.length !== 3)) {
-        throw new Error(`Chỉ nhận được ${detected.length} khung phù hợp. Cần bốn nhóm A/B/C; hình tổng của câu 3 sẽ được bỏ qua.`);
-      }
-      const uploadedByDisplay = new Map<number, ListeningAsset[]>();
-      for (let groupIndex = 0; groupIndex < KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS.length; groupIndex += 1) {
-        const displayNumber = KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS[groupIndex];
-        if (!latestPartRef.current.questions.some(question => (question.displayNumber || 0) === displayNumber)) continue;
-        const row: ListeningAsset[] = [];
-        for (let optionIndex = 0; optionIndex < 3; optionIndex += 1) {
-          if (latestPartRef.current.imageAssetId !== sourceAssetId) throw new Error('Ảnh nguồn đã thay đổi trong lúc crop; đã dừng trước khi ghi đè.');
-          const optionLabel = String.fromCharCode(65 + optionIndex);
-          const selectedCrop = grouped.questionGroups[groupIndex][optionIndex];
-          const file = await cropListeningImage(sourceUrl, selectedCrop, `ket-listening-part1-q${displayNumber}-${optionLabel}.png`);
-          const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: sourceAssetId, crop: selectedCrop });
-          onAssets(asset);
-          row.push(asset);
-        }
-        uploadedByDisplay.set(displayNumber, row);
-        setBatchNotice(`Đã crop ${uploadedByDisplay.size * 3} ảnh; câu 3 vẫn dùng một ảnh chung tải/dán thủ công…`);
-      }
-      const latestPart = latestPartRef.current;
-      if (latestPart.imageAssetId !== sourceAssetId) throw new Error('Ảnh nguồn đã thay đổi trong lúc crop; không ghi đè Part mới.');
-      onChange({
-        ...latestPart,
-        questions: latestPart.questions.map(question => {
-          const uploaded = uploadedByDisplay.get(question.displayNumber || 0);
-          return uploaded ? { ...question, options: question.options.map((option, optionIndex) => ({ ...option, imageAssetId: uploaded[optionIndex].id, imageUrl: uploaded[optionIndex].url })) } : question;
-        }),
-      });
-      setBatchNotice(`${grouped.detectedPrintedExample ? 'Đã bỏ qua nhóm example, ' : ''}đã crop đủ 12 ảnh A/B/C cho các câu hiện có thuộc 1, 2, 4, 5. Câu 3 không bị crop và dùng đúng một ảnh chung do giáo viên tải/dán riêng.`);
+      const suffix = selectedOption?.label || 'shared';
+      const file = await cropListeningImage(sourceUrl, selectedCrop, `ket-listening-part1-${selectedQuestion?.displayNumber || selectedQuestion?.number}-${suffix}.png`);
+      checkSnapshot(snapshot);
+      const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: sourceAssetId, crop: selectedCrop });
+      onAssets(asset);
+      checkSnapshot(snapshot);
+      attachAsset(target, asset);
+      setBatchNotice('Đã gán ảnh crop vào đúng vị trí đã chọn.');
+      setBatchPlan(null);
     } catch (reason: any) {
-      setBatchNotice(reason?.message || 'Không thể tự động crop ảnh KET Listening Part 1.');
-    } finally {
-      setBatchCropping(false);
-    }
+      setBatchNotice(reason?.message || 'Không thể tạo ảnh crop cho vị trí này.');
+    } finally { setCropping(false); }
   };
-
-  const renderQuestion = (question: ExamQuestion, questionIndex: number, manual: boolean) => {
-    const sharedImage = isSharedImageQuestion(question);
-    return <article key={question.id} className={`rounded-2xl border p-4 ${manual ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
-    <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
-      <DisplayNumber question={question} onChange={next => updateQuestion(questionIndex, next)} />
-      <label className="text-xs font-black text-slate-700">Nội dung câu hỏi<input value={question.prompt} onChange={event => updateQuestion(questionIndex, { ...question, prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>
-    </div>
-    {sharedImage && <div className="mt-3 space-y-3 rounded-xl border border-amber-300 bg-white p-3">
-      <p className="text-xs font-black text-amber-900">Câu in số 3 dùng đúng một ảnh tổng, không tham gia crop tự động. Ảnh hiển thị phía trên và ba nút đáp án A/B/C ở phía dưới.</p>
-      <ImagePicker label="Ảnh chung của câu 3" value={question.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => attachQuestionAsset(questionIndex, asset)} />
-    </div>}
-    {manual && !sharedImage && <p className="mt-3 rounded-xl border border-amber-300 bg-white p-3 text-xs font-black text-amber-900">Câu thêm ngoài nhóm 1, 2, 4, 5 không tham gia crop tự động. Giáo viên tải hoặc dán riêng đủ ba ảnh A/B/C dưới đây.</p>}
-    <div className="mt-3 grid gap-3 lg:grid-cols-3">{question.options.slice(0, 3).map((option, optionIndex) => <div key={option.id} className="rounded-xl border border-slate-200 bg-white p-3">
-      <label className="flex items-center gap-2 text-xs font-black text-slate-800"><input type="radio" name={`ket-listening-correct-${question.id}`} checked={question.correctOptionIds.includes(option.id)} onChange={() => updateQuestion(questionIndex, { ...question, correctOptionIds: [option.id] })} />Đáp án {option.label}</label>
-      <input value={option.text} onChange={event => updateQuestion(questionIndex, { ...question, options: question.options.map(item => item.id === option.id ? { ...item, text: event.target.value } : item) })} className={`mt-2 ${fieldClass}`} aria-label={`Mô tả ảnh ${option.label}`} />
-      {!sharedImage && <div className="mt-2"><ImagePicker compact label={`Ảnh ${option.label}`} value={option.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => attachOptionAsset(questionIndex, optionIndex, asset)} /></div>}
-      {!manual && <button type="button" aria-pressed={selection?.questionIndex === questionIndex && selection?.optionIndex === optionIndex} onClick={() => { setSelection({ questionIndex, optionIndex }); setCrop({ x: 0, y: 0, width: 1, height: 1 }); }} className="mt-2 w-full rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-2 text-[10px] font-black text-indigo-700"><Crop size={13} className="mr-1 inline" />Crop lại ảnh {option.label}</button>}
-    </div>)}</div>
-  </article>;
+  const detectCropPlan = async () => {
+    if (!part.imageAssetId || !part.imageUrl || cropping || batchCropping) return;
+    const snapshot = fingerprint(part);
+    const sourceAssetId = part.imageAssetId;
+    const sourceUrl = part.imageUrl;
+    setBatchCropping(true); setBatchPlan(null); setBatchNotice('Đang dò khung ảnh theo bố cục của từng câu…');
+    try {
+      const detected = await detectPart4Frames(sourceUrl, { allowWideFrames: true });
+      checkSnapshot(snapshot);
+      const grouped = groupKetListeningPart1OptionCrops(detected, part.questions.map(imageCount), allowExample ? exampleImageCount : undefined);
+      if (grouped.error) throw new Error(grouped.error);
+      setBatchPlan({ sourceAssetId, sourceUrl, fingerprint: snapshot, groups: grouped.questionGroups, detectedPrintedExample: grouped.detectedPrintedExample });
+      setBatchNotice(`Đã nhận đủ ${expectedImageCount} ảnh của ${part.questions.length} câu${grouped.detectedPrintedExample ? ', bỏ qua nhóm example ở đầu' : ''}. Kiểm tra thứ tự và vị trí trong bản xem trước rồi gán ảnh.`);
+    } catch (reason: any) { setBatchNotice(reason?.message || 'Không thể xác định các nhóm ảnh. Hãy crop thủ công.'); }
+    finally { setBatchCropping(false); }
   };
-
-  const manualQuestions = part.questions.map((question, questionIndex) => ({ question, questionIndex })).filter(({ question }) => (question.displayNumber || 0) === KET_LISTENING_MANUAL_DISPLAY_NUMBER || !KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS.includes((question.displayNumber || 0) as 1 | 2 | 4 | 5));
-  const cropQuestions = part.questions.map((question, questionIndex) => ({ question, questionIndex })).filter(({ question }) => KET_LISTENING_AUTOCROP_DISPLAY_NUMBERS.includes((question.displayNumber || 0) as 1 | 2 | 4 | 5));
+  const applyBatchPlan = async () => {
+    if (!batchPlan || cropping || batchCropping) return;
+    setBatchCropping(true); setBatchNotice('Đang tạo các ảnh theo bản xem trước…');
+    try {
+      checkSnapshot(batchPlan.fingerprint);
+      const sourceQuestions = latestPartRef.current.questions;
+      const uploaded = new Map<string, Map<string, ListeningAsset>>();
+      let count = 0;
+      for (let questionIndex = 0; questionIndex < sourceQuestions.length; questionIndex += 1) {
+        const question = sourceQuestions[questionIndex];
+        const layout = getKetListeningImageLayout(question);
+        const labels = layout.kind === 'shared' ? ['shared'] : layout.optionLabels || [];
+        const assetsBySlot = new Map<string, ListeningAsset>();
+        for (let slot = 0; slot < labels.length; slot += 1) {
+          checkSnapshot(batchPlan.fingerprint);
+          const selectedCrop = batchPlan.groups[questionIndex][slot];
+          const label = labels[slot];
+          const file = await cropListeningImage(batchPlan.sourceUrl, selectedCrop, `ket-listening-part1-${question.displayNumber || question.number}-${label}.png`);
+          checkSnapshot(batchPlan.fingerprint);
+          const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: batchPlan.sourceAssetId, crop: selectedCrop });
+          onAssets(asset); checkSnapshot(batchPlan.fingerprint);
+          assetsBySlot.set(label, asset); count += 1;
+          setBatchNotice(`Đã tạo ${count}/${expectedImageCount} ảnh; đang giữ nội dung bài cho đến khi hoàn tất…`);
+        }
+        uploaded.set(question.id, assetsBySlot);
+      }
+      checkSnapshot(batchPlan.fingerprint);
+      const current = latestPartRef.current;
+      onChange({ ...current, questions: current.questions.map(question => {
+        const bySlot = uploaded.get(question.id);
+        if (!bySlot) return question;
+        const shared = bySlot.get('shared');
+        return shared ? { ...question, imageAssetId: shared.id, imageUrl: shared.url }
+          : { ...question, options: question.options.map(option => { const asset = bySlot.get(option.label); return asset ? { ...option, imageAssetId: asset.id, imageUrl: asset.url } : option; }) };
+      }) });
+      setBatchNotice(`Đã gán đủ ${count} ảnh đúng bố cục và thứ tự câu. Ảnh không dùng trong bố cục hiện tại vẫn được giữ.`);
+      setBatchPlan(null);
+    } catch (reason: any) { setBatchNotice(reason?.message || 'Không thể hoàn tất crop. Nội dung bài chưa bị thay đổi.'); }
+    finally { setBatchCropping(false); }
+  };
+  const beginCrop = (target: Target) => { setSelection(target); setCrop({ x: 0, y: 0, width: 1, height: 1 }); };
 
   return <div className="space-y-4" data-ket-listening-part-one>
-    <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, choiceQuestion(part, `Picture question ${part.questions.length + 1}`)] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
-    <ExampleEditor examples={part.examples || []} onChange={examples => onChange({ ...part, examples })} />
-    <ImagePicker label="Ảnh trang nguồn chỉ dùng để crop câu 1, 2, 4 và 5" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url })} />
-    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-      <p className="text-sm font-black text-emerald-950">Crop tự động đúng bốn câu in số 1, 2, 4, 5</p>
-      <p className="mt-1 text-xs font-semibold text-emerald-800">Bộ dò chỉ lấy bốn nhóm ba khung A/B/C (tổng 12 ảnh) và bỏ qua hình tổng của câu 3. Ảnh nguồn crop không được gửi cho học sinh.</p>
-      <button type="button" data-ket-listening-action="crop-part1-1245" disabled={batchCropping || !part.imageAssetId || !part.imageUrl} onClick={() => void cropFourPrintedQuestions()} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{batchCropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{batchCropping ? 'Đang crop…' : 'Dò và crop câu 1, 2, 4, 5'}</button>
-      {batchNotice && <p className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-xs font-bold text-emerald-900">{batchNotice}</p>}
+    <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, { ...choiceQuestion(part, `Picture question ${part.questions.length + 1}`), imageLayout: { kind: 'options', optionLabels: ['A', 'B', 'C'] } }] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
+    <ExampleEditor examples={part.examples || []} imageTools={{ token, assets, onAssets }} onChange={examples => onChange({ ...latestPartRef.current, examples })} />
+    <ImagePicker label="Ảnh trang nguồn để crop các vị trí ảnh theo từng câu" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => { setBatchPlan(null); onChange({ ...latestPartRef.current, imageAssetId: asset?.id, imageUrl: asset?.url }); }} />
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+      <p className="text-sm font-black text-emerald-950">Dò ảnh theo bố cục đã chọn</p>
+      <p className="text-xs font-semibold text-emerald-900">Mỗi câu dùng một ảnh chung hoặc các ảnh của lựa chọn đã đánh dấu. Các hàng ảnh phải khớp đầy đủ theo thứ tự câu; nếu không chắc chắn, hãy crop thủ công. Ảnh trang nguồn chỉ dùng để soạn bài.</p>
+      <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs font-black text-emerald-950"><input type="checkbox" checked={allowExample} onChange={event => { setAllowExample(event.target.checked); setBatchPlan(null); }} />Nguồn có thể có nhóm example ở đầu</label>{allowExample && <label className="text-xs font-bold text-emerald-950">Số ảnh example<select value={exampleImageCount} onChange={event => { setExampleImageCount(Number(event.target.value)); setBatchPlan(null); }} className="ml-2 rounded-lg border border-emerald-300 bg-white p-2">{[1, 2, 3].map(count => <option key={count} value={count}>{count}</option>)}</select></label>}</div>
+      <button type="button" data-ket-listening-action="detect-part1-layout" disabled={batchCropping || cropping || !part.imageAssetId || !part.imageUrl || !part.questions.length} onClick={() => void detectCropPlan()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{batchCropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{batchCropping ? 'Đang xử lý…' : 'Dò các vị trí ảnh và xem trước'}</button>
+      {batchNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-white p-3 text-xs font-bold text-emerald-900">{batchNotice}</p>}
+      {batchPlan && <div className="space-y-3 rounded-xl border border-blue-300 bg-white p-3" data-ket-listening-crop-mapping>
+        <p className="text-xs font-black text-blue-950">Ánh xạ ảnh theo thứ tự câu</p>
+        <div className="relative mx-auto max-w-2xl"><img src={batchPlan.sourceUrl} alt="Các vùng ảnh sẽ được gán vào câu hỏi" className="block h-auto w-full" />{batchPlan.groups.flatMap((group, questionIndex) => group.map((box, slot) => {
+          const question = part.questions[questionIndex];
+          const layout = question ? getKetListeningImageLayout(question) : undefined;
+          return <div key={`${questionIndex}-${slot}`} className="pointer-events-none absolute border-2 border-blue-700 bg-blue-500/10" style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.width * 100}%`, height: `${box.height * 100}%` }}><span className="absolute left-0 top-0 bg-white px-1 text-[10px] font-black text-blue-950">{question?.displayNumber || question?.number} · {layout?.kind === 'shared' ? 'Chung' : layout?.optionLabels?.[slot]}</span></div>;
+        }))}</div>
+        <button type="button" data-ket-listening-action="apply-part1-layout" disabled={batchCropping || cropping || fingerprint(part) !== batchPlan.fingerprint} onClick={() => void applyBatchPlan()} className="rounded-xl border border-blue-800 bg-blue-700 px-4 py-3 text-xs font-black text-white">Tạo và gán {expectedImageCount} ảnh theo bản xem trước</button>
+        {fingerprint(part) !== batchPlan.fingerprint && <p role="alert" className="text-xs font-bold text-amber-900">Nội dung đã đổi sau khi dò. Hãy dò lại trước khi gán ảnh.</p>}
+      </div>}
     </section>
-    <p className={`rounded-xl border p-3 text-xs font-black ${visibleImageCount === expectedImageCount ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Đã có {visibleImageCount}/{expectedImageCount} tài nguyên ảnh học sinh sẽ nhìn thấy. Với đề chuẩn: 12 ảnh crop và 1 ảnh chung cho câu 3.</p>
-    <section className="space-y-3"><h4 className="text-sm font-black text-slate-900">Các câu hỗ trợ crop</h4>{cropQuestions.map(({ question, questionIndex }) => renderQuestion(question, questionIndex, false))}</section>
-    <section className="space-y-3"><h4 className="text-sm font-black text-amber-950">Câu 3 dùng một ảnh chung · các câu thêm upload thủ công</h4>{manualQuestions.map(({ question, questionIndex }) => renderQuestion(question, questionIndex, true))}</section>
-    {selection && selectedOption && <section className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-      <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black text-blue-950">Crop lại câu {selectedQuestion?.displayNumber || selection.questionIndex + 1} · ảnh {selectedOption.label}</p><p className="text-xs font-semibold text-blue-800">Kéo vùng trên ảnh nguồn rồi dùng vùng crop này.</p></div><button type="button" onClick={() => setSelection(null)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-800">Đóng</button></div>
+    <p className={`rounded-xl border p-3 text-xs font-black ${visibleImageCount === expectedImageCount ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Đã có {visibleImageCount}/{expectedImageCount} ảnh theo bố cục học sinh sẽ nhìn thấy.</p>
+    <section className="space-y-3" aria-label="Câu hỏi theo thứ tự đề">{part.questions.map((question, questionIndex) => {
+      const layout = getKetListeningImageLayout(question);
+      const sharedImage = layout.kind === 'shared';
+      const number = question.displayNumber || question.number;
+      return <article key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3" data-ket-listening-question-id={question.id}>
+        <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]"><DisplayNumber question={question} onChange={next => updateQuestion(question.id, next)} /><label className="text-xs font-black text-slate-700">Nội dung câu hỏi<input value={question.prompt} onChange={event => updateQuestion(question.id, { prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label></div>
+        <label className="block text-xs font-black text-slate-900">Bố cục ảnh câu {number}<select className={`mt-1 ${fieldClass}`} value={layout.kind} onChange={event => updateQuestion(question.id, { imageLayout: event.target.value === 'shared' ? { kind: 'shared' } : { kind: 'options', optionLabels: layout.optionLabels?.length ? layout.optionLabels : ['A', 'B', 'C'] } })}><option value="options">Ảnh riêng cho các lựa chọn</option><option value="shared">Một ảnh chung phía trên đáp án</option></select></label>
+        {!sharedImage && <div className="flex flex-wrap gap-4 rounded-xl border border-sky-200 bg-sky-50 p-3">{question.options.map(option => <label key={option.id} className="flex items-center gap-2 text-xs font-black text-sky-950"><input type="checkbox" checked={layout.optionLabels?.includes(option.label) || false} disabled={layout.optionLabels?.length === 1 && layout.optionLabels.includes(option.label)} onChange={event => { const selected = new Set(layout.optionLabels || []); if (event.target.checked) selected.add(option.label); else selected.delete(option.label); updateQuestion(question.id, { imageLayout: { kind: 'options', optionLabels: question.options.filter(item => selected.has(item.label)).map(item => item.label) } }); }} />Có ảnh {option.label}</label>)}</div>}
+        {sharedImage && <section className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-3"><ImagePicker label={`Ảnh chung câu ${number}`} value={question.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => attachAsset({ questionId: question.id }, asset)} /><button type="button" onClick={() => beginCrop({ questionId: question.id })} className="rounded-xl border border-indigo-300 bg-white px-3 py-2 text-xs font-black text-indigo-900"><Crop size={13} className="mr-1 inline" />Crop ảnh chung</button></section>}
+        <p className="text-xs font-semibold text-slate-700">Đổi bố cục chỉ thay cách hiển thị; các ảnh đã gắn vẫn được giữ để dùng lại.</p>
+        <div className="grid gap-3 lg:grid-cols-3">{question.options.map((option, optionIndex) => <div key={option.id} className={`rounded-xl border p-3 ${question.correctOptionIds.includes(option.id) ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+          <label className="flex items-center gap-2 text-xs font-black text-slate-900"><input type="radio" name={`ket-listening-correct-${question.id}`} checked={question.correctOptionIds.includes(option.id)} onChange={() => updateQuestion(question.id, { correctOptionIds: [option.id] })} />Đáp án {option.label}</label>
+          <input value={option.text} onChange={event => updateQuestion(question.id, { options: question.options.map(item => item.id === option.id ? { ...item, text: event.target.value } : item) })} className={`mt-2 ${fieldClass}`} aria-label={`Nội dung lựa chọn ${option.label} câu ${number}`} />
+          {!sharedImage && layout.optionLabels?.includes(option.label) && <div className="mt-2 space-y-2"><ImagePicker compact label={`Ảnh ${option.label} câu ${number}`} value={option.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => attachAsset({ questionId: question.id, optionId: option.id }, asset)} /><button type="button" aria-pressed={selection?.questionId === question.id && selection?.optionId === option.id} onClick={() => beginCrop({ questionId: question.id, optionId: option.id })} className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-2 text-xs font-black text-indigo-900"><Crop size={13} className="mr-1 inline" />Crop ảnh {option.label}</button></div>}
+        </div>)}</div>
+      </article>;
+    })}</section>
+    {selection && selectedQuestion && <section className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50 p-4" data-ket-listening-manual-crop>
+      <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black text-blue-950">Crop câu {selectedQuestion.displayNumber || selectedQuestion.number} · {selectedOption ? `ảnh ${selectedOption.label}` : 'ảnh chung'}</p><p className="text-xs font-semibold text-blue-900">Kéo vùng trên ảnh nguồn rồi dùng vùng crop này.</p></div><button type="button" onClick={() => setSelection(null)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900">Đóng</button></div>
       {part.imageUrl ? <VisualCropEditor imageUrl={part.imageUrl} crop={crop} onChange={setCrop} /> : <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">Hãy gắn ảnh nguồn trước khi crop.</p>}
-      <button type="button" disabled={cropping || !part.imageAssetId || !part.imageUrl} onClick={() => void applyCrop()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40">{cropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{cropping ? 'Đang tạo crop…' : 'Dùng vùng crop này'}</button>
+      <button type="button" disabled={cropping || batchCropping || !part.imageAssetId || !part.imageUrl || !selectionActive} onClick={() => void applyCrop()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40">{cropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{cropping ? 'Đang tạo crop…' : 'Dùng vùng crop này'}</button>
+      {!selectionActive && <p role="alert" className="text-xs font-bold text-amber-900">Bố cục đã thay đổi. Hãy chọn lại vị trí ảnh cần crop trong câu hỏi.</p>}
     </section>}
   </div>;
 }
-
 function PartTwo({ token, part, assets, onAssets, onChange }: Props) {
   const setQuestions = (questions: ExamQuestion[]) => onChange({ ...part, questions, readingScenes: part.readingScenes?.map(scene => ({ ...scene, questionIds: questions.map(question => question.id) })) });
   return <div className="space-y-4" data-ket-listening-part-two>
@@ -273,7 +329,7 @@ function FormPart({ part, onChange }: Props) {
   const update = (index: number, question: ExamQuestion) => onChange({ ...part, questions: part.questions.map((item, itemIndex) => itemIndex === index ? question : item) });
   return <div className="space-y-4" data-ket-listening-form-part>
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, shortQuestion(part)] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
-    <label className="block rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-black text-indigo-950">Nội dung biểu mẫu và example hiển thị dưới tiêu đề chính<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-2 min-h-44 ${fieldClass}`} placeholder="Chỉ nhập nội dung in sẵn của biểu mẫu; không lặp Part, dải số câu hoặc hướng dẫn nghe." /></label>
+    <label className="block rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-black text-indigo-950">Thông tin chung và example đã điền<textarea value={part.passage || ''} onChange={event => onChange({ ...part, passage: event.target.value })} className={`mt-2 min-h-44 ${fieldClass}`} placeholder="Chỉ nhập tiêu đề biểu mẫu, thông tin chung và ví dụ đã điền. Nhãn các câu cần học sinh điền được nhập ở từng hàng bên dưới; không lặp lại tại đây." /></label>
     <div className="space-y-3">{part.questions.map((question, index) => <article key={question.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 xl:grid-cols-[100px_minmax(180px,1fr)_150px_150px_minmax(220px,1fr)]">
       <DisplayNumber question={question} onChange={next => update(index, next)} />
       <label className="text-xs font-black text-slate-700">Nhãn hàng<input value={question.prompt} onChange={event => update(index, { ...question, prompt: event.target.value })} className={`mt-1 ${fieldClass}`} /></label>

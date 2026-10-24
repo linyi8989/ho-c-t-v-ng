@@ -86,7 +86,7 @@ export default function GrammarLibraryPanel({
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
               <div>
                 <h2 className="text-2xl font-black text-gray-900">Kho bài ngữ pháp</h2>
-                <p className="text-gray-500 text-sm">Quản lý bài luyện ngữ pháp trắc nghiệm và tự luận, kết quả và lịch sử làm bài.</p>
+                <p className="text-gray-500 text-sm">Soạn nhiều dạng ngữ pháp trong cùng một bài, quản lý bài tự luận, kết quả và lịch sử làm bài.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -184,7 +184,7 @@ export default function GrammarLibraryPanel({
                                     ? 'bg-blue-50 text-blue-700'
                                     : 'bg-emerald-50 text-emerald-700'
                                 }`}>
-                                  {set.displayMode === 'passage_drag_drop' ? 'Kéo thả điền từ' : set.displayMode === 'reading_comprehension' ? 'Đọc hiểu' : set.questionType === 'rewrite' ? 'Tự luận' : 'Trắc nghiệm'}
+                                  {set.displayMode === 'mixed' ? 'Nhiều dạng' : set.displayMode === 'passage_drag_drop' ? 'Kéo thả điền từ' : set.displayMode === 'reading_comprehension' ? 'Đọc hiểu' : set.questionType === 'rewrite' ? 'Tự luận' : 'Trắc nghiệm'}
                                 </span>
                                 {(set.tags || []).slice(0, 3).map((tag, tagIndex) => (
                                   <span key={`${set.id}-tag-${tagIndex}`} className="text-[10px] font-semibold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">#{tag}</span>

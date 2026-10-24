@@ -134,8 +134,19 @@ export interface Assignment {
 
 export type GrammarVisibility = 'public' | 'assignment' | 'draft';
 export type GrammarQuestionType = 'multiple_choice' | 'rewrite' | 'bank_select';
-export type GrammarDisplayMode = 'standard' | 'passage_drag_drop' | 'reading_comprehension';
+export type GrammarDisplayMode = 'standard' | 'passage_drag_drop' | 'reading_comprehension' | 'mixed';
 export interface GrammarWordToken { id: string; text: string }
+export type GrammarBlockType = 'multiple_choice' | 'passage_drag_drop' | 'reading_comprehension';
+export interface GrammarBlock {
+  id: string;
+  type: GrammarBlockType;
+  title: string;
+  instruction: string;
+  passage?: string;
+  wordBank?: GrammarWordToken[];
+  /** Source question IDs; answer keys stay in the canonical questions array. */
+  questionIds: string[];
+}
 
 export interface GrammarOption {
   id: string;
@@ -145,6 +156,7 @@ export interface GrammarOption {
 
 export interface GrammarQuestion {
   id: string;
+  blockId?: string;
   questionType?: GrammarQuestionType;
   questionText: string;
   options: GrammarOption[];
@@ -170,6 +182,8 @@ export interface GrammarSet {
   visibility: GrammarVisibility;
   questionType?: GrammarQuestionType;
   displayMode?: GrammarDisplayMode;
+  contentVersion?: 2;
+  blocks?: GrammarBlock[];
   instruction?: string;
   passage?: string;
   wordBank?: GrammarWordToken[];
@@ -196,6 +210,7 @@ export interface GrammarSet {
 
 export interface GrammarAttemptQuestion {
   id: string;
+  blockId?: string;
   questionId: string;
   questionType?: GrammarQuestionType;
   displayPosition: number;
@@ -253,12 +268,20 @@ export interface GrammarAttempt {
   questions: GrammarAttemptQuestion[];
   answers: GrammarAttemptAnswer[];
   displayMode?: GrammarDisplayMode;
+  contentVersion?: 2;
+  blocksSnapshot?: GrammarBlock[];
   passageSnapshot?: string;
   instructionSnapshot?: string;
   wordBankSnapshot?: GrammarWordToken[];
   answersRevision?: number;
   lastAnswerMutationId?: string;
   answerFeedback?: Record<string, { isCorrect: boolean; correctOptionId?: string; explanation?: string; scoreAwarded?: number }>;
+  reviewPolicySnapshot?: {
+    showReviewAfterSubmit: boolean;
+    showExplanationImmediately: boolean;
+    policyVersion: number;
+    capturedAt?: string;
+  };
 }
 
 export interface GameSession {
