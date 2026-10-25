@@ -12,6 +12,7 @@ import { importUniversalExamBundle } from '../../features/exam-platform/universa
 import type { ExamAnswers, ExamPaperContent } from '../../features/exam-platform/types';
 import { getLearningHistory, getLearningHistoryDetail } from '../learning-history/learningHistoryService';
 import { createExamRouter } from './examRouter';
+import { WRITING_GRADING_MAX_PROVIDER_ATTEMPTS } from './writingGradingProvider';
 
 const EXAM_ROUTER_TEST_TICKET_SECRET = 'generic-exam-router-test-secret';
 
@@ -197,7 +198,7 @@ test('generic exam API preserves immutable publish, private grading and manual W
       retryCooldownMs: 1_000,
       grade: async (request, options) => {
         writingGradeRequests.push(request);
-        await options?.onAttempt?.(1, 2);
+        await options?.onAttempt?.(1, WRITING_GRADING_MAX_PROVIDER_ATTEMPTS);
         if (failWritingGrade) throw new TypeError('fetch failed');
         assert.equal(request.providerId, 'stali:gpt-5.6-sol');
         assert.match(request.taskContext, /writing task|task/i);
@@ -782,7 +783,9 @@ test('generic exam API preserves immutable publish, private grading and manual W
   const failedAttempt = await waitForAttempt(failedStatusUrl, { 'X-Exam-Run-Secret': 'standalone-failed-secret-12345678' }, value => value.aiGradingStatus === 'failed');
   assert.equal(failedAttempt.status, 'pending_review');
   assert.equal(failedAttempt.aiGradingRetryable, true);
-  assert.match(failedAttempt.aiGradingMessage, /quá tải hoặc phản hồi chậm/);
+  assert.match(failedAttempt.aiGradingMessage, /Chưa kết nối được tới dịch vụ chấm/);
+  assert.doesNotMatch(failedAttempt.aiGradingMessage, /quá tải/);
+  assert.equal((await db.collection('exam_attempt_details').doc(failedAttempt.id).get()).data()?.aiGradingFailureCategory, 'network');
   const unauthorizedStatus = await fetch(failedStatusUrl, { headers: { 'X-Exam-Run-Secret': 'wrong-standalone-failed-secret' } });
   assert.equal(unauthorizedStatus.status, 404);
   const retryUrl = `${baseUrl}/modules/writing/papers/writing/sets/${standaloneCreated.id}/attempts/${failedQueuedAttempt.id}/retry-writing-grade`;

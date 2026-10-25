@@ -3261,7 +3261,7 @@ app.use(
     logAudit: logAuditAction,
     writingGrading: {
       providers: getWritingGradingProviders(WRITING_GRADING_CONFIG),
-      grade: (input, options) => gradeWritingWithProvider(input, { ...WRITING_GRADING_CONFIG, onAttempt: options?.onAttempt }),
+      grade: (input, options) => gradeWritingWithProvider(input, { ...WRITING_GRADING_CONFIG, onAttempt: options?.onAttempt, onRetry: options?.onRetry }),
     },
   })
 );

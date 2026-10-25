@@ -12,10 +12,11 @@ import { isListeningModuleId, isListeningPaperId } from '../../features/listenin
 import { applyAiWritingGrade, applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt, markAiWritingFailed } from './examGrader.js';
 import {
   describeWritingGradingFailure,
-  isRetryableWritingGradingFailure,
+  classifyWritingGradingFailure,
   WRITING_GRADING_MAX_PROVIDER_ATTEMPTS,
   type WritingGradeInput,
   type WritingGradeOutput,
+  type WritingGradingRetryInfo,
 } from './writingGradingProvider.js';
 import {
   sanitizeExamAnswers,
@@ -51,7 +52,7 @@ export interface ExamRouterDependencies {
   logAudit?: (userId: string, name: string, email: string, action: string, details: string) => Promise<void>;
   writingGrading?: {
     providers: Array<{ id: string; label: string; enabled: boolean }>;
-    grade: (input: WritingGradeInput, options?: { onAttempt?: (attempt: number, maxAttempts: number) => void | Promise<void> }) => Promise<WritingGradeOutput>;
+    grade: (input: WritingGradeInput, options?: { onAttempt?: (attempt: number, maxAttempts: number) => void | Promise<void>; onRetry?: (info: WritingGradingRetryInfo) => void | Promise<void> }) => Promise<WritingGradeOutput>;
     retryCooldownMs?: number;
     recoveryIntervalMs?: number;
   };
@@ -406,58 +407,80 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
 
   const staleWritingGradeError = () => Object.assign(new Error('Lượt chấm Writing đã được thay thế.'), { code: 'WRITING_GRADE_STALE' });
 
+  const loadWritingGradeContext = async (attemptId: string, expectedCycle?: number) => {
+    const attempt = await loadAttempt(attemptId);
+    if (!attempt || attempt.status !== 'pending_review') return null;
+    const cycle = Number(attempt.aiGradingCycle || 1);
+    if (expectedCycle !== undefined && cycle !== expectedCycle) return null;
+    if (!['queued', 'processing', 'retrying'].includes(String(attempt.aiGradingStatus || ''))) return null;
+    const leaseExpiresAt = new Date(attempt.aiGradingLeaseExpiresAt || 0).getTime();
+    if (['processing', 'retrying'].includes(String(attempt.aiGradingStatus)) && leaseExpiresAt > Date.now()) return null;
+    const detailSnapshot = await db.collection('exam_attempt_details').doc(attempt.id).get();
+    const version = await getVersion(db, attempt.versionId);
+    if (!detailSnapshot.exists || !version || version.setId !== attempt.setId) return null;
+    const detail: any = { id: detailSnapshot.id, ...detailSnapshot.data() };
+    const pending = (detail.grade?.questions || []).find((question: any) => question.pendingManualReview && question.aiGradingStatus);
+    if (!pending) return null;
+    const canonicalPart = version.content.parts.find((part: any) => part.questions.some((question: any) => question.id === pending.questionId));
+    const canonical = canonicalPart?.questions.find((question: any) => question.id === pending.questionId);
+    const config = canonical?.writingGrading;
+    if (!canonical || !config?.enabled) return null;
+    return { attempt, cycle, detail, version, canonicalPart, canonical, config };
+  };
+
   const runAiWritingGrade = async (attemptId: string, expectedCycle?: number) => {
     if (activeWritingGrades.has(attemptId)) return loadAttempt(attemptId);
     activeWritingGrades.add(attemptId);
     let leaseToken = '';
-    let cycle = 0;
+    let cycle = expectedCycle ?? 0;
     let providerId = '';
     let queueNextWriting = false;
+    let latestResult: any;
     try {
-      const attempt = await loadAttempt(attemptId);
-      if (!attempt || attempt.status !== 'pending_review') return attempt;
-      cycle = Number(attempt.aiGradingCycle || 1);
-      if (expectedCycle !== undefined && cycle !== expectedCycle) return attempt;
-      if (!['queued', 'processing', 'retrying'].includes(String(attempt.aiGradingStatus || ''))) return attempt;
-      const existingLeaseExpiresAt = new Date(attempt.aiGradingLeaseExpiresAt || 0).getTime();
-      if (['processing', 'retrying'].includes(String(attempt.aiGradingStatus)) && existingLeaseExpiresAt > Date.now()) return attempt;
-      const detailSnapshot = await db.collection('exam_attempt_details').doc(attempt.id).get();
-      const version = await getVersion(db, attempt.versionId);
-      if (!detailSnapshot.exists || !version || version.setId !== attempt.setId) return attempt;
-      const detail: any = { id: detailSnapshot.id, ...detailSnapshot.data() };
-    const pending = (detail.grade?.questions || []).find((question: any) => question.pendingManualReview && question.aiGradingStatus);
-    if (!pending) return attempt;
-    const canonicalPart = version.content.parts.find((part: any) => part.questions.some((question: any) => question.id === pending.questionId));
-    const canonical = canonicalPart?.questions.find((question: any) => question.id === pending.questionId);
-    const config = canonical?.writingGrading;
-    if (!canonical || !config?.enabled) return attempt;
-      providerId = String(config.providerId || '');
+      const initial = await loadWritingGradeContext(attemptId, expectedCycle).then(context => context
+        ? { cycle: context.cycle, providerId: String(context.config.providerId || '') }
+        : null);
+      if (!initial) {
+        latestResult = await loadAttempt(attemptId);
+        return latestResult;
+      }
+      cycle = initial.cycle;
+      providerId = initial.providerId;
+      // Serialize only this attempt's claim against teacher grading. Different
+      // attempts start independently and have no shared admission limit.
+      const claimed = await withWritingGradeLock(attemptId, async () => {
+        const context = await loadWritingGradeContext(attemptId, expectedCycle);
+        if (!context) return null;
+        const { attempt, detail } = context;
+        cycle = context.cycle;
+        leaseToken = crypto.randomUUID();
+        const processingAt = nowIso();
+        const processingAttempt = {
+          ...attempt, aiGradingStatus: 'processing',
+          aiGradingMessage: `Đang gửi bài tới dịch vụ chấm (lần 1/${WRITING_GRADING_MAX_PROVIDER_ATTEMPTS}).`,
+          aiGradingAttempt: 1, aiGradingMaxAttempts: WRITING_GRADING_MAX_PROVIDER_ATTEMPTS,
+          aiGradingRetryable: false, aiGradingNextRetryAt: '',
+          aiGradingLeaseToken: leaseToken,
+          aiGradingLeaseExpiresAt: new Date(Date.now() + WRITING_GRADING_LEASE_MS).toISOString(),
+          updatedAt: processingAt,
+        };
+        const processingQuestions = detail.grade.questions.map((question: any) => question.questionId === context.canonical.id ? { ...question, aiGradingStatus: 'processing' } : question);
+        const processingBatch = db.batch();
+        processingBatch.set(db.collection('exam_attempts').doc(attempt.id), processingAttempt);
+        processingBatch.set(db.collection('exam_attempt_details').doc(attempt.id), { ...detail, grade: { ...detail.grade, questions: processingQuestions }, questions: processingQuestions, updatedAt: processingAt });
+        await processingBatch.commit();
+        return context;
+      });
+      if (!claimed) {
+        latestResult = await loadAttempt(attemptId);
+        return latestResult;
+      }
+      const { attempt, detail, version, canonicalPart, canonical, config } = claimed;
     const storedAnswer = detail.answers?.[canonical.id];
     const selectedOption = storedAnswer && typeof storedAnswer === 'object' && !Array.isArray(storedAnswer)
       ? canonical.options.find((option: any) => option.id === storedAnswer.optionId)
       : undefined;
     const essay = typeof storedAnswer === 'string' ? storedAnswer : selectedOption ? String(storedAnswer.text || '') : '';
-      leaseToken = crypto.randomUUID();
-    const processingAt = nowIso();
-      const processingAttempt = {
-        ...attempt,
-        aiGradingStatus: 'processing',
-        aiGradingMessage: `Đang gửi bài tới dịch vụ chấm (lần 1/${WRITING_GRADING_MAX_PROVIDER_ATTEMPTS}).`,
-        aiGradingAttempt: 1,
-        aiGradingMaxAttempts: WRITING_GRADING_MAX_PROVIDER_ATTEMPTS,
-        aiGradingRetryable: false,
-        aiGradingNextRetryAt: '',
-        aiGradingLeaseToken: leaseToken,
-        aiGradingLeaseExpiresAt: new Date(Date.now() + WRITING_GRADING_LEASE_MS).toISOString(),
-        updatedAt: processingAt,
-      };
-    const processingQuestions = detail.grade.questions.map((question: any) => question.questionId === canonical.id ? { ...question, aiGradingStatus: 'processing' } : question);
-    const processingGrade = { ...detail.grade, questions: processingQuestions };
-    const processingDetail = { ...detail, grade: processingGrade, questions: processingQuestions, updatedAt: processingAt };
-    const processingBatch = db.batch();
-    processingBatch.set(db.collection('exam_attempts').doc(attempt.id), processingAttempt);
-    processingBatch.set(db.collection('exam_attempt_details').doc(attempt.id), processingDetail);
-    await processingBatch.commit();
     try {
         const output = essay.trim() ? await writingGrading?.grade({
         providerId: config.providerId,
@@ -479,6 +502,18 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         maxWords: Number(canonical.maxWords || 50),
         includeRevision: version.content.moduleId === 'writing' && version.content.paperId === 'writing',
         }, {
+          onRetry: async () => {
+            await withWritingGradeLock(attempt.id, async () => {
+              const currentAttempt = await loadAttempt(attempt.id);
+              if (!isCurrentWritingLease(currentAttempt, cycle, leaseToken)) throw staleWritingGradeError();
+              await db.collection('exam_attempts').doc(attempt.id).set({
+                ...currentAttempt, aiGradingStatus: 'retrying',
+                aiGradingMessage: 'Hệ thống đang chờ trước khi thử chấm Writing lại.',
+                aiGradingLeaseExpiresAt: new Date(Date.now() + WRITING_GRADING_LEASE_MS).toISOString(),
+                updatedAt: nowIso(),
+              });
+            });
+          },
           onAttempt: async (providerAttempt, maxAttempts) => {
             await withWritingGradeLock(attempt.id, async () => {
               const currentAttempt = await loadAttempt(attempt.id);
@@ -501,7 +536,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           },
         }) : { providerId: config.providerId, score: 0, sentenceCount: 0, grammarErrors: [], vocabularyErrors: [], ...(version.content.moduleId === 'writing' ? { grammarCorrections: [], vocabularyCorrections: [], revisedEssay: '' } : {}), feedback: 'Bài viết để trống nên chưa đáp ứng yêu cầu. Học sinh cần viết nội dung theo đề bài. Điểm Writing là 0/10. Giáo viên có thể chấm tay nếu cần.' };
       if (!output) throw new Error('Nhà cung cấp chấm Writing chưa được cấu hình.');
-        return await withWritingGradeLock(attempt.id, async () => {
+        latestResult = await withWritingGradeLock(attempt.id, async () => {
           const currentAttempt = await loadAttempt(attempt.id);
           if (!isCurrentWritingLease(currentAttempt, cycle, leaseToken)) return currentAttempt;
           const currentDetailSnapshot = await db.collection('exam_attempt_details').doc(attempt.id).get();
@@ -521,18 +556,23 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           return nextAttempt;
         });
     } catch (error) {
-        if ((error as any)?.code === 'WRITING_GRADE_STALE') return loadAttempt(attempt.id);
+        if ((error as any)?.code === 'WRITING_GRADE_STALE') {
+          latestResult = await loadAttempt(attempt.id);
+          return latestResult;
+        }
         const failureReason = describeWritingGradingFailure(error, providerId);
-        const retryable = isRetryableWritingGradingFailure(error);
+        const failure = classifyWritingGradingFailure(error);
+        const retryable = failure.retryable;
       console.error('[Exam Writing] AI grading failed', {
         attemptId: attempt.id,
           providerId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessage: error instanceof Error ? error.message : String(error || ''),
+        errorMessage: failureReason,
           errorCauseCode: error instanceof Error ? String((error as any).cause?.code || '') : '',
-          errorCauseMessage: error instanceof Error ? String((error as any).cause?.message || '') : '',
+          category: failure.category,
+          httpStatus: failure.status,
       });
-        return await withWritingGradeLock(attempt.id, async () => {
+        latestResult = await withWritingGradeLock(attempt.id, async () => {
           const currentAttempt = await loadAttempt(attempt.id);
           if (!isCurrentWritingLease(currentAttempt, cycle, leaseToken)) return currentAttempt;
           const currentDetailSnapshot = await db.collection('exam_attempt_details').doc(attempt.id).get();
@@ -540,12 +580,21 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           const currentDetail: any = { id: currentDetailSnapshot.id, ...currentDetailSnapshot.data() };
           const failed = markAiWritingFailed(currentDetail.grade, canonical.id);
           const timestamp = nowIso();
-          const nextRetryAt = retryable ? new Date(Date.now() + retryCooldownMs).toISOString() : '';
+          const nextRetryAt = retryable ? new Date(Date.now() + Math.max(retryCooldownMs, failure.retryAfterMs || 0)).toISOString() : '';
+          const retryReason = failure.category === 'overload'
+            ? 'Dịch vụ chấm đang giới hạn số bài xử lý.'
+            : failure.category === 'timeout'
+              ? 'Dịch vụ chấm chưa phản hồi trong thời gian cho phép.'
+              : failure.category === 'network'
+                ? 'Chưa kết nối được tới dịch vụ chấm.'
+                : failure.category === 'invalid-output'
+                  ? 'Dịch vụ chấm trả về kết quả chưa hợp lệ.'
+                  : 'Lượt chấm bài chưa hoàn tất.';
           const learnerMessage = retryable
-            ? 'Dịch vụ chấm đang quá tải hoặc phản hồi chậm. Bài viết đã được lưu an toàn. Em có thể bấm Chấm lại sau 5 phút.'
+            ? `${retryReason} Bài viết đã được lưu an toàn. Em có thể bấm Chấm lại khi hết thời gian chờ bên dưới.`
             : `${failureReason} Bài viết đã được lưu an toàn; giáo viên có thể kiểm tra cấu hình hoặc chấm tay.`;
           const nextAttempt = { ...currentAttempt, status: 'pending_review', aiGradingStatus: 'failed', aiGradingMessage: learnerMessage, aiGradingRetryable: retryable, aiGradingNextRetryAt: nextRetryAt, aiGradingLeaseToken: '', aiGradingLeaseExpiresAt: '', updatedAt: timestamp };
-          const nextDetail = { ...currentDetail, grade: failed, questions: failed.questions, aiGradingFailureReason: failureReason, updatedAt: timestamp };
+          const nextDetail = { ...currentDetail, grade: failed, questions: failed.questions, aiGradingFailureReason: failureReason, aiGradingFailureCategory: failure.category, ...(failure.status ? { aiGradingHttpStatus: failure.status } : {}), updatedAt: timestamp };
           const batch = db.batch();
           batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
           batch.set(db.collection('exam_attempt_details').doc(attempt.id), nextDetail);
@@ -553,9 +602,15 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           return nextAttempt;
         });
       }
+      return latestResult;
     } finally {
       activeWritingGrades.delete(attemptId);
       if (queueNextWriting) scheduleAiWritingGrade(attemptId, cycle);
+      else {
+        // A teacher can request a newer cycle while an older worker is active.
+        // Re-schedule that durable queued cycle after releasing local dedup.
+        if (latestResult?.status === 'pending_review' && latestResult.aiGradingStatus === 'queued' && Number(latestResult.aiGradingCycle || 1) !== cycle) scheduleAiWritingGrade(attemptId, Number(latestResult.aiGradingCycle || 1));
+      }
     }
   };
 
@@ -574,7 +629,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
     const cycle = Math.max(1, Number(attempt.aiGradingCycle || 0) + 1);
     const questions = (detail.grade?.questions || []).map((question: any) => question.pendingManualReview && question.aiGradingStatus ? { ...question, aiGradingStatus: 'queued' } : question);
     if (!questions.some((question: any) => question.pendingManualReview && question.aiGradingStatus === 'queued')) throw apiError(409, 'Lượt làm bài không có bài Writing đang chờ chấm.');
-    const nextAttempt = { ...attempt, status: 'pending_review', aiGradingStatus: 'queued', aiGradingMessage: 'Đã nhận bài. Hệ thống đang xếp hàng chấm Writing.', aiGradingCycle: cycle, aiGradingAttempt: 0, aiGradingMaxAttempts: WRITING_GRADING_MAX_PROVIDER_ATTEMPTS, aiGradingRetryable: false, aiGradingNextRetryAt: '', aiGradingLeaseToken: '', aiGradingLeaseExpiresAt: '', updatedAt: timestamp };
+    const nextAttempt = { ...attempt, status: 'pending_review', aiGradingStatus: 'queued', aiGradingMessage: 'Đã nhận bài. Hệ thống đang chuẩn bị chấm Writing.', aiGradingCycle: cycle, aiGradingAttempt: 0, aiGradingMaxAttempts: WRITING_GRADING_MAX_PROVIDER_ATTEMPTS, aiGradingRetryable: false, aiGradingNextRetryAt: '', aiGradingLeaseToken: '', aiGradingLeaseExpiresAt: '', updatedAt: timestamp };
     const nextDetail = { ...detail, grade: { ...detail.grade, questions }, questions, updatedAt: timestamp };
     const batch = db.batch();
     batch.set(db.collection('exam_attempts').doc(attempt.id), nextAttempt);
@@ -1089,7 +1144,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         ...(moduleId === 'writing' ? { writingWordCount: countWritingWords(Object.values(answers)[0]) } : {}),
         ...(grade.questions.some(question => question.aiGradingStatus) ? {
           aiGradingStatus: 'queued',
-          aiGradingMessage: 'Đã nhận bài. Hệ thống đang xếp hàng chấm Writing.',
+          aiGradingMessage: 'Đã nhận bài. Hệ thống đang chuẩn bị chấm Writing.',
           aiGradingCycle: 1,
           aiGradingAttempt: 0,
           aiGradingMaxAttempts: WRITING_GRADING_MAX_PROVIDER_ATTEMPTS,

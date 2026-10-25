@@ -1065,9 +1065,12 @@ test('KET Reading & Writing keeps nine fixed Part types with flexible rows and s
   assert.match(examRouterSource, /providerAttempt > 1 \? 'retrying' : 'processing'/);
   assert.match(examRouterSource, /aiGradingStatus: 'failed'/);
   assert.match(examRouterSource, /describeWritingGradingFailure\(error/);
-  assert.match(examRouterSource, /Dịch vụ chấm đang quá tải hoặc phản hồi chậm/);
+  assert.match(examRouterSource, /Dịch vụ chấm đang giới hạn số bài xử lý/);
+  assert.match(examRouterSource, /Chưa kết nối được tới dịch vụ chấm/);
+  assert.match(examRouterSource, /Dịch vụ chấm trả về kết quả chưa hợp lệ/);
+  assert.doesNotMatch(examRouterSource, /Dịch vụ chấm đang quá tải hoặc phản hồi chậm/);
   assert.match(examRouterSource, /WRITING_GRADING_COOLDOWN/);
-  assert.match(writingGradingProviderSource, /never exceeds two provider requests/);
+  assert.match(writingGradingProviderSource, /WRITING_GRADING_MAX_PROVIDER_ATTEMPTS = 3/);
   assert.match(writingGradingProviderSource, /UNTRUSTED STUDENT ESSAY/);
   assert.match(writingGradingProviderSource, /Number\.isInteger\(score\)/);
   assert.match(writingGradingProviderSource, /describeWritingGradingFailure/);
