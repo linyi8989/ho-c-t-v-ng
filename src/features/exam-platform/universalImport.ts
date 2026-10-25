@@ -127,8 +127,7 @@ function parseOptions(rawQuestion: Row, currentQuestion?: ExamQuestion, preserve
   });
 }
 
-function parseQuestionImageLayout(value: unknown): ExamQuestionImageLayout | undefined {
-  if (value === undefined) return undefined;
+function parseQuestionImageLayout(value: unknown): ExamQuestionImageLayout {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('imageLayout phải là object shared hoặc options.');
   const source = value as Record<string, unknown>;
   if (Object.keys(source).some(key => key !== 'kind' && key !== 'optionLabels') || !['shared', 'options'].includes(String(source.kind))) throw new Error('imageLayout chỉ nhận kind shared/options và optionLabels.');
@@ -264,7 +263,11 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
         : undefined;
     const type = questionType(interaction, rawQuestion.type);
     const options = parseOptions(rawQuestion, currentQuestion, ketListeningPictures);
-    const imageLayout = ketListeningPictures ? parseQuestionImageLayout(rawQuestion.imageLayout) || currentQuestion?.imageLayout : undefined;
+    if (ketListeningPictures && rawQuestion.imageLayout === undefined) {
+      const printedNumber = rawQuestion.questionNumber ?? rawQuestion.displayNumber ?? questionIndex + 1;
+      throw new Error(`KET Listening Part 1, câu ${printedNumber}: thiếu imageLayout. Hãy sao chép prompt mới cho ChatGPT hoặc bổ sung bố cục ảnh shared/options cho từng câu trước khi nhập.`);
+    }
+    const imageLayout = ketListeningPictures ? parseQuestionImageLayout(rawQuestion.imageLayout) : undefined;
     const answerKey = row(rawQuestion.answerKey);
     const trusted = trustedAnswerSource(blockValue, rawQuestion);
     const refs = [
@@ -398,7 +401,7 @@ function connectMatchingAnswers(blockValue: Row, questions: ExamQuestion[], layo
   });
 }
 
-function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number, ketListeningPictures = false): { part: ExamPartContent; report: UniversalImportReport } {
+function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number, fixedKetListening = false): { part: ExamPartContent; report: UniversalImportReport } {
   const source = row(partValue);
   const partNumber = Number(source.partNumber ?? source.part ?? partIndex + 1);
   if (partNumber !== partIndex + 1) throw new Error(`Part ở vị trí ${partIndex + 1} phải có partNumber=${partIndex + 1}.`);
@@ -407,6 +410,8 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
   if (rawBlocks.length > MAX_BLOCKS_PER_PART) throw new Error(`Part ${partNumber} vượt quá ${MAX_BLOCKS_PER_PART} block.`);
   const warnings: string[] = [];
   const questions: ExamQuestion[] = [];
+  const ketListeningPictures = fixedKetListening && partNumber === 1;
+  const ketListeningExamples = fixedKetListening && (partNumber === 1 || partNumber === 3);
   const blocks: ExamPartBlock[] = rawBlocks.map((blockValue: unknown, blockIndex: number) => {
     const blockSource = row(blockValue);
     const blockNumber = Number(blockSource.blockNumber ?? blockIndex + 1);
@@ -424,6 +429,17 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
       : Array.isArray(blockSource.examples)
         ? blockSource.examples
         : [];
+    if (ketListeningExamples) {
+      const invalid = rawExamples.length !== 1 || rawExamples.some((value: unknown) => {
+        const example = row(value);
+        if (typeof example.prompt !== 'string' || !example.prompt.trim() || !Array.isArray(example.options) || example.options.length !== 3) return true;
+        const labels = example.options.map((value: unknown) => normalized(row(value).label));
+        if (!['a', 'b', 'c'].every(label => labels.includes(label)) || new Set(labels).size !== 3) return true;
+        if (example.options.some((value: unknown) => typeof row(value).text !== 'string' || !row(value).text.trim())) return true;
+        return example.answer !== undefined && (typeof example.answer !== 'string' || (example.answer.trim() !== '' && !/^[ABC]$/i.test(example.answer.trim())));
+      });
+      if (invalid) throw new Error(`KET Listening Part ${partNumber}: example cần đầy đủ câu hỏi và ba lựa chọn A/B/C có nội dung. Hãy sao chép prompt mới cho ChatGPT; không nhập example chỉ có prompt và answer.`);
+    }
     const examples = rawExamples.slice(0, 10).map((value: unknown, index: number) => {
       const example = row(value);
       const previous = currentBlock?.examples?.[index]
@@ -433,10 +449,13 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
         : previous?.options?.some(option => option.imageAssetId)
           ? previous.options
           : [];
-      const options = exampleOptionSource.length
-        ? exampleOptionSource.slice(0, 10).map((optionValue: unknown, optionIndex: number) => {
+      const orderedExampleOptions = ketListeningExamples
+        ? ['A', 'B', 'C'].map(label => exampleOptionSource.find((value: unknown) => normalized(row(value).label) === normalized(label)))
+        : exampleOptionSource;
+      const options = orderedExampleOptions.length
+        ? orderedExampleOptions.slice(0, 10).map((optionValue: unknown, optionIndex: number) => {
             const option = row(optionValue);
-            const label = cleanText(option.label, 20);
+            const label = ketListeningExamples ? cleanText(option.label, 20).toUpperCase() : cleanText(option.label, 20);
             const previousOption = previous?.options?.find(item => item.label.toUpperCase() === label.toUpperCase())
               || previous?.options?.[optionIndex];
             return {
@@ -720,7 +739,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   if (fixedPetListening && rawParts.length !== 4) throw new Error('PET Listening phải có đúng 4 Part.');
   if (fixedPetWriting && rawParts.length !== 3) throw new Error('PET Writing phải có đúng 3 Part.');
   if (fixedFceReading && rawParts.length !== 3) throw new Error('FCE Reading phải có đúng 3 Part.');
-  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber, fixedKetListening && index === 0));
+  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber, fixedKetListening));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedPetWriting && built.some((item, index) => item.part.questions.length !== [5, 1, 1][index])) throw new Error('PET Writing yêu cầu số câu theo Part là 5–1–1.');
@@ -774,7 +793,7 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
   }
   if (!partValue) throw new Error(`JSON không có Part ${partIndex + 1}.`);
   let questionNumber = currentContent.parts.slice(0, partIndex).reduce((sum, part) => sum + part.questions.length, 0);
-  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber, isFixedKetListeningContent(currentContent) && partIndex === 0);
+  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber, isFixedKetListeningContent(currentContent));
   if (currentContent.moduleId === 'flyer' && currentContent.paperId === 'listening') {
     if (built.part.questions.length !== 5) throw new Error(`Flyers Listening Part ${partIndex + 1} phải có đúng 5 câu chấm điểm.`);
     return { ...built, part: normalizeFlyerListeningPart(built.part, currentContent.parts[partIndex]) };

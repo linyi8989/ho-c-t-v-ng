@@ -1989,6 +1989,24 @@ button.pet-listening-admin-button.text-amber-950:not(:disabled) { color: #451a03
   color: inherit !important;
 }
 
+#ket-listening-authoring [data-ket-listening-action="detect-part1-layout"]:not(:disabled),
+#ket-listening-authoring [data-ket-listening-manual-crop] > button:not(:disabled) {
+  background: #047857 !important;
+  color: #ffffff !important;
+  border-color: #065f46 !important;
+}
+
+#ket-listening-authoring [data-ket-listening-action="apply-part1-layout"]:not(:disabled) {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+  border-color: #1e40af !important;
+}
+
+#ket-listening-authoring [data-ket-listening-action] *,
+#ket-listening-authoring [data-ket-listening-manual-crop] > button * {
+  color: inherit !important;
+}
+
 #ket-listening-authoring button *,
 #ket-listening-player label * {
   color: currentColor;

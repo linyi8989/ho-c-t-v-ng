@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { createDefaultExamContent, getExamPaperDefinition } from './definitions';
 import { getKetListeningImageLayout, normalizeFixedKetListeningContent } from './ketListeningMigration';
-import { importUniversalExamPart } from './universalImport';
+import { importUniversalExamBundle, importUniversalExamPart } from './universalImport';
 import { buildUniversalExamImportPrompt, buildUniversalExamPartImportPrompt } from './universalImportPrompt';
 
 const create = () => createDefaultExamContent(getExamPaperDefinition('ket', 'listening')!);
+
+test('the reported sports-centre paper imports Q1 as shared and Q2–5 as separate choices', () => {
+  const current = create();
+  current.parts[0].questions[2].imageAssetId = 'old-question-3-shared';
+  const source = readFileSync(new URL('../../../docs/examples/ket-listening-part1-sports-centre.json', import.meta.url), 'utf8');
+  const imported = importUniversalExamPart(current, 0, source).part;
+  assert.deepEqual(imported.questions.map(question => getKetListeningImageLayout(question).kind), ['shared', 'options', 'options', 'options', 'options']);
+  assert.deepEqual(imported.questions.map(question => question.options.find(option => question.correctOptionIds.includes(option.id))?.label), ['A', 'B', 'C', 'A', 'C']);
+  assert.deepEqual(imported.examples?.[0].options?.map(option => option.text), ['Tuesday', 'Wednesday', 'Thursday']);
+  assert.equal(imported.examples?.[0].answer, 'C');
+  assert.equal(imported.questions.length, 5);
+});
 const choice = (questionNumber: number, imageLayout?: unknown) => ({
   questionNumber, prompt: `Printed picture question ${questionNumber}`,
   options: ['C', 'A', 'B'].map(label => ({ label, text: `Detailed scene ${label}` })),
@@ -18,6 +31,10 @@ const partOne = (questions: unknown[]) => ({
     examples: [{ prompt: 'Where is the hat?', answer: 'B', options: [{ label: 'A', text: 'A hat on a hook.' }, { label: 'B', text: 'A hat on a bed.' }, { label: 'C', text: 'A hat on a table.' }] }], questions,
   } }],
 });
+const promptDocument = () => {
+  const prompt = buildUniversalExamImportPrompt(create());
+  return JSON.parse(prompt.slice(prompt.indexOf('{\n  "format":'), prompt.indexOf('\n\nTự kiểm tra lần cuối:')));
+};
 
 test('KET Listening image layout follows explicit metadata or actual assets, independently of printed numbers', () => {
   const q = create().parts[0].questions[0];
@@ -76,12 +93,57 @@ test('KET Listening import rejects malformed image metadata before changing a dr
   assert.throws(() => importUniversalExamPart(current, 0, JSON.stringify(partOne([{ ...choice(1), imageAssetId: 'external-forbidden' }]))), /trường kỹ thuật/);
 });
 
+test('KET Listening new whole/focused import rejects missing image layouts instead of inheriting the old question 3 layout', () => {
+  const current = create();
+  current.parts[0].questions[0].imageAssetId = 'existing-first-shared';
+  current.parts[0].questions[2].imageAssetId = 'existing-third-shared';
+  current.parts[0].questions[2].imageLayout = { kind: 'shared' };
+  current.parts[0].questions[2].options.forEach(option => { option.imageAssetId = `old-third-${option.label}`; });
+  const unchanged = JSON.stringify(current);
+  const missingAll = partOne(Array.from({ length: 5 }, (_, index) => choice(index + 1)));
+  assert.throws(() => importUniversalExamPart(current, 0, JSON.stringify(missingAll)), /câu 1: thiếu imageLayout.*prompt mới/);
+  const whole = promptDocument(); whole.papers[0].parts[0] = missingAll;
+  assert.throws(() => importUniversalExamBundle(current, JSON.stringify(whole)), /câu 1: thiếu imageLayout/);
+  const missingThird = partOne(Array.from({ length: 5 }, (_, index) => choice(index + 1, index === 2 ? undefined : { kind: 'options', optionLabels: ['A', 'B', 'C'] })));
+  assert.throws(() => importUniversalExamPart(current, 0, JSON.stringify(missingThird)), /câu 3: thiếu imageLayout/);
+  assert.equal(JSON.stringify(current), unchanged, 'Neither an existing common image nor saved layout can make incomplete new import overwrite the draft.');
+  const corrected = partOne(Array.from({ length: 5 }, (_, index) => choice(index + 1, index === 0 ? { kind: 'shared' } : { kind: 'options', optionLabels: ['A', 'B', 'C'] })));
+  const imported = importUniversalExamPart(current, 0, JSON.stringify(corrected)).part;
+  assert.deepEqual(imported.questions.map(question => getKetListeningImageLayout(question).kind), ['shared', 'options', 'options', 'options', 'options']);
+  assert.equal(imported.questions[0].imageAssetId, 'existing-first-shared');
+  assert.equal(imported.questions[2].imageAssetId, 'existing-third-shared', 'Dormant legacy media stays stored.');
+  assert.equal(imported.questions[2].options[1].imageAssetId, 'old-third-B');
+  whole.papers[0].parts[0] = corrected;
+  assert.deepEqual(importUniversalExamBundle(current, JSON.stringify(whole)).content.parts[0].questions.map(question => getKetListeningImageLayout(question).kind), ['shared', 'options', 'options', 'options', 'options']);
+  assert.equal(JSON.stringify(current), unchanged);
+});
+
+test('KET Listening new Part 1/3 imports require complete unscored choices while blank unknown example answers remain blank', () => {
+  const current = create(); const unchanged = JSON.stringify(current);
+  for (const index of [0, 2]) {
+    const source = promptDocument().papers[0].parts[index];
+    const example = source.blocks[0].content.examples[0];
+    delete example.options;
+    assert.throws(() => importUniversalExamPart(current, index, JSON.stringify(source)), new RegExp(`Part ${index + 1}: example.*ba lựa chọn A/B/C`));
+    const full = promptDocument(); full.papers[0].parts[index] = source;
+    assert.throws(() => importUniversalExamBundle(current, JSON.stringify(full)), /example cần đầy đủ/);
+    const valid = promptDocument().papers[0].parts[index];
+    valid.blocks[0].content.examples[0].options.reverse();
+    valid.blocks[0].content.examples[0].answer = '';
+    const imported = importUniversalExamPart(current, index, JSON.stringify(valid)).part;
+    assert.deepEqual(imported.examples?.[0].options?.map(option => option.label), ['A', 'B', 'C']);
+    assert.equal(imported.examples?.[0].answer, '');
+    assert.equal(imported.questions.length, 5, 'Printed example is never a scored row.');
+  }
+  assert.equal(JSON.stringify(current), unchanged);
+});
+
 test('KET Listening prompt gives full unscored examples, per-question image metadata and nonduplicated form fields', () => {
   const current = create();
   const prompt = buildUniversalExamImportPrompt(current);
   assert.match(prompt, /Example Part 1 và Part 3 phải đầy đủ prompt, ba options A\/B\/C và answer/);
   assert.match(prompt, /optionLabels chỉ liệt kê đúng nhãn có ảnh/);
-  assert.match(prompt, /Không khóa theo số câu 3, không khóa số crop hoặc 12 ảnh/);
+  assert.match(prompt, /không khóa theo số câu 3, không khóa số crop hoặc 12 ảnh/);
   assert.doesNotMatch(prompt, /chỉ tự crop ba ảnh.*1, 2, 4, 5|Câu in số 3 là đúng MỘT/);
   assert.match(prompt, /nhãn và dòng CẦN HỌC SINH ĐIỀN chỉ nằm trong questions/);
   const sampleStart = prompt.indexOf('{\n  "format":');
@@ -94,8 +156,9 @@ test('KET Listening prompt gives full unscored examples, per-question image meta
     assert.ok(example.options.every((option: { text: string }) => option.text.trim().length > 5));
     assert.ok(example.options.some((option: { label: string }) => option.label === example.answer));
   }
-  assert.equal(parts[0].blocks[0].content.questions[1].imageLayout.kind, 'shared');
-  assert.equal(parts[0].blocks[0].content.questions[2].imageLayout.kind, 'options');
+  assert.ok(parts[0].blocks[0].content.questions.every((question: { imageLayout: { kind: string; optionLabels?: string[] } }) => question.imageLayout.kind === 'options' && question.imageLayout.optionLabels?.join('') === 'ABC'));
+  assert.match(prompt, /BẮT BUỘC có imageLayout trong MỖI question/);
+  assert.match(prompt, /Không suy bố cục từ vị trí\/thứ tự câu/);
   for (const index of [3, 4]) {
     const form = parts[index].blocks[0].content;
     assert.match(form.passage, /Example/); assert.doesNotMatch(form.passage, /\[\[|_{2,}|Field\s+\d|New address/);

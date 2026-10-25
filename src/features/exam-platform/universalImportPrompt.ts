@@ -309,7 +309,7 @@ function ketListeningPrompt(content: ExamPaperContent, focusedPart?: number) {
     questionNumber: startNumber + index,
     prompt: `Question ${startNumber + index}`,
     type: 'single-choice',
-    ...(pictures ? { imageLayout: index === 1 ? { kind: 'shared' } : { kind: 'options', optionLabels: index === 3 ? ['A', 'C'] : ['A', 'B', 'C'] } } : {}),
+    ...(pictures ? { imageLayout: { kind: 'options', optionLabels: ['A', 'B', 'C'] } } : {}),
     options: pictures
       ? [{ label: 'A', text: 'Detailed description of picture A: subject, action and distinguishing objects.' }, { label: 'B', text: 'Detailed description of picture B: subject, action and distinguishing objects.' }, { label: 'C', text: 'Detailed description of picture C: subject, action and distinguishing objects.' }]
       : [{ label: 'A', text: 'The complete printed reply A.' }, { label: 'B', text: 'The complete printed reply B.' }, { label: 'C', text: 'The complete printed reply C.' }],
@@ -338,7 +338,7 @@ MỤC TIÊU CẤU TRÚC
 - JSON chỉ chứa nội dung và đáp án. Giáo viên gắn ảnh/audio trong editor; không trả asset ID, URL, base64, crop hoặc tọa độ.
 
 ÁNH XẠ GIAO DIỆN
-- Part 1: mỗi câu luôn có đủ ba đáp án A/B/C nhưng bố cục ảnh phải được nhận diện RIÊNG cho từng câu từ nguồn. Trả imageLayout {"kind":"shared"} khi câu dùng một ảnh chung ở trên; trả {"kind":"options","optionLabels":["A","B","C"]} khi các lựa chọn có ảnh riêng. Nếu chỉ một hoặc hai lựa chọn có ảnh, optionLabels chỉ liệt kê đúng nhãn có ảnh, ví dụ ["A","C"]; các đáp án còn lại vẫn được trả đầy đủ dạng chữ. Không khóa theo số câu 3, không khóa số crop hoặc 12 ảnh. options[].text phải mô tả chi tiết từng hình: đối tượng, hành động, vị trí và điểm phân biệt; không chỉ ghi "Picture A". JSON chỉ mô tả bố cục, giáo viên kiểm tra và gắn/crop ảnh thực tế trong editor.
+- Part 1: mỗi câu luôn có đủ ba đáp án A/B/C nhưng bố cục ảnh phải được nhận diện RIÊNG cho từng câu từ nguồn. BẮT BUỘC có imageLayout trong MỖI question; ứng dụng sẽ từ chối nhập nếu thiếu, không lấy bố cục từ dữ liệu đang mở. Trả imageLayout {"kind":"shared"} khi câu dùng một ảnh chung ở trên; trả {"kind":"options","optionLabels":["A","B","C"]} khi các lựa chọn có ảnh riêng. Nếu chỉ một hoặc hai lựa chọn có ảnh, optionLabels chỉ liệt kê đúng nhãn có ảnh, ví dụ ["A","C"]; các đáp án còn lại vẫn được trả đầy đủ dạng chữ. Không suy bố cục từ vị trí/thứ tự câu hoặc từ JSON mẫu; không khóa theo số câu 3, không khóa số crop hoặc 12 ảnh. options[].text phải mô tả chi tiết từng hình: đối tượng, hành động, vị trí và điểm phân biệt; không chỉ ghi "Picture A". Nếu không nhìn rõ bố cục thì báo thiếu dữ kiện để giáo viên kiểm tra, không đoán shared/options. JSON chỉ mô tả bố cục, giáo viên kiểm tra và gắn/crop ảnh thực tế trong editor.
 - Part 2: dùng đúng một ảnh đặt bên trái và cột nhập chữ ở bên phải. Trả đúng một example, prompt/nhãn của từng hàng và acceptedAnswers là đúng một chữ A–H.
 - Part 3: không dùng ảnh và không trả content.passage lặp lại tiêu đề/hướng dẫn. Trả đúng một example dạng text; mỗi câu có prompt là lời thoại/câu hỏi đầy đủ nằm trên và đúng ba lựa chọn A/B/C nằm dưới.
 - Example Part 1 và Part 3 phải đầy đủ prompt, ba options A/B/C và answer là nhãn đáp án in sẵn; không được chỉ trả prompt + answer. Example có hình thì mô tả chi tiết mỗi hình trong options[].text; example có chữ thì chép nguyên toàn bộ từng lựa chọn. Example luôn nằm trong content.examples, không nằm trong questions được chấm.

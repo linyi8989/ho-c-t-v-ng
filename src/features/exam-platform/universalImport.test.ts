@@ -380,6 +380,7 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
   const threeChoices = (count: number) => Array.from({ length: count }, (_, index) => ({
     questionNumber: index + 1,
     prompt: `Question ${index + 1}`,
+    imageLayout: index === 2 ? { kind: 'shared' } : { kind: 'options', optionLabels: ['A', 'B', 'C'] },
     options: ['A', 'B', 'C'].map(label => ({ label, text: `Option ${label}` })),
     answerSource: 'official-answer-key',
     answerKey: { correctOptionLabels: ['B'] },
@@ -393,9 +394,9 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
     answerKey: { acceptedAnswers: [letters ? String.fromCharCode(65 + index % 8) : `answer ${index + 1}`] },
   }));
   const parts = [
-    { partNumber: 1, title: 'Pictures', instruction: 'Listen and choose.', blocks: [{ blockNumber: 1, title: 'Pictures', interaction: interaction('choice', 'single', 'image-options'), content: { examples: [{ prompt: 'Example', answer: 'A' }], questions: threeChoices(4) } }] },
+    { partNumber: 1, title: 'Pictures', instruction: 'Listen and choose.', blocks: [{ blockNumber: 1, title: 'Pictures', interaction: interaction('choice', 'single', 'image-options'), content: { examples: [{ prompt: 'Example', answer: 'A', options: ['A', 'B', 'C'].map(label => ({ label, text: `Detailed example ${label}` })) }], questions: threeChoices(4) } }] },
     { partNumber: 2, title: 'Letters', instruction: 'Write a letter.', blocks: [{ blockNumber: 1, title: 'Letters', interaction: interaction('text-entry', 'letter-matching', 'two-image-letter-input'), content: { examples: [{ prompt: 'Example person', answer: 'H' }], questions: shortRows(6, true) } }] },
-    { partNumber: 3, title: 'Dialogues', instruction: 'Choose the reply.', blocks: [{ blockNumber: 1, title: 'Dialogues', interaction: interaction('choice', 'dialogue', 'dialogue-choice'), content: { passage: 'Listen to each conversation and choose the best answer.', examples: [{ prompt: 'How are you?', answer: 'C' }], questions: threeChoices(3) } }] },
+    { partNumber: 3, title: 'Dialogues', instruction: 'Choose the reply.', blocks: [{ blockNumber: 1, title: 'Dialogues', interaction: interaction('choice', 'dialogue', 'dialogue-choice'), content: { passage: 'Listen to each conversation and choose the best answer.', examples: [{ prompt: 'How are you?', answer: 'C', options: ['A', 'B', 'C'].map(label => ({ label, text: `Full reply ${label}` })) }], questions: threeChoices(3) } }] },
     { partNumber: 4, title: 'Notes', instruction: 'Complete the notes.', blocks: [{ blockNumber: 1, title: 'Notes', interaction: interaction('text-entry', 'form-completion', 'image-form-fields'), content: { passage: 'Part 4 instructions and printed example.', questions: shortRows(4) } }] },
     { partNumber: 5, title: 'Notes', instruction: 'Complete the notes.', blocks: [{ blockNumber: 1, title: 'Notes', interaction: interaction('text-entry', 'form-completion', 'image-form-fields'), content: { passage: 'Part 5 instructions and printed example.', questions: shortRows(7).map((question, index) => index === 0 ? { ...question, questionNumber: 21, prompt: 'New address', answerPrefix: '98', answerSuffix: 'Road', answerKey: { acceptedAnswers: ['Warnock'] } } : question) } }] },
   ];
@@ -420,7 +421,7 @@ test('KET Listening prompt, flexible JSON and private Part 1 crop source follow 
   const prompt = buildUniversalExamImportPrompt(current);
   assert.match(prompt, /KET\) Listening/);
   assert.match(prompt, /imageLayout/);
-  assert.match(prompt, /Không khóa theo số câu 3/);
+  assert.match(prompt, /không khóa theo số câu 3/);
   assert.match(prompt, /answerSuffix/);
   assert.match(prompt, /98 ___ Road/);
   assert.match(prompt, /số câu KHÔNG bị khóa/);

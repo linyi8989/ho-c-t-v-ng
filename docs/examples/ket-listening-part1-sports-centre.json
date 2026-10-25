@@ -1,0 +1,92 @@
+{
+  "partNumber": 1,
+  "title": "Listen and tick the box",
+  "instruction": "You will hear five short conversations. You will hear each conversation twice. There is one question for each conversation. For questions 1–5, put a tick (✓) under the right answer.",
+  "blocks": [
+    {
+      "blockNumber": 1,
+      "title": "Choose picture A, B or C",
+      "interaction": { "family": "choice", "subtype": "single", "variant": "image-options", "schemaVersion": 1 },
+      "content": {
+        "examples": [
+          {
+            "prompt": "When's the school trip?",
+            "answer": "C",
+            "options": [
+              { "label": "A", "text": "Tuesday" },
+              { "label": "B", "text": "Wednesday" },
+              { "label": "C", "text": "Thursday" }
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "questionNumber": 1,
+            "prompt": "Where's the sports centre?",
+            "type": "single-choice",
+            "imageLayout": { "kind": "shared" },
+            "options": [
+              { "label": "A", "text": "Location A on the map, on the left above B" },
+              { "label": "B", "text": "Location B on the map, on the left above the bank" },
+              { "label": "C", "text": "Location C on the map, on the right side of the road" }
+            ],
+            "answerSource": "official-answer-key",
+            "answerKey": { "correctOptionLabels": ["A"] }
+          },
+          {
+            "questionNumber": 2,
+            "prompt": "How much petrol does the woman want?",
+            "type": "single-choice",
+            "imageLayout": { "kind": "options", "optionLabels": ["A", "B", "C"] },
+            "options": [
+              { "label": "A", "text": "13 litres" },
+              { "label": "B", "text": "30 litres" },
+              { "label": "C", "text": "33 litres" }
+            ],
+            "answerSource": "official-answer-key",
+            "answerKey": { "correctOptionLabels": ["B"] }
+          },
+          {
+            "questionNumber": 3,
+            "prompt": "Which table do they buy?",
+            "type": "single-choice",
+            "imageLayout": { "kind": "options", "optionLabels": ["A", "B", "C"] },
+            "options": [
+              { "label": "A", "text": "Round table with three visible legs" },
+              { "label": "B", "text": "Round table with four visible legs" },
+              { "label": "C", "text": "Rectangular table with four legs" }
+            ],
+            "answerSource": "official-answer-key",
+            "answerKey": { "correctOptionLabels": ["C"] }
+          },
+          {
+            "questionNumber": 4,
+            "prompt": "What time does the class start?",
+            "type": "single-choice",
+            "imageLayout": { "kind": "options", "optionLabels": ["A", "B", "C"] },
+            "options": [
+              { "label": "A", "text": "2.00" },
+              { "label": "B", "text": "2.30" },
+              { "label": "C", "text": "3.00" }
+            ],
+            "answerSource": "official-answer-key",
+            "answerKey": { "correctOptionLabels": ["A"] }
+          },
+          {
+            "questionNumber": 5,
+            "prompt": "What was the weather like on Emma's holiday?",
+            "type": "single-choice",
+            "imageLayout": { "kind": "options", "optionLabels": ["A", "B", "C"] },
+            "options": [
+              { "label": "A", "text": "Sunny" },
+              { "label": "B", "text": "Cloudy" },
+              { "label": "C", "text": "Rainy" }
+            ],
+            "answerSource": "official-answer-key",
+            "answerKey": { "correctOptionLabels": ["C"] }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import { cropListeningImage } from '../../listening-editor/smart-import/cropImag
 import { detectPart4Frames } from '../../listening-editor/smart-import/part4FrameDetection';
 import VisualCropEditor from '../../listening-editor/smart-import/VisualCropEditor';
 import type { SmartImportCrop } from '../../listening-editor/smart-import/types';
-import { groupKetListeningPart1OptionCrops } from '../ketListeningCrops';
+import { groupKetListeningPart1OptionCrops, type KetListeningSourceLayout } from '../ketListeningCrops';
 import { getKetListeningImageLayout } from '../ketListeningMigration';
 import type { ExamDisplayExample, ExamOption, ExamPartContent, ExamQuestion } from '../types';
 import { FlyerPart3Editor } from './FlyerListeningAuthoring';
@@ -130,6 +130,8 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
   const [batchCropping, setBatchCropping] = useState(false);
   const [batchNotice, setBatchNotice] = useState('');
   const [batchPlan, setBatchPlan] = useState<BatchPlan | null>(null);
+  const [sourceLayout, setSourceLayout] = useState<KetListeningSourceLayout>('single-page');
+  const [pageSplit, setPageSplit] = useState(.5);
   const [allowExample, setAllowExample] = useState(Boolean(part.examples?.length));
   const [exampleImageCount, setExampleImageCount] = useState(() => {
     const example = part.examples?.[0];
@@ -138,7 +140,10 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
   });
   const latestPartRef = useRef(part);
   latestPartRef.current = part;
+  const cropSettingsRef = useRef({ sourceLayout, pageSplit, allowExample, exampleImageCount });
+  cropSettingsRef.current = { sourceLayout, pageSplit, allowExample, exampleImageCount };
   const fingerprint = (value: ExamPartContent) => JSON.stringify(value);
+  const batchFingerprint = (value: ExamPartContent) => JSON.stringify({ part: value, cropSettings: cropSettingsRef.current });
   const selectedQuestion = part.questions.find(question => question.id === selection?.questionId);
   const selectedOption = selectedQuestion?.options.find(option => option.id === selection?.optionId);
   const selectedLayout = selectedQuestion ? getKetListeningImageLayout(selectedQuestion) : undefined;
@@ -172,6 +177,9 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
   const checkSnapshot = (snapshot: string) => {
     if (fingerprint(latestPartRef.current) !== snapshot) throw new Error('Nội dung, thứ tự câu, bố cục hoặc ảnh nguồn đã đổi trong lúc xử lý. Chưa gán ảnh; hãy dò hoặc crop lại trên bản đang soạn.');
   };
+  const checkBatchSnapshot = (snapshot: string) => {
+    if (batchFingerprint(latestPartRef.current) !== snapshot) throw new Error('Nội dung, ảnh nguồn hoặc cách chia trang đã đổi trong lúc xử lý. Chưa gán ảnh; hãy dò lại trên bản đang soạn.');
+  };
   const applyCrop = async () => {
     if (!selection || !part.imageAssetId || !part.imageUrl || !selectionActive || cropping || batchCropping) return;
     const target = { ...selection };
@@ -196,14 +204,15 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
   };
   const detectCropPlan = async () => {
     if (!part.imageAssetId || !part.imageUrl || cropping || batchCropping) return;
-    const snapshot = fingerprint(part);
+    const snapshot = batchFingerprint(part);
+    const settings = { ...cropSettingsRef.current };
     const sourceAssetId = part.imageAssetId;
     const sourceUrl = part.imageUrl;
     setBatchCropping(true); setBatchPlan(null); setBatchNotice('Đang dò khung ảnh theo bố cục của từng câu…');
     try {
       const detected = await detectPart4Frames(sourceUrl, { allowWideFrames: true });
-      checkSnapshot(snapshot);
-      const grouped = groupKetListeningPart1OptionCrops(detected, part.questions.map(imageCount), allowExample ? exampleImageCount : undefined);
+      checkBatchSnapshot(snapshot);
+      const grouped = groupKetListeningPart1OptionCrops(detected, part.questions.map(imageCount), settings.allowExample ? settings.exampleImageCount : undefined, { sourceLayout: settings.sourceLayout, pageSplit: settings.pageSplit });
       if (grouped.error) throw new Error(grouped.error);
       setBatchPlan({ sourceAssetId, sourceUrl, fingerprint: snapshot, groups: grouped.questionGroups, detectedPrintedExample: grouped.detectedPrintedExample });
       setBatchNotice(`Đã nhận đủ ${expectedImageCount} ảnh của ${part.questions.length} câu${grouped.detectedPrintedExample ? ', bỏ qua nhóm example ở đầu' : ''}. Kiểm tra thứ tự và vị trí trong bản xem trước rồi gán ảnh.`);
@@ -214,7 +223,7 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     if (!batchPlan || cropping || batchCropping) return;
     setBatchCropping(true); setBatchNotice('Đang tạo các ảnh theo bản xem trước…');
     try {
-      checkSnapshot(batchPlan.fingerprint);
+      checkBatchSnapshot(batchPlan.fingerprint);
       const sourceQuestions = latestPartRef.current.questions;
       const uploaded = new Map<string, Map<string, ListeningAsset>>();
       let count = 0;
@@ -224,19 +233,19 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
         const labels = layout.kind === 'shared' ? ['shared'] : layout.optionLabels || [];
         const assetsBySlot = new Map<string, ListeningAsset>();
         for (let slot = 0; slot < labels.length; slot += 1) {
-          checkSnapshot(batchPlan.fingerprint);
+          checkBatchSnapshot(batchPlan.fingerprint);
           const selectedCrop = batchPlan.groups[questionIndex][slot];
           const label = labels[slot];
           const file = await cropListeningImage(batchPlan.sourceUrl, selectedCrop, `ket-listening-part1-${question.displayNumber || question.number}-${label}.png`);
-          checkSnapshot(batchPlan.fingerprint);
+          checkBatchSnapshot(batchPlan.fingerprint);
           const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: batchPlan.sourceAssetId, crop: selectedCrop });
-          onAssets(asset); checkSnapshot(batchPlan.fingerprint);
+          onAssets(asset); checkBatchSnapshot(batchPlan.fingerprint);
           assetsBySlot.set(label, asset); count += 1;
           setBatchNotice(`Đã tạo ${count}/${expectedImageCount} ảnh; đang giữ nội dung bài cho đến khi hoàn tất…`);
         }
         uploaded.set(question.id, assetsBySlot);
       }
-      checkSnapshot(batchPlan.fingerprint);
+      checkBatchSnapshot(batchPlan.fingerprint);
       const current = latestPartRef.current;
       onChange({ ...current, questions: current.questions.map(question => {
         const bySlot = uploaded.get(question.id);
@@ -259,18 +268,21 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
       <p className="text-sm font-black text-emerald-950">Dò ảnh theo bố cục đã chọn</p>
       <p className="text-xs font-semibold text-emerald-900">Mỗi câu dùng một ảnh chung hoặc các ảnh của lựa chọn đã đánh dấu. Các hàng ảnh phải khớp đầy đủ theo thứ tự câu; nếu không chắc chắn, hãy crop thủ công. Ảnh trang nguồn chỉ dùng để soạn bài.</p>
-      <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs font-black text-emerald-950"><input type="checkbox" checked={allowExample} onChange={event => { setAllowExample(event.target.checked); setBatchPlan(null); }} />Nguồn có thể có nhóm example ở đầu</label>{allowExample && <label className="text-xs font-bold text-emerald-950">Số ảnh example<select value={exampleImageCount} onChange={event => { setExampleImageCount(Number(event.target.value)); setBatchPlan(null); }} className="ml-2 rounded-lg border border-emerald-300 bg-white p-2">{[1, 2, 3].map(count => <option key={count} value={count}>{count}</option>)}</select></label>}</div>
+      <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 text-xs font-black text-emerald-950">Bố cục ảnh nguồn<select data-ket-crop-source-layout value={sourceLayout} disabled={cropping || batchCropping} onChange={event => { setSourceLayout(event.target.value as KetListeningSourceLayout); setBatchPlan(null); setBatchNotice(''); }} className={`mt-1 ${fieldClass}`}><option value="single-page">Một trang</option><option value="two-page">Hai trang nằm ngang · đọc hết trái rồi phải</option></select></label>{sourceLayout === 'two-page' && <label className="text-xs font-black text-emerald-950">Vạch chia hai trang (%)<input data-ket-crop-page-split type="number" min={10} max={90} step={1} value={Math.round(pageSplit * 100)} disabled={cropping || batchCropping} onChange={event => { setPageSplit(Math.max(.1, Math.min(.9, Number(event.target.value) / 100 || .5))); setBatchPlan(null); setBatchNotice(''); }} className={`mt-1 max-w-28 ${fieldClass}`} /></label>}</div>
+      <p className="text-xs font-semibold text-emerald-900">Nếu ảnh ghép hai trang bên cạnh nhau, chọn “Hai trang nằm ngang” và đặt vạch chia vào khe giữa hai trang. Bộ dò đọc toàn bộ trang trái trước trang phải; ba ảnh A/B/C vẫn thuộc cùng một câu.</p>
+      {sourceLayout === 'two-page' && part.imageUrl && !batchPlan && <div className="relative mx-auto max-w-2xl overflow-hidden rounded-lg border border-blue-300" data-ket-crop-page-preview><img src={part.imageUrl} alt="Vị trí vạch chia trang trái và trang phải" className="block h-auto w-full" /><div className="pointer-events-none absolute inset-y-0 border-l-2 border-red-600" style={{ left: `${pageSplit * 100}%` }} /><span className="absolute left-1 top-1 rounded bg-white px-2 py-1 text-xs font-black text-blue-950">Trang trái · đọc trước</span><span className="absolute right-1 top-1 rounded bg-white px-2 py-1 text-xs font-black text-blue-950">Trang phải · đọc sau</span></div>}
+      <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs font-black text-emerald-950"><input type="checkbox" checked={allowExample} disabled={cropping || batchCropping} onChange={event => { setAllowExample(event.target.checked); setBatchPlan(null); }} />Nguồn có thể có nhóm example ở đầu</label>{allowExample && <label className="text-xs font-bold text-emerald-950">Số ảnh example<select value={exampleImageCount} disabled={cropping || batchCropping} onChange={event => { setExampleImageCount(Number(event.target.value)); setBatchPlan(null); }} className="ml-2 rounded-lg border border-emerald-300 bg-white p-2">{[1, 2, 3].map(count => <option key={count} value={count}>{count}</option>)}</select></label>}</div>
       <button type="button" data-ket-listening-action="detect-part1-layout" disabled={batchCropping || cropping || !part.imageAssetId || !part.imageUrl || !part.questions.length} onClick={() => void detectCropPlan()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{batchCropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{batchCropping ? 'Đang xử lý…' : 'Dò các vị trí ảnh và xem trước'}</button>
       {batchNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-white p-3 text-xs font-bold text-emerald-900">{batchNotice}</p>}
       {batchPlan && <div className="space-y-3 rounded-xl border border-blue-300 bg-white p-3" data-ket-listening-crop-mapping>
-        <p className="text-xs font-black text-blue-950">Ánh xạ ảnh theo thứ tự câu</p>
-        <div className="relative mx-auto max-w-2xl"><img src={batchPlan.sourceUrl} alt="Các vùng ảnh sẽ được gán vào câu hỏi" className="block h-auto w-full" />{batchPlan.groups.flatMap((group, questionIndex) => group.map((box, slot) => {
+        <p className="text-xs font-black text-blue-950">Ánh xạ ảnh theo thứ tự câu{sourceLayout === 'two-page' ? ' · hết trang trái rồi sang trang phải' : ''}</p>
+        <div className="relative mx-auto max-w-2xl"><img src={batchPlan.sourceUrl} alt="Các vùng ảnh sẽ được gán vào câu hỏi" className="block h-auto w-full" />{sourceLayout === 'two-page' && <div className="pointer-events-none absolute inset-y-0 border-l-2 border-red-600" style={{ left: `${pageSplit * 100}%` }} />}{batchPlan.groups.flatMap((group, questionIndex) => group.map((box, slot) => {
           const question = part.questions[questionIndex];
           const layout = question ? getKetListeningImageLayout(question) : undefined;
           return <div key={`${questionIndex}-${slot}`} className="pointer-events-none absolute border-2 border-blue-700 bg-blue-500/10" style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.width * 100}%`, height: `${box.height * 100}%` }}><span className="absolute left-0 top-0 bg-white px-1 text-[10px] font-black text-blue-950">{question?.displayNumber || question?.number} · {layout?.kind === 'shared' ? 'Chung' : layout?.optionLabels?.[slot]}</span></div>;
         }))}</div>
-        <button type="button" data-ket-listening-action="apply-part1-layout" disabled={batchCropping || cropping || fingerprint(part) !== batchPlan.fingerprint} onClick={() => void applyBatchPlan()} className="rounded-xl border border-blue-800 bg-blue-700 px-4 py-3 text-xs font-black text-white">Tạo và gán {expectedImageCount} ảnh theo bản xem trước</button>
-        {fingerprint(part) !== batchPlan.fingerprint && <p role="alert" className="text-xs font-bold text-amber-900">Nội dung đã đổi sau khi dò. Hãy dò lại trước khi gán ảnh.</p>}
+        <button type="button" data-ket-listening-action="apply-part1-layout" disabled={batchCropping || cropping || batchFingerprint(part) !== batchPlan.fingerprint} onClick={() => void applyBatchPlan()} className="rounded-xl border border-blue-800 bg-blue-700 px-4 py-3 text-xs font-black text-white">Tạo và gán {expectedImageCount} ảnh theo bản xem trước</button>
+        {batchFingerprint(part) !== batchPlan.fingerprint && <p role="alert" className="text-xs font-bold text-amber-900">Nội dung hoặc cách chia trang đã đổi sau khi dò. Hãy dò lại trước khi gán ảnh.</p>}
       </div>}
     </section>
     <p className={`rounded-xl border p-3 text-xs font-black ${visibleImageCount === expectedImageCount ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>Đã có {visibleImageCount}/{expectedImageCount} ảnh theo bố cục học sinh sẽ nhìn thấy.</p>

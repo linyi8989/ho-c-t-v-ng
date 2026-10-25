@@ -63,6 +63,15 @@ function ReportGrid({ reports }: { reports: UniversalImportReport[] }) {
   return <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{reports.map(report => <div key={report.part} className={`rounded-xl border p-3 text-xs ${report.warnings.length ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}><p className="font-black">Part {report.part} · {report.blockCount} dạng · {report.questionCount} câu</p><p className="mt-1 font-semibold">{report.warnings.length ? `${report.warnings.length} mục cần xác nhận` : 'Đã nhập nội dung'}</p>{report.warnings.slice(0, 2).map((warning, index) => <p key={index} className="mt-1 text-[10px]">{warning}</p>)}</div>)}</div>;
 }
 
+function KetListeningJsonHelp({ content, partIndex }: { content: ExamPaperContent; partIndex?: number }) {
+  if (content.moduleId !== 'ket' || content.paperId !== 'listening' || content.templateVersion !== 'ket-listening-5-v1') return null;
+  if (partIndex !== undefined && partIndex !== 0 && partIndex !== 2) return null;
+  return <div className="mt-3 space-y-2 break-words rounded-xl border border-sky-300 bg-sky-50 p-3 text-xs font-semibold leading-6 text-sky-950" data-ket-listening-json-requirements>
+    {(partIndex === undefined || partIndex === 0) && <p>Part 1: mỗi câu phải có <code>imageLayout</code> theo ảnh đề gốc: <code>{'{"kind":"shared"}'}</code> cho ảnh chung hoặc <code>{'{"kind":"options","optionLabels":["A","B","C"]}'}</code> cho ảnh riêng. Không có câu nào mặc định là câu ảnh chung. JSON thiếu thông tin này sẽ được báo lỗi và giữ nguyên bản đang soạn.</p>}
+    <p>Example Part 1/3 cần đủ câu hỏi, ba lựa chọn A/B/C và đáp án in sẵn. Nếu JSON cũ thiếu thông tin, hãy sao chép prompt mới ở trên và gửi lại cùng ảnh đề cho ChatGPT.</p>
+  </div>;
+}
+
 export function UniversalWholeImportPanel({
   content,
   definition,
@@ -81,6 +90,7 @@ export function UniversalWholeImportPanel({
   const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'universal-json:' + documentScope, entity: 'whole', value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   const [reports, setReports] = useState<UniversalImportReport[]>([]);
   const [copied, setCopied] = useState(false);
+  const [importError, setImportError] = useState('');
   const fixed = fixedStarterStructure(content);
   return <details open className="rounded-2xl border border-violet-200 bg-violet-50 p-4" id="universal-whole-json-import">
     <summary className="cursor-pointer text-sm font-black text-violet-900"><FileJson size={16} className="mr-2 inline" />Nhập Universal JSON tổng</summary>
@@ -92,8 +102,11 @@ export function UniversalWholeImportPanel({
       onMessage({ text: 'Đã sao chép prompt Universal JSON v2. ChatGPT sẽ trả một khối JSON có nút Copy; hãy sao chép rồi dán trực tiếp vào ô bên dưới.' });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? 'Đã sao chép prompt' : 'Sao chép prompt gửi ChatGPT'}</button>
-    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
+    <KetListeningJsonHelp content={content} />
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={value => { setSource(value); setImportError(''); }} /></div>
+    {importError && <p role="alert" data-exam-import-error className="mt-3 whitespace-pre-wrap rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm font-bold text-rose-900">{importError}</p>}
     <button type="button" data-exam-action="import-universal-whole" onClick={() => {
+      setImportError(''); setReports([]);
       try {
         const parsed = JSON.parse(stripUniversalExamJsonFence(source));
         if (parsed?.format === 'exam-bundle-import-v1' && content.moduleId === 'starter' && content.paperId === 'listening') {
@@ -113,7 +126,9 @@ export function UniversalWholeImportPanel({
         }
         onImported();
       } catch (reason: any) {
-        onMessage({ text: reason?.message || 'Universal JSON không hợp lệ.', error: true });
+        const text = reason?.message || 'Universal JSON không hợp lệ.';
+        setImportError(text);
+        onMessage({ text, error: true });
       }
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white"><FileJson size={15} />Phân tích và tạo cấu trúc đề</button>
     <ReportGrid reports={reports} />
@@ -137,6 +152,7 @@ export function UniversalPartImportPanel({
   const documentScope = useDocumentScope();
   const recovery = useAuthoringDraft({ fixedEntity: true, scope: 'universal-json:' + documentScope, entity: 'part-' + partIndex, value: source, enabled: true, dirty: Boolean(source), restore: record => { if (typeof record.value !== 'string') throw new Error('Nháp JSON không hợp lệ.'); setSource(record.value); } });
   const [copied, setCopied] = useState(false);
+  const [importError, setImportError] = useState('');
   return <details className="rounded-2xl border border-violet-200 bg-violet-50 p-4" data-universal-part-import={partIndex + 1}>
     <summary className="cursor-pointer text-sm font-black text-violet-900"><FileJson size={16} className="mr-2 inline" />Nhập lại JSON Part {partIndex + 1}</summary>
     <p className="mt-2 text-xs font-semibold text-violet-800">Nhận object Part v2 hoặc JSON tổng v2; chỉ Part này được thay đổi.{content.moduleId === 'starter' && content.paperId === 'listening' ? ' Starter Listening JSON v1 cũ vẫn được hỗ trợ.' : ''}</p>
@@ -147,8 +163,11 @@ export function UniversalPartImportPanel({
       onMessage({ text: `Đã sao chép prompt riêng Part ${partIndex + 1}. ChatGPT sẽ trả một khối JSON có nút Copy và chỉ chứa Part này.` });
       window.setTimeout(() => setCopied(false), 2200);
     }} className="mt-3 inline-flex items-center gap-2 rounded-xl border border-violet-300 bg-white px-4 py-2.5 text-xs font-black text-violet-800"><ClipboardCopy size={15} />{copied ? `Đã sao chép prompt Part ${partIndex + 1}` : `Sao chép prompt riêng Part ${partIndex + 1}`}</button>
-    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={setSource} /></div>
-    <button type="button" onClick={() => {
+    <KetListeningJsonHelp content={content} partIndex={partIndex} />
+    <div className="mt-3"><DraftRecovery draft={recovery} /><JsonSource value={source} onChange={value => { setSource(value); setImportError(''); }} /></div>
+    {importError && <p role="alert" data-exam-import-error className="mt-3 whitespace-pre-wrap rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm font-bold text-rose-900">{importError}</p>}
+    <button type="button" data-exam-action="import-universal-part" onClick={() => {
+      setImportError('');
       try {
         const parsed = JSON.parse(stripUniversalExamJsonFence(source));
         if ((parsed?.format === 'exam-bundle-import-v1' || parsed?.section) && content.moduleId === 'starter' && content.paperId === 'listening') {
@@ -165,7 +184,9 @@ export function UniversalPartImportPanel({
           onMessage({ text: `Đã nhập Part ${partIndex + 1}: ${result.report.blockCount} dạng, ${result.report.questionCount} câu.${result.report.warnings.length ? ` ${result.report.warnings.length} mục cần xác nhận.` : ''}` });
         }
       } catch (reason: any) {
-        onMessage({ text: reason?.message || `JSON Part ${partIndex + 1} không hợp lệ.`, error: true });
+        const text = reason?.message || `JSON Part ${partIndex + 1} không hợp lệ.`;
+        setImportError(text);
+        onMessage({ text, error: true });
       }
     }} className="mt-3 rounded-xl bg-violet-700 px-4 py-2.5 text-xs font-black text-white">Kiểm tra và nhập Part này</button>
   </details>;
