@@ -4,7 +4,7 @@ import path from 'node:path';
 import { build } from 'esbuild';
 
 // Isolated UI fixture for browser-tool QA; no database or user API writes.
-const evidence = path.resolve('.data/ket-listening-layout-repair-qa');
+const evidence = path.resolve(process.env.KET_LAYOUT_FIXTURE_EVIDENCE || '.data/ket-listening-layout-repair-qa');
 fs.mkdirSync(evidence, { recursive: true });
 const output = path.join(evidence, 'fixture.js');
 await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
@@ -40,10 +40,12 @@ row(40, 350, 1, true); row(40, 820, 3); // Q1/Q2, left page
 row(540, 190, 3); row(540, 510, 3); row(540, 680, 3); // Q3/Q4/Q5, right page
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000"><rect width="1000" height="1000" fill="white"/>${frames.join('')}</svg>`;
 const actual = 'C:/Users/Admin/AppData/Local/Temp/codex-clipboard-96fe41f1-af8c-4bcc-b4c6-a8d8db42b843.png';
+const styleName = fs.readdirSync('dist/client/assets').find(name => /^index-.*\.css$/.test(name));
+const fixtureStyle = fs.readFileSync(path.join('dist/client/assets', styleName));
 const server = http.createServer((req, res) => {
   if (req.url.startsWith('/mobile/')) { const student = req.url.includes('student'), width = req.url.includes('320') ? 320 : 390; res.setHeader('Content-Type', 'text/html'); res.end(`<!doctype html><html><body style="margin:0;background:#f1f5f9"><iframe title="Mobile ${width}" src="/?mode=${student ? 'student' : 'author'}" style="display:block;margin:auto;width:${width}px;height:950px;border:0;background:white"></iframe><pre data-qa-mobile-metrics style="white-space:pre-wrap"></pre><script>addEventListener('message',e=>{if(e.origin===location.origin&&e.source===document.querySelector('iframe').contentWindow&&e.data.fixtureMetrics)document.querySelector('[data-qa-mobile-metrics]').textContent=JSON.stringify(e.data);});</script></body></html>`); }
   else if (req.url === '/fixture.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(fs.readFileSync(output)); }
-  else if (req.url === '/style.css') { const css = fs.readdirSync('dist/client/assets').find(name => /^index-.*\.css$/.test(name)); res.setHeader('Content-Type', 'text/css'); res.end(fs.readFileSync(path.join('dist/client/assets', css))); }
+  else if (req.url === '/style.css') { res.setHeader('Content-Type', 'text/css'); res.end(fixtureStyle); }
   else if (req.url === '/actual-source.png') { res.setHeader('Content-Type', 'image/png'); res.end(fs.readFileSync(actual)); }
   else if (req.url === '/source.svg' || req.url === '/picture.svg') { res.setHeader('Content-Type', 'image/svg+xml'); res.end(svg); }
   else if (req.url.startsWith('/api/')) { res.writeHead(500).end('User API writes are disabled in the isolated fixture'); }

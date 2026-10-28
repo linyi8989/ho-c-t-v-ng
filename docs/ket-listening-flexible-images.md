@@ -32,17 +32,34 @@ published content still uses the compatibility inference above.
 The editor offers layout selection, image slots and manual crops for every
 question. Automatic detection accepts wide common frames and compares every row
 with the current layout plan. It displays the proposed mapping before attaching
-crops. Missing/extra/overlapping frames stop assignment; manual crop remains
-available. Changes to the draft while detection/upload is running prevent stale
-attachment. This opt-in detection does not change Movers' frame limits.
+crops. Missing/extra/ambiguous or partially overlapping frames stop automatic
+assignment and open an editable crop plan on the source image. Changes to the
+draft or leaving Part 1 while processing prevent stale attachment. This opt-in
+detection does not change Movers' frame limits.
 
 For a two-page horizontal source, select **Hai trang nằm ngang** and position the
 page split in the gap between the pages (50% by default). Detection groups rows
-inside each page, reads the entire left page before the right, and rejects frames
-crossing the split or nested/overlapping frames. Source layout, split and example
-settings participate in the asynchronous crop fingerprint. Weak or broken scan
-borders may not be detected; the original sports-centre scan falls into this
-case, and manual crop is available for both the common map and each A/B/C image.
+inside each page and reads the entire left page before the right. A KET-specific
+pixel detector pairs supported straight edges, tolerates grey/interrupted borders
+and avoids combining adjacent A/B/C boxes. Border duplicates and contained map or
+illustration details are resolved before matching the question layout. A shared
+outer picture stays one image; an enclosing border around separate choices can
+resolve to its children when the selected layout uniquely matches. Genuine partial
+overlaps, ambiguous plans and frames crossing the page split still require review.
+Source layout, split and example settings participate in the asynchronous crop
+fingerprint. The original sports-centre scan now produces the correct 13 crops
+with Q1 shared and Q2–5 A/B/C, skipping its printed example wrapper.
+
+The preview supports selecting each image slot, drawing directly inside or outside
+an existing region, moving, resizing all four corners and zooming to 150/200%.
+Keyboard arrows move the selected crop, Shift moves faster, and Delete clears it.
+Use **Cuộn ảnh** to pan a zoomed source on touch screens. Uncertain detections keep
+clickable frame suggestions; **Tự chọn các vùng trên ảnh nguồn** also starts an
+empty plan without detection. Individual crop buttons use the same editor. No
+external cutting/pasting is required. All required regions must be valid, inside
+the source and non-overlapping before batch upload. Crop PNGs retain source pixel
+resolution and decode the source once per batch. Only a completed batch updates
+the draft's image references; failed uploads leave the plan available for retry.
 
 Part 1/3 examples use the existing display-only `examples[].options` contract:
 complete question, A/B/C texts, optional example images and the printed correct

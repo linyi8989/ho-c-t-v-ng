@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupKetListeningPart1OptionCrops } from './ketListeningCrops';
+import { groupKetListeningPart1OptionCrops, validateKetListeningCropPlan } from './ketListeningCrops';
 import { detectPart4FramesFromPixels } from '../listening-editor/smart-import/part4FrameDetection';
 
 const row = (count: number, y: number) => Array.from({ length: count }, (_, index) => ({ crop: { x: count === 1 ? .1 : .05 + index * .3, y, width: count === 1 ? .75 : .22, height: .08 }, score: .99 }));
@@ -21,7 +21,8 @@ test('crop mapping supports single images at any question and varying image coun
 });
 test('crop mapping refuses incomplete, extra, overlapping and malformed frames instead of shifting assignments', () => {
   const complete = [...row(1, .1), ...row(3, .4), ...row(2, .7)];
-  const invalid = [complete.slice(1), [...complete, ...row(1, .85)], [...complete, complete[2]], [{ crop: { x: -1, y: 0, width: .2, height: .2 }, score: 1 }]];
+  const overlapping = { ...complete[2], crop: { ...complete[2].crop, x: complete[2].crop.x + .02 } };
+  const invalid = [complete.slice(1), [...complete, ...row(1, .85)], [...complete, overlapping], [{ crop: { x: -1, y: 0, width: .2, height: .2 }, score: 1 }]];
   for (const frames of invalid) {
     const result = groupKetListeningPart1OptionCrops(frames, [1, 3, 2]);
     assert.ok(result.error);
@@ -108,15 +109,75 @@ test('page split is explicit, adjustable and refuses crossing frames, missing pa
   assert.ok(unknown.error); assert.deepEqual(unknown.questionGroups, []);
 });
 
-test('nested example borders, map boxes, duplicate and extra detections never create an assignment', () => {
+test('nested map details, example wrappers and duplicate borders retain the same complete assignment', () => {
   const { detected } = spreadFrames(true);
   const nestedMap = { crop: { x: .08, y: .38, width: .10, height: .04 }, score: .99 };
   const outerExample = { crop: { x: .02, y: .06, width: .44, height: .12 }, score: .99 };
-  const extra = { crop: { x: .57, y: .91, width: .10, height: .04 }, score: .99 };
-  for (const frames of [[...detected, nestedMap], [...detected, outerExample], [...detected, detected[2]], [...detected, extra]]) {
+  const sharedBorderDetail = { crop: { x: .08, y: .3485, width: .10, height: .06 }, score: .99 };
+  const duplicateBorder = { ...detected[2], crop: { ...detected[2].crop, x: detected[2].crop.x + .001, width: detected[2].crop.width - .002 } };
+  const baseline = groupKetListeningPart1OptionCrops(detected, [1, 3, 3, 3, 3], 3, { sourceLayout: 'two-page' });
+  for (const frames of [[...detected, nestedMap], [...detected, sharedBorderDetail], [...detected, outerExample], [...detected, detected[2]], [...detected, duplicateBorder], [...detected, nestedMap, outerExample, duplicateBorder, sharedBorderDetail]]) {
     const result = groupKetListeningPart1OptionCrops(frames, [1, 3, 3, 3, 3], 3, { sourceLayout: 'two-page' });
-    assert.ok(result.error); assert.deepEqual(result.questionGroups, []);
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.questionGroups, baseline.questionGroups);
+    assert.equal(result.detectedPrintedExample, true);
+    assert.ok(result.notices?.length);
   }
+});
+
+test('an undetected example triplet can be skipped as one wide wrapper without changing question reading order', () => {
+  const { questions } = spreadFrames(true, false);
+  const wrapper = { crop: { x: .02, y: .04, width: .44, height: .17 }, score: .9 };
+  const result = groupKetListeningPart1OptionCrops([wrapper, ...questions.flat()], [1, 3, 3, 3, 3], 3, { sourceLayout: 'two-page' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.detectedPrintedExample, true);
+  assert.deepEqual(result.questionGroups, questions.map(group => group.map(frame => frame.crop)));
+  const noPermission = groupKetListeningPart1OptionCrops([wrapper, ...questions.flat()], [1, 3, 3, 3, 3], undefined, { sourceLayout: 'two-page' });
+  assert.ok(noPermission.error);
+  assert.deepEqual(noPermission.questionGroups, []);
+});
+
+test('contained options use printed left-to-right order even when frame sizes and input order differ', () => {
+  const wrapper = { crop: { x: .05, y: .1, width: .9, height: .3 }, score: .9 };
+  const choices = [
+    { crop: { x: .10, y: .18, width: .15, height: .1 }, score: .8 },
+    { crop: { x: .35, y: .18, width: .20, height: .1 }, score: .9 },
+    { crop: { x: .65, y: .18, width: .18, height: .1 }, score: 1 },
+  ];
+  const result = groupKetListeningPart1OptionCrops([choices[2], wrapper, choices[0], choices[1]], [3]);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.questionGroups, [choices.map(frame => frame.crop)]);
+  assert.deepEqual(groupKetListeningPart1OptionCrops([wrapper, ...choices], [1]).questionGroups, [[wrapper.crop]]);
+});
+
+test('extra rows, partial overlaps and multiple valid contained triplets require review instead of guessing', () => {
+  const { detected } = spreadFrames(true);
+  const extra = { crop: { x: .57, y: .91, width: .10, height: .04 }, score: .99 };
+  const extraResult = groupKetListeningPart1OptionCrops([...detected, extra], [1, 3, 3, 3, 3], 3, { sourceLayout: 'two-page' });
+  assert.ok(extraResult.error); assert.deepEqual(extraResult.questionGroups, []);
+  const frame = (x: number, y: number, width: number, height: number) => ({ crop: { x, y, width, height }, score: .99 });
+  const partial = groupKetListeningPart1OptionCrops([frame(.1, .1, .3, .2), frame(.3, .12, .3, .2)], [2]);
+  assert.ok(partial.error); assert.deepEqual(partial.questionGroups, []);
+  const ambiguous = groupKetListeningPart1OptionCrops([
+    frame(.05, .1, .9, .3), frame(.1, .15, .35, .2), frame(.55, .15, .35, .2),
+    frame(.12, .2, .1, .1), frame(.28, .2, .1, .1), frame(.57, .2, .1, .1), frame(.73, .2, .1, .1),
+  ], [3]);
+  assert.match(ambiguous.error || '', /nhiều cách/); assert.deepEqual(ambiguous.questionGroups, []);
+});
+
+test('crop-plan validation blocks missing, duplicate, overlapping, out-of-bounds and malformed selections', () => {
+  const a = { x: .1, y: .1, width: .2, height: .2 }, b = { x: .5, y: .1, width: .2, height: .2 };
+  assert.deepEqual(validateKetListeningCropPlan([[a], [b]], [1, 1]), []);
+  const invalid = [
+    validateKetListeningCropPlan([], []), validateKetListeningCropPlan([[a]], [0]),
+    validateKetListeningCropPlan([[a]], [1, 1]), validateKetListeningCropPlan([[a]], [2]),
+    validateKetListeningCropPlan([[null]], [1]), validateKetListeningCropPlan([[a, a]], [2]),
+    validateKetListeningCropPlan([[a, { ...a, x: .25 }]], [2]),
+    validateKetListeningCropPlan([[{ ...a, x: .9 }]], [1]),
+    validateKetListeningCropPlan([[{ ...a, width: NaN }]], [1]),
+    validateKetListeningCropPlan([[{ ...a, height: 0 }]], [1]),
+  ];
+  invalid.forEach(errors => assert.ok(errors.length));
 });
 
 test('pixel detection on a real two-page geometry maps Q1 shared left, Q2 left and Q3–5 right in reading order', () => {

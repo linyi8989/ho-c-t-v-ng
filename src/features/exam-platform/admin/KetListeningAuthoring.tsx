@@ -1,16 +1,16 @@
 import { Crop, LoaderCircle } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ListeningAssetPicker } from '../../listening/admin/ListeningAssetPicker';
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset, ListeningAssetKind } from '../../listening/types';
-import { cropListeningImage } from '../../listening-editor/smart-import/cropImage';
-import { detectPart4Frames } from '../../listening-editor/smart-import/part4FrameDetection';
-import VisualCropEditor from '../../listening-editor/smart-import/VisualCropEditor';
+import { cropListeningImage, createListeningImageCropper } from '../../listening-editor/smart-import/cropImage';
+import { detectKetListeningFrames } from '../ketListeningFrameDetection';
 import type { SmartImportCrop } from '../../listening-editor/smart-import/types';
-import { groupKetListeningPart1OptionCrops, type KetListeningSourceLayout } from '../ketListeningCrops';
+import { groupKetListeningPart1OptionCrops, validateKetListeningCropPlan, type KetListeningSourceLayout } from '../ketListeningCrops';
 import { getKetListeningImageLayout } from '../ketListeningMigration';
 import type { ExamDisplayExample, ExamOption, ExamPartContent, ExamQuestion } from '../types';
 import { FlyerPart3Editor } from './FlyerListeningAuthoring';
+import KetListeningCropPlanner from './KetListeningCropPlanner';
 
 interface Props {
   token: string;
@@ -123,9 +123,9 @@ function AcceptedAnswers({ question, onChange }: { question: ExamQuestion; onCha
 
 function PartOne({ token, part, assets, onAssets, onChange }: Props) {
   type Target = { questionId: string; optionId?: string };
-  type BatchPlan = { sourceAssetId: string; sourceUrl: string; fingerprint: string; groups: SmartImportCrop[][]; detectedPrintedExample: boolean };
+  type BatchPlan = { sourceAssetId: string; sourceUrl: string; fingerprint: string; groups: (SmartImportCrop | null)[][]; detectedPrintedExample: boolean; candidates?: SmartImportCrop[] };
   const [selection, setSelection] = useState<Target | null>(null);
-  const [crop, setCrop] = useState<SmartImportCrop>({ x: 0, y: 0, width: 1, height: 1 });
+  const [crop, setCrop] = useState<SmartImportCrop | null>(null);
   const [cropping, setCropping] = useState(false);
   const [batchCropping, setBatchCropping] = useState(false);
   const [batchNotice, setBatchNotice] = useState('');
@@ -138,6 +138,16 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     const count = example?.options?.filter(option => option.imageAssetId || option.imageUrl).length || 0;
     return count || (example?.imageAssetId || example?.imageUrl ? 1 : 3);
   });
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
+  useEffect(() => {
+    // Coordinates selected on a different source cannot be reused implicitly.
+    setSelection(null);
+    setCrop(null);
+  }, [part.imageAssetId, part.imageUrl]);
   const latestPartRef = useRef(part);
   latestPartRef.current = part;
   const cropSettingsRef = useRef({ sourceLayout, pageSplit, allowExample, exampleImageCount });
@@ -155,6 +165,11 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     return layout.kind === 'shared' ? 1 : layout.optionLabels?.length || 0;
   };
   const expectedImageCount = part.questions.reduce((total, question) => total + imageCount(question), 0);
+  const cropLabels = part.questions.map(question => {
+    const layout = getKetListeningImageLayout(question);
+    return (layout.kind === 'shared' ? ['Chung'] : layout.optionLabels || []).map(label => `${question.displayNumber || question.number} · ${label}`);
+  });
+  const cropErrors = batchPlan ? validateKetListeningCropPlan(batchPlan.groups, part.questions.map(imageCount)) : [];
   const visibleImageCount = part.questions.reduce((total, question) => {
     const layout = getKetListeningImageLayout(question);
     return total + (layout.kind === 'shared' ? Number(Boolean(question.imageAssetId && question.imageUrl))
@@ -175,13 +190,15 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     updateQuestion(target.questionId, { ...patch, imageLayout: getKetListeningImageLayout(question) });
   };
   const checkSnapshot = (snapshot: string) => {
+    if (!activeRef.current) throw new Error('Đã rời phần crop ảnh. Chưa gán ảnh vào bài; hãy mở lại Part 1 để tiếp tục.');
     if (fingerprint(latestPartRef.current) !== snapshot) throw new Error('Nội dung, thứ tự câu, bố cục hoặc ảnh nguồn đã đổi trong lúc xử lý. Chưa gán ảnh; hãy dò hoặc crop lại trên bản đang soạn.');
   };
   const checkBatchSnapshot = (snapshot: string) => {
+    if (!activeRef.current) throw new Error('Đã rời phần crop ảnh. Chưa gán ảnh vào bài; hãy mở lại Part 1 để tiếp tục.');
     if (batchFingerprint(latestPartRef.current) !== snapshot) throw new Error('Nội dung, ảnh nguồn hoặc cách chia trang đã đổi trong lúc xử lý. Chưa gán ảnh; hãy dò lại trên bản đang soạn.');
   };
   const applyCrop = async () => {
-    if (!selection || !part.imageAssetId || !part.imageUrl || !selectionActive || cropping || batchCropping) return;
+    if (!selection || !part.imageAssetId || !part.imageUrl || !selectionActive || !crop || cropping || batchCropping) return;
     const target = { ...selection };
     const snapshot = fingerprint(part);
     const sourceAssetId = part.imageAssetId;
@@ -193,8 +210,8 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
       const file = await cropListeningImage(sourceUrl, selectedCrop, `ket-listening-part1-${selectedQuestion?.displayNumber || selectedQuestion?.number}-${suffix}.png`);
       checkSnapshot(snapshot);
       const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: sourceAssetId, crop: selectedCrop });
-      onAssets(asset);
       checkSnapshot(snapshot);
+      onAssets(asset);
       attachAsset(target, asset);
       setBatchNotice('Đã gán ảnh crop vào đúng vị trí đã chọn.');
       setBatchPlan(null);
@@ -210,12 +227,16 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     const sourceUrl = part.imageUrl;
     setBatchCropping(true); setBatchPlan(null); setBatchNotice('Đang dò khung ảnh theo bố cục của từng câu…');
     try {
-      const detected = await detectPart4Frames(sourceUrl, { allowWideFrames: true });
+      const detected = await detectKetListeningFrames(sourceUrl);
       checkBatchSnapshot(snapshot);
       const grouped = groupKetListeningPart1OptionCrops(detected, part.questions.map(imageCount), settings.allowExample ? settings.exampleImageCount : undefined, { sourceLayout: settings.sourceLayout, pageSplit: settings.pageSplit });
-      if (grouped.error) throw new Error(grouped.error);
+      if (grouped.error) {
+        setBatchPlan({ sourceAssetId, sourceUrl, fingerprint: snapshot, groups: part.questions.map(question => Array.from({ length: imageCount(question) }, () => null)), detectedPrintedExample: false, candidates: detected.map(frame => frame.crop) });
+        setBatchNotice(`${grouped.error} Bạn có thể chọn khung gợi ý hoặc vẽ lại từng vị trí ngay trên ảnh bên dưới, rồi gán tất cả trong một lượt.`);
+        return;
+      }
       setBatchPlan({ sourceAssetId, sourceUrl, fingerprint: snapshot, groups: grouped.questionGroups, detectedPrintedExample: grouped.detectedPrintedExample });
-      setBatchNotice(`Đã nhận đủ ${expectedImageCount} ảnh của ${part.questions.length} câu${grouped.detectedPrintedExample ? ', bỏ qua nhóm example ở đầu' : ''}. Kiểm tra thứ tự và vị trí trong bản xem trước rồi gán ảnh.`);
+      setBatchNotice(`Đã nhận đủ ${expectedImageCount} ảnh của ${part.questions.length} câu${grouped.detectedPrintedExample ? ', bỏ qua nhóm example ở đầu' : ''}. ${grouped.notices?.join(' ') || ''} Kiểm tra hoặc chỉnh lại từng vùng trên ảnh trước khi gán.`);
     } catch (reason: any) { setBatchNotice(reason?.message || 'Không thể xác định các nhóm ảnh. Hãy crop thủ công.'); }
     finally { setBatchCropping(false); }
   };
@@ -225,6 +246,10 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     try {
       checkBatchSnapshot(batchPlan.fingerprint);
       const sourceQuestions = latestPartRef.current.questions;
+      const validationErrors = validateKetListeningCropPlan(batchPlan.groups, sourceQuestions.map(imageCount));
+      if (validationErrors.length) throw new Error(validationErrors[0]);
+      const cropFromSource = await createListeningImageCropper(batchPlan.sourceUrl);
+      checkBatchSnapshot(batchPlan.fingerprint);
       const uploaded = new Map<string, Map<string, ListeningAsset>>();
       let count = 0;
       for (let questionIndex = 0; questionIndex < sourceQuestions.length; questionIndex += 1) {
@@ -235,11 +260,12 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
         for (let slot = 0; slot < labels.length; slot += 1) {
           checkBatchSnapshot(batchPlan.fingerprint);
           const selectedCrop = batchPlan.groups[questionIndex][slot];
+          if (!selectedCrop) throw new Error('Chưa chọn đủ vùng ảnh; nội dung bài chưa thay đổi.');
           const label = labels[slot];
-          const file = await cropListeningImage(batchPlan.sourceUrl, selectedCrop, `ket-listening-part1-${question.displayNumber || question.number}-${label}.png`);
+          const file = await cropFromSource(selectedCrop, `ket-listening-part1-${question.displayNumber || question.number}-${label}.png`);
           checkBatchSnapshot(batchPlan.fingerprint);
           const asset = await listeningApi.uploadAsset(token, file, 'image', { derivedFromAssetId: batchPlan.sourceAssetId, crop: selectedCrop });
-          onAssets(asset); checkBatchSnapshot(batchPlan.fingerprint);
+          checkBatchSnapshot(batchPlan.fingerprint); onAssets(asset);
           assetsBySlot.set(label, asset); count += 1;
           setBatchNotice(`Đã tạo ${count}/${expectedImageCount} ảnh; đang giữ nội dung bài cho đến khi hoàn tất…`);
         }
@@ -259,7 +285,12 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     } catch (reason: any) { setBatchNotice(reason?.message || 'Không thể hoàn tất crop. Nội dung bài chưa bị thay đổi.'); }
     finally { setBatchCropping(false); }
   };
-  const beginCrop = (target: Target) => { setSelection(target); setCrop({ x: 0, y: 0, width: 1, height: 1 }); };
+  const beginBatchSelection = () => {
+    if (!part.imageAssetId || !part.imageUrl || cropping || batchCropping) return;
+    setBatchPlan({ sourceAssetId: part.imageAssetId, sourceUrl: part.imageUrl, fingerprint: batchFingerprint(part), groups: part.questions.map(question => Array.from({ length: imageCount(question) }, () => null)), detectedPrintedExample: false });
+    setBatchNotice('Chọn lần lượt vị trí ảnh rồi kéo để vẽ vùng trên ảnh nguồn. Tạo và gán tất cả khi đã chọn đủ vùng.');
+  };
+  const beginCrop = (target: Target) => { setSelection(target); setCrop(null); };
 
   return <div className="space-y-4" data-ket-listening-part-one>
     <CountControls count={part.questions.length} onAdd={() => onChange({ ...part, questions: [...part.questions, { ...choiceQuestion(part, `Picture question ${part.questions.length + 1}`), imageLayout: { kind: 'options', optionLabels: ['A', 'B', 'C'] } }] })} onRemove={() => onChange({ ...part, questions: part.questions.slice(0, -1) })} />
@@ -267,21 +298,19 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     <ImagePicker label="Ảnh trang nguồn để crop các vị trí ảnh theo từng câu" value={part.imageAssetId} assets={assets} token={token} onAssets={onAssets} onChange={asset => { setBatchPlan(null); onChange({ ...latestPartRef.current, imageAssetId: asset?.id, imageUrl: asset?.url }); }} />
     <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
       <p className="text-sm font-black text-emerald-950">Dò ảnh theo bố cục đã chọn</p>
-      <p className="text-xs font-semibold text-emerald-900">Mỗi câu dùng một ảnh chung hoặc các ảnh của lựa chọn đã đánh dấu. Các hàng ảnh phải khớp đầy đủ theo thứ tự câu; nếu không chắc chắn, hãy crop thủ công. Ảnh trang nguồn chỉ dùng để soạn bài.</p>
+      <p className="text-xs font-semibold text-emerald-900">Mỗi câu dùng một ảnh chung hoặc các ảnh của lựa chọn đã đánh dấu. Dò tự động rồi kiểm tra, kéo chỉnh hoặc vẽ thêm vùng còn thiếu ngay trên ảnh nguồn. Chỉ gán khi đủ các vị trí theo thứ tự câu. Ảnh trang nguồn chỉ dùng để soạn bài.</p>
       <div className="flex flex-wrap items-end gap-3"><label className="min-w-48 text-xs font-black text-emerald-950">Bố cục ảnh nguồn<select data-ket-crop-source-layout value={sourceLayout} disabled={cropping || batchCropping} onChange={event => { setSourceLayout(event.target.value as KetListeningSourceLayout); setBatchPlan(null); setBatchNotice(''); }} className={`mt-1 ${fieldClass}`}><option value="single-page">Một trang</option><option value="two-page">Hai trang nằm ngang · đọc hết trái rồi phải</option></select></label>{sourceLayout === 'two-page' && <label className="text-xs font-black text-emerald-950">Vạch chia hai trang (%)<input data-ket-crop-page-split type="number" min={10} max={90} step={1} value={Math.round(pageSplit * 100)} disabled={cropping || batchCropping} onChange={event => { setPageSplit(Math.max(.1, Math.min(.9, Number(event.target.value) / 100 || .5))); setBatchPlan(null); setBatchNotice(''); }} className={`mt-1 max-w-28 ${fieldClass}`} /></label>}</div>
       <p className="text-xs font-semibold text-emerald-900">Nếu ảnh ghép hai trang bên cạnh nhau, chọn “Hai trang nằm ngang” và đặt vạch chia vào khe giữa hai trang. Bộ dò đọc toàn bộ trang trái trước trang phải; ba ảnh A/B/C vẫn thuộc cùng một câu.</p>
       {sourceLayout === 'two-page' && part.imageUrl && !batchPlan && <div className="relative mx-auto max-w-2xl overflow-hidden rounded-lg border border-blue-300" data-ket-crop-page-preview><img src={part.imageUrl} alt="Vị trí vạch chia trang trái và trang phải" className="block h-auto w-full" /><div className="pointer-events-none absolute inset-y-0 border-l-2 border-red-600" style={{ left: `${pageSplit * 100}%` }} /><span className="absolute left-1 top-1 rounded bg-white px-2 py-1 text-xs font-black text-blue-950">Trang trái · đọc trước</span><span className="absolute right-1 top-1 rounded bg-white px-2 py-1 text-xs font-black text-blue-950">Trang phải · đọc sau</span></div>}
       <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs font-black text-emerald-950"><input type="checkbox" checked={allowExample} disabled={cropping || batchCropping} onChange={event => { setAllowExample(event.target.checked); setBatchPlan(null); }} />Nguồn có thể có nhóm example ở đầu</label>{allowExample && <label className="text-xs font-bold text-emerald-950">Số ảnh example<select value={exampleImageCount} disabled={cropping || batchCropping} onChange={event => { setExampleImageCount(Number(event.target.value)); setBatchPlan(null); }} className="ml-2 rounded-lg border border-emerald-300 bg-white p-2">{[1, 2, 3].map(count => <option key={count} value={count}>{count}</option>)}</select></label>}</div>
       <button type="button" data-ket-listening-action="detect-part1-layout" disabled={batchCropping || cropping || !part.imageAssetId || !part.imageUrl || !part.questions.length} onClick={() => void detectCropPlan()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50">{batchCropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{batchCropping ? 'Đang xử lý…' : 'Dò các vị trí ảnh và xem trước'}</button>
+      <button type="button" data-ket-listening-action="plan-part1-layout" disabled={batchCropping || cropping || !part.imageAssetId || !part.imageUrl || !part.questions.length} onClick={beginBatchSelection} className="ml-2 rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-xs font-black text-blue-950">Tự chọn các vùng trên ảnh nguồn</button>
       {batchNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-white p-3 text-xs font-bold text-emerald-900">{batchNotice}</p>}
       {batchPlan && <div className="space-y-3 rounded-xl border border-blue-300 bg-white p-3" data-ket-listening-crop-mapping>
         <p className="text-xs font-black text-blue-950">Ánh xạ ảnh theo thứ tự câu{sourceLayout === 'two-page' ? ' · hết trang trái rồi sang trang phải' : ''}</p>
-        <div className="relative mx-auto max-w-2xl"><img src={batchPlan.sourceUrl} alt="Các vùng ảnh sẽ được gán vào câu hỏi" className="block h-auto w-full" />{sourceLayout === 'two-page' && <div className="pointer-events-none absolute inset-y-0 border-l-2 border-red-600" style={{ left: `${pageSplit * 100}%` }} />}{batchPlan.groups.flatMap((group, questionIndex) => group.map((box, slot) => {
-          const question = part.questions[questionIndex];
-          const layout = question ? getKetListeningImageLayout(question) : undefined;
-          return <div key={`${questionIndex}-${slot}`} className="pointer-events-none absolute border-2 border-blue-700 bg-blue-500/10" style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.width * 100}%`, height: `${box.height * 100}%` }}><span className="absolute left-0 top-0 bg-white px-1 text-[10px] font-black text-blue-950">{question?.displayNumber || question?.number} · {layout?.kind === 'shared' ? 'Chung' : layout?.optionLabels?.[slot]}</span></div>;
-        }))}</div>
-        <button type="button" data-ket-listening-action="apply-part1-layout" disabled={batchCropping || cropping || batchFingerprint(part) !== batchPlan.fingerprint} onClick={() => void applyBatchPlan()} className="rounded-xl border border-blue-800 bg-blue-700 px-4 py-3 text-xs font-black text-white">Tạo và gán {expectedImageCount} ảnh theo bản xem trước</button>
+        <KetListeningCropPlanner imageUrl={batchPlan.sourceUrl} groups={batchPlan.groups} labels={cropLabels} candidates={batchPlan.candidates} disabled={batchCropping || cropping || batchFingerprint(part) !== batchPlan.fingerprint} onChange={groups => setBatchPlan(current => current ? { ...current, groups } : current)} />
+        {cropErrors.length > 0 && <p role="status" className="text-xs font-bold text-amber-950">{cropErrors[0]}</p>}
+        <button type="button" data-ket-listening-action="apply-part1-layout" disabled={batchCropping || cropping || cropErrors.length > 0 || batchFingerprint(part) !== batchPlan.fingerprint} onClick={() => void applyBatchPlan()} className="rounded-xl border border-blue-800 bg-blue-700 px-4 py-3 text-xs font-black text-white">Tạo và gán {expectedImageCount} ảnh theo bản xem trước</button>
         {batchFingerprint(part) !== batchPlan.fingerprint && <p role="alert" className="text-xs font-bold text-amber-900">Nội dung hoặc cách chia trang đã đổi sau khi dò. Hãy dò lại trước khi gán ảnh.</p>}
       </div>}
     </section>
@@ -305,8 +334,8 @@ function PartOne({ token, part, assets, onAssets, onChange }: Props) {
     })}</section>
     {selection && selectedQuestion && <section className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50 p-4" data-ket-listening-manual-crop>
       <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black text-blue-950">Crop câu {selectedQuestion.displayNumber || selectedQuestion.number} · {selectedOption ? `ảnh ${selectedOption.label}` : 'ảnh chung'}</p><p className="text-xs font-semibold text-blue-900">Kéo vùng trên ảnh nguồn rồi dùng vùng crop này.</p></div><button type="button" onClick={() => setSelection(null)} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900">Đóng</button></div>
-      {part.imageUrl ? <VisualCropEditor imageUrl={part.imageUrl} crop={crop} onChange={setCrop} /> : <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">Hãy gắn ảnh nguồn trước khi crop.</p>}
-      <button type="button" disabled={cropping || batchCropping || !part.imageAssetId || !part.imageUrl || !selectionActive} onClick={() => void applyCrop()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40">{cropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{cropping ? 'Đang tạo crop…' : 'Dùng vùng crop này'}</button>
+      {part.imageUrl ? <KetListeningCropPlanner imageUrl={part.imageUrl} groups={[[crop]]} labels={[[`${selectedQuestion.displayNumber || selectedQuestion.number} · ${selectedOption?.label || 'Chung'}`]]} disabled={cropping || batchCropping || !selectionActive} onChange={groups => setCrop(groups[0]?.[0] || null)} /> : <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">Hãy gắn ảnh nguồn trước khi crop.</p>}
+      <button type="button" disabled={cropping || batchCropping || !part.imageAssetId || !part.imageUrl || !selectionActive || !crop} onClick={() => void applyCrop()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-40">{cropping ? <LoaderCircle size={15} className="animate-spin" /> : <Crop size={15} />}{cropping ? 'Đang tạo crop…' : 'Dùng vùng crop này'}</button>
       {!selectionActive && <p role="alert" className="text-xs font-bold text-amber-900">Bố cục đã thay đổi. Hãy chọn lại vị trí ảnh cần crop trong câu hỏi.</p>}
     </section>}
   </div>;
