@@ -2,6 +2,39 @@ import type { ExamPaperContent } from './types';
 import { withChatGptJsonCopyBlock } from './chatGptJsonOutput';
 import { createDefaultPetReadingExample, PET_READING_PART_HEADERS } from './petReadingMigration';
 import { FCE_READING_PART_HEADERS } from './fceReadingMigration';
+import { isReadingExplanationQuestion, supportsReadingExplanations } from './readingExplanations';
+
+function readingExplanationPromptEnabled(content: ExamPaperContent, focusedPart?: number) {
+  if (!supportsReadingExplanations(content)) return false;
+  const questions = focusedPart ? content.parts[focusedPart - 1]?.questions : undefined;
+  return !questions?.length || questions.some(question => isReadingExplanationQuestion(content, question));
+}
+
+/** Add the optional field to scored question samples, never public examples or Writing tasks. */
+function readingQuestionTemplates(content: ExamPaperContent, value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(item => readingQuestionTemplates(content, item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key,
+    key === 'questions' && Array.isArray(child)
+      ? child.map(question => {
+          if (!question || typeof question !== 'object') return question;
+          return supportsReadingExplanations(content) && question.type !== 'long-writing' && question.type !== 'scene-draw'
+            ? { ...question, explanation: '' } : question;
+        })
+      : readingQuestionTemplates(content, child),
+  ]));
+}
+
+function withReadingExplanationInstructions(content: ExamPaperContent, prompt: string, focusedPart?: number) {
+  if (!readingExplanationPromptEnabled(content, focusedPart)) return prompt;
+  return `${prompt}\n\nGIẢI THÍCH ĐÁP ÁN READING\n` + [
+    '- Với từng câu Reading có đáp án cố định, thêm explanation là một chuỗi ngay trong question, cùng cấp với answerKey. Không đặt trong passage, options hoặc examples. Không thêm explanation cho bài viết dài (long-writing), kể cả KET Part 9.',
+    '- Tài liệu nguồn không có lời giải vẫn phải tự viết explanation bằng tiếng Việt tự nhiên, thường 2–4 câu, tối đa 4000 ký tự. Đây là ngoại lệ duy nhất với quy tắc chỉ trích xuất: chỉ được sáng tác phần explanation; câu hỏi, đoạn đọc, phương án và khóa đáp án vẫn giữ đúng nguồn.',
+    '- Giải thích vì sao đáp án đúng bằng chi tiết thực sự có trong bài đọc, nghĩa từ/cụm từ, cấu trúc ngữ pháp hoặc cách diễn đạt tương đương; giữ ví dụ tiếng Anh khi cần. Chỉ phân tích phương án nhiễu khi có căn cứ rõ ràng. Không chỉ lặp lại nhãn đáp án.',
+    '- Lời giải là hướng dẫn do AI xây dựng, không phải lời giải chính thức. Không đổi answerSource hoặc sửa khóa đáp án để khớp lời giải. Nếu đáp án chưa được xác nhận, dữ kiện thiếu/không đọc được hoặc đáp án mâu thuẫn với nguồn, để explanation:"" để phần nhập đánh dấu cần giáo viên kiểm tra; không bịa dữ kiện hay dẫn chứng.',
+    '- explanation là văn bản thuần; mã hóa xuống dòng bằng \\n trong JSON. Chỉ tạo lời giải cho các câu Reading, giữ nguyên quy trình Listening và Writing.',
+  ].join('\n');
+}
 
 const starterListeningPartNames: Record<number, string> = {
   1: 'matching / image-image / draw-line — giữ mô hình nối hình Starters hiện tại',
@@ -418,7 +451,7 @@ QUY TẮC ĐÁP ÁN VÀ AN TOÀN
 - format "exam-bundle-import-v2", formatVersion 2, exam.moduleId "ket", paperId "reading-writing".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay dữ liệu minh họa và số lượng mẫu bằng dữ liệu thật):
-${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: content.title, description: content.description, level: 'A2 Key' }, papers: [{ paperId: 'reading-writing', title: 'Reading & Writing', timeLimitMinutes: content.timeLimitMinutes || 60, parts: selected.map(part => templates[part]) }] }, null, 2)}
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'ket', title: content.title, description: content.description, level: 'A2 Key' }, papers: [{ paperId: 'reading-writing', title: 'Reading & Writing', timeLimitMinutes: content.timeLimitMinutes || 60, parts: readingQuestionTemplates(content, selected.map(part => templates[part])) }] }, null, 2)}
 
 Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng interaction và đúng số câu thật trên ảnh` : 'đủ 9 Part; Part 1/3B mỗi dạng chỉ một ảnh; Part 3 đúng hai block; Part 5 có một example A/B/C lấy từ official key; Part 8 không có content.passage và có ảnh giáo viên gắn; Part 9 đúng một bài viết 10 điểm'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
@@ -516,7 +549,7 @@ CẤM
 - Nội dung kết quả phải là đúng một JSON object hợp lệ theo schema bên dưới.
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa bằng dữ liệu thật):
-${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet', title: content.title, description: content.description, level: 'B1 Preliminary' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 45, parts: selected.map(part => templates[part]) }] }, null, 2)}
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'pet', title: content.title, description: content.description, level: 'B1 Preliminary' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 45, parts: readingQuestionTemplates(content, selected.map(part => templates[part])) }] }, null, 2)}
 
   Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng title/instruction cố định, đúng variant, đúng số câu và số lựa chọn` : 'đủ 5 Part và đúng title/instruction cố định; Part 1 và Part 5 mỗi Part có đúng một example không chấm điểm; mỗi câu Part 1 có context và 3 lựa chọn; Part 2 dùng chung 8 lựa chọn A–H; Part 3 là Yes/No; Part 4 và 5 có 4 lựa chọn; Part 5 đủ marker'}, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
@@ -549,7 +582,7 @@ QUY TẮC AN TOÀN
 - exam.moduleId phải là "fce" và paperId phải là "reading".
 
 JSON MẪU ĐÚNG CẤU TRÚC (thay toàn bộ dữ liệu minh họa bằng dữ liệu thật):
-${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'fce', title: content.title, description: content.description, level: 'B2 First' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 60, parts: selected.map(part => templates[part]) }] }, null, 2)}
+${JSON.stringify({ format: 'exam-bundle-import-v2', formatVersion: 2, exam: { moduleId: 'fce', title: content.title, description: content.description, level: 'B2 First' }, papers: [{ paperId: 'reading', title: 'Reading', timeLimitMinutes: content.timeLimitMinutes || 60, parts: readingQuestionTemplates(content, selected.map(part => templates[part])) }] }, null, 2)}
 
 Tự kiểm tra lần cuối: ${focusedPart ? `chỉ Part ${focusedPart}, đúng số câu và đúng variant đã khóa` : 'đủ 3 Part với 8–7–15 câu'}, Part 2 có đủ marker 9–15 và cùng ngân hàng A–H, Part 3 có đủ câu 16–30 và cùng A–D, đáp án chỉ từ official key. Sau đó chỉ in JSON.`;
 }
@@ -769,7 +802,7 @@ SCHEMA BẮT BUỘC
                     "type": "short-answer",
                     "points": 1,
                     "answerSource": "official-answer-key",
-                    "answerKey": { "acceptedAnswers": ["5"] }
+                    "answerKey": { "acceptedAnswers": ["5"] }${readingExplanationPromptEnabled(content, focusedPart) ? ',\n                    "explanation": ""' : ''}
                   }
                 ]
               },
@@ -834,9 +867,9 @@ ${focusedPart ? `Chỉ trả Part ${focusedPart}, nhưng vẫn dùng đầy đ�
 }
 
 export function buildUniversalExamImportPrompt(content: ExamPaperContent) {
-  return withChatGptJsonCopyBlock(buildUniversalExamPrompt(content));
+  return withChatGptJsonCopyBlock(withReadingExplanationInstructions(content, buildUniversalExamPrompt(content)));
 }
 
 export function buildUniversalExamPartImportPrompt(content: ExamPaperContent, partIndex: number) {
-  return withChatGptJsonCopyBlock(buildUniversalExamPrompt(content, partIndex + 1));
+  return withChatGptJsonCopyBlock(withReadingExplanationInstructions(content, buildUniversalExamPrompt(content, partIndex + 1), partIndex + 1));
 }

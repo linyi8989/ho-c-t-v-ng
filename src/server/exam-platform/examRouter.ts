@@ -1260,7 +1260,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
 
   router.post('/admin/modules/:moduleId/papers/:paperId/smart-import/validate', authenticateUser, requireStaff, async (req, res) => {
     try {
-      const { definition } = routeIdentity(req);
+      const { definition, moduleId, paperId } = routeIdentity(req);
       const partIndex = Number(req.body?.partIndex);
       const candidate = req.body?.part;
       const currentPart = req.body?.currentPart;
@@ -1268,7 +1268,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
       if (!currentPart || typeof currentPart !== 'object' || !Array.isArray(currentPart.questions) || currentPart.part !== partIndex + 1) {
         throw apiError(400, 'Bản nháp Part hiện tại không hợp lệ.');
       }
-      const normalized = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex]);
+      const normalized = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex], { moduleId, paperId });
       if (normalized.errors.length) throw apiError(400, 'Dữ liệu Smart Import chưa hợp lệ.', normalized.errors);
       const validationPart = structuredClone(normalized.part);
       if (definition.parts[partIndex].requiresAudio && !validationPart.audioAssetId) {

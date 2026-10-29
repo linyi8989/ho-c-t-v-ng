@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import SceneLessonLink from './SceneLessonLink';
+import { contourPosition } from './contourGeometry';
 import type { SceneLink, ScenePaperId } from './types';
 
-export default function SceneYard({ paper, label, links, loading, error, preview, contour, style, onRetry, onNavigate }: {
+export default function SceneYard({ paper, label, links, loading, error, preview, contour, anchorRowEdge = false, style, onRetry, onNavigate }: {
   paper: ScenePaperId; label: string; links?: SceneLink[]; loading: boolean; error: string; preview: boolean;
-  contour?: 'left' | 'center' | 'right'; style?: React.CSSProperties; onRetry: () => void;
+  contour?: 'left' | 'center' | 'right'; anchorRowEdge?: boolean; style?: React.CSSProperties; onRetry: () => void;
   onNavigate: (event: React.MouseEvent<HTMLAnchorElement>, href: string) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -28,7 +29,7 @@ export default function SceneYard({ paper, label, links, loading, error, preview
       const insets = rows.map((row, index) => {
         const rect = row.getBoundingClientRect();
         if (rect.bottom > box.top + 4 && rect.top < box.bottom - 4) visible.push(index + 1);
-        const position = Math.max(0, Math.min(1, (rect.top + rect.height / 2 - box.top) / height));
+        const position = contourPosition(rect, box.top, height, anchorRowEdge ? (atEnd ? 'bottom' : 'top') : undefined);
         const upper = position < .52;
         const curve = ((position - .52) / (upper ? .52 : .48)) ** 2;
         const start = contour === 'center' ? (upper ? .16 : .13) : contour === 'right' ? (upper ? .28 : .20) : (upper ? .19 : .16);
@@ -48,7 +49,7 @@ export default function SceneYard({ paper, label, links, loading, error, preview
     const observer = new ResizeObserver(schedule); observer.observe(element);
     if (element.firstElementChild) observer.observe(element.firstElementChild);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); element.removeEventListener('scroll', schedule); };
-  }, [links, loading, error, contour]);
+  }, [links, loading, error, contour, anchorRowEdge]);
   const scroll = (direction: number) => {
     const element = list.current; if (!element) return;
     element.scrollBy({ top: direction * element.clientHeight * .8, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });

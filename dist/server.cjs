@@ -14621,6 +14621,21 @@ function splitStarterPart2ExampleLines(value = "") {
   return [inline.slice(0, splitAt).trim(), inline.slice(splitAt).trim()].filter(Boolean);
 }
 
+// src/features/exam-platform/readingExplanations.ts
+var READING_EXPLANATION_MAX_LENGTH = 4e3;
+function supportsReadingExplanations(content) {
+  return content.moduleId === "ket" && content.paperId === "reading-writing" || content.moduleId === "pet" && content.paperId === "reading" || content.moduleId === "fce" && ["reading", "reading-use-of-english"].includes(content.paperId) || content.moduleId === "ielts" && content.paperId === "academic-reading";
+}
+function isReadingExplanationQuestion(content, question) {
+  return supportsReadingExplanations(content) && question.type !== "long-writing" && question.type !== "scene-draw";
+}
+function parseReadingExplanation(value) {
+  if (value === void 0) return void 0;
+  if (typeof value !== "string") throw new Error("Gi\u1EA3i th\xEDch \u0111\xE1p \xE1n ph\u1EA3i l\xE0 chu\u1ED7i v\u0103n b\u1EA3n.");
+  if (value.length > READING_EXPLANATION_MAX_LENGTH) throw new Error(`Gi\u1EA3i th\xEDch \u0111\xE1p \xE1n kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${READING_EXPLANATION_MAX_LENGTH} k\xFD t\u1EF1.`);
+  return value.replace(/\r\n?/g, "\n").trim() || void 0;
+}
+
 // src/server/exam-platform/examValidation.ts
 var text3 = (value, max = 2e4) => String(value ?? "").trim().slice(0, max);
 var objectiveTypes = /* @__PURE__ */ new Set([
@@ -14708,7 +14723,7 @@ function defaultSmartImportOptions(type) {
   if (type === "single-choice" || type === "matching" || type === "multiple-choice") return ["A", "B", "C"];
   return [];
 }
-function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
+function normalizeExamSmartImportPart(currentPart, candidateValue, definition, paperIdentity) {
   const errors = [];
   const warnings = [];
   const technicalField = findTechnicalSmartImportField(candidateValue);
@@ -14767,6 +14782,14 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
     if (type === "short-answer" && !acceptedAnswers.length) {
       warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn; gi\xE1o vi\xEAn ph\u1EA3i nh\u1EADp trong editor.`);
     }
+    let explanation;
+    if (paperIdentity && isReadingExplanationQuestion(paperIdentity, { type })) {
+      try {
+        explanation = parseReadingExplanation(raw.explanation);
+      } catch (error) {
+        errors.push(`C\xE2u ${questionIndex + 1}: ${error instanceof Error ? error.message : "Gi\u1EA3i th\xEDch \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7."}`);
+      }
+    }
     const points = Number(raw.points);
     return {
       id: currentQuestion?.id || `question-${crypto.randomUUID()}`,
@@ -14779,6 +14802,7 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition) {
       options: options2,
       correctOptionIds,
       acceptedAnswers,
+      ...explanation ? { explanation } : {},
       points: Number.isFinite(points) && points > 0 && points <= 100 ? points : currentQuestion?.points || definition.pointsPerQuestion || 1,
       ...Number(raw.maxSelections) > 0 ? { maxSelections: Number(raw.maxSelections) } : {},
       ...Number(raw.maxWords) > 0 ? { maxWords: Number(raw.maxWords) } : {},
@@ -15422,6 +15446,16 @@ function validateExamPaperContent(content) {
     };
     if (!part2 || part2.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} kh\xF4ng \u0111\xFAng th\u1EE9 t\u1EF1.`);
     if (!text3(part2?.title, 240)) errors.push(`Part ${partIndex + 1}: thi\u1EBFu ti\xEAu \u0111\u1EC1.`);
+    if (supportsReadingExplanations(content) && Array.isArray(part2?.questions)) {
+      part2.questions.forEach((question, index) => {
+        if (!question || !isReadingExplanationQuestion(content, question)) return;
+        try {
+          parseReadingExplanation(question.explanation);
+        } catch (error) {
+          errors.push(`Part ${partIndex + 1}, c\xE2u ${index + 1}: ${error instanceof Error ? error.message : "Gi\u1EA3i th\xEDch \u0111\xE1p \xE1n kh\xF4ng h\u1EE3p l\u1EC7."}`);
+        }
+      });
+    }
     if (content.moduleId === "starter" && content.paperId === "listening" && partIndex === 2 && !text3(part2?.imageAssetId, 180)) {
       errors.push("Part 3: ph\u1EA3i t\u1EA3i \u1EA3nh hi\u1EC3n th\u1ECB chung cho h\u1ECDc sinh, t\xE1ch bi\u1EC7t v\u1EDBi \u1EA3nh ngu\u1ED3n crop \u0111\xE1p \xE1n.");
     }
@@ -15617,6 +15651,7 @@ function sanitizeExamContentForStudent(content) {
           const safe = structuredClone(question);
           delete safe.correctOptionIds;
           delete safe.acceptedAnswers;
+          delete safe.explanation;
           delete safe.modelAnswer;
           delete safe.writingGrading;
           delete safe.interactionSourceNodeId;
@@ -15986,6 +16021,15 @@ function gradeExamAttempt(content, answers) {
       });
     });
   });
+  if (supportsReadingExplanations(content)) {
+    const byId = new Map(content.parts.flatMap((part2) => part2.questions.map((question) => [question.id, question])));
+    for (const result of questions) {
+      const question = byId.get(result.questionId);
+      if (!question || !isReadingExplanationQuestion(content, question)) continue;
+      const explanation = parseReadingExplanation(question.explanation);
+      if (explanation) result.explanation = explanation;
+    }
+  }
   const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
   return {
     gradingVersion: EXAM_GRADING_VERSION,
@@ -19717,7 +19761,7 @@ ${canonical.rubric}` : "",
   });
   router.post("/admin/modules/:moduleId/papers/:paperId/smart-import/validate", authenticateUser2, requireStaff, async (req, res) => {
     try {
-      const { definition } = routeIdentity(req);
+      const { definition, moduleId, paperId } = routeIdentity(req);
       const partIndex = Number(req.body?.partIndex);
       const candidate = req.body?.part;
       const currentPart = req.body?.currentPart;
@@ -19725,7 +19769,7 @@ ${canonical.rubric}` : "",
       if (!currentPart || typeof currentPart !== "object" || !Array.isArray(currentPart.questions) || currentPart.part !== partIndex + 1) {
         throw apiError3(400, "B\u1EA3n nh\xE1p Part hi\u1EC7n t\u1EA1i kh\xF4ng h\u1EE3p l\u1EC7.");
       }
-      const normalized7 = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex]);
+      const normalized7 = normalizeExamSmartImportPart(currentPart, candidate, definition.parts[partIndex], { moduleId, paperId });
       if (normalized7.errors.length) throw apiError3(400, "D\u1EEF li\u1EC7u Smart Import ch\u01B0a h\u1EE3p l\u1EC7.", normalized7.errors);
       const validationPart = structuredClone(normalized7.part);
       if (definition.parts[partIndex].requiresAudio && !validationPart.audioAssetId) {

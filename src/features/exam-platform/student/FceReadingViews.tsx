@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { ExamAnswerValue, ExamAnswers, ExamPartContent, ExamQuestion, ExamQuestionResult } from '../types';
 import ExamImageViewer from './ExamImageViewer';
 import { studentTypedAnswerGuards } from './studentTextEntryGuards';
+import ReadingExplanation, { ReadingExplanationList } from './ReadingExplanation';
 
 interface Props {
   part: ExamPartContent;
@@ -55,14 +56,14 @@ function LetterInput({ question, answer, result, maxLetter, onAnswer }: { questi
 }
 
 function ChoiceButtons({ question, answer, result, onAnswer }: { question: ExamQuestion; answer?: ExamAnswerValue; result?: ExamQuestionResult; onAnswer: Props['onAnswer'] }) {
-  return <fieldset disabled={Boolean(result)}><legend className="sr-only">Câu {question.displayNumber || question.number}</legend><div className="grid gap-2 sm:grid-cols-2">{question.options.slice(0, 4).map((option, index) => {
+  return <><fieldset disabled={Boolean(result)}><legend className="sr-only">Câu {question.displayNumber || question.number}</legend><div className="grid gap-2 sm:grid-cols-2">{question.options.slice(0, 4).map((option, index) => {
     const selected = result ? matches(option, result.userAnswer) : answer === option.id;
     const correct = result ? matches(option, result.correctAnswer) : false;
     const style = result
       ? correct ? 'border-emerald-600 bg-emerald-100 text-emerald-950' : selected ? 'border-rose-600 bg-rose-100 text-rose-950' : 'border-slate-200 bg-white text-slate-700'
       : selected ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-800 hover:border-blue-400';
     return <label key={option.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border-2 p-3 text-sm font-semibold leading-6 ${style}`}><input type="radio" name={`fce-reading-${question.id}`} checked={selected} disabled={Boolean(result)} onChange={() => onAnswer(question.id, option.id)} className="mt-1 shrink-0" /><span><b>{String.fromCharCode(65 + index)}.</b> {option.text}{correct && <CheckCircle2 size={15} className="ml-1 inline" />}{result && selected && !correct && <XCircle size={15} className="ml-1 inline" />}</span></label>;
-  })}</div></fieldset>;
+  })}</div></fieldset><ReadingExplanation result={result} /></>;
 }
 
 function PartOne({ part, answers, onAnswer, reviewResults }: Props) {
@@ -97,5 +98,5 @@ function PartThree({ part, answers, onAnswer, reviewResults }: Props) {
 }
 
 export default function FceReadingPartView(props: Props) {
-  return <div id="fce-reading-player" data-fce-reading-part={props.part.part} data-review-mode={props.reviewResults ? 'true' : 'false'}>{props.part.part === 1 ? <PartOne {...props} /> : props.part.part === 2 ? <GappedPassage {...props} /> : <PartThree {...props} />}</div>;
+  return <div id="fce-reading-player" data-fce-reading-part={props.part.part} data-review-mode={props.reviewResults ? 'true' : 'false'}>{props.part.part === 1 ? <PartOne {...props} /> : props.part.part === 2 ? <GappedPassage {...props} /> : <PartThree {...props} />}{props.part.part !== 1 && <ReadingExplanationList questions={props.part.questions} results={props.reviewResults} />}</div>;
 }

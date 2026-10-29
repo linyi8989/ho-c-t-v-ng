@@ -64,6 +64,7 @@ import PetWritingAuthoring from './PetWritingAuthoring';
 import FceReadingAuthoring from './FceReadingAuthoring';
 import WritingFeedbackPanels from '../../writing-library/shared/WritingFeedbackPanels';
 import StandaloneWritingAuthoring from '../../writing-library/admin/StandaloneWritingAuthoring';
+import ReadingExplanationsEditor from './ReadingExplanationsEditor';
 
 interface Props extends ListeningAdminComponentProps { moduleId: Exclude<ExamModuleId, 'mover'> }
 interface PaperAdminProps extends Omit<Props, 'paperId'> { paperId: ExamPaperId }
@@ -401,6 +402,7 @@ function PartEditor({
         {part.blocks?.length && (!starterListening || part.part === 4) && <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">{starterListening && part.part === 4 ? (unit.interactionLayout?.kind === 'scene-draw-v1' ? 'Draw' : 'Colour') : `Dạng bài ${unitIndex + 1}/${units.length}`}</p>}
         <InteractionUnitEditor token={token} unit={unit} assets={assets} onAssets={onAssets} onChange={updateUnit} pasteImages={starter} compactStarterListening={starterListening && part.part !== 1} />
       </div>)}</div>
+      <ReadingExplanationsEditor content={content} part={part} onChange={onChange} />
       {partDefinition.questionCountFlexible && !part.blocks?.length && !ketListening && !petListening && !fixedReadingWritingAuthoring && (
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => {

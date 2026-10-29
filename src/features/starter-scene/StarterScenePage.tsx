@@ -50,6 +50,7 @@ export default function StarterScenePage({ onNavigate, moduleId = 'starter' }: {
         {papers.map(({id: paper, displayName}, index) => <React.Fragment key={paper}><HouseSign paper={paper} label={displayName} style={three ? {'--scene-house-x': `${[20.5,49.8,80.5][index]}%`} as React.CSSProperties : undefined} /></React.Fragment>)}
         {papers.map(({id: paper, displayName}, index) => <React.Fragment key={`${moduleId}-${paper}`}><SceneYard paper={paper} label={displayName}
           links={catalog?.papers[paper]?.links} loading={!catalog && !error} error={error} preview={preview} contour={three ? (index === 0 ? 'left' : index === 1 ? 'center' : 'right') : (paper === 'listening' ? 'left' : 'right')}
+          anchorRowEdge={moduleId === 'flyer' && paper === 'reading-writing'}
           style={three ? {'--scene-yard-x': `${[20,50,80][index]}%`} as React.CSSProperties : undefined}
           onRetry={() => setReload(value => value + 1)} onNavigate={navigateLink} /></React.Fragment>)}
       </div>

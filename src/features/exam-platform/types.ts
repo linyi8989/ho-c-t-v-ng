@@ -187,6 +187,8 @@ export interface ExamQuestion {
   correctOptionIds: string[];
   /** Private grading data; removed from every playable payload. */
   acceptedAnswers: string[];
+  /** Private Reading teaching explanation; released only in an authorized post-submit review. */
+  explanation?: string;
   /** Private matching source; removed from every playable payload. */
   interactionSourceNodeId?: string;
   points: number;
@@ -356,6 +358,8 @@ export interface ExamQuestionResult {
   prompt: string;
   userAnswer: string | string[];
   correctAnswer?: string | string[];
+  /** Reading explanation frozen from the attempted published version. */
+  explanation?: string;
   correct: boolean | null;
   unanswered: boolean;
   pointsAwarded: number;

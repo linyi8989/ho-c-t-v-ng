@@ -22,6 +22,7 @@ import { isFixedPetReadingContent, normalizeFixedPetReadingContent } from './pet
 import { isFixedPetListeningContent, normalizeFixedPetListeningContent } from './petListeningMigration';
 import { isFixedPetWritingContent, normalizeFixedPetWritingContent } from './petWritingMigration';
 import { FCE_READING_DEFAULT_COUNTS, isFixedFceReadingContent, normalizeFixedFceReadingContent } from './fceReadingMigration';
+import { isReadingExplanationQuestion, parseReadingExplanation } from './readingExplanations';
 
 const MAX_PARTS = 20;
 const MAX_BLOCKS_PER_PART = 20;
@@ -247,7 +248,7 @@ function matchingLayout(blockValue: Row, interaction: ExamInteractionDescriptor,
   };
 }
 
-function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[], ketListeningPictures = false) {
+function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[], ketListeningPictures = false, readingContent?: ExamPaperContent) {
   const rawQuestions = rawBlockQuestions(blockValue);
   if (!rawQuestions || !rawQuestions.length) throw new Error(`Block ${blockIndex + 1} phải có mảng questions không rỗng.`);
   if (rawQuestions.length > MAX_QUESTIONS_PER_BLOCK) throw new Error(`Block ${blockIndex + 1} vượt quá ${MAX_QUESTIONS_PER_BLOCK} câu.`);
@@ -284,6 +285,13 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
     const displayNumber = Number(rawQuestion.displayNumber ?? rawQuestion.questionNumber);
     const answerLength = Number(rawQuestion.answerLength);
     const writingGrading = row(rawQuestion.writingGrading);
+    let explanation: string | undefined;
+    if (readingContent && isReadingExplanationQuestion(readingContent, { type })) {
+      try { explanation = parseReadingExplanation(rawQuestion.explanation); }
+      catch (error) { throw new Error(`Câu ${displayNumber || questionIndex + 1}, block ${blockIndex + 1}: ${error instanceof Error ? error.message : 'Giải thích không hợp lệ.'}`); }
+      if (!explanation && currentQuestion?.explanation) warnings.push(`Câu ${displayNumber || questionIndex + 1}, block ${blockIndex + 1}: đã bỏ giải thích cũ vì JSON thay thế không có giải thích mới.`);
+      else if (!explanation && rawQuestion.explanation !== undefined) warnings.push(`Câu ${displayNumber || questionIndex + 1}, block ${blockIndex + 1}: giải thích đang trống; giáo viên cần kiểm tra dữ kiện và bổ sung nếu có đủ căn cứ.`);
+    }
     return {
       id: currentQuestion?.id || identifier('question'),
       number,
@@ -299,6 +307,7 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
       options,
       correctOptionIds,
       acceptedAnswers,
+      ...(explanation ? { explanation } : {}),
       points: Number.isFinite(points) && points > 0 && points <= 100 ? points : 1,
       ...(Number(rawQuestion.maxSelections) > 0 ? { maxSelections: Number(rawQuestion.maxSelections) } : {}),
       ...(Number(rawQuestion.maxWords) > 0 ? { maxWords: Number(rawQuestion.maxWords) } : {}),
@@ -401,7 +410,7 @@ function connectMatchingAnswers(blockValue: Row, questions: ExamQuestion[], layo
   });
 }
 
-function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number, fixedKetListening = false): { part: ExamPartContent; report: UniversalImportReport } {
+function buildPart(partValue: unknown, partIndex: number, current: ExamPartContent | undefined, nextNumber: () => number, fixedKetListening = false, readingContent?: ExamPaperContent): { part: ExamPartContent; report: UniversalImportReport } {
   const source = row(partValue);
   const partNumber = Number(source.partNumber ?? source.part ?? partIndex + 1);
   if (partNumber !== partIndex + 1) throw new Error(`Part ở vị trí ${partIndex + 1} phải có partNumber=${partIndex + 1}.`);
@@ -417,7 +426,7 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
     const blockNumber = Number(blockSource.blockNumber ?? blockIndex + 1);
     if (blockNumber !== blockIndex + 1) throw new Error(`Part ${partNumber}, block ở vị trí ${blockIndex + 1} phải có blockNumber=${blockIndex + 1}.`);
     const interaction = interactionDescriptor(blockSource.interaction);
-    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings, ketListeningPictures);
+    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings, ketListeningPictures, readingContent);
     blockQuestions = applySceneQuestionContract(blockSource, interaction, blockQuestions, current, blockIndex, warnings);
     const geometryHints = parseGeometryHints(blockSource.geometryHints, blockQuestions, warnings);
     const layout = matchingLayout(blockSource, interaction, blockQuestions, geometryHints, warnings);
@@ -739,7 +748,7 @@ export function importUniversalExamBundle(current: ExamPaperContent, source: str
   if (fixedPetListening && rawParts.length !== 4) throw new Error('PET Listening phải có đúng 4 Part.');
   if (fixedPetWriting && rawParts.length !== 3) throw new Error('PET Writing phải có đúng 3 Part.');
   if (fixedFceReading && rawParts.length !== 3) throw new Error('FCE Reading phải có đúng 3 Part.');
-  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber, fixedKetListening));
+  const built = rawParts.map((value: unknown, index: number) => buildPart(value, index, current.parts[index], nextNumber, fixedKetListening, current));
   if (fixedFlyerListening && built.some(item => item.part.questions.length !== 5)) throw new Error('Flyers Listening yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedStarterReadingWriting && built.some(item => item.part.questions.length !== 5)) throw new Error('Starters Reading & Writing yêu cầu mỗi Part đúng 5 câu chấm điểm.');
   if (fixedPetWriting && built.some((item, index) => item.part.questions.length !== [5, 1, 1][index])) throw new Error('PET Writing yêu cầu số câu theo Part là 5–1–1.');
@@ -793,7 +802,7 @@ export function importUniversalExamPart(currentContent: ExamPaperContent, partIn
   }
   if (!partValue) throw new Error(`JSON không có Part ${partIndex + 1}.`);
   let questionNumber = currentContent.parts.slice(0, partIndex).reduce((sum, part) => sum + part.questions.length, 0);
-  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber, isFixedKetListeningContent(currentContent));
+  const built = buildPart(partValue, partIndex, currentContent.parts[partIndex], () => ++questionNumber, isFixedKetListeningContent(currentContent), currentContent);
   if (currentContent.moduleId === 'flyer' && currentContent.paperId === 'listening') {
     if (built.part.questions.length !== 5) throw new Error(`Flyers Listening Part ${partIndex + 1} phải có đúng 5 câu chấm điểm.`);
     return { ...built, part: normalizeFlyerListeningPart(built.part, currentContent.parts[partIndex]) };

@@ -4,6 +4,7 @@ import PetNoticeFrame from '../PetNoticeFrame';
 import type { ExamAnswerValue, ExamAnswers, ExamDisplayExample, ExamPartContent, ExamQuestion, ExamQuestionResult } from '../types';
 import ExamImageViewer from './ExamImageViewer';
 import { studentTypedAnswerGuards } from './studentTextEntryGuards';
+import ReadingExplanation, { ReadingExplanationList } from './ReadingExplanation';
 
 interface Props {
   part: ExamPartContent;
@@ -57,7 +58,7 @@ function ExampleAnswer({ example, columns }: { example: ExamDisplayExample; colu
 }
 
 function ChoiceButtons({ question, answer, onAnswer, columns = 4, result }: { question: ExamQuestion; answer?: ExamAnswerValue; onAnswer: Props['onAnswer']; columns?: 2 | 3 | 4; result?: ExamQuestionResult }) {
-  return <fieldset disabled={Boolean(result)}><legend className="sr-only">Lựa chọn câu {question.displayNumber || question.number}</legend><div className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>{question.options.slice(0, columns).map((option, index) => {
+  return <><fieldset disabled={Boolean(result)}><legend className="sr-only">Lựa chọn câu {question.displayNumber || question.number}</legend><div className={`grid gap-2 ${columns === 2 ? 'grid-cols-2' : columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>{question.options.slice(0, columns).map((option, index) => {
     const selected = result ? matchesOption(option, result.userAnswer) : answer === option.id;
     const correct = result ? matchesOption(option, result.correctAnswer) : false;
     const className = result
@@ -70,7 +71,7 @@ function ChoiceButtons({ question, answer, onAnswer, columns = 4, result }: { qu
         ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
         : 'border-slate-200 bg-slate-50 text-slate-800 hover:border-blue-300';
     return <label key={option.id} className={`flex min-w-0 items-start gap-2 rounded-xl border-2 px-3 py-3 text-sm font-semibold ${result ? 'cursor-default' : 'cursor-pointer'} ${className}`}><input type="radio" className="mt-0.5 shrink-0" name={`pet-reading-${question.id}`} checked={selected} disabled={Boolean(result)} onChange={() => onAnswer(question.id, option.id)} /><span className="min-w-0 break-words"><b>{String.fromCharCode(65 + index)}.</b> {option.text}{correct && <CheckCircle2 size={15} className="ml-1.5 inline text-emerald-700" />}{selected && !correct && result && <XCircle size={15} className="ml-1.5 inline text-rose-700" />}</span></label>;
-  })}</div></fieldset>;
+  })}</div></fieldset><ReadingExplanation result={result} /></>;
 }
 
 function PartOne({ part, answers, onAnswer, reviewResults }: Props) {
@@ -140,7 +141,7 @@ function PassageChoice({ part, answers, onAnswer, reviewResults }: Props) {
       {part.part === 5
         ? <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-start gap-2" data-pet-reading-part5-answer-row>
           <p className="pt-3 text-center text-sm"><QuestionNumber question={question} fallback={index + 1} /></p>
-          <ChoiceButtons question={question} answer={answers[question.id]} onAnswer={onAnswer} columns={4} result={result} />
+          <div className="min-w-0"><ChoiceButtons question={question} answer={answers[question.id]} onAnswer={onAnswer} columns={4} result={result} /></div>
           {result && <div className="col-span-2 flex justify-end"><ReviewBadge result={result} /></div>}
         </div>
         : <><div className="mb-3 flex items-start justify-between gap-3"><p className="flex items-start gap-2 text-sm font-bold leading-6 text-slate-900"><QuestionNumber question={question} fallback={index + 1} /><span>{question.prompt}</span></p><ReviewBadge result={result} /></div><ChoiceButtons question={question} answer={answers[question.id]} onAnswer={onAnswer} columns={4} result={result} /></>}
@@ -149,5 +150,5 @@ function PassageChoice({ part, answers, onAnswer, reviewResults }: Props) {
 }
 
 export default function PetReadingPartView(props: Props) {
-  return <div id="pet-reading-player" data-pet-reading-part={props.part.part} data-review-mode={props.reviewResults ? 'true' : 'false'}>{props.part.part === 1 ? <PartOne {...props} /> : props.part.part === 2 ? <PartTwo {...props} /> : props.part.part === 3 ? <PartThree {...props} /> : <PassageChoice {...props} />}</div>;
+  return <div id="pet-reading-player" data-pet-reading-part={props.part.part} data-review-mode={props.reviewResults ? 'true' : 'false'}>{props.part.part === 1 ? <PartOne {...props} /> : props.part.part === 2 ? <PartTwo {...props} /> : props.part.part === 3 ? <PartThree {...props} /> : <PassageChoice {...props} />}{[2, 3].includes(props.part.part) && <ReadingExplanationList questions={props.part.questions} results={props.reviewResults} />}</div>;
 }

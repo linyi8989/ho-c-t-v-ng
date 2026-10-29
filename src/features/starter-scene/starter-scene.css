@@ -65,6 +65,8 @@
 #starter-scene-page .starter-house-title-letter { display: inline-block; transform: translateY(var(--starter-sign-offset)) rotate(var(--starter-sign-angle)); }
 /* The scene keeps its proportions. Each yard scrolls variable-height, fully named links. */
 #starter-scene-page .starter-lawn-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-width: none; }
+/* Keep title wrapping from moving the scroll anchor used by this lawn's contour. */
+#starter-scene-page[data-listening-module="flyer"] .starter-lawn-reading-writing .starter-lawn-list { overflow-anchor: none; }
 #starter-scene-page .starter-lawn-list::-webkit-scrollbar { display: none; }
 #starter-scene-page .starter-lawn-list ol { list-style: none; margin: 0; padding: 5px; display: grid; gap: var(--starter-gap); }
 #starter-scene-page .starter-lawn-list li { min-width: 0; }

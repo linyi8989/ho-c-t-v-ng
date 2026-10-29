@@ -53,6 +53,7 @@ import {
 } from '../../features/exam-platform/starterMatching.js';
 import { splitStarterPart2ExampleLines } from '../../features/exam-platform/starterListeningPart2.js';
 import { STANDALONE_WRITING_TEMPLATE_VERSION } from '../../features/writing-library/writingWordPolicy.js';
+import { isReadingExplanationQuestion, parseReadingExplanation, supportsReadingExplanations } from '../../features/exam-platform/readingExplanations.js';
 
 const text = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max);
 const objectiveTypes = new Set<ExamQuestionType>([
@@ -176,6 +177,7 @@ export function normalizeExamSmartImportPart(
   currentPart: ExamPartContent,
   candidateValue: unknown,
   definition: ExamPartDefinition,
+  paperIdentity?: Pick<ExamPaperContent, 'moduleId' | 'paperId'>,
 ): ExamSmartImportResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -258,6 +260,11 @@ export function normalizeExamSmartImportPart(
       warnings.push(`Câu ${questionIndex + 1}: chưa có đáp án chấp nhận; giáo viên phải nhập trong editor.`);
     }
 
+    let explanation: string | undefined;
+    if (paperIdentity && isReadingExplanationQuestion(paperIdentity, { type })) {
+      try { explanation = parseReadingExplanation(raw.explanation); }
+      catch (error) { errors.push(`Câu ${questionIndex + 1}: ${error instanceof Error ? error.message : 'Giải thích đáp án không hợp lệ.'}`); }
+    }
     const points = Number(raw.points);
     return {
       id: currentQuestion?.id || `question-${crypto.randomUUID()}`,
@@ -270,6 +277,7 @@ export function normalizeExamSmartImportPart(
       options,
       correctOptionIds,
       acceptedAnswers,
+      ...(explanation ? { explanation } : {}),
       points: Number.isFinite(points) && points > 0 && points <= 100
         ? points
         : currentQuestion?.points || definition.pointsPerQuestion || 1,
@@ -978,6 +986,13 @@ export function validateExamPaperContent(content: ExamPaperContent) {
     } satisfies ExamPartDefinition;
     if (!part || part.part !== partIndex + 1) errors.push(`Part ${partIndex + 1} không đúng thứ tự.`);
     if (!text(part?.title, 240)) errors.push(`Part ${partIndex + 1}: thiếu tiêu đề.`);
+    if (supportsReadingExplanations(content) && Array.isArray(part?.questions)) {
+      part.questions.forEach((question, index) => {
+        if (!question || !isReadingExplanationQuestion(content, question)) return;
+        try { parseReadingExplanation(question.explanation); }
+        catch (error) { errors.push(`Part ${partIndex + 1}, câu ${index + 1}: ${error instanceof Error ? error.message : 'Giải thích đáp án không hợp lệ.'}`); }
+      });
+    }
     if (content.moduleId === 'starter' && content.paperId === 'listening' && partIndex === 2 && !text(part?.imageAssetId, 180)) {
       errors.push('Part 3: phải tải ảnh hiển thị chung cho học sinh, tách biệt với ảnh nguồn crop đáp án.');
     }
@@ -1183,6 +1198,7 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         const safe: any = structuredClone(question);
         delete safe.correctOptionIds;
         delete safe.acceptedAnswers;
+        delete safe.explanation;
         delete safe.modelAnswer;
         delete safe.writingGrading;
         delete safe.interactionSourceNodeId;

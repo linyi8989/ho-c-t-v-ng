@@ -13,6 +13,7 @@ import {
 } from '../../features/exam-platform/starterMatching.js';
 import { displayCorrectAnswer, normalizeExamText } from './examValidation.js';
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
+import { isReadingExplanationQuestion, parseReadingExplanation, supportsReadingExplanations } from '../../features/exam-platform/readingExplanations.js';
 
 export const EXAM_GRADING_VERSION = 'exam-platform-objective-v2';
 
@@ -239,6 +240,17 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
     });
   });
 
+  // Freeze private teaching content with this published version's result, never
+  // read a newer draft when the learner later opens Review or History.
+  if (supportsReadingExplanations(content)) {
+    const byId = new Map(content.parts.flatMap(part => part.questions.map(question => [question.id, question] as const)));
+    for (const result of questions) {
+      const question = byId.get(result.questionId);
+      if (!question || !isReadingExplanationQuestion(content, question)) continue;
+      const explanation = parseReadingExplanation(question.explanation);
+      if (explanation) result.explanation = explanation;
+    }
+  }
   const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
   return {
     gradingVersion: EXAM_GRADING_VERSION,
