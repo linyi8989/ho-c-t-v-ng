@@ -14,8 +14,15 @@ import {
 import { displayCorrectAnswer, normalizeExamText } from './examValidation.js';
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 import { isReadingExplanationQuestion, parseReadingExplanation, supportsReadingExplanations } from '../../features/exam-platform/readingExplanations.js';
+import { isYoungListeningPart2 } from '../../features/exam-platform/youngListeningPart2.js';
 
 export const EXAM_GRADING_VERSION = 'exam-platform-objective-v2';
+export const EXAM_INPUT_VARIANTS_GRADING_VERSION = 'exam-platform-young-listening-input-variants-v1';
+
+export function examGradingVersion(content: ExamPaperContent) {
+  return content.parts.some(part => isYoungListeningPart2(content, part.part) && part.questions.some(question => question.type === 'short-answer' && question.inputAnswerVariants?.length))
+    ? EXAM_INPUT_VARIANTS_GRADING_VERSION : EXAM_GRADING_VERSION;
+}
 
 function answerEmpty(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
@@ -30,14 +37,15 @@ function writingAnswer(question: ExamPaperContent['parts'][number]['questions'][
   return { text: '', prompt: question.prompt };
 }
 
-function gradeObjective(question: ExamPaperContent['parts'][number]['questions'][number], answer: string | string[] | undefined) {
+function gradeObjective(question: ExamPaperContent['parts'][number]['questions'][number], answer: string | string[] | undefined, allowInputVariants = false) {
   if (question.correctOptionIds.length) {
     const actual = new Set((Array.isArray(answer) ? answer : [answer || '']).filter(Boolean));
     const expected = new Set(question.correctOptionIds);
     return actual.size === expected.size && [...expected].every(item => actual.has(item));
   }
   const actual = normalizeExamText(Array.isArray(answer) ? answer.join(' ') : answer);
-  return question.acceptedAnswers.some(value => normalizeExamText(value) === actual);
+  return question.acceptedAnswers.some(value => normalizeExamText(value) === actual)
+    || (allowInputVariants && Boolean(question.acceptedAnswers.length) && (question.inputAnswerVariants || []).some(value => normalizeExamText(value) === actual));
 }
 
 function displayUserAnswer(question: ExamPaperContent['parts'][number]['questions'][number], answer: string | string[] | undefined) {
@@ -217,7 +225,7 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
       return;
     }
     objectiveMaximum += question.points;
-    const correct = !unanswered && gradeObjective(question, answer);
+    const correct = !unanswered && gradeObjective(question, answer, question.type === 'short-answer' && isYoungListeningPart2(content, part.part));
     if (unanswered) unansweredCount += 1;
     else if (correct) correctCount += 1;
     else incorrectCount += 1;
@@ -253,7 +261,7 @@ export function gradeExamAttempt(content: ExamPaperContent, answers: ExamAnswers
   }
   const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
   return {
-    gradingVersion: EXAM_GRADING_VERSION,
+    gradingVersion: examGradingVersion(content),
     status: pendingManualCount ? 'pending_review' as const : 'completed' as const,
     score: pendingManualCount ? objectiveScore : objectiveScore,
     objectiveScore,

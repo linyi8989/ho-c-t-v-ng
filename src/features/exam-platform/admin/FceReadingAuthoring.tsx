@@ -2,6 +2,7 @@ import { ListeningAssetPicker } from '../../listening/admin/ListeningAssetPicker
 import { listeningApi } from '../../listening/api';
 import type { ListeningAsset, ListeningAssetKind } from '../../listening/types';
 import type { ExamPartContent, ExamQuestion } from '../types';
+import { FCE_READING_PART3_PASSAGE_MAX_LENGTH } from '../fceReadingMigration';
 
 interface Props {
   token: string;
@@ -72,7 +73,12 @@ function PartThree({ token, part, assets, onAssets, onChange }: Props) {
     questions: part.questions.map(question => ({ ...question, options: question.options.map((option, index) => index === optionIndex ? { ...option, text } : option) })),
   });
   return <div className="space-y-4" data-fce-reading-part3-authoring>
-    <ListeningAssetPicker label="Ảnh chứa bốn đoạn A–D · hiển thị bên trái" kind="image" value={part.imageAssetId} assets={assets} aiCapability={{ enabled: false, reason: 'Giáo viên tải hoặc dán đúng ảnh bốn đoạn A–D từ đề gốc.' }} onUpload={upload} onChange={(assetId, uploaded) => { const asset = uploaded || assets.find(item => item.id === assetId); onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url }); }} />
+    <label className="block text-xs font-black text-slate-700">Nội dung bài đọc Part 3 — các đoạn A–D
+      <textarea data-fce-reading-part3-passage value={typeof part.passage === 'string' ? part.passage : ''} maxLength={FCE_READING_PART3_PASSAGE_MAX_LENGTH} onChange={event => onChange({ ...part, passage: event.target.value })} placeholder="Dán đầy đủ tiêu đề, tên người và các đoạn A–D từ JSON ChatGPT hoặc nhập trực tiếp." className={`mt-1 min-h-80 leading-7 ${fieldClass}`} />
+    </label>
+    <p className="text-xs font-semibold leading-6 text-slate-700">Có ảnh thì hiển thị ảnh bên trái; không chọn ảnh thì hiển thị văn bản ở trên. Nhập JSON mới vẫn giữ ảnh đã chọn; gỡ ảnh khỏi Part này để chuyển sang văn bản.</p>
+    <ListeningAssetPicker label="Ảnh chứa bốn đoạn A–D · tùy chọn" kind="image" value={part.imageAssetId} assets={assets} aiCapability={{ enabled: false, reason: 'Giáo viên có thể tải hoặc dán ảnh bốn đoạn A–D từ đề gốc để dùng thay văn bản.' }} onUpload={upload} onChange={(assetId, uploaded) => { const asset = uploaded || assets.find(item => item.id === assetId); onChange({ ...part, imageAssetId: asset?.id, imageUrl: asset?.url }); }} />
+    {(part.imageAssetId || part.imageUrl) && <button type="button" data-fce-reading-part3-remove-image onClick={() => { const next = { ...part }; delete next.imageAssetId; delete next.imageUrl; onChange(next); }} className="rounded-xl border-2 border-rose-300 bg-white px-4 py-2 text-sm font-black text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600">Gỡ ảnh khỏi Part này để dùng văn bản</button>}
     <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4"><h4 className="text-sm font-black text-violet-950">Nhãn bốn người/đoạn A–D</h4><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{part.questions[0]?.options.slice(0, 4).map((option, index) => <label key={option.id} className="text-xs font-black text-violet-950">{String.fromCharCode(65 + index)}<input value={option.text} onChange={event => updateBank(index, event.target.value)} className={`mt-1 ${fieldClass}`} /></label>)}</div></section>
     <div className="space-y-2">{part.questions.map((question, index) => <article key={question.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:grid-cols-[4rem_minmax(0,1fr)_210px]"><div className="flex h-11 items-center justify-center rounded-xl bg-blue-700 text-sm font-black text-white">{question.displayNumber}</div><label className="sr-only">Câu {question.displayNumber}</label><input value={question.prompt} onChange={event => onChange(updateQuestion(part, index, { ...question, prompt: event.target.value }))} className={fieldClass} /><AnswerSelect question={question} onChange={next => onChange(updateQuestion(part, index, next))} /></article>)}</div>
   </div>;

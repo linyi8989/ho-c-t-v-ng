@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { pointInListeningRegion } from '../geometry';
 import StudentUnderlineInput from '../../exam-platform/student/StudentUnderlineInput';
+import { listeningPart2Layout } from '../part2TextLayout';
 import {
   getUnusedAnswerIds,
   placeSingleUseAnswer,
@@ -191,15 +192,7 @@ function renderPrompt(
   });
 }
 
-function part2BlankIds(question: ListeningPart2['questions'][number]) {
-  return [...question.prompt.matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map(match => match[1]);
-}
-
-function part2PromptWithoutBlanks(question: ListeningPart2['questions'][number]) {
-  return question.prompt.replace(/\{\{[a-zA-Z0-9_-]+\}\}/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
-}
-
-export function ListeningPart2View({ part, answers, onAnswers, exampleLines, alignAnswersRight = false, examplesAboveAnswers = false, balanceMediaColumn = false }: PartProps<ListeningPart2> & { exampleLines?: string[]; alignAnswersRight?: boolean; examplesAboveAnswers?: boolean; balanceMediaColumn?: boolean }) {
+export function ListeningPart2View({ part, answers, onAnswers, exampleLines, alignAnswersRight = false, examplesAboveAnswers = false, balanceMediaColumn = false, preservePrintedHints = true }: PartProps<ListeningPart2> & { exampleLines?: string[]; alignAnswersRight?: boolean; examplesAboveAnswers?: boolean; balanceMediaColumn?: boolean; preservePrintedHints?: boolean }) {
   const starterExampleLines = exampleLines === undefined ? undefined : [exampleLines[0] || '—', exampleLines[1] || '—'];
   const exampleBlock = starterExampleLines
     ? <div className="space-y-1 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm font-bold text-slate-700" data-starter-part2-example-lines data-listening-part2-example-placement={examplesAboveAnswers ? 'answer-column' : 'media-column'}>{starterExampleLines.map((line, index) => <p key={`${index}-${line}`}><span className="text-sky-700">Example {index + 1}: </span>{line}</p>)}</div>
@@ -218,6 +211,7 @@ export function ListeningPart2View({ part, answers, onAnswers, exampleLines, ali
         <div className={alignAnswersRight ? 'space-y-1' : 'space-y-3'} data-listening-part2-right-answers={alignAnswersRight ? 'true' : undefined}>
           {part.questions.map((question, index) => {
             const values = answers.part2[question.id] || {};
+            const layout = listeningPart2Layout(question);
             const updateBlank = (blankId: string, value: string) => onAnswers({
                 ...answers,
                 part2: {
@@ -225,6 +219,28 @@ export function ListeningPart2View({ part, answers, onAnswers, exampleLines, ali
                   [question.id]: { ...(answers.part2[question.id] || {}), [blankId]: value },
                 },
               });
+            if (!preservePrintedHints && alignAnswersRight && !balanceMediaColumn) {
+              const label = question.prompt.replace(/\{\{[a-zA-Z0-9_-]+\}\}/g, '').replace(/\s+([.,!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+              const blankIds = [...question.prompt.matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map(match => match[1]);
+              return <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-bold leading-7 text-slate-800" data-listening-part2-right-row>
+                <p className="min-w-0"><span className="mr-2 text-rose-500">{index + 1}.</span>{label}</p>
+                <div className="flex shrink-0 items-center justify-end gap-2">{blankIds.map(blankId => <StudentUnderlineInput key={blankId} value={values[blankId] || ''} onChange={event => updateBlank(blankId, event.target.value)} aria-label={`Ô trống ${blankId}`} className="w-44" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />)}</div>
+              </div>;
+            }
+            const answerTokens = layout.tokens.map((token, tokenIndex) => token.type === 'text'
+              ? <span key={`text-${tokenIndex}`} className="max-w-full break-words text-slate-800" data-listening-part2-printed-hint>{token.text}</span>
+              : <StudentUnderlineInput
+                  key={`${token.blankId}-${tokenIndex}`}
+                  value={values[token.blankId] || ''}
+                  onChange={event => updateBlank(token.blankId, event.target.value)}
+                  aria-label={`Đáp án câu ${index + 1}: ${layout.label}`}
+                  className="min-w-0 flex-1"
+                  style={{ minWidth: 'min(6rem, 100%)' }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />);
             return balanceMediaColumn
               ? <div
                   key={question.id}
@@ -232,25 +248,15 @@ export function ListeningPart2View({ part, answers, onAnswers, exampleLines, ali
                   data-listening-part2-balanced-answer-row
                 >
                   <span className="text-rose-500">{index + 1}.</span>
-                  <p className="min-w-0">{part2PromptWithoutBlanks(question)}</p>
-                  <div className="col-start-2 flex min-w-0 items-center gap-2 md:col-start-3 md:row-start-1" data-listening-part2-balanced-answer-slot>
-                    {part2BlankIds(question).map(blankId => <StudentUnderlineInput
-                      key={blankId}
-                      value={values[blankId] || ''}
-                      onChange={event => updateBlank(blankId, event.target.value)}
-                      aria-label={`Ô trống ${blankId}`}
-                      className="min-w-0 flex-1"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                    />)}
+                  <p className="min-w-0">{layout.label}</p>
+                  <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-2 md:col-start-3 md:row-start-1" data-listening-part2-balanced-answer-slot>
+                    {answerTokens}
                   </div>
                 </div>
               : alignAnswersRight
-              ? <div key={question.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-2 text-base font-bold leading-7 text-slate-800" data-listening-part2-right-row>
-                  <p className="min-w-0"><span className="mr-2 text-rose-500">{index + 1}.</span>{part2PromptWithoutBlanks(question)}</p>
-                  <div className="flex shrink-0 items-center justify-end gap-2">{part2BlankIds(question).map(blankId => <StudentUnderlineInput key={blankId} value={values[blankId] || ''} onChange={event => updateBlank(blankId, event.target.value)} aria-label={`Ô trống ${blankId}`} className="w-44" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} />)}</div>
+              ? <div key={question.id} className="grid min-w-0 items-center gap-x-4 gap-y-1 py-2 text-base font-bold leading-7 text-slate-800 sm:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]" data-listening-part2-right-row>
+                  <p className="min-w-0"><span className="mr-2 text-rose-500">{index + 1}.</span>{layout.label}</p>
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" data-listening-part2-right-answer-slot>{answerTokens}</div>
                 </div>
               : <div key={question.id} className="rounded-2xl border border-slate-100 bg-white p-4 text-base font-bold leading-9 text-slate-800 shadow-sm">
                   <span className="mr-2 text-rose-500">{index + 1}.</span>

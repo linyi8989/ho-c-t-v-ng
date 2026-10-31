@@ -5,6 +5,7 @@ import type { ExamAnswerValue, ExamAnswers, ExamDisplayExample, ExamPartContent,
 import ExamImageViewer from './ExamImageViewer';
 import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 import ReadingExplanation, { ReadingExplanationList } from './ReadingExplanation';
+import { HighlightableReadingText } from './reading-highlight/ReadingHighlight';
 
 interface Props {
   part: ExamPartContent;
@@ -77,12 +78,12 @@ function ChoiceButtons({ question, answer, onAnswer, columns = 4, result }: { qu
 function PartOne({ part, answers, onAnswer, reviewResults }: Props) {
   const example = part.examples?.[0];
   return <div className="space-y-5" data-pet-reading-part1-player>
-    {example && <div className="grid gap-4 bg-transparent lg:grid-cols-[minmax(280px,42%)_minmax(0,58%)]" data-pet-reading-part1-example-row><div className="min-h-52 bg-transparent"><PetNoticeFrame variant={0} content={example.prompt} label="Thông báo example" /></div><div className="self-center"><ExampleAnswer example={example} columns={3} /></div></div>}
+    {example && <div className="grid gap-4 bg-transparent lg:grid-cols-[minmax(280px,42%)_minmax(0,58%)]" data-pet-reading-part1-example-row><div className="min-h-52 bg-transparent"><PetNoticeFrame variant={0} content={example.prompt} label="Thông báo example" renderText={(text, fragment) => <HighlightableReadingText text={text} contentKey={`${part.id}:example:${fragment}`} />} /></div><div className="self-center"><ExampleAnswer example={example} columns={3} /></div></div>}
     {part.questions.map((question, index) => {
       const result = reviewFor(question, reviewResults);
       return <article key={question.id} className="grid gap-4 bg-transparent lg:grid-cols-[minmax(280px,42%)_minmax(0,58%)]" data-pet-reading-part1-row>
         <div className="min-h-52 overflow-hidden bg-transparent">{question.context?.trim()
-          ? <PetNoticeFrame variant={index} content={question.context} label={`Thông báo câu ${question.displayNumber || index + 1}`} />
+          ? <PetNoticeFrame variant={index} content={question.context} label={`Thông báo câu ${question.displayNumber || index + 1}`} renderText={(text, fragment) => <HighlightableReadingText text={text} contentKey={`${part.id}:notice:${question.id}:${fragment}`} />} />
           : question.imageUrl
             ? <div data-pet-reading-legacy-notice-image className="h-full"><ExamImageViewer src={question.imageUrl} alt={`Thông báo cũ câu ${question.displayNumber || index + 1}`} fillFrame className="h-full w-full border border-slate-200 bg-white" /></div>
             : <PetNoticeFrame variant={index} label={`Thông báo câu ${question.displayNumber || index + 1}`} />}</div>
@@ -110,8 +111,8 @@ function PartTwo({ part, answers, onAnswer, reviewResults }: Props) {
   };
   return <div className="space-y-5" data-pet-reading-part2-player>
     <div className="grid gap-5 lg:grid-cols-[minmax(0,46%)_minmax(0,54%)]">
-      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><h3 className="text-sm font-black uppercase tracking-wide text-blue-800">People</h3><div className="mt-3 space-y-3">{part.questions.map((question, index) => { const result = reviewFor(question, reviewResults); return <article key={question.id} className={`flex items-start gap-3 rounded-xl border-2 p-3 text-sm font-semibold leading-6 text-slate-800 ${reviewCardClass(result)}`}><QuestionNumber question={question} fallback={index + 1} /><p>{question.prompt}</p><span className="ml-auto"><ReviewBadge result={result} /></span></article>; })}</div></section>
-      <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4"><h3 className="text-sm font-black uppercase tracking-wide text-violet-800">Choices A–H</h3><div className="mt-3 space-y-2">{bank.map((option, index) => <article key={option.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 rounded-xl border border-violet-100 bg-white p-3 text-sm font-semibold leading-6 text-slate-800"><b className="text-violet-700">{String.fromCharCode(65 + index)}.</b><p className="whitespace-pre-wrap">{option.text}</p></article>)}</div></section>
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><h3 className="text-sm font-black uppercase tracking-wide text-blue-800">People</h3><div className="mt-3 space-y-3">{part.questions.map((question, index) => { const result = reviewFor(question, reviewResults); return <article key={question.id} className={`flex items-start gap-3 rounded-xl border-2 p-3 text-sm font-semibold leading-6 text-slate-800 ${reviewCardClass(result)}`}><QuestionNumber question={question} fallback={index + 1} /><p><HighlightableReadingText text={question.prompt} contentKey={`${part.id}:person:${question.id}`} /></p><span className="ml-auto"><ReviewBadge result={result} /></span></article>; })}</div></section>
+      <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4"><h3 className="text-sm font-black uppercase tracking-wide text-violet-800">Choices A–H</h3><div className="mt-3 space-y-2">{bank.map((option, index) => <article key={option.id} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 rounded-xl border border-violet-100 bg-white p-3 text-sm font-semibold leading-6 text-slate-800"><b className="text-violet-700">{String.fromCharCode(65 + index)}.</b><p className="whitespace-pre-wrap"><HighlightableReadingText text={option.text} contentKey={`${part.id}:bank:${option.label}`} /></p></article>)}</div></section>
     </div>
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="text-sm font-black text-slate-900">Write the correct letter A–H</h3><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{part.questions.map((question, index) => { const result = reviewFor(question, reviewResults); const correctLetter = result ? letterFor(question, result.correctAnswer) : ''; return <label key={question.id} className={`grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-2 rounded-xl border-2 p-3 text-sm font-black text-slate-800 ${reviewCardClass(result)}`}><span>Question {question.displayNumber || index + 1}{result && !result.correct && <small className="mt-1 block text-emerald-800">Đúng: {correctLetter}</small>}</span><input {...studentTypedAnswerGuards} value={answerLetter(question, result)} maxLength={1} readOnly={Boolean(result)} onChange={event => update(question, event.target.value)} aria-label={`Đáp án câu ${question.displayNumber || index + 1}`} className={`h-11 w-full rounded-lg border-2 bg-white text-center text-lg font-black uppercase outline-none ${result?.correct ? 'border-emerald-600 text-emerald-800' : result?.unanswered ? 'border-amber-600 text-amber-800' : result ? 'border-rose-600 text-rose-800' : 'border-blue-300 text-blue-800 focus:border-blue-600 focus:ring-2 focus:ring-blue-100'}`} /></label>; })}</div></section>
   </div>;
@@ -121,21 +122,21 @@ function PartThree({ part, answers, onAnswer, reviewResults }: Props) {
   return <div className="grid gap-6 lg:grid-cols-[minmax(0,48%)_minmax(0,52%)]" data-pet-reading-part3-player><div className="lg:sticky lg:top-24 lg:self-start">{part.imageUrl ? <ExamImageViewer src={part.imageUrl} alt="Ảnh PET Reading Part 3" maxHeight="min(72vh,720px)" className="border border-slate-200 bg-white" /> : <MissingImage label="Chưa có ảnh tình huống Part 3" />}</div><div className="space-y-2">{part.questions.map((question, index) => { const result = reviewFor(question, reviewResults); return <fieldset key={question.id} className={`rounded-2xl border-2 p-3 shadow-sm ${reviewCardClass(result)}`} disabled={Boolean(result)}><legend className="sr-only">Câu {question.displayNumber || index + 1}</legend><div className="grid grid-cols-[minmax(0,1fr)_4.75rem_4.75rem] items-start gap-2"><p className="flex min-w-0 items-start gap-2 py-2 text-sm font-bold leading-5 text-slate-900"><QuestionNumber question={question} fallback={index + 1} /><span>{question.prompt}</span><ReviewBadge result={result} /></p>{question.options.slice(0, 2).map(option => { const selected = result ? matchesOption(option, result.userAnswer) : answers[question.id] === option.id; const correct = result ? matchesOption(option, result.correctAnswer) : false; const style = result ? correct ? 'border-emerald-600 bg-emerald-100 text-emerald-950' : selected ? 'border-rose-600 bg-rose-100 text-rose-950' : 'border-slate-300 bg-white text-slate-700' : selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-slate-50 text-slate-700'; return <label key={option.id} className={`flex h-10 items-center justify-center rounded-xl border-2 px-2 text-xs font-black uppercase ${result ? 'cursor-default' : 'cursor-pointer'} ${style}`}><input className="sr-only" type="radio" name={`pet-reading-p3-${question.id}`} checked={selected} disabled={Boolean(result)} onChange={() => onAnswer(question.id, option.id)} />{option.text}{correct && <CheckCircle2 size={14} className="ml-1" />}{selected && !correct && result && <XCircle size={14} className="ml-1" />}</label>; })}</div></fieldset>; })}</div></div>;
 }
 
-function Passage({ passage, questions, cloze = false }: { passage?: string; questions: ExamQuestion[]; cloze?: boolean }) {
+function Passage({ passage, questions, contentKey, cloze = false }: { passage?: string; questions: ExamQuestion[]; contentKey: string; cloze?: boolean }) {
   if (!passage) return <p className="text-sm font-bold text-amber-800">Chưa có bài đọc.</p>;
   const content: ReactNode[] = cloze ? passage.split(/(\[\[\d+\]\])/g).map((segment, index) => {
     const match = segment.match(/^\[\[(\d+)\]\]$/);
-    if (!match) return <span key={index} className="whitespace-pre-wrap">{segment}</span>;
+    if (!match) return <span key={index} className="whitespace-pre-wrap"><HighlightableReadingText text={segment} contentKey={`${contentKey}:${index}`} /></span>;
     const printed = Number(match[1]);
     const exists = questions.some(question => (question.displayNumber || question.number) === printed);
     return <span key={index} className={`mx-1 inline-flex min-w-16 items-center justify-center border-b-2 border-dotted px-2 font-black ${exists ? 'border-orange-600 text-orange-800' : 'border-rose-500 text-rose-700'}`}>{printed}</span>;
-  }) : [<span key="text" className="whitespace-pre-wrap">{passage}</span>];
+  }) : [<span key="text" className="whitespace-pre-wrap"><HighlightableReadingText text={passage} contentKey={contentKey} /></span>];
   return <div className="rounded-2xl border border-orange-300 bg-orange-50 p-5 text-base font-semibold leading-8 text-slate-900 shadow-sm" data-pet-reading-passage-frame>{content}</div>;
 }
 
 function PassageChoice({ part, answers, onAnswer, reviewResults }: Props) {
   const example = part.part === 5 ? part.examples?.[0] : undefined;
-  return <div className="space-y-5" data-pet-reading-passage-player={part.part}>{example && <ExampleAnswer example={example} columns={4} />}<Passage passage={part.passage} questions={part.questions} cloze={part.part === 5} /><div className="space-y-3">{part.questions.map((question, index) => {
+  return <div className="space-y-5" data-pet-reading-passage-player={part.part}>{example && <ExampleAnswer example={example} columns={4} />}<Passage passage={part.passage} questions={part.questions} contentKey={`${part.id}:passage`} cloze={part.part === 5} /><div className="space-y-3">{part.questions.map((question, index) => {
     const result = reviewFor(question, reviewResults);
     return <article key={question.id} className={`rounded-2xl border-2 p-4 shadow-sm ${reviewCardClass(result)}`}>
       {part.part === 5

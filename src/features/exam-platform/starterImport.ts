@@ -16,6 +16,8 @@ import {
   starterMatchingAnchor,
   starterMatchingModel,
 } from './starterMatching';
+import { parseYoungListeningAffixes } from './youngListeningPart2';
+import { parseListeningPart2InputVariants } from '../listening/part2AnswerVariants';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -316,6 +318,11 @@ function importTextEntry(
       : []);
     if (!acceptedAnswers.length) warnings.push(`Câu ${index + 1}: chưa có đáp án chính thức.`);
     const old = current.questions[index];
+    const printedHints = definition.requiresAudio && current.part === 2 ? parseYoungListeningAffixes(row) : {};
+    const inputAnswerVariants = definition.requiresAudio && current.part === 2
+      ? parseListeningPart2InputVariants(gaps[0]?.inputAnswerVariants)
+      : undefined;
+    if (inputAnswerVariants?.length && !acceptedAnswers.length) throw new StarterImportError(`Câu ${index + 1}: inputAnswerVariants cần đáp án gốc đã được xác minh.`);
     return {
       id: old?.id || identifier('starter-text-question'),
       number: Number(row.number) || old?.number || index + 1,
@@ -324,6 +331,8 @@ function importTextEntry(
       options: [],
       correctOptionIds: [],
       acceptedAnswers,
+      ...(inputAnswerVariants?.length ? { inputAnswerVariants } : {}),
+      ...printedHints,
       points: old?.points || definition.pointsPerQuestion || 1,
       ...(Number(gaps[0]?.maxWords) > 0 ? { maxWords: Number(gaps[0]?.maxWords) } : {}),
     };

@@ -129,7 +129,12 @@ export type ListeningSmartImportData =
       questions: Array<{
         questionNumber: 1 | 2 | 3 | 4 | 5;
         prompt?: string;
+        /** Printed hints from the question sheet, not part of the accepted answer. */
+        answerPrefix?: string;
+        answerSuffix?: string;
         acceptedAnswers?: string[];
+        /** AI-suggested equivalent inputs, kept separate from displayed official answers. */
+        inputAnswerVariants?: string[];
       }>;
     }
   | {

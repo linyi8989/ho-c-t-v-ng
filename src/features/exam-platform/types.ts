@@ -187,6 +187,8 @@ export interface ExamQuestion {
   correctOptionIds: string[];
   /** Private grading data; removed from every playable payload. */
   acceptedAnswers: string[];
+  /** Private supplemental input forms for young-learner Listening Part 2; never displayed as the answer key. */
+  inputAnswerVariants?: string[];
   /** Private Reading teaching explanation; released only in an authorized post-submit review. */
   explanation?: string;
   /** Private matching source; removed from every playable payload. */

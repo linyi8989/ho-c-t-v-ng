@@ -10,6 +10,12 @@ import type {
 import { pointInListeningRegion } from '../../features/listening/geometry.js';
 
 export const LISTENING_GRADING_VERSION = 'listening-five-part-v2';
+export const LISTENING_INPUT_VARIANTS_GRADING_VERSION = 'listening-five-part-input-variants-v1';
+
+export function listeningGradingVersion(content: ListeningSetContent) {
+  return content.parts[1].questions.some(question => question.blanks.some(blank => blank.inputAnswerVariants?.length && blank.acceptedAnswers.some(value => normalizeListeningTextAnswer(value))))
+    ? LISTENING_INPUT_VARIANTS_GRADING_VERSION : LISTENING_GRADING_VERSION;
+}
 
 export function normalizeListeningTextAnswer(value: unknown) {
   return String(value ?? '')
@@ -28,7 +34,8 @@ function gradeTextQuestion(
   const correct = question.blanks.every(blank => {
     const actual = normalizeListeningTextAnswer(answer?.[blank.id]);
     if (actual) unanswered = false;
-    return Boolean(actual) && blank.acceptedAnswers.some(
+    const hasOfficialAnswer = blank.acceptedAnswers.some(value => normalizeListeningTextAnswer(value));
+    return Boolean(actual) && hasOfficialAnswer && [...blank.acceptedAnswers, ...(blank.inputAnswerVariants || [])].some(
       accepted => normalizeListeningTextAnswer(accepted) === actual
     );
   });
@@ -178,6 +185,7 @@ export function gradeListeningAttempt(
   const unansweredCount = questions.filter(question => question.unanswered).length;
   const incorrectCount = questions.length - correctCount - unansweredCount;
   return {
+    gradingVersion: listeningGradingVersion(content),
     score: Math.round((correctCount / 25) * 100),
     correctCount,
     incorrectCount,

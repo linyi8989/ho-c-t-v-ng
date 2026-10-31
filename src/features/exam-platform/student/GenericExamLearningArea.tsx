@@ -72,6 +72,7 @@ import { studentTypedAnswerGuards } from './studentTextEntryGuards';
 import StudentExamAttemptShell from './StudentExamAttemptShell';
 import StarterAudioPlayer from './StarterAudioPlayer';
 import './starter-player.css';
+import { HighlightableReadingText, ReadingHighlightSession } from './reading-highlight/ReadingHighlight';
 
 interface Props {
   moduleId: Exclude<ExamModuleId, 'mover'>;
@@ -158,10 +159,10 @@ function PartView({ moduleId, paperId, part, answers, onAnswer, standaloneWritin
       ? <ExamImageViewer src={unit.imageUrl} alt={`Ảnh Part ${unit.part}`} profile={imageProfile} className="border border-slate-200 bg-white" />
       : null;
     const hideStarterPart2DuplicateExample = starterListening && part.part === 2 && special;
-    const passage = unit.passage && !hideStarterPart2DuplicateExample ? <div className="rounded-2xl border border-slate-200 bg-white p-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700">{unit.passage}</div> : null;
+    const passage = unit.passage && !hideStarterPart2DuplicateExample ? <div className="rounded-2xl border border-slate-200 bg-white p-5 whitespace-pre-wrap text-sm font-semibold leading-7 text-slate-700"><HighlightableReadingText text={unit.passage} contentKey={`${unit.id}:passage`} /></div> : null;
     const answerContent = <>
       {unit.audioUrl && !starterListening && <audio controls preload="metadata" src={unit.audioUrl} className="w-full" />}
-      {special ? <StarterInteractionView part={unit} answers={answers} onAnswer={onAnswer} /> : unit.questions.map(question => <QuestionView key={question.id} question={question} value={questionAnswerValue(answers[question.id])} onChange={value => onAnswer(question.id, value)} />)}
+      {special ? <StarterInteractionView part={unit} answers={answers} onAnswer={onAnswer} printedAnswerHints={moduleId === 'starter' && paperId === 'listening' && part.part === 2} /> : unit.questions.map(question => <QuestionView key={question.id} question={question} value={questionAnswerValue(answers[question.id])} onChange={value => onAnswer(question.id, value)} />)}
     </>;
     const taskContent = <>{passage}{answerContent}</>;
     const taskLayout = resolveExamTaskLayout({ moduleId, paperId, partNumber: part.part });
@@ -495,7 +496,7 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
       </section>
     </div>
   </StudentExamAttemptShell>;
-  return <StudentExamAttemptShell
+  return <ReadingHighlightSession key={`${ownerKey}:${playable.id}:${playable.versionId}:${run.clientRunId}`} enabled={(moduleId === 'pet' && paperId === 'reading') || (moduleId === 'fce' && (paperId === 'reading' || paperId === 'reading-use-of-english'))}><StudentExamAttemptShell
     rootId="generic-exam-player"
     theme={moduleId === 'starter' ? 'starter' : undefined}
     background={moduleId !== 'writing' ? 'storybook' : undefined}
@@ -517,5 +518,5 @@ export default function GenericExamLearningArea({ moduleId, paperId, setId, acce
     <div className="student-exam-shell-container mx-auto w-full max-w-7xl px-3 pt-4 sm:px-6">
       <section data-starter-exam-panel={moduleId === 'starter' ? 'reading-writing' : undefined} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">{!hidePetWritingPartHeader && <div className="mb-5"><p className="text-xs font-black uppercase text-indigo-700">{moduleId === 'writing' ? 'Writing task' : `Part ${activePart.part}`}</p><h2 className="mt-1 text-2xl font-black text-slate-950">{activePart.title}</h2><p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-600">{activePart.instruction}</p></div>}<PartView moduleId={moduleId} paperId={paperId} part={activePart} answers={answers} standaloneWriting={moduleId === 'writing' && paperId === 'writing'} starterReadingWriting={moduleId === 'starter' && paperId === 'reading-writing'} flyerReadingWriting={moduleId === 'flyer' && paperId === 'reading-writing'} ketReadingWriting={moduleId === 'ket' && paperId === 'reading-writing' && playable.content.parts.length === 9} petReading={isFixedPetReadingContent(playable.content)} fceReading={isFixedFceReadingContent(playable.content)} petWriting={fixedPetWriting} onAnswer={(questionId, value) => setAnswers(previous => ({ ...previous, [questionId]: value }))} /></section>
     </div>
-  </StudentExamAttemptShell>;
+  </StudentExamAttemptShell></ReadingHighlightSession>;
 }

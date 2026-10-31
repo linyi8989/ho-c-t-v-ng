@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ListeningAnswers, ListeningRegion, ListeningSetContent } from '../../features/listening/types';
 import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../../features/listening/types';
-import { gradeListeningAttempt, normalizeListeningTextAnswer } from './listeningGrader';
+import { gradeListeningAttempt, LISTENING_GRADING_VERSION, LISTENING_INPUT_VARIANTS_GRADING_VERSION, normalizeListeningTextAnswer } from './listeningGrader';
 import { buildListeningActivityAnswerDetails, buildListeningVisualReviewSnapshot } from './listeningActivity';
 import { sanitizeListeningAnswers, sanitizeListeningContentForStudent, validateListeningSetContent } from './listeningValidation';
 import { MOVER_COLOUR_CATALOG } from '../../features/listening-library/modules/mover/editor/colourCatalog';
@@ -151,6 +151,69 @@ test('part 2 requires every blank in the question to be correct', () => {
   assert.equal(result.correctCount, 24);
   assert.equal(result.incorrectCount, 1);
   assert.equal(result.score, 96);
+});
+
+test('Part 2 printed hints survive playable/review and only the missing segment is graded', () => {
+  const content = validContent();
+  const question = content.parts[1].questions[0];
+  question.prompt = `Address: 17 {{${question.blanks[0].id}}} Street`;
+  question.blanks[0].acceptedAnswers = ['Main'];
+  const answers = correctAnswers(content);
+  const grade = gradeListeningAttempt(content, answers);
+  assert.equal(grade.correctCount, 25);
+  const playableQuestion = sanitizeListeningContentForStudent(content).parts[1].questions[0];
+  assert.equal(playableQuestion.prompt, question.prompt);
+  assert.equal('acceptedAnswers' in playableQuestion.blanks[0], false);
+  const details = buildListeningActivityAnswerDetails(content, answers, grade.questions);
+  assert.equal(details[5].questionText, 'Address: 17 _____ Street');
+  assert.equal(details[5].correctAnswer, 'Main');
+  const snapshot = buildListeningVisualReviewSnapshot(content, answers, grade.questions);
+  const part2 = snapshot.parts.find(part => part.part === 2);
+  assert.equal(part2?.items[0].prompt, 'Address: 17 _____ Street');
+  answers.part2[question.id][question.blanks[0].id] = '17 Main Street';
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 24);
+});
+
+test('Part 2 grades equivalent inputs privately while official review and History answers stay source-faithful', () => {
+  const content = validContent();
+  const question = content.parts[1].questions[0];
+  const blank = question.blanks[0];
+  question.prompt = `Years of tennis: {{${blank.id}}}`;
+  blank.acceptedAnswers = ['four'];
+  blank.inputAnswerVariants = ['4', 'four years', '4 years'];
+  const answers = correctAnswers(content);
+  for (const value of ['four', '4', 'four years', '4 years']) {
+    answers.part2[question.id][blank.id] = value;
+    const grade = gradeListeningAttempt(content, answers);
+    assert.equal(grade.correctCount, 25, value);
+    assert.equal(grade.gradingVersion, LISTENING_INPUT_VARIANTS_GRADING_VERSION);
+    const details = buildListeningActivityAnswerDetails(content, answers, grade.questions);
+    assert.equal(details[5].correctAnswer, 'four');
+    const snapshot = buildListeningVisualReviewSnapshot(content, answers, grade.questions);
+    assert.equal(snapshot.parts[1].items[0].correctAnswer, 'four');
+    assert.equal(JSON.stringify(snapshot).includes('inputAnswerVariants'), false);
+  }
+  answers.part2[question.id][blank.id] = '5 years';
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 24);
+  answers.part2[question.id][blank.id] = '';
+  assert.equal(gradeListeningAttempt(content, answers).unansweredCount, 1);
+  const safe = sanitizeListeningContentForStudent(content);
+  assert.equal(JSON.stringify(safe).includes('inputAnswerVariants'), false);
+  assert.equal(JSON.stringify(safe).includes('acceptedAnswers'), false);
+  assert.deepEqual(validateListeningSetContent(content), []);
+  for (const malformed of [null, '4', [4], [''], ['x'.repeat(201)]]) {
+    const invalid = structuredClone(content);
+    Object.assign(invalid.parts[1].questions[0].blanks[0], { inputAnswerVariants: malformed });
+    assert.ok(validateListeningSetContent(invalid).some(error => error.includes('inputAnswerVariants')));
+  }
+  delete blank.inputAnswerVariants;
+  assert.equal(gradeListeningAttempt(content, answers).gradingVersion, LISTENING_GRADING_VERSION);
+  answers.part2[question.id][blank.id] = '4';
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 24);
+  blank.inputAnswerVariants = ['4'];
+  blank.acceptedAnswers = [];
+  assert.equal(gradeListeningAttempt(content, answers).correctCount, 24, 'a missing official key cannot be replaced by a suggested variant');
+  assert.equal(gradeListeningAttempt(content, answers).gradingVersion, LISTENING_GRADING_VERSION);
 });
 
 test('publish validation enforces five scored items and six Part 1/5 choices', () => {

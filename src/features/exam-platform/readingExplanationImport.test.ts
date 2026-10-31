@@ -156,13 +156,14 @@ test('Listening and Writing import pipelines keep ignoring unrecognized explanat
   assert.equal(importUniversalExamPart(ket, 8, JSON.stringify(part9)).part.questions[0].explanation, undefined);
 });
 
-test('non-Reading whole/Part prompt outputs remain byte-identical to the pre-upgrade pipeline', () => {
-  // SHA256 of all whole-paper and Part prompt strings captured before this upgrade.
+test('non-Reading whole/Part prompts retain their baseline except the intentional young Listening Part2 upgrades', () => {
+  // Original Reading-upgrade baseline; only Starters/Flyers Listening digests were
+  // refreshed for their independently requested Part2 printed hints/input variants.
   const hashes: Record<string, string> = {
     'writing:writing': '7b54502a7f3fd309dafa5935f45d41516bd2dd49ce2b3545ac541f03a674ae8c',
-    'starter:listening': '2c26fd6c515ddfded70a7b340874f3139f66bb0b14dde4e16ca14d9fb3ab03f5',
+    'starter:listening': '3a9e7b500e004e86efd7a491ab2e09a233d55ee9b4066cde937d010d6efe1fb5',
     'starter:reading-writing': 'bd78baf1d6ea7017d1dbd4f74f0c8f62a25004ba308050cb4c06f8445135b0d7',
-    'flyer:listening': 'f4f384b74ae0672593e2972eff042c68f1028b4acf067372b9dbd08941336bf6',
+    'flyer:listening': '46af7b372fe02547b3f67faa9405b8aadeccd1b45fff1df909d47bcd3b685abe',
     'flyer:reading-writing': '2c825568fdb967a927c2cc90d623f8c36dd9b3a36d15a29e0abc689c2ccd09a7',
     'ket:listening': 'f80ae14879a8d6546b5efa5a7f6e11a532139b609e4b22757dd1299262fccd46',
     'pet:writing': 'bbefd59eadba80cbdfe6e62730686360ae1eccf21182e418b50e9fcfd3c2d509',

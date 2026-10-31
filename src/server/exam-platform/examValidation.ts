@@ -45,6 +45,7 @@ import {
   FCE_READING_VARIANTS,
   isFixedFceReadingContent,
   normalizeFixedFceReadingContent,
+  parseFceReadingPart3Passage,
 } from '../../features/exam-platform/fceReadingMigration.js';
 import {
   isExamMatchingConnection,
@@ -52,6 +53,8 @@ import {
   starterMatchingResponseKey,
 } from '../../features/exam-platform/starterMatching.js';
 import { splitStarterPart2ExampleLines } from '../../features/exam-platform/starterListeningPart2.js';
+import { isYoungListeningPart2, parseYoungListeningAffixes } from '../../features/exam-platform/youngListeningPart2.js';
+import { parseListeningPart2InputVariants } from '../../features/listening/part2AnswerVariants.js';
 import { STANDALONE_WRITING_TEMPLATE_VERSION } from '../../features/writing-library/writingWordPolicy.js';
 import { isReadingExplanationQuestion, parseReadingExplanation, supportsReadingExplanations } from '../../features/exam-platform/readingExplanations.js';
 
@@ -191,6 +194,12 @@ export function normalizeExamSmartImportPart(
   }
 
   const candidate = record(candidateValue);
+  let fceReadingPart3Passage: string | undefined;
+  const fceReadingPart3 = paperIdentity?.moduleId === 'fce' && paperIdentity.paperId === 'reading' && currentPart.part === 3;
+  if (fceReadingPart3) {
+    try { fceReadingPart3Passage = parseFceReadingPart3Passage(candidate.passage); }
+    catch (error) { return { part: currentPart, errors: [error instanceof Error ? error.message : 'FCE Reading Part 3: passage không hợp lệ.'], warnings }; }
+  }
   const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : null;
   if (!rawQuestions) errors.push('Smart Import phải có mảng questions.');
   if (rawQuestions && !definition.questionCountFlexible && rawQuestions.length !== definition.questionCount) {
@@ -261,6 +270,18 @@ export function normalizeExamSmartImportPart(
     }
 
     let explanation: string | undefined;
+    let printedHints: ReturnType<typeof parseYoungListeningAffixes> = {};
+    let inputAnswerVariants: string[] | undefined;
+    if (isYoungListeningPart2(paperIdentity, currentPart.part)) {
+      try { printedHints = parseYoungListeningAffixes(raw); }
+      catch (error) { errors.push(`Câu ${questionIndex + 1}: ${error instanceof Error ? error.message : 'Chữ in sẵn không hợp lệ.'}`); }
+      if (type === 'short-answer') {
+        try {
+          inputAnswerVariants = parseListeningPart2InputVariants(raw.inputAnswerVariants);
+          if (inputAnswerVariants?.length && !acceptedAnswers.length) errors.push(`Câu ${questionIndex + 1}: inputAnswerVariants cần đáp án gốc đã được xác minh.`);
+        } catch (error) { errors.push(`Câu ${questionIndex + 1}: ${error instanceof Error ? error.message : 'Cách nhập tương đương không hợp lệ.'}`); }
+      }
+    }
     if (paperIdentity && isReadingExplanationQuestion(paperIdentity, { type })) {
       try { explanation = parseReadingExplanation(raw.explanation); }
       catch (error) { errors.push(`Câu ${questionIndex + 1}: ${error instanceof Error ? error.message : 'Giải thích đáp án không hợp lệ.'}`); }
@@ -277,6 +298,8 @@ export function normalizeExamSmartImportPart(
       options,
       correctOptionIds,
       acceptedAnswers,
+      ...(inputAnswerVariants?.length ? { inputAnswerVariants } : {}),
+      ...printedHints,
       ...(explanation ? { explanation } : {}),
       points: Number.isFinite(points) && points > 0 && points <= 100
         ? points
@@ -303,7 +326,9 @@ export function normalizeExamSmartImportPart(
       part: currentPart.part,
       title: text(candidate.title, 240) || currentPart.title,
       instruction: text(candidate.instruction, 4_000) || currentPart.instruction,
-      ...(text(candidate.passage, 20_000) ? { passage: text(candidate.passage, 20_000) } : {}),
+      ...(fceReadingPart3
+        ? fceReadingPart3Passage ? { passage: fceReadingPart3Passage } : {}
+        : text(candidate.passage, 20_000) ? { passage: text(candidate.passage, 20_000) } : {}),
       ...(currentPart.imageAssetId ? { imageAssetId: currentPart.imageAssetId } : {}),
       ...(currentPart.imageUrl ? { imageUrl: currentPart.imageUrl } : {}),
       ...(currentPart.audioAssetId ? { audioAssetId: currentPart.audioAssetId } : {}),
@@ -825,7 +850,10 @@ function validateFceReadingPart(part: ExamPartContent, partIndex: number, errors
     }
   }
   if (partNumber === 3) {
-    if (!text(part.imageAssetId, 180)) errors.push(`${label}: phải tải ảnh chứa bốn đoạn/người A–D hiển thị bên trái.`);
+    let passage: string | undefined;
+    try { passage = parseFceReadingPart3Passage(part.passage); }
+    catch (error) { errors.push(error instanceof Error ? error.message : `${label}: passage không hợp lệ.`); }
+    if (!text(part.imageAssetId, 180) && !passage) errors.push(`${label}: cần văn bản hoặc ảnh chứa bốn đoạn/người A–D hiển thị bên trái.`);
     const signatures = part.questions.map(question => question.options.map(option => `${text(option.label, 20).toUpperCase()}\u0000${text(option.text, 1_000)}`).join('\u0001'));
     if (new Set(signatures).size !== 1) errors.push(`${label}: mọi câu phải dùng chung đúng bốn nhãn A–D.`);
   }
@@ -1001,6 +1029,18 @@ export function validateExamPaperContent(content: ExamPaperContent) {
       if (splitStarterPart2ExampleLines(unit.passage).length !== 2) {
         errors.push('Starters Listening Part 2: phải nhập đủ đúng 2 example không chấm điểm, mỗi example một dòng.');
       }
+    }
+    if (isYoungListeningPart2(content, part?.part) && Array.isArray(part?.questions)) {
+      part.questions.forEach((question, index) => {
+        try { parseYoungListeningAffixes(question, { allowLegacyEmptyHints: true }); }
+        catch (error) { errors.push(`Part 2, câu ${index + 1}: ${error instanceof Error ? error.message : 'Chữ in sẵn không hợp lệ.'}`); }
+        if (question.type === 'short-answer') {
+          try {
+            const variants = parseListeningPart2InputVariants(question.inputAnswerVariants);
+            if (variants?.length && !question.acceptedAnswers?.some(answer => normalizeExamText(answer))) errors.push(`Part 2, câu ${index + 1}: inputAnswerVariants cần đáp án gốc.`);
+          } catch (error) { errors.push(`Part 2, câu ${index + 1}: ${error instanceof Error ? error.message : 'Cách nhập tương đương không hợp lệ.'}`); }
+        }
+      });
     }
     if (content.moduleId === 'starter' && content.paperId === 'reading-writing') {
       validateStarterReadingWritingPart(part, partIndex, errors);
@@ -1198,6 +1238,7 @@ export function sanitizeExamContentForStudent(content: ExamPaperContent): ExamPa
         const safe: any = structuredClone(question);
         delete safe.correctOptionIds;
         delete safe.acceptedAnswers;
+        delete safe.inputAnswerVariants;
         delete safe.explanation;
         delete safe.modelAnswer;
         delete safe.writingGrading;

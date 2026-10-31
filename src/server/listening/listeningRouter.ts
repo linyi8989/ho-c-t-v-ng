@@ -14,7 +14,7 @@ import {
   LISTENING_LIBRARY_SCHEMA_VERSION,
   resolveListeningModuleId,
 } from '../../features/listening-library/registry.js';
-import { gradeListeningAttempt, LISTENING_GRADING_VERSION } from './listeningGrader.js';
+import { gradeListeningAttempt, listeningGradingVersion } from './listeningGrader.js';
 import {
   buildListeningActivityAnswerDetails,
   buildListeningReviewTranscripts,
@@ -1405,7 +1405,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
         durationSeconds,
         timedOut,
         status: 'completed',
-        gradingVersion: LISTENING_GRADING_VERSION,
+        gradingVersion: listeningGradingVersion(version.content),
         createdAt: completedAt,
         updatedAt: completedAt,
       };
@@ -1433,7 +1433,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           schemaVersion: Number(ticket.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
           setId: ticket.setId,
           versionId: ticket.versionId,
-          gradingVersion: LISTENING_GRADING_VERSION,
+          gradingVersion: listeningGradingVersion(version.content),
           visualReview,
         },
         reviewPolicy: {
@@ -1441,7 +1441,7 @@ export function createListeningRouter(dependencies: ListeningRouterDependencies)
           showExplanationImmediately: false,
           policyVersion: 2,
         },
-        gradingVersion: LISTENING_GRADING_VERSION,
+        gradingVersion: listeningGradingVersion(version.content),
         createdAt: completedAt,
         updatedAt: completedAt,
       };

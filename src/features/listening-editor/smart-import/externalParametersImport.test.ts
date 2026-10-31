@@ -44,6 +44,51 @@ test('Part 2 external parameters preserve IDs, variants and the manual crop hand
   assert.deepEqual(imported.questions[0].blanks[0].acceptedAnswers, ['Main', 'Main Street']);
   assert.match(imported.questions[0].prompt, /\{\{blank-/);
   assert.doesNotMatch(imported.questions[0].prompt, /\{\{blank\}\}/);
+  assert.equal(imported.questions[0].prompt, `Lives at: 17 {{${current.questions[0].blanks[0].id}}} Street`);
+});
+
+test('Part 2 external affixes are optional for old JSON and invalid hints are rejected atomically', () => {
+  const payload = JSON.parse(externalParametersTemplate(2));
+  delete payload.questions[0].answerPrefix;
+  delete payload.questions[0].answerSuffix;
+  payload.questions[0].prompt = 'Lives at: {{blank}} Street';
+  const current = createDefaultMoverListeningContent().parts[1];
+  const imported = importPart2Analysis(current, parseExternalParametersImport(2, JSON.stringify(payload)).data);
+  assert.equal(imported.questions[0].prompt, `Lives at: {{${current.questions[0].blanks[0].id}}} Street`);
+  const original = structuredClone(current);
+  for (const [field, invalid] of [['answerPrefix', null], ['answerPrefix', 17], ['answerPrefix', 'x'.repeat(21)], ['answerSuffix', 'x'.repeat(81)], ['answerSuffix', '{{blank}}']] as const) {
+    const malformed = structuredClone(payload);
+    malformed.questions[0][field] = invalid;
+    assert.throws(() => parseExternalParametersImport(2, JSON.stringify(malformed)), ExternalParametersImportError);
+  }
+  assert.deepEqual(current, original);
+});
+
+test('Part 2 input-only variants import separately, clear stale replacements and never attach to an unknown key', () => {
+  const current = createDefaultMoverListeningContent().parts[1];
+  const source = JSON.parse(externalParametersTemplate(2));
+  const q = source.questions[4];
+  q.acceptedAnswers = ['four']; q.inputAnswerVariants = ['4', 'four years', '4 years'];
+  const imported = importPart2Analysis(current, parseExternalParametersImport(2, JSON.stringify(source)).data);
+  assert.deepEqual(imported.questions[4].blanks[0].acceptedAnswers, ['four']);
+  assert.deepEqual(imported.questions[4].blanks[0].inputAnswerVariants, ['4', 'four years', '4 years']);
+  assert.deepEqual(imported.questions.map(row => row.id), current.questions.map(row => row.id));
+  const noExtras = structuredClone(source); delete noExtras.questions[4].inputAnswerVariants;
+  const replaced = importPart2Analysis(imported, parseExternalParametersImport(2, JSON.stringify(noExtras)).data);
+  assert.equal(replaced.questions[4].blanks[0].inputAnswerVariants, undefined);
+  const partial = importPart2Analysis(imported, { part: 2, questions: [{ questionNumber: 5, prompt: 'Years of tennis:' }] });
+  assert.deepEqual(partial.questions[4].blanks[0].inputAnswerVariants, ['4', 'four years', '4 years']);
+  const cleared = importPart2Analysis(imported, { part: 2, questions: [{ questionNumber: 5, inputAnswerVariants: [] }] });
+  assert.equal(cleared.questions[4].blanks[0].inputAnswerVariants, undefined);
+  for (const invalid of [null, 'four', [4], [''], ['a\nb'], ['x'.repeat(201)], Array.from({ length: 21 }, (_, i) => String(i))]) {
+    const malformed = structuredClone(source); malformed.questions[4].inputAnswerVariants = invalid;
+    assert.throws(() => parseExternalParametersImport(2, JSON.stringify(malformed)), /Thông số bên ngoài/);
+  }
+  const noKey = structuredClone(source); delete noKey.questions[4].acceptedAnswers;
+  assert.throws(() => parseExternalParametersImport(2, JSON.stringify(noKey)), /Thông số bên ngoài/);
+  assert.throws(() => importPart2Analysis(current, { part: 2, questions: [{ questionNumber: 5, inputAnswerVariants: ['4'] }] }), /đáp án gốc/);
+  assert.match(externalParametersModelInstructions(2), /inputAnswerVariants/);
+  assert.match(externalParametersModelInstructions(2), /chỉ dùng chấm input và không dùng hiển thị/);
 });
 
 test('Part 3 external parameters validate example, five mappings and one distractor without exposing anchor offsets', () => {

@@ -94,7 +94,7 @@ function FlyerPart2Editor({ token, part, assets, onAssets, onChange }: { token: 
   useEffect(() => {
     if (needsMigration) commit(normalizedUnit);
   }, [needsMigration, unit.id]);
-  return <StarterSpecialPartEditor token={token} part={normalizedUnit} assets={assets} onAssets={onAssets} onChange={commit} />;
+  return <StarterSpecialPartEditor token={token} part={normalizedUnit} assets={assets} onAssets={onAssets} onChange={commit} printedAnswerHints />;
 }
 
 export default function FlyerListeningAuthoring({ token, part, assets, onAssets, onChange }: { token: string; part: ExamPartContent; assets: ListeningAsset[]; onAssets: (asset: ListeningAsset) => void; onChange: (part: ExamPartContent) => void }) {

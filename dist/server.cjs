@@ -8372,6 +8372,7 @@ function normalizeFixedPetWritingContent(content) {
 // src/features/exam-platform/fceReadingMigration.ts
 var FCE_READING_TEMPLATE_VERSION = "fce-reading-3-v1";
 var FCE_READING_DEFAULT_COUNTS = [8, 7, 15];
+var FCE_READING_PART3_PASSAGE_MAX_LENGTH = 2e4;
 var FCE_READING_VARIANTS = [
   "passage-four-choice",
   "gapped-text-letter-entry",
@@ -8393,6 +8394,17 @@ var FCE_READING_PART_HEADERS = [
 ];
 var makeId7 = (prefix) => `${prefix}-${crypto.randomUUID()}`;
 var normalized6 = (value) => String(value ?? "").trim().normalize("NFKC").toLocaleLowerCase("en");
+function parseFceReadingPart3Passage(value) {
+  if (value === void 0) return void 0;
+  if (typeof value !== "string") throw new Error("FCE Reading Part 3: passage ph\u1EA3i l\xE0 v\u0103n b\u1EA3n.");
+  if (value.length > FCE_READING_PART3_PASSAGE_MAX_LENGTH) {
+    throw new Error(`FCE Reading Part 3: passage kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${FCE_READING_PART3_PASSAGE_MAX_LENGTH} k\xFD t\u1EF1.`);
+  }
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+    throw new Error("FCE Reading Part 3: passage ch\u1EE9a k\xFD t\u1EF1 \u0111i\u1EC1u khi\u1EC3n kh\xF4ng h\u1EE3p l\u1EC7.");
+  }
+  return value.trim() || void 0;
+}
 function descriptor7(part2) {
   if (part2 === 1) return { family: "choice", subtype: "single", variant: FCE_READING_VARIANTS[0], schemaVersion: 1, importReadiness: "content-ready" };
   if (part2 === 2) return { family: "text-entry", subtype: "letter", variant: FCE_READING_VARIANTS[1], schemaVersion: 1, importReadiness: "content-ready" };
@@ -8475,7 +8487,12 @@ function normalizePart6(part2, partNumber, startNumber) {
   if (partNumber === 1 || partNumber === 2) {
     next.passage = part2.passage?.trim() || source?.passage?.trim() || (partNumber === 2 ? questions.map((question) => `[[${question.displayNumber}]]`).join("\n\n") : "Enter the complete reading passage here.");
   } else {
-    delete next.passage;
+    const passage = Object.hasOwn(part2, "passage") ? part2.passage : source?.passage;
+    if (passage !== void 0) next.passage = passage;
+    else delete next.passage;
+    if (typeof next.passage === "string" && next.passage.trim()) {
+      next.interaction = { ...descriptor7(partNumber), importReadiness: "content-ready" };
+    }
   }
   if (partNumber !== 3) {
     delete next.imageAssetId;
@@ -8923,6 +8940,10 @@ function formatListeningReviewAnswer(value) {
 
 // src/server/listening/listeningGrader.ts
 var LISTENING_GRADING_VERSION = "listening-five-part-v2";
+var LISTENING_INPUT_VARIANTS_GRADING_VERSION = "listening-five-part-input-variants-v1";
+function listeningGradingVersion(content) {
+  return content.parts[1].questions.some((question) => question.blanks.some((blank) => blank.inputAnswerVariants?.length && blank.acceptedAnswers.some((value) => normalizeListeningTextAnswer(value)))) ? LISTENING_INPUT_VARIANTS_GRADING_VERSION : LISTENING_GRADING_VERSION;
+}
 function normalizeListeningTextAnswer(value) {
   return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
 }
@@ -8931,7 +8952,8 @@ function gradeTextQuestion(question, answer) {
   const correct = question.blanks.every((blank) => {
     const actual = normalizeListeningTextAnswer(answer?.[blank.id]);
     if (actual) unanswered = false;
-    return Boolean(actual) && blank.acceptedAnswers.some(
+    const hasOfficialAnswer = blank.acceptedAnswers.some((value) => normalizeListeningTextAnswer(value));
+    return Boolean(actual) && hasOfficialAnswer && [...blank.acceptedAnswers, ...blank.inputAnswerVariants || []].some(
       (accepted) => normalizeListeningTextAnswer(accepted) === actual
     );
   });
@@ -9043,6 +9065,7 @@ function gradeListeningAttempt(content, answers) {
   const unansweredCount = questions.filter((question) => question.unanswered).length;
   const incorrectCount = questions.length - correctCount - unansweredCount;
   return {
+    gradingVersion: listeningGradingVersion(content),
     score: Math.round(correctCount / 25 * 100),
     correctCount,
     incorrectCount,
@@ -11020,6 +11043,31 @@ var import_express4 = __toESM(require("express"), 1);
 var import_fs3 = __toESM(require("fs"), 1);
 var import_path3 = __toESM(require("path"), 1);
 
+// src/features/listening/part2AnswerVariants.ts
+var LISTENING_PART2_INPUT_VARIANTS_MAX_COUNT = 20;
+var LISTENING_PART2_INPUT_VARIANT_MAX_LENGTH = 200;
+function parseListeningPart2InputVariants(value) {
+  if (value === void 0) return void 0;
+  if (!Array.isArray(value)) throw new Error("inputAnswerVariants ph\u1EA3i l\xE0 m\u1EA3ng chu\u1ED7i v\u0103n b\u1EA3n.");
+  if (value.length > LISTENING_PART2_INPUT_VARIANTS_MAX_COUNT) {
+    throw new Error(`inputAnswerVariants ch\u1EC9 nh\u1EADn t\u1ED1i \u0111a ${LISTENING_PART2_INPUT_VARIANTS_MAX_COUNT} c\xE1ch nh\u1EADp.`);
+  }
+  const seen = /* @__PURE__ */ new Set();
+  return value.flatMap((entry, index) => {
+    if (typeof entry !== "string" || !entry.trim()) {
+      throw new Error(`inputAnswerVariants[${index}] ph\u1EA3i l\xE0 chu\u1ED7i v\u0103n b\u1EA3n kh\xF4ng r\u1ED7ng.`);
+    }
+    const text10 = entry.normalize("NFKC").trim();
+    if (text10.length > LISTENING_PART2_INPUT_VARIANT_MAX_LENGTH || /[\r\n\u0000-\u001f\u007f]/.test(text10)) {
+      throw new Error(`inputAnswerVariants[${index}] ph\u1EA3i n\u1EB1m tr\xEAn m\u1ED9t d\xF2ng, t\u1ED1i \u0111a ${LISTENING_PART2_INPUT_VARIANT_MAX_LENGTH} k\xFD t\u1EF1.`);
+    }
+    const normalized7 = text10.toLocaleLowerCase("en").replace(/[\u2018\u2019\u02bc\u0060]/g, "'").replace(/\s+/g, " ");
+    if (seen.has(normalized7)) return [];
+    seen.add(normalized7);
+    return [text10.replace(/\s+/g, " ")];
+  });
+}
+
 // src/server/listening/listeningValidation.ts
 var isText = (value, max = 500) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max;
 var unique = (values) => new Set(values).size === values.length;
@@ -11118,6 +11166,11 @@ function validatePart2(part2, errors) {
       }
       if (!blank.acceptedAnswers?.length || blank.acceptedAnswers.some((answer) => !isText(answer, 200))) {
         errors.push(`Part 2 c\xE2u ${index + 1}: m\u1ED7i \xF4 tr\u1ED1ng c\u1EA7n \xEDt nh\u1EA5t m\u1ED9t \u0111\xE1p \xE1n.`);
+      }
+      try {
+        parseListeningPart2InputVariants(blank.inputAnswerVariants);
+      } catch (reason) {
+        errors.push(`Part 2 c\xE2u ${index + 1}: ${reason instanceof Error ? reason.message : "C\xE1ch nh\u1EADp t\u01B0\u01A1ng \u0111\u01B0\u01A1ng kh\xF4ng h\u1EE3p l\u1EC7."}`);
       }
     });
   });
@@ -11355,9 +11408,9 @@ function sanitizeListeningContentForStudent(content) {
   });
   copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }) => target);
   if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
-  copy.parts[1].questions = copy.parts[1].questions.map((question) => ({
+  copy.parts[1].questions = copy.parts[1].questions.map(({ inputAnswerVariants: _inputVariants, ...question }) => ({
     ...question,
-    blanks: question.blanks.map(({ acceptedAnswers: _answers, ...blank }) => blank)
+    blanks: question.blanks.map(({ acceptedAnswers: _answers, inputAnswerVariants: _blankInputVariants, ...blank }) => blank)
   }));
   if (copy.parts[2].displayMode === "connect-image") {
     delete copy.parts[2].correctConnections;
@@ -11388,6 +11441,52 @@ function sanitizeListeningContentForStudent(content) {
 
 // src/server/listening-smart-import/service.ts
 var import_node_crypto8 = __toESM(require("node:crypto"), 1);
+
+// src/features/listening/part2TextLayout.ts
+var blankPattern = /\{\{([a-zA-Z0-9_-]+)\}\}/g;
+function listeningPart2Layout(question) {
+  const matches = [...question.prompt.matchAll(blankPattern)];
+  if (!matches.length) return { label: question.prompt.trim(), tokens: [] };
+  const leading = question.prompt.slice(0, matches[0].index);
+  const colon = leading.indexOf(":");
+  const label = (colon >= 0 ? leading.slice(0, colon + 1) : leading).trim();
+  const tokens = [];
+  if (colon >= 0 && leading.slice(colon + 1).trim()) tokens.push({ type: "text", text: leading.slice(colon + 1).trim() });
+  matches.forEach((match, index) => {
+    tokens.push({ type: "blank", blankId: match[1] });
+    const text10 = question.prompt.slice((match.index || 0) + match[0].length, matches[index + 1]?.index ?? question.prompt.length).trim();
+    if (text10) tokens.push({ type: "text", text: text10 });
+  });
+  return { label, tokens };
+}
+function parseListeningPart2Affix(value, field) {
+  if (value === void 0) return void 0;
+  const max = field === "answerPrefix" ? 20 : 80;
+  if (typeof value !== "string") throw new Error(`${field} ph\u1EA3i l\xE0 chu\u1ED7i v\u0103n b\u1EA3n.`);
+  const text10 = value.normalize("NFKC").trim();
+  if (text10.length > max) throw new Error(`${field} kh\xF4ng \u0111\u01B0\u1EE3c v\u01B0\u1EE3t qu\xE1 ${max} k\xFD t\u1EF1.`);
+  if (/\{\{|\}\}|[\r\n]/.test(text10)) throw new Error(`${field} ch\u1EC9 ch\u1EE9a ch\u1EEF/k\xFD hi\u1EC7u in s\u1EB5n tr\xEAn m\u1ED9t d\xF2ng, kh\xF4ng ch\u1EE9a marker \xF4 tr\u1ED1ng.`);
+  return text10;
+}
+function composeListeningPart2Prompt(input) {
+  const prefix = parseListeningPart2Affix(input.answerPrefix, "answerPrefix");
+  const suffix = parseListeningPart2Affix(input.answerSuffix, "answerSuffix");
+  const marker = `{{${input.blankId}}}`;
+  const normalized7 = input.prompt.trim().replace(/_{2,}/g, "{{blank}}").replace(/\{\{blank\}\}/g, marker);
+  const prompt = normalized7.includes(marker) ? normalized7 : `${normalized7} ${marker}`.trim();
+  if (prefix === void 0 && suffix === void 0) return prompt;
+  const matches = [...prompt.matchAll(blankPattern)];
+  if (matches.length !== 1 || matches[0][1] !== input.blankId) throw new Error("Ch\u1EEF tr\u01B0\u1EDBc/sau \xF4 ch\u1EC9 \xE1p d\u1EE5ng cho c\xE2u c\xF3 \u0111\xFAng m\u1ED9t \xF4 tr\u1ED1ng.");
+  const layout = listeningPart2Layout({ prompt });
+  const blankIndex = layout.tokens.findIndex((token) => token.type === "blank");
+  const inlinePrefix = layout.tokens.slice(0, blankIndex).map((token) => token.type === "text" ? token.text : "").join(" ");
+  const inlineSuffix = layout.tokens.slice(blankIndex + 1).map((token) => token.type === "text" ? token.text : "").join(" ");
+  if (prefix !== void 0 && inlinePrefix && prefix !== inlinePrefix) throw new Error("answerPrefix m\xE2u thu\u1EABn v\u1EDBi ch\u1EEF tr\u01B0\u1EDBc \xF4 trong prompt; ch\u1EC9 gi\u1EEF nh\xE3n c\xE2u h\u1ECFi trong prompt.");
+  if (suffix !== void 0 && inlineSuffix && suffix !== inlineSuffix) throw new Error("answerSuffix m\xE2u thu\u1EABn v\u1EDBi ch\u1EEF sau \xF4 trong prompt; ch\u1EC9 gi\u1EEF nh\xE3n c\xE2u h\u1ECFi trong prompt.");
+  const effectivePrefix = prefix ?? inlinePrefix;
+  const label = effectivePrefix && layout.label && !layout.label.endsWith(":") ? `${layout.label}:` : layout.label;
+  return [label, effectivePrefix, marker, suffix ?? inlineSuffix].filter(Boolean).join(" ");
+}
 
 // src/features/listening-library/modules/mover/editor/colourCatalog.ts
 var MOVER_COLOUR_CATALOG = [
@@ -11513,8 +11612,8 @@ function responseSchemaFor(part2) {
       instruction: textSchema(500),
       exampleText: textSchema(500),
       illustrationCrop: cropSchema,
-      questions: { type: "array", items: { type: "object", properties: { questionNumber: numbered, prompt: textSchema() }, required: ["questionNumber", "prompt"], additionalProperties: false }, maxItems: 5 },
-      answers: { type: "array", items: { type: "object", properties: { questionNumber: numbered, correctAnswer: textSchema(300), answerVariants: { type: "array", items: textSchema(300), maxItems: 8 } }, required: ["questionNumber"], additionalProperties: false }, maxItems: 5 },
+      questions: { type: "array", items: { type: "object", properties: { questionNumber: numbered, prompt: textSchema(), answerPrefix: textSchema(20), answerSuffix: textSchema(80) }, required: ["questionNumber", "prompt"], additionalProperties: false }, maxItems: 5 },
+      answers: { type: "array", items: { type: "object", properties: { questionNumber: numbered, correctAnswer: textSchema(300), answerVariants: { type: "array", items: textSchema(300), maxItems: 8 }, inputAnswerVariants: { type: "array", items: textSchema(200), maxItems: 20 } }, required: ["questionNumber"], additionalProperties: false }, maxItems: 5 },
       warnings: { type: "array", items: textSchema(500) }
     },
     required: ["questions", "answers", "warnings"]
@@ -12168,7 +12267,7 @@ ${pastedText}` : "";
   if (part2 === 1) return `${common}
 ROLE question: detect every printed name, identify and separate the example, and locate the canonical scene. After removing the example there must be six draggable names. ROLE answer_key: read the five name-to-picture mappings. ROLE position_key: identify the five line endpoints on the picture/person side, never the name-side endpoints, plus the corresponding scene rectangle. Return questionScene, positionScene, printedNames, example, targets and answerMappings. Each target should have visualLabel, optional targetNumber, targetEndpoint and confidence; each mapping should have visualLabel/targetNumber and choiceLabel.${pasted}`;
   if (part2 === 2) return `${common}
-ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. ROLE answer_key supplies accepted answers numbered 1..5. Never infer an answer from the question image. Preserve text such as 4b exactly and split variants only when the source explicitly separates them with |. Return heading, instruction, exampleText, questions [{questionNumber,prompt}], answers [{questionNumber,correctAnswer,answerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
+ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. Separate each printed row into prompt (label only), answerPrefix (printed text before the blank, maximum 20 characters), answerSuffix (printed text after the blank, maximum 80 characters). Use empty strings for absent printed hints. Example: Address: 17 ___ Street => prompt "Address:", answerPrefix "17", answerSuffix "Street". These public hints come only from ROLE question, never from the answer key or audio. ROLE answer_key supplies ONLY the missing segment as accepted answers numbered 1..5 (e.g. Main, not 17 Main Street). Never infer an answer from the question image. Preserve text such as 4b exactly and split official answerVariants only when the source explicitly separates them with |. Keep correctAnswer and official answerVariants source-faithful for display. In the separate private inputAnswerVariants array, you MAY suggest equivalent input representations grounded in a verified official answer and question context: digits versus number words, or adding/omitting a unit only when the question fixes the same meaning. Example: Years of tennis, correctAnswer "four" => inputAnswerVariants ["4","four years","4 years"]. This is a narrow exception only for equivalent input representation, never invent a different answer. Use [] when no safe variants or no verified source answer. Do not invent synonyms, names, misspellings, or phone/code variants such as changing 4b or losing leading zeroes. Official answers still contain only the missing segment; inputAnswerVariants MAY accept a harmless repeated printed unit such as years when the same quantity/meaning is certain, but must not repeat arbitrary address/name/context text. Each input variant must be nonempty plain text on one line, at most 200 characters; at most 20 variants. These supplemental variants are used only to compare student input and NEVER to display answers. Return heading, instruction, exampleText, questions [{questionNumber,prompt,answerPrefix,answerSuffix}], answers [{questionNumber,correctAnswer,answerVariants,inputAnswerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
   if (part2 === 3) return `${common}
 ROLE question is the full worksheet: detect seven centre answer labels/regions with left/right anchor hints, six picture regions arranged three left and three right, and the printed example connection. ROLE answer_key is a two-column by three-row mapping; preserve side+row and do not flatten OCR order. Return questionAnswers, questionPictures, questionExample, answerKeyCells and warnings. The example is unscored and the remaining unused answer is the distractor.${pasted}`;
   if (part2 === 4) return `${common}
@@ -12365,17 +12464,26 @@ function answerVariants(entry) {
 function normalizePart22(raw, warnings) {
   const questionMap = normalizeNumberedEntries(list(raw?.questions), (entry) => {
     const prompt = cleanText(entry?.prompt || entry?.question, 1e3).replace(/_{2,}/g, "{{blank}}");
-    return prompt ? prompt : void 0;
+    const answerPrefix = parseListeningPart2Affix(entry?.answerPrefix, "answerPrefix");
+    const answerSuffix = parseListeningPart2Affix(entry?.answerSuffix, "answerSuffix");
+    if (!prompt && (answerPrefix !== void 0 || answerSuffix !== void 0)) throw new Error("Part 2: c\u1EA7n prompt khi cung c\u1EA5p ch\u1EEF tr\u01B0\u1EDBc/sau \xF4.");
+    if (!prompt) return void 0;
+    composeListeningPart2Prompt({ prompt, blankId: "blank", answerPrefix, answerSuffix });
+    return { prompt, ...answerPrefix !== void 0 ? { answerPrefix } : {}, ...answerSuffix !== void 0 ? { answerSuffix } : {} };
   }, warnings, "Part 2 prompts");
   const answerMap = normalizeNumberedEntries(list(raw?.answers).length ? list(raw.answers) : list(raw?.questions), (entry) => {
-    const answers = answerVariants(entry);
-    return answers.length ? answers : void 0;
+    const officialAlternatives = answerVariants(entry);
+    const primary = answerVariants({ correctAnswer: entry?.correctAnswer ?? entry?.answer });
+    const answers = entry?.inputAnswerVariants !== void 0 && primary.length ? [...primary, ...officialAlternatives].filter((answer, index, all2) => all2.findIndex((candidate) => comparable(candidate) === comparable(answer)) === index).slice(0, 8) : officialAlternatives;
+    const inputAnswerVariants = parseListeningPart2InputVariants(entry?.inputAnswerVariants);
+    if (inputAnswerVariants?.length && !answers.length) throw new Error("Part 2: inputAnswerVariants c\u1EA7n \u0111\xE1p \xE1n g\u1ED1c ch\u1EAFc ch\u1EAFn trong c\xF9ng c\xE2u.");
+    return answers.length ? { acceptedAnswers: answers, ...inputAnswerVariants !== void 0 ? { inputAnswerVariants } : {} } : void 0;
   }, warnings, "Part 2 answer key", true);
   const numbers = /* @__PURE__ */ new Set([...questionMap.keys(), ...answerMap.keys()]);
   const questions = [...numbers].sort().flatMap((number2) => {
     const valid = questionNumber(number2);
     if (!valid) return [];
-    return [{ questionNumber: valid, prompt: questionMap.get(number2), acceptedAnswers: answerMap.get(number2) }];
+    return [{ questionNumber: valid, ...questionMap.get(number2), ...answerMap.get(number2) }];
   });
   if (questionMap.size !== 5) warnings.push(`Part 2: nh\u1EADn ${questionMap.size}/5 prompt \u0111\xE1nh s\u1ED1.`);
   if (answerMap.size !== 5) warnings.push(`Part 2: nh\u1EADn ${answerMap.size}/5 answer mappings; m\u1EE5c thi\u1EBFu gi\u1EEF d\u1EEF li\u1EC7u c\u0169.`);
@@ -14466,7 +14574,7 @@ function createListeningRouter(dependencies) {
         durationSeconds,
         timedOut,
         status: "completed",
-        gradingVersion: LISTENING_GRADING_VERSION,
+        gradingVersion: listeningGradingVersion(version.content),
         createdAt: completedAt,
         updatedAt: completedAt
       };
@@ -14494,7 +14602,7 @@ function createListeningRouter(dependencies) {
           schemaVersion: Number(ticket.schemaVersion || LISTENING_LIBRARY_SCHEMA_VERSION),
           setId: ticket.setId,
           versionId: ticket.versionId,
-          gradingVersion: LISTENING_GRADING_VERSION,
+          gradingVersion: listeningGradingVersion(version.content),
           visualReview
         },
         reviewPolicy: {
@@ -14502,7 +14610,7 @@ function createListeningRouter(dependencies) {
           showExplanationImmediately: false,
           policyVersion: 2
         },
-        gradingVersion: LISTENING_GRADING_VERSION,
+        gradingVersion: listeningGradingVersion(version.content),
         createdAt: completedAt,
         updatedAt: completedAt
       };
@@ -14621,6 +14729,27 @@ function splitStarterPart2ExampleLines(value = "") {
   return [inline.slice(0, splitAt).trim(), inline.slice(splitAt).trim()].filter(Boolean);
 }
 
+// src/features/exam-platform/youngListeningPart2.ts
+function isYoungListeningPart2(identity, partNumber) {
+  return identity?.paperId === "listening" && (identity.moduleId === "starter" || identity.moduleId === "flyer") && partNumber === 2;
+}
+function parseYoungListeningAffixes(raw, options2 = {}) {
+  const answerPrefix = parseListeningPart2Affix(raw.answerPrefix, "answerPrefix");
+  const answerSuffix = parseListeningPart2Affix(raw.answerSuffix, "answerSuffix");
+  if (typeof raw.prompt === "string" || typeof raw.template === "string") {
+    composeListeningPart2Prompt({
+      prompt: typeof raw.template === "string" ? raw.template : raw.prompt,
+      blankId: "answer",
+      answerPrefix: options2.allowLegacyEmptyHints && answerPrefix === "" ? void 0 : answerPrefix,
+      answerSuffix: options2.allowLegacyEmptyHints && answerSuffix === "" ? void 0 : answerSuffix
+    });
+  }
+  return {
+    ...answerPrefix ? { answerPrefix } : {},
+    ...answerSuffix ? { answerSuffix } : {}
+  };
+}
+
 // src/features/exam-platform/readingExplanations.ts
 var READING_EXPLANATION_MAX_LENGTH = 4e3;
 function supportsReadingExplanations(content) {
@@ -14735,6 +14864,15 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition, p
     };
   }
   const candidate = record(candidateValue);
+  let fceReadingPart3Passage;
+  const fceReadingPart3 = paperIdentity?.moduleId === "fce" && paperIdentity.paperId === "reading" && currentPart.part === 3;
+  if (fceReadingPart3) {
+    try {
+      fceReadingPart3Passage = parseFceReadingPart3Passage(candidate.passage);
+    } catch (error) {
+      return { part: currentPart, errors: [error instanceof Error ? error.message : "FCE Reading Part 3: passage kh\xF4ng h\u1EE3p l\u1EC7."], warnings };
+    }
+  }
   const rawQuestions = Array.isArray(candidate.questions) ? candidate.questions : null;
   if (!rawQuestions) errors.push("Smart Import ph\u1EA3i c\xF3 m\u1EA3ng questions.");
   if (rawQuestions && !definition.questionCountFlexible && rawQuestions.length !== definition.questionCount) {
@@ -14783,6 +14921,23 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition, p
       warnings.push(`C\xE2u ${questionIndex + 1}: ch\u01B0a c\xF3 \u0111\xE1p \xE1n ch\u1EA5p nh\u1EADn; gi\xE1o vi\xEAn ph\u1EA3i nh\u1EADp trong editor.`);
     }
     let explanation;
+    let printedHints = {};
+    let inputAnswerVariants;
+    if (isYoungListeningPart2(paperIdentity, currentPart.part)) {
+      try {
+        printedHints = parseYoungListeningAffixes(raw);
+      } catch (error) {
+        errors.push(`C\xE2u ${questionIndex + 1}: ${error instanceof Error ? error.message : "Ch\u1EEF in s\u1EB5n kh\xF4ng h\u1EE3p l\u1EC7."}`);
+      }
+      if (type === "short-answer") {
+        try {
+          inputAnswerVariants = parseListeningPart2InputVariants(raw.inputAnswerVariants);
+          if (inputAnswerVariants?.length && !acceptedAnswers.length) errors.push(`C\xE2u ${questionIndex + 1}: inputAnswerVariants c\u1EA7n \u0111\xE1p \xE1n g\u1ED1c \u0111\xE3 \u0111\u01B0\u1EE3c x\xE1c minh.`);
+        } catch (error) {
+          errors.push(`C\xE2u ${questionIndex + 1}: ${error instanceof Error ? error.message : "C\xE1ch nh\u1EADp t\u01B0\u01A1ng \u0111\u01B0\u01A1ng kh\xF4ng h\u1EE3p l\u1EC7."}`);
+        }
+      }
+    }
     if (paperIdentity && isReadingExplanationQuestion(paperIdentity, { type })) {
       try {
         explanation = parseReadingExplanation(raw.explanation);
@@ -14802,6 +14957,8 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition, p
       options: options2,
       correctOptionIds,
       acceptedAnswers,
+      ...inputAnswerVariants?.length ? { inputAnswerVariants } : {},
+      ...printedHints,
       ...explanation ? { explanation } : {},
       points: Number.isFinite(points) && points > 0 && points <= 100 ? points : currentQuestion?.points || definition.pointsPerQuestion || 1,
       ...Number(raw.maxSelections) > 0 ? { maxSelections: Number(raw.maxSelections) } : {},
@@ -14819,7 +14976,7 @@ function normalizeExamSmartImportPart(currentPart, candidateValue, definition, p
       part: currentPart.part,
       title: text3(candidate.title, 240) || currentPart.title,
       instruction: text3(candidate.instruction, 4e3) || currentPart.instruction,
-      ...text3(candidate.passage, 2e4) ? { passage: text3(candidate.passage, 2e4) } : {},
+      ...fceReadingPart3 ? fceReadingPart3Passage ? { passage: fceReadingPart3Passage } : {} : text3(candidate.passage, 2e4) ? { passage: text3(candidate.passage, 2e4) } : {},
       ...currentPart.imageAssetId ? { imageAssetId: currentPart.imageAssetId } : {},
       ...currentPart.imageUrl ? { imageUrl: currentPart.imageUrl } : {},
       ...currentPart.audioAssetId ? { audioAssetId: currentPart.audioAssetId } : {},
@@ -15296,7 +15453,13 @@ function validateFceReadingPart(part2, partIndex, errors) {
     }
   }
   if (partNumber === 3) {
-    if (!text3(part2.imageAssetId, 180)) errors.push(`${label}: ph\u1EA3i t\u1EA3i \u1EA3nh ch\u1EE9a b\u1ED1n \u0111o\u1EA1n/ng\u01B0\u1EDDi A\u2013D hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.`);
+    let passage;
+    try {
+      passage = parseFceReadingPart3Passage(part2.passage);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `${label}: passage kh\xF4ng h\u1EE3p l\u1EC7.`);
+    }
+    if (!text3(part2.imageAssetId, 180) && !passage) errors.push(`${label}: c\u1EA7n v\u0103n b\u1EA3n ho\u1EB7c \u1EA3nh ch\u1EE9a b\u1ED1n \u0111o\u1EA1n/ng\u01B0\u1EDDi A\u2013D hi\u1EC3n th\u1ECB b\xEAn tr\xE1i.`);
     const signatures = part2.questions.map((question) => question.options.map((option) => `${text3(option.label, 20).toUpperCase()}\0${text3(option.text, 1e3)}`).join(""));
     if (new Set(signatures).size !== 1) errors.push(`${label}: m\u1ECDi c\xE2u ph\u1EA3i d\xF9ng chung \u0111\xFAng b\u1ED1n nh\xE3n A\u2013D.`);
   }
@@ -15464,6 +15627,23 @@ function validateExamPaperContent(content) {
       if (splitStarterPart2ExampleLines(unit.passage).length !== 2) {
         errors.push("Starters Listening Part 2: ph\u1EA3i nh\u1EADp \u0111\u1EE7 \u0111\xFAng 2 example kh\xF4ng ch\u1EA5m \u0111i\u1EC3m, m\u1ED7i example m\u1ED9t d\xF2ng.");
       }
+    }
+    if (isYoungListeningPart2(content, part2?.part) && Array.isArray(part2?.questions)) {
+      part2.questions.forEach((question, index) => {
+        try {
+          parseYoungListeningAffixes(question, { allowLegacyEmptyHints: true });
+        } catch (error) {
+          errors.push(`Part 2, c\xE2u ${index + 1}: ${error instanceof Error ? error.message : "Ch\u1EEF in s\u1EB5n kh\xF4ng h\u1EE3p l\u1EC7."}`);
+        }
+        if (question.type === "short-answer") {
+          try {
+            const variants = parseListeningPart2InputVariants(question.inputAnswerVariants);
+            if (variants?.length && !question.acceptedAnswers?.some((answer) => normalizeExamText(answer))) errors.push(`Part 2, c\xE2u ${index + 1}: inputAnswerVariants c\u1EA7n \u0111\xE1p \xE1n g\u1ED1c.`);
+          } catch (error) {
+            errors.push(`Part 2, c\xE2u ${index + 1}: ${error instanceof Error ? error.message : "C\xE1ch nh\u1EADp t\u01B0\u01A1ng \u0111\u01B0\u01A1ng kh\xF4ng h\u1EE3p l\u1EC7."}`);
+          }
+        }
+      });
     }
     if (content.moduleId === "starter" && content.paperId === "reading-writing") {
       validateStarterReadingWritingPart(part2, partIndex, errors);
@@ -15651,6 +15831,7 @@ function sanitizeExamContentForStudent(content) {
           const safe = structuredClone(question);
           delete safe.correctOptionIds;
           delete safe.acceptedAnswers;
+          delete safe.inputAnswerVariants;
           delete safe.explanation;
           delete safe.modelAnswer;
           delete safe.writingGrading;
@@ -15826,6 +16007,10 @@ function displayCorrectAnswer(question) {
 
 // src/server/exam-platform/examGrader.ts
 var EXAM_GRADING_VERSION = "exam-platform-objective-v2";
+var EXAM_INPUT_VARIANTS_GRADING_VERSION = "exam-platform-young-listening-input-variants-v1";
+function examGradingVersion(content) {
+  return content.parts.some((part2) => isYoungListeningPart2(content, part2.part) && part2.questions.some((question) => question.type === "short-answer" && question.inputAnswerVariants?.length)) ? EXAM_INPUT_VARIANTS_GRADING_VERSION : EXAM_GRADING_VERSION;
+}
 function answerEmpty(value) {
   return Array.isArray(value) ? value.length === 0 : !normalizeExamText(value);
 }
@@ -15837,14 +16022,14 @@ function writingAnswer(question, value) {
   }
   return { text: "", prompt: question.prompt };
 }
-function gradeObjective(question, answer) {
+function gradeObjective(question, answer, allowInputVariants = false) {
   if (question.correctOptionIds.length) {
     const actual2 = new Set((Array.isArray(answer) ? answer : [answer || ""]).filter(Boolean));
     const expected = new Set(question.correctOptionIds);
     return actual2.size === expected.size && [...expected].every((item) => actual2.has(item));
   }
   const actual = normalizeExamText(Array.isArray(answer) ? answer.join(" ") : answer);
-  return question.acceptedAnswers.some((value) => normalizeExamText(value) === actual);
+  return question.acceptedAnswers.some((value) => normalizeExamText(value) === actual) || allowInputVariants && Boolean(question.acceptedAnswers.length) && (question.inputAnswerVariants || []).some((value) => normalizeExamText(value) === actual);
 }
 function displayUserAnswer(question, answer) {
   if (!question.options.length) return answer || "";
@@ -15999,7 +16184,7 @@ function gradeExamAttempt(content, answers) {
           return;
         }
         objectiveMaximum += question.points;
-        const correct = !unanswered && gradeObjective(question, answer);
+        const correct = !unanswered && gradeObjective(question, answer, question.type === "short-answer" && isYoungListeningPart2(content, part2.part));
         if (unanswered) unansweredCount += 1;
         else if (correct) correctCount += 1;
         else incorrectCount += 1;
@@ -16032,7 +16217,7 @@ function gradeExamAttempt(content, answers) {
   }
   const objectiveScore = objectiveMaximum > 0 ? Math.round(objectiveAwarded / objectiveMaximum * 100) : 0;
   return {
-    gradingVersion: EXAM_GRADING_VERSION,
+    gradingVersion: examGradingVersion(content),
     status: pendingManualCount ? "pending_review" : "completed",
     score: pendingManualCount ? objectiveScore : objectiveScore,
     objectiveScore,
@@ -19334,7 +19519,7 @@ ${canonical.rubric}` : "",
           paperId,
           versionNumber,
           schemaVersion: resolvedContent.schemaVersion,
-          gradingVersion: EXAM_GRADING_VERSION,
+          gradingVersion: examGradingVersion(resolvedContent),
           status: "published",
           content: structuredClone(resolvedContent),
           createdBy: req.user.id,
@@ -19633,7 +19818,7 @@ ${canonical.rubric}` : "",
         className: ticket.className || "",
         clientRunId: ticket.clientRunId,
         runSecretHash: sha2563(runSecret),
-        gradingVersion: EXAM_GRADING_VERSION,
+        gradingVersion: grade.gradingVersion,
         status: grade.status,
         score: grade.score,
         objectiveScore: grade.objectiveScore,

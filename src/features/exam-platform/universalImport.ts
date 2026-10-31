@@ -21,8 +21,10 @@ import { isFixedKetListeningContent, normalizeFixedKetListeningContent } from '.
 import { isFixedPetReadingContent, normalizeFixedPetReadingContent } from './petReadingMigration';
 import { isFixedPetListeningContent, normalizeFixedPetListeningContent } from './petListeningMigration';
 import { isFixedPetWritingContent, normalizeFixedPetWritingContent } from './petWritingMigration';
-import { FCE_READING_DEFAULT_COUNTS, isFixedFceReadingContent, normalizeFixedFceReadingContent } from './fceReadingMigration';
+import { FCE_READING_DEFAULT_COUNTS, isFixedFceReadingContent, normalizeFixedFceReadingContent, parseFceReadingPart3Passage } from './fceReadingMigration';
 import { isReadingExplanationQuestion, parseReadingExplanation } from './readingExplanations';
+import { isYoungListeningPart2, parseYoungListeningAffixes } from './youngListeningPart2';
+import { parseListeningPart2InputVariants } from '../listening/part2AnswerVariants';
 
 const MAX_PARTS = 20;
 const MAX_BLOCKS_PER_PART = 20;
@@ -248,7 +250,7 @@ function matchingLayout(blockValue: Row, interaction: ExamInteractionDescriptor,
   };
 }
 
-function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[], ketListeningPictures = false, readingContent?: ExamPaperContent) {
+function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor, currentPart: ExamPartContent | undefined, blockIndex: number, nextNumber: () => number, warnings: string[], ketListeningPictures = false, readingContent?: ExamPaperContent, partNumber = currentPart?.part || 0) {
   const rawQuestions = rawBlockQuestions(blockValue);
   if (!rawQuestions || !rawQuestions.length) throw new Error(`Block ${blockIndex + 1} phải có mảng questions không rỗng.`);
   if (rawQuestions.length > MAX_QUESTIONS_PER_BLOCK) throw new Error(`Block ${blockIndex + 1} vượt quá ${MAX_QUESTIONS_PER_BLOCK} câu.`);
@@ -285,6 +287,17 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
     const displayNumber = Number(rawQuestion.displayNumber ?? rawQuestion.questionNumber);
     const answerLength = Number(rawQuestion.answerLength);
     const writingGrading = row(rawQuestion.writingGrading);
+    const youngListening = isYoungListeningPart2(readingContent, partNumber);
+    let inputAnswerVariants: string[] | undefined;
+    if (youngListening && type === 'short-answer') {
+      inputAnswerVariants = parseListeningPart2InputVariants(answerKey.inputAnswerVariants !== undefined ? answerKey.inputAnswerVariants : rawQuestion.inputAnswerVariants);
+      if (inputAnswerVariants?.length && (!trusted || !acceptedAnswers.length)) throw new Error(`Part 2, câu ${displayNumber || questionIndex + 1}: inputAnswerVariants cần đáp án gốc đã được xác minh.`);
+    }
+    let printedHints: ReturnType<typeof parseYoungListeningAffixes> = {};
+    if (youngListening) {
+      try { printedHints = parseYoungListeningAffixes(rawQuestion); }
+      catch (error) { throw new Error(`Part 2, câu ${displayNumber || questionIndex + 1}: ${error instanceof Error ? error.message : 'Chữ in sẵn không hợp lệ.'}`); }
+    }
     let explanation: string | undefined;
     if (readingContent && isReadingExplanationQuestion(readingContent, { type })) {
       try { explanation = parseReadingExplanation(rawQuestion.explanation); }
@@ -307,14 +320,15 @@ function buildQuestions(blockValue: Row, interaction: ExamInteractionDescriptor,
       options,
       correctOptionIds,
       acceptedAnswers,
+      ...(inputAnswerVariants?.length ? { inputAnswerVariants } : {}),
       ...(explanation ? { explanation } : {}),
       points: Number.isFinite(points) && points > 0 && points <= 100 ? points : 1,
       ...(Number(rawQuestion.maxSelections) > 0 ? { maxSelections: Number(rawQuestion.maxSelections) } : {}),
       ...(Number(rawQuestion.maxWords) > 0 ? { maxWords: Number(rawQuestion.maxWords) } : {}),
       ...(Number(rawQuestion.minWords) > 0 ? { minWords: Number(rawQuestion.minWords) } : {}),
-      ...(cleanText(rawQuestion.answerPrefix, 20) ? { answerPrefix: cleanText(rawQuestion.answerPrefix, 20) } : currentQuestion?.answerPrefix !== undefined ? { answerPrefix: currentQuestion.answerPrefix } : {}),
+      ...(youngListening ? printedHints : cleanText(rawQuestion.answerPrefix, 20) ? { answerPrefix: cleanText(rawQuestion.answerPrefix, 20) } : currentQuestion?.answerPrefix !== undefined ? { answerPrefix: currentQuestion.answerPrefix } : {}),
       ...(Number.isInteger(answerLength) && answerLength > 0 ? { answerLength } : currentQuestion?.answerLength ? { answerLength: currentQuestion.answerLength } : {}),
-      ...(cleanText(rawQuestion.answerSuffix, 80) ? { answerSuffix: cleanText(rawQuestion.answerSuffix, 80) } : currentQuestion?.answerSuffix !== undefined ? { answerSuffix: currentQuestion.answerSuffix } : {}),
+      ...(!youngListening ? cleanText(rawQuestion.answerSuffix, 80) ? { answerSuffix: cleanText(rawQuestion.answerSuffix, 80) } : currentQuestion?.answerSuffix !== undefined ? { answerSuffix: currentQuestion.answerSuffix } : {} : {}),
       ...(type === 'long-writing' ? {
         rubric: cleanText(rawQuestion.rubric, 8_000) || 'Giáo viên chấm theo rubric của đề.',
         ...(cleanText(rawQuestion.modelAnswer, 20_000) ? { modelAnswer: cleanText(rawQuestion.modelAnswer, 20_000) } : {}),
@@ -417,6 +431,15 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
   const rawBlocks = Array.isArray(source.blocks) ? source.blocks : null;
   if (!rawBlocks?.length) throw new Error(`Part ${partNumber} phải có ít nhất một block.`);
   if (rawBlocks.length > MAX_BLOCKS_PER_PART) throw new Error(`Part ${partNumber} vượt quá ${MAX_BLOCKS_PER_PART} block.`);
+  const fceReadingPart3 = readingContent && isFixedFceReadingContent(readingContent) && partNumber === 3;
+  if (fceReadingPart3) {
+    parseFceReadingPart3Passage(source.passage);
+    rawBlocks.forEach((value: unknown) => {
+      const block = row(value);
+      parseFceReadingPart3Passage(block.passage);
+      parseFceReadingPart3Passage(row(block.content).passage);
+    });
+  }
   const warnings: string[] = [];
   const questions: ExamQuestion[] = [];
   const ketListeningPictures = fixedKetListening && partNumber === 1;
@@ -426,7 +449,7 @@ function buildPart(partValue: unknown, partIndex: number, current: ExamPartConte
     const blockNumber = Number(blockSource.blockNumber ?? blockIndex + 1);
     if (blockNumber !== blockIndex + 1) throw new Error(`Part ${partNumber}, block ở vị trí ${blockIndex + 1} phải có blockNumber=${blockIndex + 1}.`);
     const interaction = interactionDescriptor(blockSource.interaction);
-    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings, ketListeningPictures, readingContent);
+    let blockQuestions = buildQuestions(blockSource, interaction, current, blockIndex, nextNumber, warnings, ketListeningPictures, readingContent, partNumber);
     blockQuestions = applySceneQuestionContract(blockSource, interaction, blockQuestions, current, blockIndex, warnings);
     const geometryHints = parseGeometryHints(blockSource.geometryHints, blockQuestions, warnings);
     const layout = matchingLayout(blockSource, interaction, blockQuestions, geometryHints, warnings);

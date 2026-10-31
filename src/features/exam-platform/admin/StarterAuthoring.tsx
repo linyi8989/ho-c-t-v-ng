@@ -24,6 +24,7 @@ import {
 import { groupStarterPart3OptionCrops } from '../starterPart3Crops';
 import { buildStarterListeningBundlePrompt } from '../starterImportPrompt';
 import { joinStarterPart2ExampleLines, starterPart2ExampleEditorLines } from '../starterListeningPart2';
+import Part2InputVariantsField from '../../listening/admin/Part2InputVariantsField';
 import { examPartUnits, replaceExamPartUnit } from '../examStructure';
 import {
   STARTER_BASIC_COLOURS,
@@ -269,7 +270,7 @@ export function StarterQuickAssetPanel({
 
 const sameRegion = (first: unknown, second: unknown) => JSON.stringify(first) === JSON.stringify(second);
 
-export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartContent; onChange: (part: ExamPartContent) => void }) {
+export function StarterTextEntryEditor({ part, onChange, printedAnswerHints = false }: { part: ExamPartContent; onChange: (part: ExamPartContent) => void; printedAnswerHints?: boolean }) {
   const exampleLines = starterPart2ExampleEditorLines(part.passage);
   const updateExampleLine = (index: number, value: string) => onChange({
     ...part,
@@ -298,7 +299,7 @@ export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartConte
   return <div className="space-y-4" data-starter-special-editor="text-entry">
     <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
       <p className="text-sm font-black text-sky-950">Dạng điền ngắn · {part.questions.length} câu</p>
-      <p className="mt-1 text-xs font-semibold leading-5 text-sky-800">Dạng câu được cố định là short-answer. Đặt <code>____</code> tại vị trí ô trống; nếu không có ký hiệu này, ô trả lời sẽ nằm cuối câu.</p>
+      {printedAnswerHints ? <p className="mt-1 text-xs font-semibold leading-5 text-sky-800">Dạng câu được cố định là short-answer. Nội dung câu hỏi là nhãn của hàng; chữ in sẵn như “17” và “Street” được nhập riêng để nằm hai bên ô trả lời. Đề cũ có <code>____</code> vẫn giữ đúng vị trí ô trống.</p> : <p className="mt-1 text-xs font-semibold leading-5 text-sky-800">Dạng câu được cố định là short-answer. Đặt <code>____</code> tại vị trí ô trống; nếu không có ký hiệu này, ô trả lời sẽ nằm cuối câu.</p>}
     </div>
     <label className="block text-xs font-black text-slate-700">Tiêu đề nội dung<input value={part.title} onChange={event => onChange({ ...part, title: event.target.value })} className={`mt-1 ${fieldClass}`} placeholder="Ví dụ: THE LAKE CAFÉ" /></label>
     <section className="rounded-2xl border border-sky-200 bg-white p-4" data-starter-part2-example-editor>
@@ -312,7 +313,16 @@ export function StarterTextEntryEditor({ part, onChange }: { part: ExamPartConte
       {part.questions.map((question, questionIndex) => <div key={question.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <p className="text-sm font-black text-slate-800">Câu {questionIndex + 1}</p>
         <label className="mt-3 block text-xs font-black text-slate-700">Nội dung câu hỏi<textarea value={question.prompt} onChange={event => updateQuestion(questionIndex, { prompt: event.target.value })} className={`mt-1 min-h-16 ${fieldClass}`} /></label>
+        {printedAnswerHints && <><div className="mt-3 grid gap-3 sm:grid-cols-2" data-young-listening-part2-hint-editor>
+          <label className="block text-xs font-black text-slate-700">Chữ/ký hiệu trước ô<input aria-label={`Chữ trước ô câu ${questionIndex + 1}`} maxLength={20} value={typeof question.answerPrefix === 'string' ? question.answerPrefix : ''} onChange={event => updateQuestion(questionIndex, { answerPrefix: event.target.value })} className={`mt-1 ${fieldClass}`} placeholder="Ví dụ: 17" /></label>
+          <label className="block text-xs font-black text-slate-700">Chữ/ký hiệu sau ô<input aria-label={`Chữ sau ô câu ${questionIndex + 1}`} maxLength={80} value={typeof question.answerSuffix === 'string' ? question.answerSuffix : ''} onChange={event => updateQuestion(questionIndex, { answerSuffix: event.target.value })} className={`mt-1 ${fieldClass}`} placeholder="Ví dụ: Street" /></label>
+        </div>
+        <p className="mt-2 text-xs font-semibold text-slate-600">Chỉ nhập chữ đã in trên đề. Đáp án chấp nhận chỉ gồm phần học sinh phải điền giữa ô.</p></>}
         <label className="mt-3 block text-xs font-black text-slate-700">Đáp án chấp nhận (ngăn cách bằng |)<input value={question.acceptedAnswers.join(' | ')} onChange={event => updateQuestion(questionIndex, { acceptedAnswers: event.target.value.split('|').map(answer => answer.trim()).filter(Boolean) })} className={`mt-1 ${fieldClass}`} /></label>
+        {printedAnswerHints && <div data-young-listening-part2-input-variants-editor>
+          <Part2InputVariantsField label="Cách nhập tương đương — chỉ dùng để chấm (ngăn cách bằng |)" ariaLabel={`Cách nhập tương đương câu ${questionIndex + 1}`} value={question.inputAnswerVariants} onChange={inputAnswerVariants => updateQuestion(questionIndex, { inputAnswerVariants })} className="mt-1" />
+          <p className="mt-2 text-xs font-semibold text-slate-600">Giữ đáp án gốc ở trên. Các cách nhập bổ sung không được hiển thị cho học sinh; chỉ nhận cách viết cùng nghĩa, đúng đơn vị và ngữ cảnh câu hỏi.</p>
+        </div>}
       </div>)}
     </div>
   </div>;
@@ -473,9 +483,9 @@ function StarterImageOptionsEditor({
   </div>;
 }
 
-export function StarterSpecialPartEditor({ token, part, assets, onAssets, onChange }: { token: string; part: ExamPartContent; assets: ListeningAsset[]; onAssets: (asset: ListeningAsset) => void; onChange: (part: ExamPartContent) => void }) {
+export function StarterSpecialPartEditor({ token, part, assets, onAssets, onChange, printedAnswerHints = false }: { token: string; part: ExamPartContent; assets: ListeningAsset[]; onAssets: (asset: ListeningAsset) => void; onChange: (part: ExamPartContent) => void; printedAnswerHints?: boolean }) {
   if (part.interaction?.family === 'text-entry' && (part.interaction.variant === 'single-input' || (part.part === 2 && part.interaction.variant === 'inline-gap'))) {
-    return <StarterTextEntryEditor part={part} onChange={onChange} />;
+    return <StarterTextEntryEditor part={part} onChange={onChange} printedAnswerHints={printedAnswerHints} />;
   }
   if (part.interaction?.variant === 'image-options') {
     return <StarterImageOptionsEditor token={token} part={part} assets={assets} onAssets={onAssets} onChange={onChange} />;

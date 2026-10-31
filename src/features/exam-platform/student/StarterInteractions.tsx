@@ -6,6 +6,7 @@ import type { ExamAnswerValue, ExamAnswers, ExamInteractionRegion, ExamMatchingC
 import { examPartUnits } from '../examStructure';
 import { starterColourValue } from '../starterImport';
 import { splitStarterPart2ExampleLines } from '../starterListeningPart2';
+import { composeListeningPart2Prompt, listeningPart2Layout } from '../../listening/part2TextLayout';
 import {
   readExamMatchingConnections,
   starterMatchingModel,
@@ -77,7 +78,29 @@ export const normalizeStarterPart2PromptForMover = (prompt: string) => {
   return blankFound ? normalizedPrompt : `${prompt} {{answer}}`;
 };
 
-export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+function printedPart2DisplayPrompt(question: ExamPartContent['questions'][number]) {
+  const prompt = normalizeStarterPart2PromptForMover(question.prompt);
+  const layout = listeningPart2Layout({ prompt });
+  const blankIndex = layout.tokens.findIndex(token => token.type === 'blank');
+  if (layout.tokens.filter(token => token.type === 'blank').length !== 1) return prompt;
+  // Published legacy documents predate strict hint validation. Their inline
+  // source text wins over stale metadata; invalid metadata must not crash play.
+  const displayAffix = (value: unknown, max: number) => {
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.normalize('NFKC').trim();
+    return normalized && normalized.length <= max && !/\{\{|\}\}|[\r\n]/.test(normalized) ? normalized : undefined;
+  };
+  const inlinePrefix = layout.tokens.slice(0, blankIndex).some(token => token.type === 'text' && token.text);
+  const inlineSuffix = layout.tokens.slice(blankIndex + 1).some(token => token.type === 'text' && token.text);
+  return composeListeningPart2Prompt({
+    prompt,
+    blankId: 'answer',
+    answerPrefix: inlinePrefix ? undefined : displayAffix(question.answerPrefix, 20),
+    answerSuffix: inlineSuffix ? undefined : displayAffix(question.answerSuffix, 80),
+  });
+}
+
+export function StarterTextEntryView({ part, answers, onAnswer, printedAnswerHints = false }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void; printedAnswerHints?: boolean }) {
   const moverPart: ListeningPart2 = {
     part: 2,
     title: part.title,
@@ -88,7 +111,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     illustrationAssetId: part.imageAssetId,
     illustrationUrl: part.imageUrl,
     exampleText: part.passage,
-    questions: part.questions.map(question => ({ id: question.id, prompt: normalizeStarterPart2PromptForMover(question.prompt), blanks: [{ id: 'answer', acceptedAnswers: [] }] })),
+    questions: part.questions.map(question => ({ id: question.id, prompt: printedAnswerHints ? printedPart2DisplayPrompt(question) : normalizeStarterPart2PromptForMover(question.prompt), blanks: [{ id: 'answer', acceptedAnswers: [] }] })),
   };
   const moverAnswers = moverAnswerShell();
   moverAnswers.part2 = Object.fromEntries(part.questions.map(question => {
@@ -96,7 +119,7 @@ export function StarterTextEntryView({ part, answers, onAnswer }: { part: ExamPa
     const value = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(' ') : '';
     return [question.id, { answer: value }];
   }));
-  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} alignAnswersRight examplesAboveAnswers onAnswers={next => {
+  return <div id="starter-interaction" data-starter-interaction="text-entry" className="relative"><ListeningPart2View part={moverPart} answers={moverAnswers} exampleLines={splitStarterPart2ExampleLines(part.passage)} alignAnswersRight examplesAboveAnswers preservePrintedHints={printedAnswerHints} onAnswers={next => {
     part.questions.forEach(question => {
       const nextValue = next.part2[question.id]?.answer || '';
       if (nextValue !== moverAnswers.part2[question.id]?.answer) onAnswer(question.id, nextValue);
@@ -435,7 +458,7 @@ function SceneDrawView({ part, answers, onAnswer }: { part: ExamPartContent; ans
   </div>;
 }
 
-export default function StarterInteractionView(props: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
+export default function StarterInteractionView(props: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void; printedAnswerHints?: boolean }) {
   if (props.part.interactionLayout?.kind === 'image-text-entry-v1') {
     const layout = props.part.interactionLayout;
     return <div className="space-y-3" data-exam-interaction="image-text-entry">

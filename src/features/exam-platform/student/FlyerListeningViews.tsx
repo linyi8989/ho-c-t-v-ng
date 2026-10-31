@@ -81,7 +81,7 @@ function MissingImage({ label }: { label: string }) {
 
 export default function FlyerListeningPartView({ part, answers, onAnswer }: { part: ExamPartContent; answers: ExamAnswers; onAnswer: (questionId: string, value: ExamAnswerValue) => void }) {
   if (part.part === 1) return <FlyerNamePlacementView part={part} answers={answers} onAnswer={onAnswer} />;
-  if (part.part === 2) return <StarterTextEntryView part={examPartUnits(part)[0] || part} answers={answers} onAnswer={onAnswer} />;
+  if (part.part === 2) return <StarterTextEntryView part={examPartUnits(part)[0] || part} answers={answers} onAnswer={onAnswer} printedAnswerHints />;
   if (part.part === 3) return <FlyerLetterMatchingView part={part} answers={answers} onAnswer={onAnswer} />;
   if (part.part === 4) return <FlyerPart4ImageOptionsView part={part} answers={answers} onAnswer={onAnswer} />;
   if (part.part === 5) return <StarterListeningPart4View part={part} answers={answers} onAnswer={onAnswer} imageMaxWidth={FLYER_LISTENING_PART5_IMAGE_MAX_WIDTH} imageMaxHeight={FLYER_LISTENING_PART5_IMAGE_MAX_HEIGHT} imageScale={FLYER_LISTENING_PART5_IMAGE_SCALE} />;

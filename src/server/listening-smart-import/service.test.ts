@@ -454,6 +454,68 @@ test('Part 2 malformed or duplicate answer remains unresolved and never shifts l
   assert.match(candidate.warnings.join(' '), /3/);
 });
 
+test('Part 2 provider prompt/schema and normalization preserve printed hints separately from accepted answers', async () => {
+  const part = createDefaultMoverListeningContent().parts[1];
+  const roleSources = sources('question', 'answer_key');
+  const candidate = await createListeningSmartImportCandidate({
+    part: 2, currentPart: part, basePartHash: 'hash', sources: roleSources, pastedText: '', images: roleSources.map(source => image(source.role)),
+    analyzeVision: async (prompt, _images, options) => {
+      assert.match(prompt, /answerPrefix/);
+      assert.match(prompt, /ONLY the missing segment/);
+      assert.match(JSON.stringify(options.responseJsonSchema), /"answerSuffix"/);
+      return { provider: 'stali', text: JSON.stringify({
+        questions: [1, 2, 3, 4, 5].map(questionNumber => ({ questionNumber, prompt: 'Address:', answerPrefix: '17', answerSuffix: 'Street' })),
+        answers: [1, 2, 3, 4, 5].map(questionNumber => ({ questionNumber, correctAnswer: 'Main' })),
+      }) };
+    },
+  });
+  assert.equal(candidate.data.part, 2);
+  if (candidate.data.part !== 2) return;
+  assert.equal(candidate.data.questions[0].answerPrefix, '17');
+  assert.equal(candidate.data.questions[0].answerSuffix, 'Street');
+  assert.deepEqual(candidate.data.questions[0].acceptedAnswers, ['Main']);
+});
+
+test('Part 2 provider malformed printed hints fail before a candidate can change the draft', async () => {
+  const part = createDefaultMoverListeningContent().parts[1];
+  const original = structuredClone(part);
+  const roleSources = sources('question', 'answer_key');
+  for (const invalid of [null, 17, 'x'.repeat(81)]) await assert.rejects(() => createListeningSmartImportCandidate({
+    part: 2, currentPart: part, basePartHash: 'hash', sources: roleSources, pastedText: '', images: roleSources.map(source => image(source.role)),
+    analyzeVision: async () => ({ provider: 'stali', text: JSON.stringify({
+      questions: [1, 2, 3, 4, 5].map(questionNumber => ({ questionNumber, prompt: 'Address:', answerSuffix: invalid })),
+      answers: [{ questionNumber: 1, correctAnswer: 'Main' }],
+    }) }),
+  }), /answerSuffix/);
+  assert.deepEqual(part, original);
+});
+
+test('Part 2 provider keeps source answers separate from private suggested input equivalents', async () => {
+  const part = createDefaultMoverListeningContent().parts[1];
+  const roleSources = sources('question', 'answer_key');
+  const make = (answers: unknown[]) => createListeningSmartImportCandidate({
+    part: 2, currentPart: part, basePartHash: 'hash', sources: roleSources, pastedText: '', images: roleSources.map(source => image(source.role)),
+    analyzeVision: async (prompt, _images, options) => {
+      assert.match(prompt, /inputAnswerVariants/);
+      assert.match(prompt, /NEVER to display answers/);
+      assert.match(JSON.stringify(options.responseJsonSchema), /"inputAnswerVariants"/);
+      return { provider: 'stali', text: JSON.stringify({ questions: [1, 2, 3, 4, 5].map(questionNumber => ({ questionNumber, prompt: 'Years of tennis:' })), answers }) };
+    },
+  });
+  const candidate = await make([{ questionNumber: 1, correctAnswer: 'four', inputAnswerVariants: ['4', 'four years', '4 years'] }, { questionNumber: 2, answerVariants: ['comics', 'comic books'] }]);
+  if (candidate.data.part !== 2) throw new Error('Expected Part 2');
+  assert.deepEqual(candidate.data.questions[0].acceptedAnswers, ['four']);
+  assert.deepEqual(candidate.data.questions[0].inputAnswerVariants, ['4', 'four years', '4 years']);
+  assert.deepEqual(candidate.data.questions[1].acceptedAnswers, ['comics', 'comic books'], 'official legacy alternative-only output stays compatible');
+  assert.equal(candidate.data.questions[1].inputAnswerVariants, undefined);
+  const withOfficialAlternatives = await make([{ questionNumber: 1, correctAnswer: 'four', answerVariants: ['Four', '4'], inputAnswerVariants: ['four years', '4 years'] }]);
+  if (withOfficialAlternatives.data.part !== 2) throw new Error('Expected Part 2');
+  assert.deepEqual(withOfficialAlternatives.data.questions[0].acceptedAnswers, ['four', '4'], 'new-contract rows must preserve the primary source answer before official alternatives');
+  assert.deepEqual(withOfficialAlternatives.data.questions[0].inputAnswerVariants, ['four years', '4 years']);
+  for (const invalid of [null, 4, [''], ['x'.repeat(201)]]) await assert.rejects(() => make([{ questionNumber: 1, correctAnswer: 'four', inputAnswerVariants: invalid }]), /inputAnswerVariants/);
+  await assert.rejects(() => make([{ questionNumber: 1, inputAnswerVariants: ['4'] }]), /đáp án gốc/);
+});
+
 test('Part 3 uses the 3-left/3-right answer layout and excludes Thursday example from five scored connections', async () => {
   const part = createDefaultMoverListeningContent().parts[2];
   const roleSources = sources('question', 'answer_key');

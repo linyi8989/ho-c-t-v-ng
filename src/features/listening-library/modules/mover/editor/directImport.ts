@@ -12,6 +12,8 @@ import type { ListeningSmartImportData } from '../../../../listening-editor/smar
 import { MOVER_COLOUR_CATALOG } from './colourCatalog';
 import { createMoverDefaultRegion, createMoverEditorId } from './editorUtilities';
 import { comparePart3PictureSlots } from './part3Review';
+import { composeListeningPart2Prompt } from '../../../../listening/part2TextLayout';
+import { parseListeningPart2InputVariants } from '../../../../listening/part2AnswerVariants';
 
 type Part1ImportData = Extract<ListeningSmartImportData, { part: 1 }>;
 type Part2ImportData = Extract<ListeningSmartImportData, { part: 2 }>;
@@ -83,19 +85,23 @@ export function importPart2Analysis(part: ListeningPart2, data: Part2ImportData)
       if (!suggestion) return question;
       const existingBlank = question.blanks[0];
       const blank = existingBlank || { id: createMoverEditorId('p2-blank'), acceptedAnswers: [] };
-      const placeholder = `{{${blank.id}}}`;
       const rawPrompt = suggestion.prompt?.trim();
       const prompt = rawPrompt
-        ? rawPrompt.includes('{{blank}}')
-          ? rawPrompt.replace(/\{\{blank\}\}/g, placeholder)
-          : rawPrompt.includes(placeholder) ? rawPrompt : `${rawPrompt} ${placeholder}`.trim()
+        ? composeListeningPart2Prompt({ prompt: rawPrompt, blankId: blank.id, answerPrefix: suggestion.answerPrefix, answerSuffix: suggestion.answerSuffix })
         : question.prompt;
+      const inputAnswerVariants = parseListeningPart2InputVariants(suggestion.inputAnswerVariants);
+      const hasNewAnswers = Boolean(suggestion.acceptedAnswers?.length);
+      if (inputAnswerVariants?.length && !hasNewAnswers) throw new Error('inputAnswerVariants cần đáp án gốc trong cùng lần nhập.');
+      const { inputAnswerVariants: _oldVariants, ...baseBlank } = blank;
       return {
         ...question,
         prompt,
         blanks: [{
-          ...blank,
+          ...baseBlank,
           acceptedAnswers: suggestion.acceptedAnswers?.length ? suggestion.acceptedAnswers : blank.acceptedAnswers,
+          ...(hasNewAnswers
+            ? inputAnswerVariants?.length ? { inputAnswerVariants } : {}
+            : inputAnswerVariants !== undefined ? {} : blank.inputAnswerVariants?.length ? { inputAnswerVariants: blank.inputAnswerVariants } : {}),
         }],
       };
     }),

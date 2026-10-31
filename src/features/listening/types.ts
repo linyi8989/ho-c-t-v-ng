@@ -66,6 +66,8 @@ export interface ListeningPart1 extends ListeningPartBase {
 export interface ListeningTextBlank {
   id: string;
   acceptedAnswers: string[];
+  /** Private input-only equivalents. Never included in student content or displayed answers. */
+  inputAnswerVariants?: string[];
 }
 
 export interface ListeningPart2Question {
@@ -357,6 +359,8 @@ export interface ListeningQuestionResult {
 }
 
 export interface ListeningGradeResult {
+  /** Optional for completed results saved before input-only equivalents existed. */
+  gradingVersion?: string;
   score: number;
   correctCount: number;
   incorrectCount: number;

@@ -9,7 +9,7 @@ import type {
 import { getExamPaperDefinition } from '../../features/exam-platform/definitions.js';
 import { examPartUnits } from '../../features/exam-platform/examStructure.js';
 import { isListeningModuleId, isListeningPaperId } from '../../features/listening-library/registry.js';
-import { applyAiWritingGrade, applyManualExamGrades, EXAM_GRADING_VERSION, gradeExamAttempt, markAiWritingFailed } from './examGrader.js';
+import { applyAiWritingGrade, applyManualExamGrades, examGradingVersion, gradeExamAttempt, markAiWritingFailed } from './examGrader.js';
 import {
   describeWritingGradingFailure,
   classifyWritingGradingFailure,
@@ -832,7 +832,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
           paperId,
           versionNumber,
           schemaVersion: resolvedContent.schemaVersion,
-          gradingVersion: EXAM_GRADING_VERSION,
+          gradingVersion: examGradingVersion(resolvedContent),
           status: 'published',
           content: structuredClone(resolvedContent),
           createdBy: req.user.id,
@@ -1132,7 +1132,7 @@ export function createExamRouter(dependencies: ExamRouterDependencies) {
         className: ticket.className || '',
         clientRunId: ticket.clientRunId,
         runSecretHash: sha256(runSecret),
-        gradingVersion: EXAM_GRADING_VERSION,
+        gradingVersion: grade.gradingVersion,
         status: grade.status,
         score: grade.score,
         objectiveScore: grade.objectiveScore,

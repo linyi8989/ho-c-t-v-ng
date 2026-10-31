@@ -15,7 +15,9 @@ import {
   type MoverPartEditorProps,
 } from './shared';
 import { importPart2Analysis } from './directImport';
+import Part2InputVariantsField from '../../../../listening/admin/Part2InputVariantsField';
 import { smartImportSourceAssetId } from '../../../../listening-editor/smart-import/types';
+import { composeListeningPart2Prompt, listeningPart2Layout } from '../../../../listening/part2TextLayout';
 
 interface PendingIllustrationCrop {
   candidateId: string;
@@ -123,7 +125,19 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
       </div>
       <EditorTextArea label="Ví dụ không chấm điểm (không bắt buộc)" value={part.exampleText || ''} onChange={exampleText => onChange({ ...part, exampleText })} rows={2} />
       <div className="space-y-3">
-        {part.questions.map((question, index) => (
+        {part.questions.map((question, index) => {
+          const layout = listeningPart2Layout(question);
+          const blankIndex = layout.tokens.findIndex(token => token.type === 'blank');
+          const prefix = layout.tokens.slice(0, blankIndex).map(token => token.type === 'text' ? token.text : '').join(' ');
+          const suffix = layout.tokens.slice(blankIndex + 1).map(token => token.type === 'text' ? token.text : '').join(' ');
+          const canEditHints = question.blanks.length === 1 && layout.tokens.filter(token => token.type === 'blank').length === 1 && prefix.length <= 20 && suffix.length <= 80;
+          const updateHints = (answerPrefix: string, answerSuffix: string) => onChange({
+            ...part,
+            questions: part.questions.map(item => item.id === question.id
+              ? { ...item, prompt: composeListeningPart2Prompt({ prompt: layout.label, blankId: question.blanks[0].id, answerPrefix, answerSuffix }) }
+              : item),
+          });
+          return (
           <div key={question.id} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-black text-slate-800">Câu {index + 1}</p>
             <EditorTextArea
@@ -135,6 +149,11 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
               })}
               rows={2}
             />
+            {canEditHints && <div className="grid gap-3 sm:grid-cols-2" data-listening-part2-hint-editor>
+              <EditorField label="Chữ/ký hiệu in sẵn trước ô (không thuộc đáp án)" value={prefix} onChange={value => updateHints(value.slice(0, 20), suffix)} placeholder="Ví dụ: 17" />
+              <EditorField label="Chữ/ký hiệu in sẵn sau ô (không thuộc đáp án)" value={suffix} onChange={value => updateHints(prefix, value.slice(0, 80))} placeholder="Ví dụ: Street" />
+              <p className="text-xs font-semibold text-slate-600 sm:col-span-2">Chỉ nhập phần còn thiếu vào đáp án. Chữ in sẵn được giữ quanh ô theo đúng thứ tự trong nội dung.</p>
+            </div>}
             {question.blanks.map((blank, blankIndex) => (
               <div key={blank.id}>
                 <EditorField
@@ -152,10 +171,26 @@ export default function MoverPart2Editor(props: MoverPartEditorProps<ListeningPa
                       : item),
                   })}
                 />
+                <div className="mt-3" data-listening-part2-input-variants-editor>
+                  <Part2InputVariantsField
+                    label={`Cách nhập tương đương ô ${blankIndex + 1} — chỉ dùng chấm (ngăn cách bằng |)`}
+                    value={blank.inputAnswerVariants}
+                    onChange={inputAnswerVariants => onChange({
+                      ...part,
+                      questions: part.questions.map(item => item.id === question.id ? {
+                        ...item,
+                        blanks: item.blanks.map(entry => entry.id === blank.id
+                          ? { ...entry, inputAnswerVariants }
+                          : entry),
+                      } : item),
+                    })}
+                  />
+                  <p className="mt-1 text-xs font-semibold text-slate-600">Giữ đáp án gốc ở ô trên. Các cách nhập tương đương chỉ dùng để chấm, không hiển thị trong đáp án cho học sinh.</p>
+                </div>
               </div>
             ))}
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { EXAM_CONTENT_SCHEMA_VERSION } from './types';
 
 export const FCE_READING_TEMPLATE_VERSION = 'fce-reading-3-v1';
 export const FCE_READING_DEFAULT_COUNTS = [8, 7, 15] as const;
+export const FCE_READING_PART3_PASSAGE_MAX_LENGTH = 20_000;
 export const FCE_READING_VARIANTS = [
   'passage-four-choice',
   'gapped-text-letter-entry',
@@ -32,6 +33,19 @@ export const FCE_READING_PART_HEADERS = [
 
 const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const normalized = (value: unknown) => String(value ?? '').trim().normalize('NFKC').toLocaleLowerCase('en');
+
+/** Optional public source text; old image-only papers do not need this field. */
+export function parseFceReadingPart3Passage(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error('FCE Reading Part 3: passage phải là văn bản.');
+  if (value.length > FCE_READING_PART3_PASSAGE_MAX_LENGTH) {
+    throw new Error(`FCE Reading Part 3: passage không được vượt quá ${FCE_READING_PART3_PASSAGE_MAX_LENGTH} ký tự.`);
+  }
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+    throw new Error('FCE Reading Part 3: passage chứa ký tự điều khiển không hợp lệ.');
+  }
+  return value.trim() || undefined;
+}
 
 function descriptor(part: number): ExamInteractionDescriptor {
   if (part === 1) return { family: 'choice', subtype: 'single', variant: FCE_READING_VARIANTS[0], schemaVersion: 1, importReadiness: 'content-ready' };
@@ -131,7 +145,14 @@ function normalizePart(part: ExamPartContent, partNumber: number, startNumber: n
       ? questions.map(question => `[[${question.displayNumber}]]`).join('\n\n')
       : 'Enter the complete reading passage here.');
   } else {
-    delete next.passage;
+    const passage = Object.hasOwn(part, 'passage') ? part.passage : source?.passage;
+    // Preserve malformed saved data for publish validation instead of crashing
+    // the editor or silently replacing the source with another text.
+    if (passage !== undefined) next.passage = passage;
+    else delete next.passage;
+    if (typeof next.passage === 'string' && next.passage.trim()) {
+      next.interaction = { ...descriptor(partNumber), importReadiness: 'content-ready' };
+    }
   }
   if (partNumber !== 3) {
     delete next.imageAssetId;

@@ -44,7 +44,10 @@ PART 1
 PART 2
 - questions đúng 5 phần tử, mỗi câu chỉ có đúng 1 gap.
 - template phải chứa đúng một chuỗi ____ tại vị trí học sinh nhập đáp án.
+- prompt là nhãn câu hỏi; template dùng nhãn và ____ thôi. Chữ/ký hiệu đã in sẵn sát ô phải tách riêng thành answerPrefix trước ô (tối đa 20 ký tự) và answerSuffix sau ô (tối đa 80 ký tự); không có thì trả chuỗi rỗng. Ví dụ "Address: 17 ____ Street" thành prompt "Address:", template "Address: ____", answerPrefix "17", answerSuffix "Street". Không gộp hoặc tự tạo thêm chữ gợi ý.
 - acceptedAnswers chứa đáp án tên hoặc số và các biến thể chính thức nếu answer key cho phép; maxWords là số từ tối đa.
+- acceptedAnswers chỉ chứa phần học sinh cần điền, không gồm answerPrefix/answerSuffix.
+- Mỗi gap thêm inputAnswerVariants là mảng cách nhập tương đương do AI gợi ý, CHỈ DÙNG ĐỂ CHẤM, không hiển thị. acceptedAnswers giữ nguyên đáp án nguồn. Chỉ tạo sau khi xác minh đáp án: chữ số ↔ chữ viết, thêm/bỏ đơn vị nếu nhãn/ngữ cảnh xác định rõ cùng giá trị. Ví dụ Years of tennis, acceptedAnswers ["four"] => inputAnswerVariants ["4","four years","4 years"]. Không đoán từ đồng nghĩa, tên riêng, mã số/số 0 đầu, lỗi chính tả hay đáp án khác nghĩa; không lặp cách chỉ khác hoa/thường. Không chắc/unverified thì []; tối đa 20 chuỗi một dòng, mỗi chuỗi 200 ký tự. Không đưa biến thể vào template/prompt/example/acceptedAnswers; không loại cách nhập có đơn vị hợp lý chỉ vì maxWords của đáp án gốc.
 - passage bắt buộc chứa đúng 2 example không chấm điểm; mỗi example là một dòng đầy đủ gồm câu hỏi và đáp án in sẵn.
 
 PART 3
@@ -116,8 +119,8 @@ MẪU CẤU TRÚC PHẢI ĐIỀN ĐỦ
           "interaction": {"family":"text-entry","subtype":"short-answer","variant":"single-input","schemaVersion":1},
           "payload": {
             "questions": [
-              {"number":1,"prompt":"Question 1","template":"Question 1 ____","gaps":[{"gapNumber":1,"acceptedAnswers":["answer"],"maxWords":1,"source":"official-answer-key"}]},
-              {"number":2,"prompt":"Question 2","template":"Question 2 ____","gaps":[{"gapNumber":1,"acceptedAnswers":["answer"],"maxWords":1,"source":"official-answer-key"}]},
+              {"number":1,"prompt":"Address:","template":"Address: ____","answerPrefix":"17","answerSuffix":"Street","gaps":[{"gapNumber":1,"acceptedAnswers":["Green"],"inputAnswerVariants":[],"maxWords":1,"source":"official-answer-key"}]},
+              {"number":2,"prompt":"Years of tennis:","template":"Years of tennis: ____","gaps":[{"gapNumber":1,"acceptedAnswers":["four"],"inputAnswerVariants":["4","four years","4 years"],"maxWords":1,"source":"official-answer-key"}]},
               {"number":3,"prompt":"Question 3","template":"Question 3 ____","gaps":[{"gapNumber":1,"acceptedAnswers":["answer"],"maxWords":1,"source":"official-answer-key"}]},
               {"number":4,"prompt":"Question 4","template":"Question 4 ____","gaps":[{"gapNumber":1,"acceptedAnswers":["answer"],"maxWords":1,"source":"official-answer-key"}]},
               {"number":5,"prompt":"Question 5","template":"Question 5 ____","gaps":[{"gapNumber":1,"acceptedAnswers":["answer"],"maxWords":1,"source":"official-answer-key"}]}

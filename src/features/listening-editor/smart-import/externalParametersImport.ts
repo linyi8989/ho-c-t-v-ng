@@ -4,6 +4,8 @@ import type {
   ListeningRegion,
 } from '../../listening/types';
 import { withChatGptJsonCopyBlock } from '../../exam-platform/chatGptJsonOutput';
+import { composeListeningPart2Prompt, parseListeningPart2Affix } from '../../listening/part2TextLayout';
+import { parseListeningPart2InputVariants } from '../../listening/part2AnswerVariants';
 import { MOVER_COLOUR_CATALOG } from '../../listening-library/modules/mover/editor/colourCatalog';
 import {
   PART1_EXTERNAL_PROVIDER,
@@ -170,10 +172,20 @@ function parsePart2(source: string): { data: ExternalImportData<2>; warnings: st
       errors.push(`${label} phải là object.`);
       return;
     }
-    rejectUnknownFields(entry, ['questionNumber', 'prompt', 'acceptedAnswers'], label, errors);
+    rejectUnknownFields(entry, ['questionNumber', 'prompt', 'answerPrefix', 'answerSuffix', 'acceptedAnswers', 'inputAnswerVariants'], label, errors);
     const questionNumber = parseQuestionNumber(entry.questionNumber, label, seen, errors);
     if (!questionNumber) return;
     const prompt = cleanText(entry.prompt);
+    let answerPrefix: string | undefined;
+    let answerSuffix: string | undefined;
+    try {
+      answerPrefix = parseListeningPart2Affix(entry.answerPrefix, 'answerPrefix');
+      answerSuffix = parseListeningPart2Affix(entry.answerSuffix, 'answerSuffix');
+      if ((answerPrefix !== undefined || answerSuffix !== undefined) && !prompt) throw new Error('Cần prompt khi cung cấp chữ trước/sau ô.');
+      if (prompt) composeListeningPart2Prompt({ prompt, blankId: 'blank', answerPrefix, answerSuffix });
+    } catch (reason) {
+      errors.push(`${label}: ${reason instanceof Error ? reason.message : 'Chữ trước/sau ô không hợp lệ.'}`);
+    }
     if (!prompt) warnings.push(`Part 2 câu ${questionNumber}: thiếu prompt; giữ prompt draft hiện tại.`);
     let acceptedAnswers: string[] | undefined;
     if (entry.acceptedAnswers !== undefined) {
@@ -186,7 +198,14 @@ function parsePart2(source: string): { data: ExternalImportData<2>; warnings: st
     } else {
       warnings.push(`Part 2 câu ${questionNumber}: thiếu acceptedAnswers; giữ đáp án draft hiện tại.`);
     }
-    questions.push({ questionNumber, ...(prompt ? { prompt } : {}), ...(acceptedAnswers?.length ? { acceptedAnswers } : {}) });
+    let inputAnswerVariants: string[] | undefined;
+    try {
+      inputAnswerVariants = parseListeningPart2InputVariants(entry.inputAnswerVariants);
+      if (inputAnswerVariants?.length && !acceptedAnswers?.length) throw new Error('inputAnswerVariants cần đáp án gốc acceptedAnswers chắc chắn trong cùng câu.');
+    } catch (reason) {
+      errors.push(`${label}: ${reason instanceof Error ? reason.message : 'Cách nhập tương đương không hợp lệ.'}`);
+    }
+    questions.push({ questionNumber, ...(prompt ? { prompt } : {}), ...(answerPrefix !== undefined ? { answerPrefix } : {}), ...(answerSuffix !== undefined ? { answerSuffix } : {}), ...(acceptedAnswers?.length ? { acceptedAnswers } : {}), ...(inputAnswerVariants !== undefined ? { inputAnswerVariants } : {}) });
   });
   if (errors.length) throw new ExternalParametersImportError(2, errors);
   return {
@@ -535,7 +554,7 @@ export function parseExternalParametersImport<P extends ListeningSmartImportPart
 
 export const externalParametersHelp: Record<ListeningSmartImportPartId, string> = {
   1: 'Nhập đúng 7 nhân vật và tọa độ, sample, 5 answers theo questionNumber và distractor. Với pixel, imageSize phải khớp đúng ảnh đề.',
-  2: 'Nhập heading/instruction/example và đúng 5 prompt + acceptedAnswers. Không nhập crop; sau khi ghép vẫn chọn vùng tranh minh họa như cũ.',
+  2: 'Nhập heading/instruction/example và đúng 5 prompt + acceptedAnswers gốc. inputAnswerVariants là các cách nhập tương đương chỉ dùng chấm, không hiển thị; giáo viên được sửa riêng. answerPrefix/answerSuffix là chữ in sẵn trước/sau ô nhập, không thuộc đáp án. Không nhập crop; sau khi ghép vẫn chọn vùng tranh minh họa như cũ.',
   3: 'Nhập 7 answer, 6 picture trái/phải, example, 5 mapping và distractor. Draft mới cần region; anchor được code tự đặt theo cạnh.',
   4: 'Nhập example, đúng 5 prompt và đáp án A/B/C. Không nhập crop; code vẫn dò khung và tách 15/18 hình từ ảnh đề.',
   5: 'Nhập 5 câu và các action Colour/Draw. Colour mask, icon PNG và bước xác nhận vùng vẫn thực hiện trong editor hiện tại.',
@@ -557,11 +576,11 @@ const templates: Record<ListeningSmartImportPartId, unknown> = {
   2: {
     schemaVersion: 'mover-part2-external-v1', part: 2, heading: 'Listen and write.', instruction: 'Listen and complete the notes.', exampleText: 'Name: Jill Walker',
     questions: [
-      { questionNumber: 1, prompt: 'Lives at: {{blank}} Street', acceptedAnswers: ['Main'] },
+      { questionNumber: 1, prompt: 'Lives at:', answerPrefix: '17', answerSuffix: 'Street', acceptedAnswers: ['Main'] },
       { questionNumber: 2, prompt: 'Class number: {{blank}}', acceptedAnswers: ['4b'] },
       { questionNumber: 3, prompt: 'Favourite sport: {{blank}}', acceptedAnswers: ['hockey'] },
       { questionNumber: 4, prompt: 'Likes reading: {{blank}}', acceptedAnswers: ['comics'] },
-      { questionNumber: 5, prompt: 'Pet: {{blank}}', acceptedAnswers: ['snake'] },
+      { questionNumber: 5, prompt: 'Years of tennis: {{blank}}', acceptedAnswers: ['four'], inputAnswerVariants: ['4', 'four years', '4 years'] },
     ],
   },
   3: {
@@ -618,7 +637,10 @@ const externalParametersModelRules: Record<ListeningSmartImportPartId, string[]>
   ],
   2: [
     'Tách example riêng và trả đúng 5 questions được chấm theo questionNumber 1..5.',
-    'Mỗi question gồm prompt và acceptedAnswers; một đáp án hợp lệ thì array có một phần tử, nhiều biến thể thì thêm từng biến thể vào cùng array.',
+    'Mỗi question gồm prompt và acceptedAnswers giữ nguyên đáp án gốc từ nguồn (kể cả biến thể được nguồn chấp nhận); không thêm cách nhập do AI gợi ý vào acceptedAnswers.',
+    'Bổ sung inputAnswerVariants là mảng tối đa 20 chuỗi, mỗi chuỗi một dòng tối đa 200 ký tự, chỉ dùng chấm input và không dùng hiển thị. Sau khi có đáp án gốc chắc chắn, được gợi ý số ↔ chữ và thêm/bỏ đơn vị khi câu hỏi/tài liệu nguồn xác định rõ cùng nghĩa: Years of tennis, acceptedAnswers ["four"] => inputAnswerVariants ["4", "four years", "4 years"]. Đây là ngoại lệ chỉ cho cách biểu diễn tương đương, không được thay đáp án gốc. Nếu không có biến thể an toàn thì [].',
+    'Không đoán đáp án khi nguồn chưa chắc, không thêm đồng nghĩa làm đổi nghĩa, tên riêng, lỗi chính tả hoặc biến đổi mã số/điện thoại như 4b hay số có 0 đầu. Đáp án gốc vẫn chỉ là phần còn thiếu; riêng inputAnswerVariants có thể chấp nhận học sinh gõ thêm đơn vị đã in sẵn (ví dụ years) nếu ý nghĩa không đổi. Không lặp tùy tiện địa chỉ/tên hay nội dung khác của answerPrefix/answerSuffix. Chỉ có inputAnswerVariants mà không có acceptedAnswers gốc là không hợp lệ.',
+    'prompt chỉ là nhãn câu hỏi. Chép chính xác chữ/số in sẵn trước và sau chỗ trống vào answerPrefix (tối đa 20 ký tự) và answerSuffix (tối đa 80 ký tự), dùng chuỗi rỗng nếu không có. Ví dụ Address: 17 ___ Street => prompt "Address:", answerPrefix "17", answerSuffix "Street", acceptedAnswers chỉ gồm "Main" nếu đáp án chính thức là Main. Không gộp các từ gợi ý vào nhãn và không đoán từ nghe.',
     'Giữ nguyên chữ, số hoặc chữ+số như 4b; không đoán đáp án không chắc chắn.',
     'Không trả crop hoặc geometry; giáo viên sẽ chọn vùng tranh minh họa trong editor.',
   ],

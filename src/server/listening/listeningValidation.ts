@@ -10,6 +10,7 @@ import type {
 } from '../../features/listening/types.js';
 import { LISTENING_TRANSCRIPT_MAX_CHARS } from '../../features/listening/types.js';
 import { isValidListeningRegion } from '../../features/listening/geometry.js';
+import { parseListeningPart2InputVariants } from '../../features/listening/part2AnswerVariants.js';
 
 const isText = (value: unknown, max = 500) =>
   typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max;
@@ -127,6 +128,8 @@ function validatePart2(part: ListeningPart2, errors: string[]) {
       if (!blank.acceptedAnswers?.length || blank.acceptedAnswers.some(answer => !isText(answer, 200))) {
         errors.push(`Part 2 câu ${index + 1}: mỗi ô trống cần ít nhất một đáp án.`);
       }
+      try { parseListeningPart2InputVariants(blank.inputAnswerVariants); }
+      catch (reason) { errors.push(`Part 2 câu ${index + 1}: ${reason instanceof Error ? reason.message : 'Cách nhập tương đương không hợp lệ.'}`); }
     });
   });
 }
@@ -397,9 +400,9 @@ export function sanitizeListeningContentForStudent(content: ListeningSetContent)
   copy.parts.forEach((part: any) => { delete part.audioTranscript; });
   copy.parts[0].targets = copy.parts[0].targets.map(({ choiceId: _answer, ...target }: any) => target);
   if (copy.parts[0].example) delete copy.parts[0].example.choiceId;
-  copy.parts[1].questions = copy.parts[1].questions.map((question: any) => ({
+  copy.parts[1].questions = copy.parts[1].questions.map(({ inputAnswerVariants: _inputVariants, ...question }: any) => ({
     ...question,
-    blanks: question.blanks.map(({ acceptedAnswers: _answers, ...blank }: any) => blank),
+    blanks: question.blanks.map(({ acceptedAnswers: _answers, inputAnswerVariants: _blankInputVariants, ...blank }: any) => blank),
   }));
   if (copy.parts[2].displayMode === 'connect-image') {
     delete copy.parts[2].correctConnections;

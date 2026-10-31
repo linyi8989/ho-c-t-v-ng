@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import type { ListeningPart, ListeningRegion } from '../../features/listening/types.js';
+import { composeListeningPart2Prompt, parseListeningPart2Affix } from '../../features/listening/part2TextLayout.js';
+import { parseListeningPart2InputVariants } from '../../features/listening/part2AnswerVariants.js';
 import {
   isValidListeningRegion,
   pointInListeningRegion,
@@ -179,8 +181,8 @@ function responseSchemaFor(part: ListeningSmartImportPartId): Record<string, unk
     type: 'object', additionalProperties: false,
     properties: {
       heading: textSchema(200), instruction: textSchema(500), exampleText: textSchema(500), illustrationCrop: cropSchema,
-      questions: { type: 'array', items: { type: 'object', properties: { questionNumber: numbered, prompt: textSchema() }, required: ['questionNumber', 'prompt'], additionalProperties: false }, maxItems: 5 },
-      answers: { type: 'array', items: { type: 'object', properties: { questionNumber: numbered, correctAnswer: textSchema(300), answerVariants: { type: 'array', items: textSchema(300), maxItems: 8 } }, required: ['questionNumber'], additionalProperties: false }, maxItems: 5 },
+      questions: { type: 'array', items: { type: 'object', properties: { questionNumber: numbered, prompt: textSchema(), answerPrefix: textSchema(20), answerSuffix: textSchema(80) }, required: ['questionNumber', 'prompt'], additionalProperties: false }, maxItems: 5 },
+      answers: { type: 'array', items: { type: 'object', properties: { questionNumber: numbered, correctAnswer: textSchema(300), answerVariants: { type: 'array', items: textSchema(300), maxItems: 8 }, inputAnswerVariants: { type: 'array', items: textSchema(200), maxItems: 20 } }, required: ['questionNumber'], additionalProperties: false }, maxItems: 5 },
       warnings: { type: 'array', items: textSchema(500) },
     },
     required: ['questions', 'answers', 'warnings'],
@@ -896,7 +898,7 @@ function promptFor(part: ListeningSmartImportPartId, pastedText: string) {
   if (part === 1) return `${common}
 ROLE question: detect every printed name, identify and separate the example, and locate the canonical scene. After removing the example there must be six draggable names. ROLE answer_key: read the five name-to-picture mappings. ROLE position_key: identify the five line endpoints on the picture/person side, never the name-side endpoints, plus the corresponding scene rectangle. Return questionScene, positionScene, printedNames, example, targets and answerMappings. Each target should have visualLabel, optional targetNumber, targetEndpoint and confidence; each mapping should have visualLabel/targetNumber and choiceLabel.${pasted}`;
   if (part === 2) return `${common}
-ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. ROLE answer_key supplies accepted answers numbered 1..5. Never infer an answer from the question image. Preserve text such as 4b exactly and split variants only when the source explicitly separates them with |. Return heading, instruction, exampleText, questions [{questionNumber,prompt}], answers [{questionNumber,correctAnswer,answerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
+ROLE question supplies optional heading/instruction, the example, and exactly five numbered prompts. Separate each printed row into prompt (label only), answerPrefix (printed text before the blank, maximum 20 characters), answerSuffix (printed text after the blank, maximum 80 characters). Use empty strings for absent printed hints. Example: Address: 17 ___ Street => prompt "Address:", answerPrefix "17", answerSuffix "Street". These public hints come only from ROLE question, never from the answer key or audio. ROLE answer_key supplies ONLY the missing segment as accepted answers numbered 1..5 (e.g. Main, not 17 Main Street). Never infer an answer from the question image. Preserve text such as 4b exactly and split official answerVariants only when the source explicitly separates them with |. Keep correctAnswer and official answerVariants source-faithful for display. In the separate private inputAnswerVariants array, you MAY suggest equivalent input representations grounded in a verified official answer and question context: digits versus number words, or adding/omitting a unit only when the question fixes the same meaning. Example: Years of tennis, correctAnswer "four" => inputAnswerVariants ["4","four years","4 years"]. This is a narrow exception only for equivalent input representation, never invent a different answer. Use [] when no safe variants or no verified source answer. Do not invent synonyms, names, misspellings, or phone/code variants such as changing 4b or losing leading zeroes. Official answers still contain only the missing segment; inputAnswerVariants MAY accept a harmless repeated printed unit such as years when the same quantity/meaning is certain, but must not repeat arbitrary address/name/context text. Each input variant must be nonempty plain text on one line, at most 200 characters; at most 20 variants. These supplemental variants are used only to compare student input and NEVER to display answers. Return heading, instruction, exampleText, questions [{questionNumber,prompt,answerPrefix,answerSuffix}], answers [{questionNumber,correctAnswer,answerVariants,inputAnswerVariants}], and optional picture-only illustrationCrop from the question image.${pasted}`;
   if (part === 3) return `${common}
 ROLE question is the full worksheet: detect seven centre answer labels/regions with left/right anchor hints, six picture regions arranged three left and three right, and the printed example connection. ROLE answer_key is a two-column by three-row mapping; preserve side+row and do not flatten OCR order. Return questionAnswers, questionPictures, questionExample, answerKeyCells and warnings. The example is unscored and the remaining unused answer is the distractor.${pasted}`;
   if (part === 4) return `${common}
@@ -1128,17 +1130,30 @@ function answerVariants(entry: any) {
 function normalizePart2(raw: any, warnings: string[]): Extract<ListeningSmartImportData, { part: 2 }> {
   const questionMap = normalizeNumberedEntries(list(raw?.questions), entry => {
     const prompt = cleanText(entry?.prompt || entry?.question, 1000).replace(/_{2,}/g, '{{blank}}');
-    return prompt ? prompt : undefined;
+    const answerPrefix = parseListeningPart2Affix(entry?.answerPrefix, 'answerPrefix');
+    const answerSuffix = parseListeningPart2Affix(entry?.answerSuffix, 'answerSuffix');
+    if (!prompt && (answerPrefix !== undefined || answerSuffix !== undefined)) throw new Error('Part 2: cần prompt khi cung cấp chữ trước/sau ô.');
+    if (!prompt) return undefined;
+    composeListeningPart2Prompt({ prompt, blankId: 'blank', answerPrefix, answerSuffix });
+    return { prompt, ...(answerPrefix !== undefined ? { answerPrefix } : {}), ...(answerSuffix !== undefined ? { answerSuffix } : {}) };
   }, warnings, 'Part 2 prompts');
   const answerMap = normalizeNumberedEntries(list(raw?.answers).length ? list(raw.answers) : list(raw?.questions), entry => {
-    const answers = answerVariants(entry);
-    return answers.length ? answers : undefined;
+    const officialAlternatives = answerVariants(entry);
+    // New input-only equivalents must never replace the primary source answer.
+    // Keep the released variants-only provider contract when the new field is absent.
+    const primary = answerVariants({ correctAnswer: entry?.correctAnswer ?? entry?.answer });
+    const answers = entry?.inputAnswerVariants !== undefined && primary.length
+      ? [...primary, ...officialAlternatives].filter((answer, index, all) => all.findIndex(candidate => comparable(candidate) === comparable(answer)) === index).slice(0, 8)
+      : officialAlternatives;
+    const inputAnswerVariants = parseListeningPart2InputVariants(entry?.inputAnswerVariants);
+    if (inputAnswerVariants?.length && !answers.length) throw new Error('Part 2: inputAnswerVariants cần đáp án gốc chắc chắn trong cùng câu.');
+    return answers.length ? { acceptedAnswers: answers, ...(inputAnswerVariants !== undefined ? { inputAnswerVariants } : {}) } : undefined;
   }, warnings, 'Part 2 answer key', true);
   const numbers = new Set([...questionMap.keys(), ...answerMap.keys()]);
   const questions = [...numbers].sort().flatMap(number => {
     const valid = questionNumber(number);
     if (!valid) return [];
-    return [{ questionNumber: valid, prompt: questionMap.get(number), acceptedAnswers: answerMap.get(number) }];
+    return [{ questionNumber: valid, ...questionMap.get(number), ...answerMap.get(number) }];
   });
   if (questionMap.size !== 5) warnings.push(`Part 2: nhận ${questionMap.size}/5 prompt đánh số.`);
   if (answerMap.size !== 5) warnings.push(`Part 2: nhận ${answerMap.size}/5 answer mappings; mục thiếu giữ dữ liệu cũ.`);
